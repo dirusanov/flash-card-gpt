@@ -20,18 +20,21 @@ export interface Card {
     image_base64: string | null;
 }
 
-
 function format_back(card: Card): string {
     const formatted_examples = card.examples
         .map((ex) => format_example(ex[0], card.word, ex[1]))
         .join('<br><br>');
+
+    const imageTag = card.image_base64
+        ? `<img src='${card.image_base64}' alt=''/>`
+        : '';
+
     return `
         <b>${card.translation}</b>
         <br><br>${formatted_examples}<br><br>
-        <img src='${card.image_base64}' alt=''/>
+        ${imageTag}
     `;
 }
-
 
 export const createAnkiCards = async (deckName: string, modelName: string, cards: Card[]) => {
     // Создаем новую колоду, если ее еще нет
@@ -78,7 +81,7 @@ export const createAnkiCards = async (deckName: string, modelName: string, cards
 
 export async function imageUrlToBase64(url: string): Promise<string | null> {
     try {
-        const response = await fetch(url);
+        const response = await fetch('http://localhost:9090/' + url);
         const blob = await response.blob();
         const reader = new FileReader();
 

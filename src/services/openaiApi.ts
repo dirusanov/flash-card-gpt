@@ -21,9 +21,11 @@ export const translateText = async (
             temperature: 0.5,
         });
 
-        return completion.data.choices[0]?.text?.trim() ?? null;
+        return completion.data.choices[0]?.text?.trim() ?? null
     } catch (error) {
-        console.error('Error during translation:', error);
+        const err = error as Error
+        alert(err.message)
+        console.error('Error during translation:', err)
         return null;
     }
 };
@@ -109,7 +111,7 @@ export const getDescriptionImage = async (word: string): Promise<string> => {
     }
 };
 
-export const getImageUrl = async (description: string): Promise<string | null> => {
+export const getImageUrlRequest = async (description: string): Promise<string | null> => {
     try {
         const response = await openai.createImage({
             prompt: description,
@@ -121,6 +123,23 @@ export const getImageUrl = async (description: string): Promise<string | null> =
         return response.data.data[0]?.url ?? null;
     } catch (error) {
         console.error('Error during image generation:', error);
+        return null;
+    }
+};
+
+export const getImageUrl = async (word: string): Promise<string | null> => {
+    try {
+        const isAbstractWord = await isAbstract(word);
+
+        if (isAbstractWord) {
+            const description = await getDescriptionImage(word);
+            return await getImageUrlRequest(`Create a vivid, high-quality illustration representing the concept of '${description}'`);
+        } else {
+            const photorealisticPrompt = `Create a high-quality, photorealistic image of a ${word} with a neutral expression and clear features`;
+            return await getImageUrlRequest(photorealisticPrompt);
+        }
+    } catch (error) {
+        console.error('Error during getting image for word:', error);
         return null;
     }
 };

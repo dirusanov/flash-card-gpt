@@ -6,6 +6,7 @@ export const SET_WORD = "SET_WORD";
 export const SET_TRANSLATION = "SET_TRANSLATION";
 export const SET_EXAMPLES = "SET_EXAMPLES";
 export const SET_IMAGE = "SET_IMAGE";
+export const SET_IMAGE_URL = 'SET_IMAGE_URL';
 
 export const saveAnkiCards = (deckName: string, model_name: string, cards: Card[]) => async (dispatch: Dispatch) => {
     try {
@@ -35,4 +36,9 @@ export const setTranslation = (translation: string | null) => ({
 export const setImage = (image: string | null) => ({
     type: SET_IMAGE,
     payload: image,
+});
+
+export const setImageUrl = (url: string | null) => ({
+    type: SET_IMAGE_URL,
+    payload: url,
 });

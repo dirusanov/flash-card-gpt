@@ -24,21 +24,30 @@ const ResultDisplay: React.FC<ResultDisplayProps> = ({ front, translation, examp
                     <p className="font-bold">{translation}</p>
                 </div>
             )}
+            <hr className="my-4 border-gray-300" />
             {examples.length > 0 && (
                 <div className="mb-4">
                     <ul>
                         {examples.map(([example, translatedExample]) => (
                             <li key={example}>
-                                {example}
-                                {translatedExample && <span> - {translatedExample}</span>}
+                                <span className="font-semibold">{example.replace(/^(\d+\. )?"(.*)"$/, '$1$2').trim()}</span>
+                                {translatedExample && (
+                                    <>
+                                        <br />
+                                        <span>
+                            <em>{translatedExample.replace(/^(\d+\. )?"(.*)"$/, '$2').trim()}</em>
+                        </span>
+                                    </>
+                                )}
                             </li>
                         ))}
                     </ul>
                 </div>
             )}
+            <hr className="my-4 border-gray-300" />
             {imageUrl && (
                 <div className="mb-4">
-                    <img src={imageUrl} alt="Generated representation" className="rounded" />
+                    <img src={imageUrl} alt="" className="rounded" />
                 </div>
             )}
             <div className="flex space-x-4">

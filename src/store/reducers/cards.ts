@@ -1,7 +1,6 @@
-import {SAVE_ANKI_CARDS, SET_EXAMPLES, SET_IMAGE, SET_TRANSLATION, SET_WORD} from '../actions/cards';
+import {SAVE_ANKI_CARDS, SET_EXAMPLES, SET_IMAGE, SET_IMAGE_URL, SET_TRANSLATION, SET_WORD} from '../actions/cards';
 import {Card} from "../../services/ankiService";
 
-const initialStateFromLocalStorage = JSON.parse(localStorage.getItem('cardsState') || '{}') as CardState;
 
 const initialState: CardState = {
     ...{
@@ -10,8 +9,9 @@ const initialState: CardState = {
         translation: "",
         examples: [],
         image: null,
+        imageUrl: null,
+        error: undefined,
     },
-    ...initialStateFromLocalStorage,
 };
 
 export interface CardState {
@@ -20,6 +20,8 @@ export interface CardState {
     translation: string;
     examples: Array<[string, string | null]>;
     image: string | null;
+    imageUrl: string | null;
+    error: string | undefined
 }
 
 const cardsReducer = (state = initialState, action: any): CardState => {
@@ -41,12 +43,13 @@ const cardsReducer = (state = initialState, action: any): CardState => {
         case SET_IMAGE:
             newState.image = action.payload;
             break;
+        case SET_IMAGE_URL:
+            return { ...state, imageUrl: action.payload };
         default:
             return state;
     }
 
     // Сохранить состояние в localStorage
-    localStorage.setItem('cardsState', JSON.stringify(newState));
     return newState;
 };
 

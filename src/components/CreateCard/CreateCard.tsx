@@ -1,29 +1,43 @@
 import React, {useEffect, useState} from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../../store';
-import { fetchDecks } from '../../store/actions/decks';
+import {fetchDecks, setDeckId} from '../../store/actions/decks';
 import {
     saveAnkiCards,
     setWord,
     setTranslation,
     setExamples,
     setImage,
+    setImageUrl,
 } from '../../store/actions/cards';
 import { translateText, getExamples, getDescriptionImage, getImageUrl } from "../../services/openaiApi";
 import ResultDisplay from "../ResultDisplay"
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { Card, imageUrlToBase64 } from "../../services/ankiService";
+import {setSelectedLanguage} from "../../store/actions/languageActions";
+import {useNavigate} from "react-router-dom";
+import { FaCog } from 'react-icons/fa'; // Импорт иконки шестерёнки
+
 
 const CreateCard: React.FC = () => {
-    const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [showResult, setShowResult] = useState(false);
-    const [deckId, setDeckId] = useState('');
-    const [selectedLanguage, setSelectedLanguage] = useState('ru');
+    const deckId = useSelector((state: RootState) => state.deck.deckId);
 
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
-    const { word, translation, examples, image } = useSelector((state: RootState) => state.cards);
+    const { word, translation, examples, image, imageUrl } = useSelector((state: RootState) => state.cards);
+    const selectedLanguage = useSelector((state: RootState) => state.language.selectedLanguage);
     const decks = useSelector((state: RootState) => state.deck.decks);
+
+    const [showSettings, setShowSettings] = useState(false);
+    const apiKey = useSelector((state: RootState) => state.settings.apiKey);
+    const [selectedMode, setSelectedMode] = useState(null)
+
+    const navigate = useNavigate();
+
+    const handleSettingsClick = () => {
+        navigate("/settings");
+    };
 
     const popularLanguages = [
         { code: 'ru', name: 'Русский' },
@@ -42,6 +56,7 @@ const CreateCard: React.FC = () => {
     const handleNewImage = async () => {
         const descriptionImage = await getDescriptionImage(word);
         const newImageUrl = await getImageUrl(descriptionImage);
+        dispatch(setImageUrl(newImageUrl));
         if (newImageUrl) {
             const imageBase64 = await imageUrlToBase64(newImageUrl);
             dispatch(setImage(imageBase64));
@@ -49,7 +64,7 @@ const CreateCard: React.FC = () => {
     };
 
     const handleNewExamples = async () => {
-        const newExamples = await getExamples(word);
+        const newExamples = await getExamples(word, true);
         dispatch(setExamples(newExamples));
     };
 
@@ -75,6 +90,11 @@ const CreateCard: React.FC = () => {
 
     useEffect(() => {
         dispatch(fetchDecks() as any);
+        if (word && translation && examples.length > 0) {
+            setShowResult(true);
+        } else {
+            setShowResult(false);
+        }
     }, [dispatch]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -83,7 +103,7 @@ const CreateCard: React.FC = () => {
 
         // Получить перевод и другие данные с сервера
         const translatedText = await translateText(word, selectedLanguage);
-        const examples = await getExamples(word);
+        const examples = await getExamples(word,true);
         const descriptionImage = await getDescriptionImage(word);
         const imageUrl = await getImageUrl(descriptionImage);
         if (imageUrl) {
@@ -94,20 +114,49 @@ const CreateCard: React.FC = () => {
         dispatch(setWord(word));
         dispatch(setTranslation(translatedText));
         dispatch(setExamples(examples));
-        setImageUrl(imageUrl);
-        setShowResult(true);
+        dispatch(setImageUrl(imageUrl));
+        if (translatedText) {
+            setShowResult(true)
+        }
     };
 
     return (
         <div className="flex flex-col items-center justify-center space-y-4">
+            <div className="flex items-center space-x-4 m-4">
+                <button
+                    onClick={handleSettingsClick}
+                    className="text-2xl" // Классы Tailwind для стилизации кнопки
+                >
+                    <FaCog />
+                </button>
+
+                <div className="flex flex-col flex-grow">
+                    <label htmlFor="mode" className="text-gray-700 font-bold mt-2">Mode:</label>
+                    <select
+                        id="mode"
+                        value={selectedLanguage}
+                        onChange={(e) => dispatch(setSelectedLanguage(e.target.value))}
+                        className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
+                    >
+                        {popularLanguages.map(({ code, name }) => (
+                            <option key={code} value={code}>
+                                {name}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
             <form onSubmit={handleSubmit} className="flex flex-col space-y-4">
+
                 <div className="flex flex-col items-center">
+
                     <label htmlFor="language" className="text-gray-700 font-bold mt-2">Translate to:</label>
                     <select
                         id="language"
                         value={selectedLanguage}
-                        onChange={(e) => setSelectedLanguage(e.target.value)}
-                        className="border-2 border-blue-500 p-2 rounded w-64 text-gray-600"
+                        onChange={(e) => dispatch(setSelectedLanguage(e.target.value))}
+                        className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
                     >
                         {popularLanguages.map(({ code, name }) => (
                             <option key={code} value={code}>
@@ -121,8 +170,8 @@ const CreateCard: React.FC = () => {
                     {decks && (
                         <select
                             value={deckId}
-                            onChange={(e) => setDeckId(e.target.value)}
-                            className="border-2 border-blue-500 p-2 rounded mt-2 w-64 text-gray-600"
+                            onChange={(e) => dispatch(setDeckId(e.target.value))}
+                            className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
                         >
                             {decks.map((deckName: string) => (
                                 <option key={deckName} value={deckName}>

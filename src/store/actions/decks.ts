@@ -1,19 +1,10 @@
 
 export const FETCH_DECKS = 'FETCH_DECKS';
 export const FETCH_DECKS_SUCCESS = 'FETCH_DECKS_SUCCESS';
+export const SET_DECK_ID = 'SET_DECK_ID';
 
 export type Deck = string;
 
-export interface FetchDecksAction {
-    type: typeof FETCH_DECKS;
-}
-
-export interface FetchDecksSuccessAction {
-    type: typeof FETCH_DECKS_SUCCESS;
-    payload: Deck[];
-}
-
-export type DecksActionTypes = FetchDecksAction | FetchDecksSuccessAction;
 
 export const fetchDecks = () => {
     return async (dispatch: any) => {
@@ -37,3 +28,8 @@ export const fetchDecksSuccess = (decks: string[]) => {
         payload: decks,
     };
 };
+
+export const setDeckId = (deckId: string) => ({
+    type: SET_DECK_ID,
+    payload: deckId,
+});
