@@ -1,11 +1,16 @@
 import React from 'react';
 import {useDispatch, useSelector} from 'react-redux';
-import {useNavigate} from 'react-router-dom';
 import {setAnkiConnectApiKey, setAnkiConnectUrl, setOpenAiKey, setUseAnkiConnect} from "../store/actions/settings";
 import {RootState} from "../store";
 
-const Settings: React.FC = () => {
-    const navigate = useNavigate();
+
+interface SettingsProps {
+    onBackClick: () => void;
+}
+
+
+const Settings: React.FC<SettingsProps> = ({ onBackClick }) => {
+    // const navigate = useNavigate();
     const dispatch = useDispatch();
 
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
@@ -29,8 +34,9 @@ const Settings: React.FC = () => {
         dispatch(setAnkiConnectApiKey(event.target.value))
     };
 
-    const handleBack = () => {
-        navigate("/");
+    const handleBackClick = () => {
+        // Здесь что-то делается при клике на кнопку "назад"
+        onBackClick();
     };
 
     return (
@@ -57,8 +63,9 @@ const Settings: React.FC = () => {
                 </div>
             )}
             <div className="flex space-x-2">
-                <button onClick={handleBack}
-                        className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded w-full mt-4">Back
+                <button
+                    onClick={handleBackClick}
+                    className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded w-full mt-4">Back
                 </button>
             </div>
         </div>

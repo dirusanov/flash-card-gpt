@@ -9,7 +9,7 @@ export type Deck = string;
 export const fetchDecks = () => {
     return async (dispatch: any) => {
         try {
-            const response = await fetch('http://localhost:9090/http://localhost:8765', {
+            const response = await fetch('http://localhost:8765', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'deckNames', version: 6 }),

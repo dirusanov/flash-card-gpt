@@ -44,7 +44,7 @@ export const createAnkiCards = async (deckName: string, modelName: string, cards
         params: { deck: deckName },
     });
 
-    await fetch('http://localhost:9090/http://127.0.0.1:8765', {
+    await fetch('http://127.0.0.1:8765', {
         method: 'POST',
         body: createDeckPayload,
         headers: { 'Content-Type': 'application/json' },
@@ -69,7 +69,7 @@ export const createAnkiCards = async (deckName: string, modelName: string, cards
         version: 6,
         params: { notes },
     });
-    const response = await fetch('http://localhost:9090/http://127.0.0.1:8765', {
+    const response = await fetch('http://127.0.0.1:8765', {
         method: 'POST',
         body: addNotesPayload,
         headers: { 'Content-Type': 'application/json' },
@@ -81,7 +81,7 @@ export const createAnkiCards = async (deckName: string, modelName: string, cards
 
 export async function imageUrlToBase64(url: string): Promise<string | null> {
     try {
-        const response = await fetch('http://localhost:9090/' + url);
+        const response = await fetch(url);
         const blob = await response.blob();
         const reader = new FileReader();
 

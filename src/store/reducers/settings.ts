@@ -6,6 +6,7 @@ import {
     SET_TRANSLATE_TO_LANGUAGE,
     SET_USE_ANKI_CONNECT,
 } from "../actions/settings";
+import {Modes} from "../../constants";
 
 interface SettingsState {
     openAiKey: string;
@@ -18,7 +19,7 @@ interface SettingsState {
 
 const initialState: SettingsState = {
     openAiKey: '',
-    mode: '',
+    mode: Modes.LanguageLearning,
     translateToLanguage: 'ru',
     ankiConnectUrl: '',
     ankiConnectApiKey: '',
@@ -33,7 +34,6 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
                 openAiKey: action.payload,
             };
         case SET_SELECTED_MODE:
-            debugger
             return {
                 ...state,
                 mode: action.payload,

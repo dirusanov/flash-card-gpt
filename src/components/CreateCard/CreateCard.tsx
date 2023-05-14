@@ -15,14 +15,17 @@ import ResultDisplay from "../ResultDisplay"
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { Card, imageUrlToBase64 } from "../../services/ankiService";
-import {useNavigate} from "react-router-dom";
 import { FaCog } from 'react-icons/fa';
 import {setMode, setTranslateToLanguage} from "../../store/actions/settings";
 import {Modes} from "../../constants"; // Импорт иконки шестерёнки
 import { FaSpinner } from 'react-icons/fa';
 
 
-const CreateCard: React.FC = () => {
+interface CreateCardProps {
+    onSettingsClick: () => void;
+}
+
+const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const [showResult, setShowResult] = useState(false);
     const deckId = useSelector((state: RootState) => state.deck.deckId);
 
@@ -34,12 +37,6 @@ const CreateCard: React.FC = () => {
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const [loading, setLoading] = useState(false);
     const [displayWord, setDisplayWord] = useState(''); // добавить новую переменную состояния
-
-    const navigate = useNavigate();
-
-    const handleSettingsClick = () => {
-        navigate("/settings");
-    };
 
     const popularLanguages = [
         { code: 'ru', name: 'Русский' },
@@ -68,6 +65,10 @@ const CreateCard: React.FC = () => {
     const handleNewExamples = async () => {
         const newExamples = await getExamples(word, translateToLanguage, true);
         dispatch(setExamples(newExamples));
+    };
+
+    const handleSettingsClick = () => {
+        onSettingsClick();
     };
 
     const handleSave = () => {
