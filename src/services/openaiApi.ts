@@ -1,21 +1,35 @@
 import { Configuration, OpenAIApi } from 'openai';
 
+
+let state;
+const stateFromLocalStorage = localStorage.getItem('state');
+if (stateFromLocalStorage) {
+    state = JSON.parse(stateFromLocalStorage);
+}
+
+const apiKey = state ? state.settings.openAiKey : undefined;
+
+if (!apiKey) {
+    const message = 'No OpenAI API Key found in local storage. Please set it in Settings.'
+    console.error(message);
+    alert(message)
+}
 const configuration = new Configuration({
-    apiKey: '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',
+    apiKey: apiKey,
 });
 const openai = new OpenAIApi(configuration);
 
 export const translateText = async (
     text: string,
-    targetLang: string = 'ru',
+    translateToLanguage: string = 'ru',
 ): Promise<string | null> => {
-    const prompt = `Translate the following text to ${targetLang}: '${text}'`;
+    const prompt = `Translate the following text to ${translateToLanguage}: '${text}'`;
 
     try {
         const completion = await openai.createCompletion({
             model: 'text-davinci-003',
             prompt: prompt,
-            max_tokens: 200,
+            max_tokens: 900,
             n: 1,
             stop: null,
             temperature: 0.5,
@@ -33,16 +47,16 @@ export const translateText = async (
 
 export const getExamples = async (
     word: string,
+    translateToLanguage: string,
     translate: boolean = false,
-    targetLang: string = 'ru',
 ): Promise<Array<[string, string | null]>> => {
-    const prompt = `Give me three example sentences using the word '${word}' in English.`;
+    const prompt = `Give me three example sentences using the word '${word}'. In the language of this word.`;
 
     try {
         const completion = await openai.createCompletion({
             model: 'text-davinci-003',
             prompt: prompt,
-            max_tokens: 150,
+            max_tokens: 3500,
             n: 1,
             stop: null,
             temperature: 0.5,
@@ -57,7 +71,7 @@ export const getExamples = async (
             let translatedExample: string | null = null;
 
             if (translate) {
-                translatedExample = await translateText(example, targetLang);
+                translatedExample = await translateText(example, translateToLanguage);
             }
 
             resultExamples.push([example, translatedExample]);
@@ -77,7 +91,7 @@ export const isAbstract = async (word: string): Promise<boolean> => {
         const completion = await openai.createCompletion({
             model: 'text-davinci-003',
             prompt: prompt,
-            max_tokens: 20,
+            max_tokens: 900,
             n: 1,
             stop: null,
             temperature: 0.5,
