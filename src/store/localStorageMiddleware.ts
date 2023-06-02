@@ -1,34 +1,50 @@
 import { Middleware, MiddlewareAPI, Dispatch } from 'redux';
 import { RootState } from './index';
 
-const saveState = (state: RootState): void => {
+const saveState = async (state: RootState): Promise<void> => {
     try {
-        const serializedState = JSON.stringify(state);
-        localStorage.setItem('state', serializedState);
-    } catch (err) {
-        console.error('Error saving state:', err);
-    }
-};
-
-const loadState = (): RootState | undefined => {
-    try {
-        const serializedState = localStorage.getItem('state');
-        if (serializedState === null) {
-            return undefined;
+    return await new Promise<void>((resolve, reject) => {
+      chrome.storage.sync.set({ state: JSON.stringify(state) }, () => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve();
         }
-        return JSON.parse(serializedState);
-    } catch (err) {
-        console.error('Error loading state:', err);
-        return undefined;
-    }
+      });
+    });
+  } catch (err) {
+    console.error('Error saving state:', err);
+  }
 };
 
-const localStorageMiddleware: Middleware = ({ getState }: MiddlewareAPI) => (
-    next: Dispatch,
+const loadState = (): Promise<RootState | undefined> => {
+  return new Promise((resolve, reject) => {
+      chrome.storage.sync.get('state', (items) => {
+        const apiKey = items.state.settings;
+        console.log('=======================================================')
+        console.log(apiKey)
+        if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+        } else {
+            const serializedState = items.state;
+            if (serializedState === undefined) {
+                resolve(undefined);
+            } else {
+                resolve(JSON.parse(serializedState));
+            }
+        }
+      });
+  });
+};
+
+const chromeStorageMiddleware: Middleware = ({ getState }: MiddlewareAPI) => (
+  next: Dispatch,
 ) => (action) => {
-    const result = next(action);
-    saveState(getState() as RootState);
-    return result;
+  const result = next(action);
+  saveState(getState() as RootState).catch(err => {
+      console.error('Error saving state:', err);
+  });
+  return result;
 };
 
-export { saveState, loadState, localStorageMiddleware };
+export { saveState, loadState, chromeStorageMiddleware };

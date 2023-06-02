@@ -1,25 +1,7 @@
-import { Configuration, OpenAIApi } from 'openai';
-
-
-let state;
-const stateFromLocalStorage = localStorage.getItem('state');
-if (stateFromLocalStorage) {
-    state = JSON.parse(stateFromLocalStorage);
-}
-
-const apiKey = state ? state.settings.openAiKey : undefined;
-
-if (!apiKey) {
-    const message = 'No OpenAI API Key found in local storage. Please set it in Settings.'
-    console.error(message);
-    alert(message)
-}
-const configuration = new Configuration({
-    apiKey: apiKey,
-});
-const openai = new OpenAIApi(configuration);
+import { OpenAIApi } from "openai";
 
 export const translateText = async (
+    openai: OpenAIApi,
     text: string,
     translateToLanguage: string = 'ru',
 ): Promise<string | null> => {
@@ -46,6 +28,7 @@ export const translateText = async (
 
 
 export const getExamples = async (
+    openai: OpenAIApi,
     word: string,
     translateToLanguage: string,
     translate: boolean = false,
@@ -71,7 +54,7 @@ export const getExamples = async (
             let translatedExample: string | null = null;
 
             if (translate) {
-                translatedExample = await translateText(example, translateToLanguage);
+                translatedExample = await translateText(openai, example, translateToLanguage);
             }
 
             resultExamples.push([example, translatedExample]);
@@ -84,7 +67,7 @@ export const getExamples = async (
     }
 };
 
-export const isAbstract = async (word: string): Promise<boolean> => {
+export const isAbstract = async (openai: OpenAIApi, word: string): Promise<boolean> => {
     const prompt = `Is the word '${word}' an abstract concept or a concrete object? Answer 'abstract' or 'concrete':`;
 
     try {
@@ -105,7 +88,7 @@ export const isAbstract = async (word: string): Promise<boolean> => {
     }
 };
 
-export const getDescriptionImage = async (word: string): Promise<string> => {
+export const getDescriptionImage = async (openai: OpenAIApi, word: string): Promise<string> => {
     const prompt = `Provide a detailed description for an image that represents the abstract concept of '${word}'`;
 
     try {
@@ -125,7 +108,7 @@ export const getDescriptionImage = async (word: string): Promise<string> => {
     }
 };
 
-export const getImageUrlRequest = async (description: string): Promise<string | null> => {
+export const getImageUrlRequest = async (openai: OpenAIApi, description: string): Promise<string | null> => {
     try {
         const response = await openai.createImage({
             prompt: description,
@@ -141,16 +124,20 @@ export const getImageUrlRequest = async (description: string): Promise<string | 
     }
 };
 
-export const getImageUrl = async (word: string): Promise<string | null> => {
+export const getImageUrl = async (openai: OpenAIApi, word: string): Promise<string | null> => {
     try {
-        const isAbstractWord = await isAbstract(word);
+        const isAbstractWord = await isAbstract(openai, word);
 
         if (isAbstractWord) {
-            const description = await getDescriptionImage(word);
-            return await getImageUrlRequest(`Create a vivid, high-quality illustration representing the concept of '${description}'`);
+            const description = await getDescriptionImage(openai, word);
+            return await getImageUrlRequest(
+                openai, 
+                `Create a vivid, high-quality illustration representing the concept of '${description}'`
+            );
         } else {
-            const photorealisticPrompt = `Create a high-quality, photorealistic image of a ${word} with a neutral expression and clear features`;
-            return await getImageUrlRequest(photorealisticPrompt);
+            const photorealisticPrompt = `Create a high-quality, photorealistic image of 
+                                          a ${word} with a neutral expression and clear features`;
+            return await getImageUrlRequest(openai, photorealisticPrompt);
         }
     } catch (error) {
         console.error('Error during getting image for word:', error);

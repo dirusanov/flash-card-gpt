@@ -5,6 +5,7 @@ import {
     SET_SELECTED_MODE,
     SET_TRANSLATE_TO_LANGUAGE,
     SET_USE_ANKI_CONNECT,
+    SET_VISIBLE_SIDEBAR,
 } from "../actions/settings";
 import {Modes} from "../../constants";
 
@@ -15,15 +16,17 @@ interface SettingsState {
     ankiConnectUrl: string
     ankiConnectApiKey: string
     useAnkiConnect: boolean
+    visibleSideBar: boolean
 }
 
 const initialState: SettingsState = {
     openAiKey: '',
     mode: Modes.LanguageLearning,
     translateToLanguage: 'ru',
-    ankiConnectUrl: '',
+    ankiConnectUrl: 'http://127.0.0.1:8765',
     ankiConnectApiKey: '',
-    useAnkiConnect: false,
+    useAnkiConnect: true,
+    visibleSideBar: true,
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {
@@ -57,6 +60,11 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 useAnkiConnect: action.payload,
+            };
+        case SET_VISIBLE_SIDEBAR:
+            return {
+                ...state,
+                visibleSideBar: action.visible,
             };
         default:
             return state;

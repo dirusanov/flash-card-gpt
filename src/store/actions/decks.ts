@@ -6,13 +6,13 @@ export const SET_DECK_ID = 'SET_DECK_ID';
 export type Deck = string;
 
 
-export const fetchDecks = () => {
+export const fetchDecks = (apiKey: string) => {
     return async (dispatch: any) => {
         try {
             const response = await fetch('http://localhost:8765', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'deckNames', version: 6 }),
+                body: JSON.stringify({ action: 'deckNames', version: 6, key: apiKey }),
             });
             const decks = await response.json();
             dispatch(fetchDecksSuccess(decks.result));

@@ -4,6 +4,8 @@ export const SET_TRANSLATE_TO_LANGUAGE = 'SET_SELECTED_LANGUAGE';
 export const SET_ANKI_CONNECT_URL = 'SET_ANKI_CONNECT_URL';
 export const SET_ANKI_CONNECT_API_KEY = 'SET_ANKI_CONNECT_API_KEY';
 export const SET_USE_ANKI_CONNECT = 'SET_USE_ANKI_CONNECT';
+export const SET_VISIBLE_SIDEBAR = 'SET_VISIBLE_SIDEBAR';
+
 
 export const setOpenAiKey = (openAiKey: string) => ({
     type: SET_OPEN_AI_KEY,
@@ -33,4 +35,9 @@ export const setAnkiConnectApiKey = (ankiConnectApiKey: string) => ({
 export const setUseAnkiConnect = (useAnkiConnect: boolean) => ({
     type: SET_USE_ANKI_CONNECT,
     payload: useAnkiConnect,
+});
+
+export const setVisibleSideBar = (visible: boolean) => ({
+    type: SET_VISIBLE_SIDEBAR,
+    visible,
 });

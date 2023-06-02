@@ -49,7 +49,6 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             return state;
     }
 
-    // Сохранить состояние в localStorage
     return newState;
 };
 

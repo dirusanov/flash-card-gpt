@@ -6,10 +6,11 @@ import {RootState} from "../store";
 
 interface SettingsProps {
     onBackClick: () => void;
+    popup: boolean
 }
 
 
-const Settings: React.FC<SettingsProps> = ({ onBackClick }) => {
+const Settings: React.FC<SettingsProps> = ({ onBackClick, popup=false }) => {
     // const navigate = useNavigate();
     const dispatch = useDispatch();
 
@@ -45,11 +46,11 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick }) => {
             <input type="text" id="apiKey" value={openAiKey} onChange={handleOpenAiKeyChange}
                    className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"/>
             <div className="flex items-center mb-4">
-                <input type="checkbox" id="useAnkiConnect" checked={useAnkiConnect}
-                       onChange={handleUseAnkiConnectChange}/>
-                <label htmlFor="useAnkiConnect" className="font-bold ml-2">Use AnkiConnect Plugin</label>
+                {/* <input type="checkbox" id="useAnkiConnect" checked={useAnkiConnect}
+                       onChange={handleUseAnkiConnectChange}/> */}
+                {/* <label htmlFor="useAnkiConnect" className="font-bold ml-2">Use AnkiConnect Plugin</label> */}
             </div>
-            {useAnkiConnect && (
+            {true && (
                 <div className="anki-connect-settings border-l-4 border-blue-500 pl-4 mb-4">
                     <label htmlFor="ankiConnectUrl" className="block font-bold mb-2">AnkiConnect URL</label>
                     <input type="text" id="ankiConnectUrl" value={ankiConnectUrl}
@@ -62,12 +63,16 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick }) => {
                            className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"/>
                 </div>
             )}
-            <div className="flex space-x-2">
-                <button
-                    onClick={handleBackClick}
-                    className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded w-full mt-4">Back
-                </button>
-            </div>
+            {!popup && (
+                <div className="flex flex-col space-y-4 w-full">
+                    <button
+                        onClick={handleBackClick}
+                        className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                    >
+                        Back
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

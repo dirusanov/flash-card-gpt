@@ -36,15 +36,16 @@ function format_back(card: Card): string {
     `;
 }
 
-export const createAnkiCards = async (deckName: string, modelName: string, cards: Card[]) => {
+export const createAnkiCards = async (ankiConnectUrl: string, ankiConnectApiKey: string, deckName: string, modelName: string, cards: Card[]) => {
     // Создаем новую колоду, если ее еще нет
     const createDeckPayload = JSON.stringify({
         action: 'createDeck',
         version: 6,
+        key: ankiConnectApiKey,
         params: { deck: deckName },
     });
 
-    await fetch('http://127.0.0.1:8765', {
+    await fetch(ankiConnectUrl, {
         method: 'POST',
         body: createDeckPayload,
         headers: { 'Content-Type': 'application/json' },
@@ -67,9 +68,10 @@ export const createAnkiCards = async (deckName: string, modelName: string, cards
     const addNotesPayload = JSON.stringify({
         action: 'addNotes',
         version: 6,
+        key: ankiConnectApiKey,
         params: { notes },
     });
-    const response = await fetch('http://127.0.0.1:8765', {
+    const response = await fetch(ankiConnectUrl, {
         method: 'POST',
         body: addNotesPayload,
         headers: { 'Content-Type': 'application/json' },
@@ -80,26 +82,17 @@ export const createAnkiCards = async (deckName: string, modelName: string, cards
 };
 
 export async function imageUrlToBase64(url: string): Promise<string | null> {
-    try {
-        const response = await fetch(url);
-        const blob = await response.blob();
-        const reader = new FileReader();
-
-        return new Promise((resolve, reject) => {
-            reader.onerror = () => {
-                reader.abort();
-                reject(new Error('Error converting image to base64.'));
-            };
-
-            reader.onload = () => {
-                resolve(reader.result as string);
-            };
-
-            reader.readAsDataURL(blob);
-        });
-    } catch (error) {
-        console.error('Error fetching image:', error);
-        return null;
-    }
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+            url,
+            (response: { status: boolean, data?: string, error?: string }) => {
+                if (response.status && response.data !== undefined) {
+                    resolve(response.data);
+                } else {
+                    console.error('Error fetching image:', response.error);
+                    reject(null);
+                }
+            }
+        );
+    });
 }
-

@@ -1,24 +1,19 @@
 import React, {useEffect, useState} from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { RootState } from '../../store';
-import {fetchDecks, setDeckId} from '../../store/actions/decks';
-import {
-    saveAnkiCards,
-    setWord,
-    setTranslation,
-    setExamples,
-    setImage,
-    setImageUrl,
-} from '../../store/actions/cards';
-import { translateText, getExamples, getDescriptionImage, getImageUrl } from "../../services/openaiApi";
-import ResultDisplay from "../ResultDisplay"
+
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
-import { Card, imageUrlToBase64 } from "../../services/ankiService";
 import { FaCog } from 'react-icons/fa';
-import {setMode, setTranslateToLanguage} from "../../store/actions/settings";
-import {Modes} from "../../constants"; // Импорт иконки шестерёнки
 import { FaSpinner } from 'react-icons/fa';
+import {RootState} from "../store";
+import {fetchDecks, setDeckId} from "../store/actions/decks";
+import {saveAnkiCards, setExamples, setImage, setImageUrl, setTranslation, setWord} from "../store/actions/cards";
+import {Card, imageUrlToBase64} from "../services/ankiService";
+import {getDescriptionImage, getExamples, getImageUrl, translateText} from "../services/openaiApi";
+import {setMode, setTranslateToLanguage} from "../store/actions/settings";
+import {Modes} from "../constants";
+import ResultDisplay from "./ResultDisplay";
+import { Configuration, OpenAIApi } from 'openai';
 
 
 interface CreateCardProps {
@@ -35,8 +30,15 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const decks = useSelector((state: RootState) => state.deck.decks);
     const mode = useSelector((state: RootState) => state.settings.mode);
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
+    const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
+    const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const [loading, setLoading] = useState(false);
-    const [displayWord, setDisplayWord] = useState(''); // добавить новую переменную состояния
+    const [displayWord, setDisplayWord] = useState('');
+    const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
+    const configuration = new Configuration({
+        apiKey: openAiKey,
+    });
+    const openai = new OpenAIApi(configuration);
 
     const popularLanguages = [
         { code: 'ru', name: 'Русский' },
@@ -53,8 +55,8 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     ];
 
     const handleNewImage = async () => {
-        const descriptionImage = await getDescriptionImage(word);
-        const newImageUrl = await getImageUrl(descriptionImage);
+        const descriptionImage = await getDescriptionImage(openai, word);
+        const newImageUrl = await getImageUrl(openai, descriptionImage);
         dispatch(setImageUrl(newImageUrl));
         if (newImageUrl) {
             const imageBase64 = await imageUrlToBase64(newImageUrl);
@@ -63,7 +65,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     };
 
     const handleNewExamples = async () => {
-        const newExamples = await getExamples(word, translateToLanguage, true);
+        const newExamples = await getExamples(openai, word, translateToLanguage, true);
         dispatch(setExamples(newExamples));
     };
 
@@ -88,11 +90,26 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
             },
         ];
 
-        dispatch(saveAnkiCards(deckId, modelName, cards));
+        dispatch(saveAnkiCards(ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
     };
 
     useEffect(() => {
-        dispatch(fetchDecks() as any);
+        const handleMouseUp = () => {
+            const selectedText = window.getSelection()?.toString().trim();
+            if (selectedText) {
+                dispatch(setWord(selectedText));
+            }
+        };
+    
+        document.addEventListener('mouseup', handleMouseUp);
+    
+        return () => {
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [dispatch]);    
+
+    useEffect(() => {
+        dispatch(fetchDecks(ankiConnectApiKey) as any);
         if (word && translation && examples.length > 0) {
             setShowResult(true);
         } else {
@@ -106,10 +123,10 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
         setLoading(true);
 
         setDisplayWord(word);
-        const translatedText = await translateText(word, translateToLanguage);
-        const examples = await getExamples(word, translateToLanguage, true);
-        const descriptionImage = await getDescriptionImage(word);
-        const imageUrl = await getImageUrl(descriptionImage);
+        const translatedText = await translateText(openai, word, translateToLanguage);
+        const examples = await getExamples(openai, word, translateToLanguage, true);
+        const descriptionImage = await getDescriptionImage(openai, word);
+        const imageUrl = await getImageUrl(openai, descriptionImage);
         if (imageUrl) {
             const imageBase64 = await imageUrlToBase64(imageUrl);
             dispatch(setImage(imageBase64));
@@ -127,12 +144,12 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     };
 
     return (
-        <div className="flex flex-col items-center justify-center space-y-4">
+        <div className="flex flex-col items-center justify-center space-y-4 w-full px-4 h-screen overflow-scroll">
 
-            <div className="flex flex-col items-center space-y-4">
+            <div className="flex flex-col items-center space-y-4 w-full"> {/* added w-full here */}
                 <button
                     onClick={handleSettingsClick}
-                    className="text-2xl absolute top-0 left-10 m-4" // Изменено здесь
+                    className="text-2xl absolute top-0 left-10 mt-2" // Изменено здесь
                 >
                     <FaCog />
                 </button>
@@ -165,7 +182,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                         </select>
                     </div>
                 )}
-                {decks && useAnkiConnect && (
+                {useAnkiConnect && decks && (
                     <div className="flex flex-col items-center w-full">
                         <label htmlFor="language" className="text-gray-700 font-bold">Decks:</label>
                         <select
@@ -181,7 +198,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                         </select>
                     </div>
                 )}
-                <form onSubmit={handleSubmit} className="flex flex-col space-y-4">
+                <form onSubmit={handleSubmit} className="flex flex-col space-y-4 w-full">
                     <textarea
                         value={word}
                         onChange={(e) => dispatch(setWord(e.target.value))}
@@ -205,13 +222,13 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                 showResult && (
                     <div className="flex flex-col items-center space-y-4">
                         <ResultDisplay
-                            front={displayWord}
-                            translation={translation}
-                            examples={examples}
-                            imageUrl={imageUrl}
-                            onNewImage={handleNewImage}
-                            onNewExamples={handleNewExamples}
-                            onSave={handleSave}
+                           front={displayWord}
+                           translation={translation}
+                           examples={examples}
+                           imageUrl={imageUrl}
+                           onNewImage={handleNewImage}
+                           onNewExamples={handleNewExamples}
+                           onSave={handleSave}
                         />
                     </div>
                 )

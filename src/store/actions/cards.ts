@@ -8,9 +8,9 @@ export const SET_EXAMPLES = "SET_EXAMPLES";
 export const SET_IMAGE = "SET_IMAGE";
 export const SET_IMAGE_URL = 'SET_IMAGE_URL';
 
-export const saveAnkiCards = (deckName: string, model_name: string, cards: Card[]) => async (dispatch: Dispatch) => {
+export const saveAnkiCards = (ankiConnectUrl: string, ankiConnectApiKey: string, deckName: string, model_name: string, cards: Card[]) => async (dispatch: Dispatch) => {
     try {
-        const result = await createAnkiCards(deckName, model_name, cards);
+        const result = await createAnkiCards(ankiConnectUrl, ankiConnectApiKey, deckName, model_name, cards);
         dispatch({ type: SAVE_ANKI_CARDS, payload: result });
     } catch (error) {
         console.error('Error saving Anki cards:', error);
