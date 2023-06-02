@@ -41,7 +41,7 @@ function App() {
             <div style={{ flex: '1 1 auto', overflow: 'scroll', display: visibleSideBar ? 'block' : 'none' }}>
                 <header className="App-header">
                     {!currentPage && <CreateCard onSettingsClick={() => handlePageChange('settings')} />}
-                    {currentPage === 'settings' && <Settings onBackClick={() => handlePageChange('')} />}
+                    {currentPage === 'settings' && <Settings onBackClick={() => handlePageChange('')} popup={false} />}
                 </header>
             </div>
             <div onClick={toggleVisibility} style={{ width: '20px', height: '100%', backgroundColor: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderLeft: '1px solid #777', borderRight: '1px solid #777', zIndex: 10000 }}>

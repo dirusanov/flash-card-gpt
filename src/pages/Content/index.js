@@ -30,6 +30,7 @@ const StoreInitializer = () => {
   
     useEffect(() => {
       instantiateStore()
+        // @ts-ignore
         .then(resolvedStore => setStore(resolvedStore))
         .catch(error => console.error('Error loading state from Chrome storage:', error));
     }, []);
