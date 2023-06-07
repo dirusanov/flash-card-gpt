@@ -10,7 +10,10 @@ Flash Cards + GPT is an innovative browser extension designed to create flashcar
 3. Click on the Flash Cards + GPT extension icon in the browser panel.
 4. Follow the instructions to create and save your flashcard.
 
+### Mode: "learning language"
 ![Usage Example 1](</screenshots/lang-learn.png>)
+
+### Mode: "General"
 ![Usage Example 2](</screenshots/gen-topic-sample.png>)
 
 Please replace `<Link to your usage example 1 screenshot>` and `<Link to your usage example 2 screenshot>` with the actual links to your screenshots showing examples of extension usage.
@@ -65,6 +68,3 @@ For more information about AnkiConnect, visit the [AnkiConnect homepage](https:/
 Once the extension is installed, you will need to configure it with your OpenAI API key and (optionally) AnkiConnect settings. To do this, click on the Flash Cards + GPT extension icon and go to the settings page.
 
 ![Extension Settings](</screenshots/settings.png>)
-
-Please replace `<Link to your settings screenshot>` with the actual link to your settings screenshot.
-
