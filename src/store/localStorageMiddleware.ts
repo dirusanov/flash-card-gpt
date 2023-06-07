@@ -17,25 +17,6 @@ const saveState = async (state: RootState): Promise<void> => {
   }
 };
 
-const loadState = (): Promise<RootState | undefined> => {
-  return new Promise((resolve, reject) => {
-      chrome.storage.sync.get('state', (items) => {
-        const apiKey = items.state.settings;
-        console.log('=======================================================')
-        console.log(apiKey)
-        if (chrome.runtime.lastError) {
-            reject(chrome.runtime.lastError);
-        } else {
-            const serializedState = items.state;
-            if (serializedState === undefined) {
-                resolve(undefined);
-            } else {
-                resolve(JSON.parse(serializedState));
-            }
-        }
-      });
-  });
-};
 
 const chromeStorageMiddleware: Middleware = ({ getState }: MiddlewareAPI) => (
   next: Dispatch,
@@ -47,4 +28,4 @@ const chromeStorageMiddleware: Middleware = ({ getState }: MiddlewareAPI) => (
   return result;
 };
 
-export { saveState, loadState, chromeStorageMiddleware };
+export { saveState, chromeStorageMiddleware };

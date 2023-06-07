@@ -11,7 +11,7 @@ import {Modes} from "../../constants";
 
 interface SettingsState {
     openAiKey: string;
-    mode: string;
+    mode: Modes;
     translateToLanguage: string
     ankiConnectUrl: string
     ankiConnectApiKey: string

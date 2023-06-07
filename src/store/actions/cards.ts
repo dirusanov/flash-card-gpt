@@ -1,25 +1,34 @@
 import { Dispatch } from 'redux';
-import {Card, createAnkiCards} from "../../services/ankiService";
+import {CardLangLearning, CardGeneral, createAnkiCards} from "../../services/ankiService";
+import { Modes } from '../../constants';
 
 export const SAVE_ANKI_CARDS = 'SAVE_ANKI_CARDS';
-export const SET_WORD = "SET_WORD";
+export const SET_TEXT = "SET_TEXT";
 export const SET_TRANSLATION = "SET_TRANSLATION";
 export const SET_EXAMPLES = "SET_EXAMPLES";
 export const SET_IMAGE = "SET_IMAGE";
 export const SET_IMAGE_URL = 'SET_IMAGE_URL';
+export const SET_BACK = 'SET_BACK';
 
-export const saveAnkiCards = (ankiConnectUrl: string, ankiConnectApiKey: string, deckName: string, model_name: string, cards: Card[]) => async (dispatch: Dispatch) => {
+export const saveAnkiCards = (
+        mode: Modes, 
+        ankiConnectUrl: string, 
+        ankiConnectApiKey: string, 
+        deckName: string, 
+        model_name: string, 
+        cards: CardLangLearning[] | CardGeneral[]
+    ) => async (dispatch: Dispatch) => {
     try {
-        const result = await createAnkiCards(ankiConnectUrl, ankiConnectApiKey, deckName, model_name, cards);
+        const result = await createAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckName, model_name, cards);
         dispatch({ type: SAVE_ANKI_CARDS, payload: result });
     } catch (error) {
         console.error('Error saving Anki cards:', error);
     }
 };
 
-export const setWord = (word: string) => ({
-    type: SET_WORD,
-    payload: word,
+export const setText = (text: string) => ({
+    type: SET_TEXT,
+    payload: text,
 });
 
 export const setExamples = (examples: [string, string | null][]) => ({
@@ -41,4 +50,9 @@ export const setImage = (image: string | null) => ({
 export const setImageUrl = (url: string | null) => ({
     type: SET_IMAGE_URL,
     payload: url,
+});
+
+export const setBack = (back: string | null) => ({
+    type: SET_BACK,
+    payload: back,
 });

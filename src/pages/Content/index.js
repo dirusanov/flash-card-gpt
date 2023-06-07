@@ -13,6 +13,7 @@ console.log('Must reload extension for modifications to take effect.');
 printLine("Using the 'printLine' function from the Print Module");
 
 const newDiv = document.createElement('div');
+newDiv.id = 'sidebar';
 newDiv.setAttribute('style', 'all: initial; position: fixed; top: 0; right: 0; width: 350px; height: 100%; overflow: auto; z-index: 9999;');
 const shadow = newDiv.attachShadow({ mode: "open" });
 const linkElem = document.createElement("link");

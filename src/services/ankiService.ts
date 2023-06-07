@@ -1,3 +1,5 @@
+import { Modes } from "../constants";
+
 function format_example(
     example: string,
     word: string,
@@ -13,16 +15,22 @@ function format_example(
     }
 }
 
-export interface Card {
-    word: string;
+export interface CardLangLearning {
+    text: string;
     translation: string;
     examples: Array<[string, string | null]>;
     image_base64: string | null;
 }
 
-function format_back(card: Card): string {
+export interface CardGeneral {
+    text: string;
+    front: string;
+    back: string;
+}
+
+function format_back_lang_learning(card: CardLangLearning): string {
     const formatted_examples = card.examples
-        .map((ex) => format_example(ex[0], card.word, ex[1]))
+        .map((ex) => format_example(ex[0], card.text, ex[1]))
         .join('<br><br>');
 
     const imageTag = card.image_base64
@@ -36,7 +44,21 @@ function format_back(card: Card): string {
     `;
 }
 
-export const createAnkiCards = async (ankiConnectUrl: string, ankiConnectApiKey: string, deckName: string, modelName: string, cards: Card[]) => {
+function format_back_general(back: string): string {
+    const points = back.replace("Key points:", "").trim().split("-");
+    const htmlPoints = points.map(point => `<li>${point.trim()}</li>`).join("");
+
+    return `
+        <b>Key points:</b>
+        <ul>
+            ${htmlPoints}
+        </ul>
+    `;
+}
+
+export const createAnkiCards = async (
+        mode: Modes, ankiConnectUrl: string, ankiConnectApiKey: string, deckName: string, modelName: string, cards: CardLangLearning[] | CardGeneral[]
+    ) => {
     // Создаем новую колоду, если ее еще нет
     const createDeckPayload = JSON.stringify({
         action: 'createDeck',
@@ -50,13 +72,19 @@ export const createAnkiCards = async (ankiConnectUrl: string, ankiConnectApiKey:
         body: createDeckPayload,
         headers: { 'Content-Type': 'application/json' },
     });
-
-    // Создаем карточки с заданными данными
     const notes = cards.map((card) => {
-        const fields = {
-            Front: card.word,
-            Back: format_back(card),
-        };
+        let fields;
+        if (mode === Modes.LanguageLearning && 'translation' in card && 'examples' in card && 'image_base64' in card) {
+            fields = {
+                Front: card.text,
+                Back: format_back_lang_learning(card as CardLangLearning),
+            };
+        } else if (mode === Modes.GeneralTopic && 'back' in card) {
+            fields = {
+                Front: card.text,
+                Back: format_back_general(card.back),
+            };
+        }
         return {
             deckName,
             modelName,

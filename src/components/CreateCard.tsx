@@ -7,9 +7,9 @@ import { FaCog } from 'react-icons/fa';
 import { FaSpinner } from 'react-icons/fa';
 import {RootState} from "../store";
 import {fetchDecks, setDeckId} from "../store/actions/decks";
-import {saveAnkiCards, setExamples, setImage, setImageUrl, setTranslation, setWord} from "../store/actions/cards";
-import {Card, imageUrlToBase64} from "../services/ankiService";
-import {getDescriptionImage, getExamples, getImageUrl, translateText} from "../services/openaiApi";
+import {saveAnkiCards, setBack, setExamples, setImage, setImageUrl, setTranslation, setText} from "../store/actions/cards";
+import {CardLangLearning, CardGeneral, imageUrlToBase64} from "../services/ankiService";
+import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, getImageUrl, translateText} from "../services/openaiApi";
 import {setMode, setTranslateToLanguage} from "../store/actions/settings";
 import {Modes} from "../constants";
 import ResultDisplay from "./ResultDisplay";
@@ -25,10 +25,12 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const deckId = useSelector((state: RootState) => state.deck.deckId);
 
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
-    const { word, translation, examples, image, imageUrl } = useSelector((state: RootState) => state.cards);
+    const { text, translation, examples, image, imageUrl } = useSelector((state: RootState) => state.cards);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const decks = useSelector((state: RootState) => state.deck.decks);
     const mode = useSelector((state: RootState) => state.settings.mode);
+    const [front, setFront] = useState('');
+    const back = useSelector((state: RootState) => state.cards.back);
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
@@ -55,7 +57,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     ];
 
     const handleNewImage = async () => {
-        const descriptionImage = await getDescriptionImage(openai, word);
+        const descriptionImage = await getDescriptionImage(openai, text);
         const newImageUrl = await getImageUrl(openai, descriptionImage);
         dispatch(setImageUrl(newImageUrl));
         if (newImageUrl) {
@@ -65,7 +67,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     };
 
     const handleNewExamples = async () => {
-        const newExamples = await getExamples(openai, word, translateToLanguage, true);
+        const newExamples = await getExamples(openai, text, translateToLanguage, true);
         dispatch(setExamples(newExamples));
     };
 
@@ -76,28 +78,38 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const handleSave = () => {
         const modelName = 'Basic';
 
-        if (!word || !translation) {
-            alert('Some required data is missing. Please make sure you have all the required data before saving.');
-            return;
+        if (mode == Modes.LanguageLearning) {
+            if (!text || !translation) {
+                alert('Some required data is missing. Please make sure you have all the required data before saving.');
+                return;
+            }
+            const cards: CardLangLearning[] = [
+                {
+                    text: text,
+                    translation: translation,
+                    examples: examples,
+                    image_base64: image,
+                },
+            ];
+            dispatch(saveAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
         }
-
-        const cards: Card[] = [
-            {
-                word: word,
-                translation: translation,
-                examples: examples,
-                image_base64: image,
-            },
-        ];
-
-        dispatch(saveAnkiCards(ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
+        else if (mode == Modes.GeneralTopic && back) {
+            const cards: CardGeneral[] = [
+                {
+                    front: front,
+                    back: back,
+                    text: text,
+                },
+            ];
+            dispatch(saveAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
+        }
     };
 
     useEffect(() => {
         const handleMouseUp = () => {
             const selectedText = window.getSelection()?.toString().trim();
             if (selectedText) {
-                dispatch(setWord(selectedText));
+                dispatch(setText(selectedText));
             }
         };
     
@@ -110,7 +122,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
 
     useEffect(() => {
         dispatch(fetchDecks(ankiConnectApiKey) as any);
-        if (word && translation && examples.length > 0) {
+        if (text && translation && examples.length > 0) {
             setShowResult(true);
         } else {
             setShowResult(false);
@@ -121,27 +133,40 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
         e.preventDefault();
         setShowResult(false);
         setLoading(true);
-
-        setDisplayWord(word);
-        const translatedText = await translateText(openai, word, translateToLanguage);
-        const examples = await getExamples(openai, word, translateToLanguage, true);
-        const descriptionImage = await getDescriptionImage(openai, word);
-        const imageUrl = await getImageUrl(openai, descriptionImage);
-        if (imageUrl) {
-            const imageBase64 = await imageUrlToBase64(imageUrl);
-            dispatch(setImage(imageBase64));
-        }
-
-        dispatch(setWord(word));
-        dispatch(setTranslation(translatedText));
-        dispatch(setExamples(examples));
-        dispatch(setImageUrl(imageUrl));
-
-        setLoading(false);
-        if (translatedText) {
-            setShowResult(true)
+    
+        if (mode === Modes.LanguageLearning) {
+            setFront(text);
+            const translatedText = await translateText(openai, text, translateToLanguage);
+            const examples = await getExamples(openai, text, translateToLanguage, true);
+            const descriptionImage = await getDescriptionImage(openai, text);
+            const imageUrl = await getImageUrl(openai, descriptionImage);
+            if (imageUrl) {
+                const imageBase64 = await imageUrlToBase64(imageUrl);
+                dispatch(setImage(imageBase64));
+            }
+    
+            dispatch(setText(text));
+            dispatch(setTranslation(translatedText));
+            dispatch(setExamples(examples));
+            (setImageUrl(imageUrl));
+    
+            setLoading(false);
+            if (translatedText) {
+                setShowResult(true);
+            }
+        } else if (mode === Modes.GeneralTopic) {
+            setText(text);
+            const front = await generateAnkiFront(openAiKey, text)
+            const back = await generateAnkiBack(openAiKey, text)
+            if (front && back) {
+                setFront(front)
+                dispatch(setBack(back)) 
+            }
+            setLoading(false);
+            setShowResult(true);
         }
     };
+    
 
     return (
         <div className="flex flex-col items-center justify-center space-y-4 w-full px-4 h-screen overflow-scroll">
@@ -162,7 +187,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                         className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
                     >
                         <option value={Modes.LanguageLearning}>Language Learning</option>
-                        {/*<option value={Modes.GeneralTopic}>General Topic</option>*/}
+                        <option value={Modes.GeneralTopic}>General Topic</option>
                     </select>
                 </div>
                 {mode === Modes.LanguageLearning && (
@@ -200,8 +225,8 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                 )}
                 <form onSubmit={handleSubmit} className="flex flex-col space-y-4 w-full">
                     <textarea
-                        value={word}
-                        onChange={(e) => dispatch(setWord(e.target.value))}
+                        value={text}
+                        onChange={(e) => dispatch(setText(e.target.value))}
                         placeholder="Enter what you want to learn"
                         className="border-2 border-gray-300 p-2 rounded resize-y"
                         rows={4}
@@ -222,13 +247,15 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                 showResult && (
                     <div className="flex flex-col items-center space-y-4">
                         <ResultDisplay
-                           front={displayWord}
+                           front={front}
+                           back={back}
                            translation={translation}
                            examples={examples}
                            imageUrl={imageUrl}
                            onNewImage={handleNewImage}
                            onNewExamples={handleNewExamples}
                            onSave={handleSave}
+                           mode={mode}
                         />
                     </div>
                 )

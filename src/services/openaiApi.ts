@@ -144,3 +144,104 @@ export const getImageUrl = async (openai: OpenAIApi, word: string): Promise<stri
         return null;
     }
 };
+
+const getLangaugeNameText = async (apiKey: string, text: string): Promise<string | null> => {
+    try {
+        const body = {
+            'model': 'gpt-3.5-turbo',
+            'messages': [
+                {'role': 'system', 'content': 'You are langauage expert'},
+                {'role': 'user', 'content': `What is the name of this language: ${text}. Give only name of this language in one word`}
+            ],
+            'max_tokens': 600
+        };
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        return data.choices[0]?.message?.content?.trim() ?? null;
+    } catch (error) {
+        console.error('Error during generating back side of the Anki card:', error);
+        return null;
+    }
+}
+
+export const generateAnkiFront = async (apiKey: string, text: string): Promise<string | null> => {
+    const langauage = await getLangaugeNameText(apiKey, text)
+
+    try {
+        const body = {
+            'model': 'gpt-3.5-turbo',
+            'messages': [
+                {
+                    'role': 'system', 
+                    'content': `You generate a question based on the text entered. You answer should be in ${langauage}`},
+                {
+                    'role': 'user', 
+                    'content': `Give a main question of this text: ${text}'. You answer should be in ${langauage}`
+                }
+            ],
+            'max_tokens': 80
+        };
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        return data.choices[0]?.message?.content?.trim() ?? null;
+    } catch (error) {
+        console.error('Error during generating front side of the Anki card:', error);
+        return null;
+    }
+};
+
+
+export const generateAnkiBack = async (apiKey: string, text: string): Promise<string | null> => {
+    const langauage = await getLangaugeNameText(apiKey, text)
+
+    try {
+        const body = {
+            'model': 'gpt-3.5-turbo',
+            'messages': [
+                {
+                    'role': 'system', 
+                    'content': `You generate a key point based on the text entered. For back of flash card. You answer should be in ${langauage}`
+                },
+                {
+                    'role': 'user', 
+                    'content': `Anilize text. Highlight the key points from this text. Put them in a list of senteses with dash points. 
+                                Text: '${text}'. You answer should be in ${langauage}. Key points should be competed and make sence`
+                }
+            ],
+            'max_tokens': 1500
+        };
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        return data.choices[0]?.message?.content?.trim() ?? null;
+    } catch (error) {
+        console.error('Error during generating back side of the Anki card:', error);
+        return null;
+    }
+}

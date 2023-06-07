@@ -16,6 +16,17 @@ function App() {
     const dispatch = useDispatch();
 
     useEffect(() => {
+        const myDiv = document.getElementById('sidebar');
+        if (myDiv) {
+            if(visibleSideBar) {
+                myDiv.style.width = '350px';
+            } else {
+                myDiv.style.width = '20px';
+            }
+        }
+    }, [visibleSideBar]);
+
+    useEffect(() => {
         instantiateStore()
           .then((resolvedStore) => {
             setStore(resolvedStore);
@@ -37,20 +48,18 @@ function App() {
     const toggleVisibility = () => dispatch(setVisibleSideBar(!visibleSideBar));
 
     return (
-        <div className="App" style={{backgroundColor: 'white', height: '100%', display: 'flex', flexDirection: 'row', position: 'absolute', right: 0, top: 0, width: visibleSideBar ? '350px' : '20px' }}>
+        <div className="App" style={{backgroundColor: 'white', height: '100%', display: 'flex', flexDirection: 'row', position: 'absolute', right: 0, top: 0, width: visibleSideBar ? '350px' : '20px', pointerEvents: visibleSideBar ? 'auto' : 'none' }}>
             <div style={{ flex: '1 1 auto', overflow: 'scroll', display: visibleSideBar ? 'block' : 'none' }}>
                 <header className="App-header">
                     {!currentPage && <CreateCard onSettingsClick={() => handlePageChange('settings')} />}
                     {currentPage === 'settings' && <Settings onBackClick={() => handlePageChange('')} popup={false} />}
                 </header>
             </div>
-            <div onClick={toggleVisibility} style={{ width: '20px', height: '100%', backgroundColor: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderLeft: '1px solid #777', borderRight: '1px solid #777', zIndex: 10000 }}>
+            <div onClick={toggleVisibility} style={{ width: '20px', height: '100%', backgroundColor: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderLeft: '1px solid #777', borderRight: '1px solid #777', zIndex: 10000, pointerEvents: 'auto' }}>
                 {visibleSideBar ? <FiChevronRight size={20} color="black" /> : <FiChevronLeft size={20} color="black" />}
             </div>
         </div>
     );
 }
-
-
 
 export default App;
