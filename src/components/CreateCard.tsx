@@ -57,8 +57,8 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     ];
 
     const handleNewImage = async () => {
-        const descriptionImage = await getDescriptionImage(openai, text);
-        const newImageUrl = await getImageUrl(openai, descriptionImage);
+        const descriptionImage = await getDescriptionImage(openAiKey, text);
+        const newImageUrl = await getImageUrl(openai, openAiKey, descriptionImage);
         dispatch(setImageUrl(newImageUrl));
         if (newImageUrl) {
             const imageBase64 = await imageUrlToBase64(newImageUrl);
@@ -67,7 +67,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     };
 
     const handleNewExamples = async () => {
-        const newExamples = await getExamples(openai, text, translateToLanguage, true);
+        const newExamples = await getExamples(openAiKey, text, translateToLanguage, true);
         dispatch(setExamples(newExamples));
     };
 
@@ -136,10 +136,10 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     
         if (mode === Modes.LanguageLearning) {
             setFront(text);
-            const translatedText = await translateText(openai, text, translateToLanguage);
-            const examples = await getExamples(openai, text, translateToLanguage, true);
-            const descriptionImage = await getDescriptionImage(openai, text);
-            const imageUrl = await getImageUrl(openai, descriptionImage);
+            const translatedText = await translateText(openAiKey, text, translateToLanguage);
+            const examples = await getExamples(openAiKey, text, translateToLanguage, true);
+            const descriptionImage = await getDescriptionImage(openAiKey, text);
+            const imageUrl = await getImageUrl(openai, openAiKey, descriptionImage);
             if (imageUrl) {
                 const imageBase64 = await imageUrlToBase64(imageUrl);
                 dispatch(setImage(imageBase64));
@@ -148,7 +148,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
             dispatch(setText(text));
             dispatch(setTranslation(translatedText));
             dispatch(setExamples(examples));
-            (setImageUrl(imageUrl));
+            dispatch(setImageUrl(imageUrl));
     
             setLoading(false);
             if (translatedText) {
