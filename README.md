@@ -68,3 +68,7 @@ For more information about AnkiConnect, visit the [AnkiConnect homepage](https:/
 Once the extension is installed, you will need to configure it with your OpenAI API key and (optionally) AnkiConnect settings. To do this, click on the Flash Cards + GPT extension icon and go to the settings page.
 
 ![Extension Settings](</screenshots/settings.png>)
+
+## Support
+
+If you have any issues or questions, please create a GitHub [Issues](https://github.com/dirusanov/flash-card-gpt/issues).
