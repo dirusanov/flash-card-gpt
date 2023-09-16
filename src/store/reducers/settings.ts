@@ -1,6 +1,7 @@
 import {
     SET_ANKI_CONNECT_API_KEY,
     SET_ANKI_CONNECT_URL,
+    SET_HUGGING_FACE_API_KEY,
     SET_OPEN_AI_KEY,
     SET_SELECTED_MODE,
     SET_TRANSLATE_TO_LANGUAGE,
@@ -17,6 +18,7 @@ interface SettingsState {
     ankiConnectApiKey: string
     useAnkiConnect: boolean
     visibleSideBar: boolean
+    huggingFaceApiKey: string
 }
 
 const initialState: SettingsState = {
@@ -27,6 +29,7 @@ const initialState: SettingsState = {
     ankiConnectApiKey: '',
     useAnkiConnect: true,
     visibleSideBar: true,
+    huggingFaceApiKey: '',
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {
@@ -65,6 +68,11 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 visibleSideBar: action.visible,
+            };
+        case SET_HUGGING_FACE_API_KEY:
+            return {
+                ...state,
+                huggingFaceApiKey: action.payload,
             };
         default:
             return state;

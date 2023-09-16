@@ -163,7 +163,7 @@ export const getDescriptionImage = async (
   }
 };
 
-export const getImageUrlRequest = async (
+const getImageUrlRequest = async (
   openai: OpenAIApi,
   description: string
 ): Promise<string | null> => {
@@ -182,7 +182,7 @@ export const getImageUrlRequest = async (
   }
 };
 
-export const getImageUrl = async (openai: OpenAIApi, apiKey: string, word: string): Promise<string | null> => {
+export const getOpenAiImageUrl = async (openai: OpenAIApi, apiKey: string, word: string): Promise<string | null> => {
     try {
         const isAbstractWord = await isAbstract(apiKey, word);
 

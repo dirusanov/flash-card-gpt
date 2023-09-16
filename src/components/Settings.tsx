@@ -1,6 +1,6 @@
 import React from 'react';
 import {useDispatch, useSelector} from 'react-redux';
-import {setAnkiConnectApiKey, setAnkiConnectUrl, setOpenAiKey, setUseAnkiConnect} from "../store/actions/settings";
+import {setAnkiConnectApiKey, setAnkiConnectUrl, setHuggingFaceApiKey, setOpenAiKey, setUseAnkiConnect} from "../store/actions/settings";
 import {RootState} from "../store";
 
 
@@ -18,6 +18,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup=false }) => {
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
+    const haggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
 
     const handleOpenAiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         dispatch(setOpenAiKey(event.target.value))
@@ -33,6 +34,10 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup=false }) => {
 
     const handleAnkiConnectApiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         dispatch(setAnkiConnectApiKey(event.target.value))
+    };
+
+    const handleHuggingFaceApiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        dispatch(setHuggingFaceApiKey(event.target.value))
     };
 
     const handleBackClick = () => {
@@ -55,14 +60,25 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup=false }) => {
                     <label htmlFor="ankiConnectUrl" className="block font-bold mb-2">AnkiConnect URL</label>
                     <input type="text" id="ankiConnectUrl" value={ankiConnectUrl}
                            onChange={handleAnkiConnectUrlChange}
-                           className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"/>
-                    <label htmlFor="ankiConnectApiKey" className="block font-bold mb-2">AnkiConnect API Key
-                        (optional)</label>
+                           className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
+                    />
+                    <label htmlFor="ankiConnectApiKey" className="block font-bold mb-2">AnkiConnect API Key (optional)</label>
                     <input type="text" id="ankiConnectApiKey" value={ankiConnectApiKey}
                            onChange={handleAnkiConnectApiKeyChange}
-                           className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"/>
+                           className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
+                    />
                 </div>
             )}
+            <label htmlFor="haggingFaceApiKey" className="block font-bold mb-2">Hugging Face API Key</label>
+            <br/>
+            <em>(for image generation)</em>
+            <input 
+                type="text" 
+                id="huggingFaceApiKey" 
+                value={haggingFaceApiKey}
+                onChange={handleHuggingFaceApiKeyChange}
+                className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
+            />
             {!popup && (
                 <div className="flex flex-col space-y-4 w-full">
                     <button

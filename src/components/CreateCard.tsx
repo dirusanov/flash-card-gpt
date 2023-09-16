@@ -9,11 +9,12 @@ import {RootState} from "../store";
 import {fetchDecks, setDeckId} from "../store/actions/decks";
 import {saveAnkiCards, setBack, setExamples, setImage, setImageUrl, setTranslation, setText} from "../store/actions/cards";
 import {CardLangLearning, CardGeneral, imageUrlToBase64} from "../services/ankiService";
-import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, getImageUrl, translateText} from "../services/openaiApi";
+import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, getOpenAiImageUrl, translateText} from "../services/openaiApi";
 import {setMode, setTranslateToLanguage} from "../store/actions/settings";
 import {Modes} from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import { Configuration, OpenAIApi } from 'openai';
+import { generateImageHuggingface } from '../services/huggingFaceApi';
 
 
 interface CreateCardProps {
@@ -37,6 +38,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const [loading, setLoading] = useState(false);
     const [displayWord, setDisplayWord] = useState('');
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
+    const haggingFaceAiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
     const configuration = new Configuration({
         apiKey: openAiKey,
     });
@@ -58,11 +60,22 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
 
     const handleNewImage = async () => {
         const descriptionImage = await getDescriptionImage(openAiKey, text);
-        const newImageUrl = await getImageUrl(openai, openAiKey, descriptionImage);
-        dispatch(setImageUrl(newImageUrl));
-        if (newImageUrl) {
-            const imageBase64 = await imageUrlToBase64(newImageUrl);
-            dispatch(setImage(imageBase64));
+        let newImageUrl: string | null = null;
+        let imageBase64: string | null
+        if (haggingFaceAiKey) {
+            console.log('HUGGING LOL')
+            console.log(descriptionImage)
+            imageBase64 = await generateImageHuggingface(haggingFaceAiKey, descriptionImage);
+            dispatch(setImage(image));
+            newImageUrl = 'data:image/jpeg;base64,' + imageBase64.toString();
+            dispatch(setImageUrl(newImageUrl));
+        } else {
+            newImageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage);
+            if (newImageUrl) {
+                dispatch(setImageUrl(newImageUrl));
+                imageBase64 = await imageUrlToBase64(newImageUrl);
+                dispatch(setImage(imageBase64));
+            }
         }
     };
 
@@ -139,16 +152,25 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
             const translatedText = await translateText(openAiKey, text, translateToLanguage);
             const examples = await getExamples(openAiKey, text, translateToLanguage, true);
             const descriptionImage = await getDescriptionImage(openAiKey, text);
-            const imageUrl = await getImageUrl(openai, openAiKey, descriptionImage);
-            if (imageUrl) {
-                const imageBase64 = await imageUrlToBase64(imageUrl);
-                dispatch(setImage(imageBase64));
+            let imageUrl: string | null = null;
+            let imageBase64: string | null
+            if (haggingFaceAiKey) {
+                console.log('HUGGING FACE!!!!!!')
+                const imageBase64 = await generateImageHuggingface(haggingFaceAiKey, descriptionImage);
+                dispatch(setImage(image));
+                imageUrl = 'data:image/jpeg;base64,' + imageBase64.toString();
+                dispatch(setImageUrl(imageUrl));
+            } else {
+                imageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage);
+                if (imageUrl) {
+                    dispatch(setImageUrl(imageUrl));
+                    imageBase64 = await imageUrlToBase64(imageUrl);
+                    dispatch(setImage(imageBase64));
+                }
             }
-    
             dispatch(setText(text));
             dispatch(setTranslation(translatedText));
             dispatch(setExamples(examples));
-            dispatch(setImageUrl(imageUrl));
     
             setLoading(false);
             if (translatedText) {
