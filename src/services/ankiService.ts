@@ -81,7 +81,7 @@ export const createAnkiCards = async (
             };
         } else if (mode === Modes.GeneralTopic && 'back' in card) {
             fields = {
-                Front: card.text,
+                Front: card.front,
                 Back: format_back_general(card.back),
             };
         }
