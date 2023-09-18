@@ -240,21 +240,21 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                                 </option>
                             ))}
                         </select>
+                        <div className="flex items-center mt-2 space-x-4 self-start">    
+                            <label htmlFor="generateImage" className="text-gray-700 font-bold">Image:</label>
+                            <div className="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input 
+                                    type="checkbox" 
+                                    id="generateImage" 
+                                    checked={shouldGenerateImage} 
+                                    onChange={handleImageToggle}
+                                    className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                                />
+                                <label htmlFor="generateImage" className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                            </div>
+                        </div>
                     </div>
                 )}
-                <div className="flex items-center mt-2 space-x-4 self-start">    
-                    <label htmlFor="generateImage" className="text-gray-700 font-bold">Image:</label>
-                    <div className="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                        <input 
-                            type="checkbox" 
-                            id="generateImage" 
-                            checked={shouldGenerateImage} 
-                            onChange={handleImageToggle}
-                            className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
-                        />
-                        <label htmlFor="generateImage" className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                    </div>
-                </div>
                 {useAnkiConnect && decks && (
                     <div className="flex flex-col items-center w-full">
                         <label htmlFor="language" className="text-gray-700 font-bold">Decks:</label>

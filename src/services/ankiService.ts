@@ -33,14 +33,15 @@ function format_back_lang_learning(card: CardLangLearning): string {
         .map((ex) => format_example(ex[0], card.text, ex[1]))
         .join('<br><br>');
 
-    const imageTag = card.image_base64
-        ? `<img src='${card.image_base64}' alt=''/>`
+    const backgroundImageDiv = card.image_base64
+        ? `<div style='background-image: url("${card.image_base64}"); background-size: cover; background-position: center; background-repeat: 
+            no-repeat; width: 350px; height: 350px; margin: 0 auto;'></div>`
         : '';
 
     return `
         <b>${card.translation}</b>
         <br><br>${formatted_examples}<br><br>
-        ${imageTag}
+        ${backgroundImageDiv}
     `;
 }
 
