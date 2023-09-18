@@ -12,9 +12,29 @@ interface ResultDisplayProps {
     onNewExamples: () => void;
     onSave: () => void;
     mode: Modes; 
+    loadingNewImage: boolean
+    loadingNewExamples: boolean
+    loadingSave: boolean
+    shouldGenerateImage: boolean
 }
 
-const ResultDisplay: React.FC<ResultDisplayProps> = ({ front, back, translation, examples, imageUrl, onNewImage, onNewExamples, onSave, mode }) => {
+const ResultDisplay: React.FC<ResultDisplayProps> = (
+        { 
+            front, 
+            back, 
+            translation, 
+            examples, 
+            imageUrl, 
+            onNewImage, 
+            onNewExamples, 
+            onSave, 
+            mode, 
+            loadingNewImage, 
+            loadingNewExamples, 
+            loadingSave, 
+            shouldGenerateImage 
+        }
+    ) => {
     return (
         <div className="bg-white p-4 rounded shadow-md w-full max-w-md">
             {front && (
@@ -58,26 +78,38 @@ const ResultDisplay: React.FC<ResultDisplayProps> = ({ front, back, translation,
                         </div>
                     )}
                     <hr className="my-4 border-gray-300" />
-                    {imageUrl && (
+                    {shouldGenerateImage && imageUrl && (
                         <div className="mb-4">
                             <img src={imageUrl} alt="" className="rounded" />
                         </div>
                     )}
                     <div className="flex space-x-4">
                         {imageUrl && (
-                            <button onClick={onNewImage} className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded w-full max-w-sm">
+                            <button 
+                                onClick={onNewImage} 
+                                disabled={loadingNewImage}
+                                className={`text-white font-bold py-2 px-4 rounded w-full max-w-sm ${loadingNewImage ? 'loading-btn bg-yellow-500' : 'bg-yellow-500 hover:bg-yellow-700'}`}
+                            >
                                 New Image
                             </button>
                         )}
                         {examples.length > 0 && (
-                            <button onClick={onNewExamples} className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded w-full max-w-sm">
+                            <button 
+                                onClick={onNewExamples} 
+                                disabled={loadingNewExamples}
+                                className={`text-white font-bold py-2 px-4 rounded w-full max-w-sm ${loadingNewExamples ? 'loading-btn bg-yellow-500' : 'bg-yellow-500 hover:bg-yellow-700'}`}
+                            >
                                 New Examples
                             </button>
                         )}
                     </div>
                 </>
             )}
-            <button onClick={onSave} className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded w-full mt-4">
+            <button 
+                onClick={onSave} 
+                disabled={loadingSave}
+                className={`text-white font-bold py-2 px-4 rounded w-full mt-4 ${loadingSave ? 'loading-btn bg-green-500' : 'bg-green-500 hover:bg-green-700'}`}
+            >
                 Save
             </button>
         </div>

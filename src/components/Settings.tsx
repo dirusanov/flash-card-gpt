@@ -48,8 +48,13 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup=false }) => {
     return (
         <div className="settings p-4">
             <label htmlFor="apiKey" className="block font-bold mb-2">OpenAI API Key</label>
-            <input type="text" id="apiKey" value={openAiKey} onChange={handleOpenAiKeyChange}
-                   className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"/>
+            <input 
+                type="text" 
+                id="apiKey" 
+                value={openAiKey} 
+                onChange={handleOpenAiKeyChange}
+                className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
+            />
             <div className="flex items-center mb-4">
                 {/* <input type="checkbox" id="useAnkiConnect" checked={useAnkiConnect}
                        onChange={handleUseAnkiConnectChange}/> */}
@@ -58,14 +63,20 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup=false }) => {
             {true && (
                 <div className="anki-connect-settings border-l-4 border-blue-500 pl-4 mb-4">
                     <label htmlFor="ankiConnectUrl" className="block font-bold mb-2">AnkiConnect URL</label>
-                    <input type="text" id="ankiConnectUrl" value={ankiConnectUrl}
-                           onChange={handleAnkiConnectUrlChange}
-                           className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
+                    <input 
+                        type="text" 
+                        id="ankiConnectUrl" 
+                        value={ankiConnectUrl}
+                        onChange={handleAnkiConnectUrlChange}
+                        className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
                     />
                     <label htmlFor="ankiConnectApiKey" className="block font-bold mb-2">AnkiConnect API Key (optional)</label>
-                    <input type="text" id="ankiConnectApiKey" value={ankiConnectApiKey}
-                           onChange={handleAnkiConnectApiKeyChange}
-                           className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
+                    <input 
+                        type="text" 
+                        id="ankiConnectApiKey" 
+                        value={ankiConnectApiKey !== null ? ankiConnectApiKey : ""}
+                        onChange={handleAnkiConnectApiKeyChange}
+                        className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
                     />
                 </div>
             )}

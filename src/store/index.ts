@@ -1,5 +1,5 @@
 import { setupReduxed } from 'reduxed-chrome-storage';
-import { createStore, applyMiddleware, combineReducers, Store } from 'redux';
+import { createStore, applyMiddleware, combineReducers } from 'redux';
 import thunk from 'redux-thunk';
 import decksReducer from "./reducers/decks";
 import cardsReducer from "./reducers/cards";
@@ -14,8 +14,6 @@ const rootReducer = combineReducers({
 });
 
 export type RootState = ReturnType<typeof rootReducer>;
-
-let store: Store | null = null; // Добавьте переменную в области видимости модуля
 
 const storeCreator = (preloadedState?: RootState) => 
   createStore(rootReducer, preloadedState, applyMiddleware(thunk));

@@ -13,7 +13,7 @@ export const SET_BACK = 'SET_BACK';
 export const saveAnkiCards = (
         mode: Modes, 
         ankiConnectUrl: string, 
-        ankiConnectApiKey: string, 
+        ankiConnectApiKey: string | null = null, 
         deckName: string, 
         model_name: string, 
         cards: CardLangLearning[] | CardGeneral[]

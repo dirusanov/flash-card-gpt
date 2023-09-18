@@ -57,7 +57,7 @@ function format_back_general(back: string): string {
 }
 
 export const createAnkiCards = async (
-        mode: Modes, ankiConnectUrl: string, ankiConnectApiKey: string, deckName: string, modelName: string, cards: CardLangLearning[] | CardGeneral[]
+        mode: Modes, ankiConnectUrl: string, ankiConnectApiKey: string | null, deckName: string, modelName: string, cards: CardLangLearning[] | CardGeneral[]
     ) => {
     // Создаем новую колоду, если ее еще нет
     const createDeckPayload = JSON.stringify({

@@ -6,6 +6,7 @@ export const SET_ANKI_CONNECT_API_KEY = 'SET_ANKI_CONNECT_API_KEY';
 export const SET_USE_ANKI_CONNECT = 'SET_USE_ANKI_CONNECT';
 export const SET_VISIBLE_SIDEBAR = 'SET_VISIBLE_SIDEBAR';
 export const SET_HUGGING_FACE_API_KEY = 'SET_HUGGING_FACE_API_KEY';
+export const SET_SHOULD_GENERATE_IMAGE = 'SET_SHOULD_GENERATE_IMAGE';
 
 
 export const setOpenAiKey = (openAiKey: string) => ({
@@ -46,4 +47,9 @@ export const setVisibleSideBar = (visible: boolean) => ({
 export const setHuggingFaceApiKey = (huggingFaceApiKey: string) => ({
     type: SET_HUGGING_FACE_API_KEY,
     payload: huggingFaceApiKey,
+});
+
+export const setShouldGenerateImage = (shouldGenerateImage: boolean) => ({
+    type: SET_SHOULD_GENERATE_IMAGE,
+    payload: shouldGenerateImage,
 });

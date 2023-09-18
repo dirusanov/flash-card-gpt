@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+import { delay } from '../utils'
+
 const HUGGINGFACE_API_URLS = [
     // "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
     // "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-refiner-1.0",
@@ -16,7 +18,7 @@ const HUGGINGFACE_API_URLS = [
 ];
 
 
-export async function generateImageHuggingface(apiKey: string, prompt: string): Promise<string> {
+export async function generateImageHuggingface(apiKey: string, prompt: string): Promise<ArrayBuffer> {
     let apiUrlsIterator = HUGGINGFACE_API_URLS[Symbol.iterator]();
     
     while (true) {
@@ -47,17 +49,22 @@ export async function generateImageHuggingface(apiKey: string, prompt: string): 
         };
 
         try {
-            const response = await axios.post(currentApiUrl, data, { headers });
+            const response = await axios.post(currentApiUrl, data, { headers, responseType: 'arraybuffer' });
             if (response.status === 503) {
                 console.log(`Model is currently loading at ${currentApiUrl}. Switching API version...`);
+                await delay(15000);  // Pause for 15 seconds
                 continue;
             } else if (response.status !== 200) {
+                await delay(15000);  // Pause for 15 seconds
                 throw new Error(`Request failed with status code ${response.status}: ${response.statusText}`);
             }
 
-            return response.data as string;
+            return response.data;
         } catch (error) {
             console.error('Error:', error);
+            break; // Это завершит выполнение цикла
         }
     }
+
+    throw new Error("Failed to generate image after multiple attempts.");
 }

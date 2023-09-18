@@ -4,6 +4,7 @@ import {
     SET_HUGGING_FACE_API_KEY,
     SET_OPEN_AI_KEY,
     SET_SELECTED_MODE,
+    SET_SHOULD_GENERATE_IMAGE,
     SET_TRANSLATE_TO_LANGUAGE,
     SET_USE_ANKI_CONNECT,
     SET_VISIBLE_SIDEBAR,
@@ -15,10 +16,11 @@ interface SettingsState {
     mode: Modes;
     translateToLanguage: string
     ankiConnectUrl: string
-    ankiConnectApiKey: string
+    ankiConnectApiKey: string | null
     useAnkiConnect: boolean
     visibleSideBar: boolean
     huggingFaceApiKey: string
+    shouldGenerateImage: boolean
 }
 
 const initialState: SettingsState = {
@@ -26,10 +28,11 @@ const initialState: SettingsState = {
     mode: Modes.LanguageLearning,
     translateToLanguage: 'ru',
     ankiConnectUrl: 'http://127.0.0.1:8765',
-    ankiConnectApiKey: '',
+    ankiConnectApiKey: null,
     useAnkiConnect: true,
     visibleSideBar: true,
     huggingFaceApiKey: '',
+    shouldGenerateImage: true,
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {
@@ -73,6 +76,11 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 huggingFaceApiKey: action.payload,
+            };
+        case SET_SHOULD_GENERATE_IMAGE:
+            return {
+                ...state,
+                shouldGenerateImage: action.payload,
             };
         default:
             return state;

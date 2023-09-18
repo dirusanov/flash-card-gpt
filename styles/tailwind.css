@@ -1,3 +1,37 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@keyframes stripeSlide {
+    0% {
+        background-position: -1rem 0;
+    }
+    100% {
+        background-position: 1rem 0;
+    }
+}
+
+.loading-btn {
+    background-image: linear-gradient(
+      45deg,
+      transparent 25%,
+      rgba(255, 255, 255, 0.3) 25%,
+      rgba(255, 255, 255, 0.3) 50%,
+      transparent 50%,
+      transparent 75%,
+      rgba(255, 255, 255, 0.3) 75%,
+      rgba(255, 255, 255, 0.3)
+    );
+    background-size: 1rem 1rem;
+    animation: stripeSlide 1s infinite linear;
+}
+
+.toggle-checkbox:checked {
+    top: 0;
+    right: 0;
+    background-color: #3B82F6;
+}
+
+.toggle-checkbox:checked + .toggle-label {
+    background-color: #3B82F6;
+}

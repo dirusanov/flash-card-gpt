@@ -4,17 +4,16 @@ import { useDispatch, useSelector } from 'react-redux';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { FaCog } from 'react-icons/fa';
-import { FaSpinner } from 'react-icons/fa';
 import {RootState} from "../store";
 import {fetchDecks, setDeckId} from "../store/actions/decks";
 import {saveAnkiCards, setBack, setExamples, setImage, setImageUrl, setTranslation, setText} from "../store/actions/cards";
-import {CardLangLearning, CardGeneral, imageUrlToBase64} from "../services/ankiService";
-import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, getOpenAiImageUrl, translateText} from "../services/openaiApi";
-import {setMode, setTranslateToLanguage} from "../store/actions/settings";
+import {CardLangLearning, CardGeneral} from "../services/ankiService";
+import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
+import { setMode, setShouldGenerateImage, setTranslateToLanguage} from "../store/actions/settings";
 import {Modes} from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import { Configuration, OpenAIApi } from 'openai';
-import { generateImageHuggingface } from '../services/huggingFaceApi';
+import { getImage } from '../apiUtils';
 
 
 interface CreateCardProps {
@@ -35,10 +34,13 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
-    const [loading, setLoading] = useState(false);
-    const [displayWord, setDisplayWord] = useState('');
+    const [loadingGetResult, setLoadingGetResult] = useState(false);
+    const [loadingNewImage, setLoadingNewImage] = useState(false);
+    const [loadingNewExamples, setLoadingNewExamples] = useState(false);
+    const [loadingSave, setLoadingSave] = useState(false);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
-    const haggingFaceAiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
+    const haggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
+    const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
     const configuration = new Configuration({
         apiKey: openAiKey,
     });
@@ -59,36 +61,51 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     ];
 
     const handleNewImage = async () => {
+        setLoadingNewImage(true);
         const descriptionImage = await getDescriptionImage(openAiKey, text);
-        let newImageUrl: string | null = null;
-        let imageBase64: string | null
-        if (haggingFaceAiKey) {
-            console.log('HUGGING LOL')
-            console.log(descriptionImage)
-            imageBase64 = await generateImageHuggingface(haggingFaceAiKey, descriptionImage);
-            dispatch(setImage(image));
-            newImageUrl = 'data:image/jpeg;base64,' + imageBase64.toString();
-            dispatch(setImageUrl(newImageUrl));
-        } else {
-            newImageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage);
-            if (newImageUrl) {
-                dispatch(setImageUrl(newImageUrl));
-                imageBase64 = await imageUrlToBase64(newImageUrl);
-                dispatch(setImage(imageBase64));
-            }
+        const { imageUrl, imageBase64 } = await getImage(haggingFaceApiKey, openai, openAiKey, descriptionImage);
+
+        if (imageUrl) {
+            dispatch(setImageUrl(imageUrl));
         }
-    };
+        if (imageBase64) {
+            dispatch(setImage(imageBase64));
+        }
+        setLoadingNewImage(false);
+    }
 
     const handleNewExamples = async () => {
+        setLoadingNewExamples(true)
         const newExamples = await getExamples(openAiKey, text, translateToLanguage, true);
         dispatch(setExamples(newExamples));
+        setLoadingNewExamples(false)
     };
 
     const handleSettingsClick = () => {
         onSettingsClick();
     };
 
+    const handleImageToggle = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        // TODO если не была нажата Get Result, то возвращать тоже изображение
+        const isChecked = e.target.checked;
+        dispatch(setShouldGenerateImage(isChecked));
+    
+        if (isChecked) {
+            const descriptionImage = await getDescriptionImage(openAiKey, text);
+            const { imageUrl, imageBase64 } = await getImage(haggingFaceApiKey, openai, openAiKey, descriptionImage)
+            if (imageUrl) {
+                dispatch(setImageUrl(imageUrl))
+            }
+            if (imageBase64) {
+                dispatch(setImage(imageBase64))
+            }
+        } else {
+            dispatch(setImageUrl(null))
+        }
+    }
+
     const handleSave = () => {
+        setLoadingSave(true)
         const modelName = 'Basic';
 
         if (mode == Modes.LanguageLearning) {
@@ -116,6 +133,9 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
             ];
             dispatch(saveAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
         }
+        setTimeout(() => {
+            setLoadingSave(false);
+        }, 1000);     
     };
 
     useEffect(() => {
@@ -145,34 +165,29 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setShowResult(false);
-        setLoading(true);
+        setLoadingGetResult(true);
     
         if (mode === Modes.LanguageLearning) {
             setFront(text);
-            const translatedText = await translateText(openAiKey, text, translateToLanguage);
-            const examples = await getExamples(openAiKey, text, translateToLanguage, true);
-            const descriptionImage = await getDescriptionImage(openAiKey, text);
-            let imageUrl: string | null = null;
-            let imageBase64: string | null
-            if (haggingFaceAiKey) {
-                console.log('HUGGING FACE!!!!!!')
-                const imageBase64 = await generateImageHuggingface(haggingFaceAiKey, descriptionImage);
-                dispatch(setImage(image));
-                imageUrl = 'data:image/jpeg;base64,' + imageBase64.toString();
-                dispatch(setImageUrl(imageUrl));
-            } else {
-                imageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage);
+            const translatedText = await translateText(openAiKey, text, translateToLanguage)
+            const examples = await getExamples(openAiKey, text, translateToLanguage, true)
+            if (shouldGenerateImage) {
+                const descriptionImage = await getDescriptionImage(openAiKey, text);
+                const { imageUrl, imageBase64 } = await getImage(haggingFaceApiKey, openai, openAiKey, descriptionImage)
+
                 if (imageUrl) {
-                    dispatch(setImageUrl(imageUrl));
-                    imageBase64 = await imageUrlToBase64(imageUrl);
-                    dispatch(setImage(imageBase64));
+                    dispatch(setImageUrl(imageUrl))
+                }
+                if (imageBase64) {
+                    dispatch(setImage(imageBase64))
                 }
             }
+            
             dispatch(setText(text));
             dispatch(setTranslation(translatedText));
             dispatch(setExamples(examples));
     
-            setLoading(false);
+            setLoadingGetResult(false);
             if (translatedText) {
                 setShowResult(true);
             }
@@ -184,15 +199,13 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                 setFront(front)
                 dispatch(setBack(back)) 
             }
-            setLoading(false);
+            setLoadingGetResult(false);
             setShowResult(true);
         }
     };
     
-
     return (
-        <div className="flex flex-col items-center justify-center space-y-4 w-full px-4 h-screen overflow-scroll">
-
+        <div className="flex flex-col items-center justify-start space-y-4 w-full px-4 h-screen">
             <div className="flex flex-col items-center space-y-4 w-full"> {/* added w-full here */}
                 <button
                     onClick={handleSettingsClick}
@@ -229,6 +242,19 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                         </select>
                     </div>
                 )}
+                <div className="flex items-center mt-2 space-x-4 self-start">    
+                    <label htmlFor="generateImage" className="text-gray-700 font-bold">Image:</label>
+                    <div className="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                        <input 
+                            type="checkbox" 
+                            id="generateImage" 
+                            checked={shouldGenerateImage} 
+                            onChange={handleImageToggle}
+                            className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                        />
+                        <label htmlFor="generateImage" className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                    </div>
+                </div>
                 {useAnkiConnect && decks && (
                     <div className="flex flex-col items-center w-full">
                         <label htmlFor="language" className="text-gray-700 font-bold">Decks:</label>
@@ -255,32 +281,32 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                     />
                     <button
                         type="submit"
-                        className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                        disabled={loadingGetResult}
+                        className={`text-white font-bold py-2 px-4 rounded 
+                            ${loadingGetResult ? 'loading-btn bg-blue-500' : 'bg-blue-500 hover:bg-blue-700'}`}
                     >
                         Get Result
                     </button>
                 </form>
             </div>
-            {loading ? (
-                <div className="flex items-center justify-center">
-                    <FaSpinner className="animate-spin" />
+            {showResult && (
+                <div className="flex flex-col items-center space-y-4">
+                    <ResultDisplay
+                        front={front}
+                        back={back}
+                        translation={translation}
+                        examples={examples}
+                        imageUrl={imageUrl}
+                        onNewImage={handleNewImage}
+                        onNewExamples={handleNewExamples}
+                        onSave={handleSave}
+                        mode={mode}
+                        loadingNewImage={loadingNewImage}
+                        loadingNewExamples={loadingNewExamples}
+                        loadingSave={loadingSave}
+                        shouldGenerateImage={shouldGenerateImage}
+                    />
                 </div>
-            ) : (
-                showResult && (
-                    <div className="flex flex-col items-center space-y-4">
-                        <ResultDisplay
-                           front={front}
-                           back={back}
-                           translation={translation}
-                           examples={examples}
-                           imageUrl={imageUrl}
-                           onNewImage={handleNewImage}
-                           onNewExamples={handleNewExamples}
-                           onSave={handleSave}
-                           mode={mode}
-                        />
-                    </div>
-                )
             )}
         </div>
     );
