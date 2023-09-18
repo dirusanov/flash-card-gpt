@@ -11,7 +11,7 @@ export const translateText = async (
       messages: [
         {
           role: 'system',
-          content: `Translate the following text to ${translateToLanguage}`,
+          content: `Translate the following text to ${translateToLanguage}. If it's one word give several translation options if appropriate`,
         },
         { role: 'user', content: text },
       ],
