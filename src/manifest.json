@@ -20,7 +20,9 @@
   ],
   "permissions": [
     "storage",
-    "runtime"
+    "runtime",
+    "https://api.openai.com/*",
+    "https://api-inference.huggingface.co/*"
   ],
   "devtools_page": "devtools.html",
   "web_accessible_resources": [
