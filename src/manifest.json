@@ -14,7 +14,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://api.openai.com/*", "https://api-inference.huggingface.co/*"],
+      "matches": ["http://*/*", "https://*/*", "<all_urls>"],
       "js": ["contentScript.bundle.js"]
     }
   ],
