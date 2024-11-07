@@ -18,3 +18,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     return true;  // Indicates that the response will be sent asynchronously
 });
+
+console.log('Background script has been loaded.');
+
+chrome.action.onClicked.addListener((tab) => {
+  console.log('Extension icon clicked. Sending message to content script...');
+  chrome.tabs.sendMessage(tab.id, { action: 'toggleSidebar' }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error sending message:', chrome.runtime.lastError.message);
+    } else {
+      console.log('Response from content script:', response);
+    }
+  });
+});

@@ -5,7 +5,7 @@
   "options_page": "options.html",
   "background": { "service_worker": "background.bundle.js" },
   "action": {
-    "default_popup": "popup.html"
+    "default_title": "Toggle Sidebar"
   },
   "icons": {
     "16": "logo.png",
@@ -25,7 +25,10 @@
   "devtools_page": "devtools.html",
   "web_accessible_resources": [
     {
-      "resources": ["logo.png", "tailwind.css"],
+      "resources": [
+        "assets/img/*.png",
+        "tailwind.css"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

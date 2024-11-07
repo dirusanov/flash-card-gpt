@@ -1,4 +1,4 @@
-import { Modes } from "../constants";
+import { Modes } from '../constants';
 
 function format_example(
     example: string,
@@ -125,3 +125,27 @@ export async function imageUrlToBase64(url: string): Promise<string | null> {
         );
     });
 }
+
+interface AnkiResponse {
+    result: string[];
+    error: string | null;
+}
+
+export const fetchDecks = async (apiKey: string | null): Promise<AnkiResponse> => {
+    try {
+        const response = await fetch('http://localhost:8765', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'deckNames', version: 6, key: apiKey }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        return await response.json() as AnkiResponse; // Явно указываем тип
+    } catch (error) {
+        console.error('Error fetching decks:', error);
+        throw error; // Бросаем ошибку для обработки
+    }
+};

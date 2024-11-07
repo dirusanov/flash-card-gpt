@@ -5,9 +5,9 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { FaCog } from 'react-icons/fa';
 import {RootState} from "../store";
-import {fetchDecks, setDeckId} from "../store/actions/decks";
+import {setDeckId} from "../store/actions/decks";
 import {saveAnkiCards, setBack, setExamples, setImage, setImageUrl, setTranslation, setText} from "../store/actions/cards";
-import {CardLangLearning, CardGeneral} from "../services/ankiService";
+import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage} from "../store/actions/settings";
 import {Modes} from "../constants";
@@ -154,7 +154,6 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     }, [dispatch]);    
 
     useEffect(() => {
-        dispatch(fetchDecks(ankiConnectApiKey) as any);
         if (text && translation && examples.length > 0) {
             setShowResult(true);
         } else {

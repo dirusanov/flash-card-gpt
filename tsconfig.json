@@ -16,5 +16,6 @@
     "jsx": "react"
   },
   "include": ["src"],
-  "exclude": ["build", "node_modules"]
+  "exclude": ["build", "node_modules"],
+  "typeRoots": ["node_modules/@types", "src/declarations"]
 }

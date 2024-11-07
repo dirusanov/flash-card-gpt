@@ -4,62 +4,84 @@ import { RootState } from "./store";
 import { setCurrentPage } from "./store/actions/page";
 import CreateCard from './components/CreateCard';
 import Settings from "./components/Settings";
-import { FiChevronRight, FiChevronLeft } from 'react-icons/fi';
 import { instantiateStore } from './store';
-import { setVisibleSideBar } from './store/actions/settings';
 import { ExtendedStore } from 'reduxed-chrome-storage';
+import { fetchDecksSuccess } from './store/actions/decks';
+import { fetchDecks } from './services/ankiService';
+import { setAnkiAvailability } from './store/actions/anki'; // Импорт функции для проверки доступности Anki
 
 function App() {
-    const [store, setStore] = useState<ExtendedStore | null>(null);
-    const currentPage = useSelector((state: RootState) => state.currentPage);
-    const visibleSideBar = useSelector((state: RootState) => state.settings.visibleSideBar);
-    const dispatch = useDispatch();
+  const [store, setStore] = useState<ExtendedStore | null>(null);
+  const isAnkiAvailable = useSelector((state: RootState) => state.anki.isAnkiAvailable)
+  const [isInitialLoad, setIsInitialLoad] = useState(true); // Добавляем флаг первоначальной загрузки
+  const currentPage = useSelector((state: RootState) => state.currentPage);
+  const dispatch = useDispatch();
+  const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
 
-    useEffect(() => {
-        const myDiv = document.getElementById('sidebar');
-        if (myDiv) {
-            if(visibleSideBar) {
-                myDiv.style.width = '350px';
-            } else {
-                myDiv.style.width = '20px';
+  useEffect(() => {
+    const initializeStoreAndCheckAnki = async () => {
+      try {
+        const resolvedStore = await instantiateStore();
+        setStore(resolvedStore);
+        try {
+          const decks = await fetchDecks(ankiConnectApiKey);
+
+          if (decks.error) {
+            console.error('Anki returned an error:', decks.error);
+            dispatch(setAnkiAvailability(false));
+            if (isInitialLoad) {
+              dispatch(setCurrentPage('settings'))
             }
+          } else {
+            dispatch(fetchDecksSuccess(decks.result));
+            dispatch(setAnkiAvailability(true));
+            console.log('Anki is available', currentPage);
+          }
+        } catch (error) {
+          console.error('Anki is unavailable:', error);
+          dispatch(setAnkiAvailability(false));
+          if (isInitialLoad) {
+            dispatch(setCurrentPage('settings'))
+          }
+        } finally {
+          setIsInitialLoad(false)
         }
-    }, [visibleSideBar]);
-
-    useEffect(() => {
-        instantiateStore()
-          .then((resolvedStore) => {
-            setStore(resolvedStore);
-          })
-          .catch((error) => {
-            console.error('Error loading state from Chrome storage:', error);
-          });
-      }, []);
-    
-    
-    if (!store) {
-        return null;  // or some loading state
-    }
-
-    const handlePageChange = (page: string) => {
-        dispatch(setCurrentPage(page));
+      } catch (error) {
+        console.error('Error loading state from Chrome storage:', error);
+      }
     };
 
-    const toggleVisibility = () => dispatch(setVisibleSideBar(!visibleSideBar));
+    initializeStoreAndCheckAnki();
+  }, [dispatch, ankiConnectApiKey, isInitialLoad])
 
-    return (
-        <div className="App" style={{backgroundColor: 'white', height: '100%', display: 'flex', flexDirection: 'row', position: 'absolute', right: 0, top: 0, width: visibleSideBar ? '350px' : '20px', pointerEvents: visibleSideBar ? 'auto' : 'none' }}>
-            <div style={{ flex: '1 1 auto', overflow: 'scroll', display: visibleSideBar ? 'block' : 'none' }}>
-                <header className="App-header">
-                    {!currentPage && <CreateCard onSettingsClick={() => handlePageChange('settings')} />}
-                    {currentPage === 'settings' && <Settings onBackClick={() => handlePageChange('')} popup={false} />}
-                </header>
-            </div>
-            <div onClick={toggleVisibility} style={{ width: '20px', height: '100%', backgroundColor: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderLeft: '1px solid #777', borderRight: '1px solid #777', zIndex: 10000, pointerEvents: 'auto' }}>
-                {visibleSideBar ? <FiChevronRight size={20} color="black" /> : <FiChevronLeft size={20} color="black" />}
-            </div>
-        </div>
-    );
+  if (!store) {
+    return null; // Можно заменить на компонент загрузки
+  }
+
+  const handlePageChange = (page: string) => {
+    dispatch(setCurrentPage(page));
+  };
+
+  return (
+    <div className="App" style={{ backgroundColor: 'white', height: '100%', display: 'flex', flexDirection: 'row', position: 'absolute', right: 0, top: 0, width: '350px' }}>
+      <div style={{ flex: '1 1 auto' }}>
+        <header className="App-header">
+          {/* Показываем Settings при первоначальной загрузке, если Anki недоступен */}
+          {isInitialLoad && !isAnkiAvailable ? (
+            <Settings onBackClick={() => handlePageChange('createCard')} popup={false} />
+          ) : (
+            // Иначе показываем либо CreateCard, либо Settings в зависимости от currentPage
+            currentPage === 'settings' ? (
+              <Settings onBackClick={() => handlePageChange('createCard')} popup={false} />
+            ) : (
+              <CreateCard onSettingsClick={() => handlePageChange('settings')} />
+            )
+          )}
+        </header>
+      </div>
+    </div>
+  );
 }
 
 export default App;
+
