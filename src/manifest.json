@@ -27,6 +27,7 @@
     {
       "resources": [
         "assets/img/*.png",
+        "assets/img/*.svg",
         "tailwind.css"
       ],
       "matches": ["<all_urls>"]

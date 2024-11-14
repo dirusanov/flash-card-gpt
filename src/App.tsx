@@ -63,8 +63,18 @@ function App() {
   };
 
   return (
-    <div className="App" style={{ backgroundColor: 'white', height: '100%', display: 'flex', flexDirection: 'row', position: 'absolute', right: 0, top: 0, width: '350px' }}>
-      <div style={{ flex: '1 1 auto' }}>
+    <div className="App" style={{
+      backgroundColor: 'white',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'row',
+      position: 'absolute',
+      right: 0,
+      top: 0,
+      width: '350px',
+      overflow: 'hidden'
+    }}>
+      <div style={{ flex: '1 1 auto', maxWidth: '350px', overflow: 'hidden' }}>
         <header className="App-header">
           {/* Показываем Settings при первоначальной загрузке, если Anki недоступен */}
           {isInitialLoad && !isAnkiAvailable ? (
@@ -74,7 +84,9 @@ function App() {
             currentPage === 'settings' ? (
               <Settings onBackClick={() => handlePageChange('createCard')} popup={false} />
             ) : (
-              <CreateCard onSettingsClick={() => handlePageChange('settings')} />
+              <div style={{ width: '100%', overflow: 'auto' }}>
+                <CreateCard onSettingsClick={() => handlePageChange('settings')} />
+              </div>
             )
           )}
         </header>

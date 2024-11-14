@@ -3,6 +3,8 @@ import {useDispatch, useSelector} from 'react-redux';
 import {setAnkiConnectApiKey, setAnkiConnectUrl, setHuggingFaceApiKey, setOpenAiKey, setUseAnkiConnect} from "../store/actions/settings";
 import {RootState} from "../store";
 import chatGptLogo from '../assets/img/chat-gpt.png';
+import CopyIcon from '../assets/img/copy-icon.svg';
+
 
 
 interface SettingsProps {
@@ -39,7 +41,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
     onBackClick();
   };
   const imageUrl = chrome.runtime.getURL(chatGptLogo);
-
+  const copyIconUrl = chrome.runtime.getURL(CopyIcon);
 
     return (
       <div className="settings p-4">
@@ -48,7 +50,11 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           <img
             src={imageUrl}
             alt="ChatGPT Logo"
-            style={{ width: '20px', height: '20px', marginTop: '-6px' }} // Жестко заданный размер с небольшим поднятием вверх
+            style={{
+              width: '20px',
+              height: '20px',
+              marginTop: '-6px'
+            }} // Жестко заданный размер с небольшим поднятием вверх
           />
         </div>
         <p className="text-sm mb-2">
@@ -65,15 +71,71 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           />
         </div>
         <div className="">
-            <label htmlFor="ankiConnectApiKey" className="block font-bold mb-2">AnkiConnect API Key (optional)</label>
-            <input
-              type="text"
-              id="ankiConnectApiKey"
-              value={ankiConnectApiKey !== null ? ankiConnectApiKey : ""}
-              onChange={handleAnkiConnectApiKeyChange}
-              className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
-            />
+          <p className="text-sm mb-2">
+            Install the Anki plugin <strong>AnkiConnect</strong> and configure it as follows:
+          </p>
+          <ul className="text-sm list-disc list-inside mb-2">
+            <li>Go to <strong>Tools</strong> then <strong>Add-ons</strong> then <strong>Get Add-ons...</strong></li>
+            <li className="flex items-center">
+              paste Code&nbsp;&nbsp;
+              <button
+                onClick={() => navigator.clipboard.writeText('2055492159')}
+                className="flex items-center bg-gray-100 p-1 rounded text-blue-500 hover:bg-gray-200 transition cursor-pointer"
+              >
+                <img src={copyIconUrl} alt="Copy Icon" className="mr-1" style={{ width: '18px', height: '18px' }} />
+                <span className="ml-1"></span> {/* Добавленный элемент для отступа */}
+
+                <span className="ml-1"></span> {/* Добавленный элемент для отступа */}
+                <code className="bg-transparent">2055492159</code>
+              </button>
+            </li>
+            <li>Then click <strong>OK</strong></li>
+            <li>Restart Anki</li>
+            <li>Navigate to <strong>Tools</strong> &gt; <strong>Add-ons</strong> &gt; <strong>AnkiConnect</strong> &gt;
+              <strong>Config</strong></li>
+          </ul>
+          <div className="relative bg-gray-100 p-4 rounded mb-4">
+            <p className="text-sm mb-2">Copy paste the following config, you can change the <code>apiKey</code>:</p>
+            <pre
+              className="block overflow-auto p-2 bg-gray-200 rounded whitespace-pre-wrap cursor-pointer"
+              onClick={() => navigator.clipboard.writeText(
+                JSON.stringify({
+                  apiKey: ankiConnectApiKey || 'your_api_key',
+                  webCorsOriginList: ['http://localhost', '*'],
+                  webBindPort: 8765,
+                }, null, 2),
+              )}
+              title="Click to copy"
+            >
+              {JSON.stringify({
+                apiKey: ankiConnectApiKey || 'your_api_key',
+                webCorsOriginList: ['http://localhost', '*'],
+                webBindPort: 8765,
+              }, null, 2)}
+            </pre>
+            <button
+              onClick={() => navigator.clipboard.writeText(
+                JSON.stringify({
+                  apiKey: ankiConnectApiKey || 'your_api_key',
+                  webCorsOriginList: ['http://localhost', '*'],
+                  webBindPort: 8765,
+                }, null, 2),
+              )}
+              className="absolute top-2 right-2"
+              title="Copy to clipboard"
+            >
+              <img src={copyIconUrl} alt="Copy Icon" style={{ width: '20px', height: '20px' }} />
+            </button>
           </div>
+          <label htmlFor="ankiConnectApiKey" className="block font-bold mb-2">AnkiConnect API Key (optional)</label>
+          <input
+            type="text"
+            id="ankiConnectApiKey"
+            value={ankiConnectApiKey !== null ? ankiConnectApiKey : ''}
+            onChange={handleAnkiConnectApiKeyChange}
+            className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
+          />
+        </div>
         <label htmlFor="haggingFaceApiKey" className="block font-bold mb-2">Hugging Face API Key</label>
         <br />
         <em>(for image generation)</em>
@@ -90,7 +152,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
               onClick={handleBackClick}
               className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
             >
-              Back
+            Create cards
             </button>
           </div>
         )}

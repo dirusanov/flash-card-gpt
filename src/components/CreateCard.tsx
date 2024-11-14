@@ -154,6 +154,9 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     }, [dispatch]);    
 
     useEffect(() => {
+        // Пока по дефолту ставим LanguageLearning
+        dispatch(setMode(Modes.LanguageLearning))
+
         if (text && translation && examples.length > 0) {
             setShowResult(true);
         } else {
@@ -202,112 +205,106 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
             setShowResult(true);
         }
     };
-    
+
     return (
-        <div className="flex flex-col items-center justify-start space-y-4 w-full px-4 h-screen">
-            <div className="flex flex-col items-center space-y-4 w-full"> {/* added w-full here */}
-                <button
-                    onClick={handleSettingsClick}
-                    className="text-2xl absolute top-0 left-10 mt-2" // Изменено здесь
-                >
-                    <FaCog />
-                </button>
+      <div className="flex flex-col items-center justify-start space-y-4 w-full px-4 h-screen overflow-y-auto">
+          <div className="flex flex-col items-center space-y-4 w-full max-w-full"> {/* Ограничение ширины контента */}
+              {mode === Modes.LanguageLearning && (
                 <div className="flex flex-col items-center w-full">
-                    <label htmlFor="mode" className="text-gray-700 font-bold">Mode:</label>
-                    <select
-                        id="mode"
-                        value={mode}
-                        onChange={(e) => dispatch(setMode(e.target.value))}
-                        className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
-                    >
-                        <option value={Modes.LanguageLearning}>Language Learning</option>
-                        <option value={Modes.GeneralTopic}>General Topic</option>
-                    </select>
-                </div>
-                {mode === Modes.LanguageLearning && (
-                    <div className="flex flex-col items-center w-full">
-                        <label htmlFor="language" className="text-gray-700 font-bold mt-2">Translate to:</label>
-                        <select
-                            id="language"
-                            value={translateToLanguage}
-                            onChange={(e) => dispatch(setTranslateToLanguage(e.target.value))}
-                            className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
+                    <div className="relative w-full mb-2 mt-2">
+                        <label htmlFor="language" className="text-gray-700 font-bold text-center block">Translate
+                            to:</label>
+                        <button
+                          onClick={handleSettingsClick}
+                          className="absolute top-0 right-0 text-2xl"
+                          style={{ paddingRight: '16px' }} // Жестко заданный отступ справа
                         >
-                            {popularLanguages.map(({ code, name }) => (
-                                <option key={code} value={code}>
-                                    {name}
-                                </option>
-                            ))}
-                        </select>
-                        <div className="flex items-center mt-2 space-x-4 self-start">    
-                            <label htmlFor="generateImage" className="text-gray-700 font-bold">Image:</label>
-                            <div className="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                                <input 
-                                    type="checkbox" 
-                                    id="generateImage" 
-                                    checked={shouldGenerateImage} 
-                                    onChange={handleImageToggle}
-                                    className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
-                                />
-                                <label htmlFor="generateImage" className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                            </div>
+                            <FaCog />
+                        </button>
+                    </div>
+                    <select
+                      id="language"
+                      value={translateToLanguage}
+                      onChange={(e) => dispatch(setTranslateToLanguage(e.target.value))}
+                      className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
+                    >
+                        {popularLanguages.map(({ code, name }) => (
+                          <option key={code} value={code}>
+                              {name}
+                          </option>
+                        ))}
+                    </select>
+                    <div className="flex items-center mt-2 space-x-4 self-start">
+                        <label htmlFor="generateImage" className="text-gray-700 font-bold">Image:</label>
+                        <div
+                          className="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                            <input
+                              type="checkbox"
+                              id="generateImage"
+                              checked={shouldGenerateImage}
+                              onChange={handleImageToggle}
+                              className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                            />
+                            <label htmlFor="generateImage"
+                                   className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
                         </div>
                     </div>
-                )}
-                {useAnkiConnect && decks && (
-                    <div className="flex flex-col items-center w-full">
-                        <label htmlFor="language" className="text-gray-700 font-bold">Decks:</label>
-                        <select
-                            value={deckId}
-                            onChange={(e) => dispatch(setDeckId(e.target.value))}
-                            className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
-                        >
-                            {decks.map((deckName: string) => (
-                                <option key={deckName} value={deckName}>
-                                    {deckName}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                )}
-                <form onSubmit={handleSubmit} className="flex flex-col space-y-4 w-full">
-                    <textarea
-                        value={text}
-                        onChange={(e) => dispatch(setText(e.target.value))}
-                        placeholder="Enter what you want to learn"
-                        className="border-2 border-gray-300 p-2 rounded resize-y"
-                        rows={4}
-                    />
-                    <button
-                        type="submit"
-                        disabled={loadingGetResult}
-                        className={`text-white font-bold py-2 px-4 rounded 
-                            ${loadingGetResult ? 'loading-btn bg-blue-500' : 'bg-blue-500 hover:bg-blue-700'}`}
-                    >
-                        Start
-                    </button>
-                </form>
-            </div>
-            {showResult && (
-                <div className="flex flex-col items-center space-y-4">
-                    <ResultDisplay
-                        front={front}
-                        back={back}
-                        translation={translation}
-                        examples={examples}
-                        imageUrl={imageUrl}
-                        onNewImage={handleNewImage}
-                        onNewExamples={handleNewExamples}
-                        onSave={handleSave}
-                        mode={mode}
-                        loadingNewImage={loadingNewImage}
-                        loadingNewExamples={loadingNewExamples}
-                        loadingSave={loadingSave}
-                        shouldGenerateImage={shouldGenerateImage}
-                    />
                 </div>
-            )}
-        </div>
+              )}
+              {useAnkiConnect && decks && (
+                <div className="flex flex-col items-center w-full">
+                    <label htmlFor="language" className="text-gray-700 font-bold">Decks:</label>
+                    <select
+                      value={deckId}
+                      onChange={(e) => dispatch(setDeckId(e.target.value))}
+                      className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
+                    >
+                        {decks.map((deckName: string) => (
+                          <option key={deckName} value={deckName}>
+                              {deckName}
+                          </option>
+                        ))}
+                    </select>
+                </div>
+              )}
+              <form onSubmit={handleSubmit} className="flex flex-col space-y-4 w-full">
+        <textarea
+          value={text}
+          onChange={(e) => dispatch(setText(e.target.value))}
+          placeholder="Enter what you want to learn"
+          className="border-2 border-gray-300 p-2 rounded resize-y"
+          rows={4}
+        />
+                  <button
+                    type="submit"
+                    disabled={loadingGetResult}
+                    className={`text-white font-bold py-2 px-4 rounded 
+                ${loadingGetResult ? 'loading-btn bg-blue-500' : 'bg-blue-500 hover:bg-blue-700'}`}
+                  >
+                      Start
+                  </button>
+              </form>
+          </div>
+          {showResult && (
+            <div className="flex flex-col items-center space-y-4 w-full max-w-full overflow-y-auto">
+                <ResultDisplay
+                  front={front}
+                  back={back}
+                  translation={translation}
+                  examples={examples}
+                  imageUrl={imageUrl}
+                  onNewImage={handleNewImage}
+                  onNewExamples={handleNewExamples}
+                  onSave={handleSave}
+                  mode={mode}
+                  loadingNewImage={loadingNewImage}
+                  loadingNewExamples={loadingNewExamples}
+                  loadingSave={loadingSave}
+                  shouldGenerateImage={shouldGenerateImage}
+                />
+            </div>
+          )}
+      </div>
     );
 };
 
