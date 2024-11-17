@@ -136,7 +136,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600 mb-4"
           />
         </div>
-        <label htmlFor="haggingFaceApiKey" className="block font-bold mb-2">Hugging Face API Key</label>
+        <label htmlFor="haggingFaceApiKey" className="block font-bold mb-2">Hugging Face API Key (optional)</label>
         <br />
         <em>(for image generation)</em>
         <input

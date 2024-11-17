@@ -69,20 +69,34 @@ const StoreInitializer = () => {
 const popup = React.createElement(StoreInitializer, {});
 root.render(popup);
 
-// Логика для управления показом/скрытием боковой панели
-let isVisible = false;
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'toggleSidebar') {
-    isVisible = !isVisible;
-    if (isVisible) {
-      newDiv.style.transform = 'translateX(0)'; // Показать боковую панель
-      document.body.style.marginRight = '350px'; // Сдвинуть содержимое страницы влево
-    } else {
-      newDiv.style.transform = 'translateX(100%)'; // Скрыть боковую панель
-      document.body.style.marginRight = '0'; // Вернуть содержимое страницы на место
-    }
-    sendResponse({ status: 'Sidebar toggled', visible: isVisible });
-    console.log('Sidebar toggled:', isVisible);
+    chrome.storage.local.get(['isSidebarVisible'], (result) => {
+      let isVisible = !result.isSidebarVisible;
+      chrome.storage.local.set({ isSidebarVisible: isVisible }, () => {
+        if (isVisible) {
+          newDiv.style.transform = 'translateX(0)'; // Показать боковую панель
+          document.body.style.marginRight = '350px'; // Сдвинуть содержимое страницы влево
+        } else {
+          newDiv.style.transform = 'translateX(100%)'; // Скрыть боковую панель
+          document.body.style.marginRight = '0'; // Вернуть содержимое страницы на место
+        }
+        sendResponse({ status: 'Sidebar toggled', visible: isVisible });
+        console.log('Sidebar toggled:', isVisible);
+      });
+    });
+    return true; // Оставляем канал сообщения открытым для sendResponse
   }
 });
+
+// Восстановление состояния при загрузке страницы
+chrome.storage.local.get(['isSidebarVisible'], (result) => {
+  if (result.isSidebarVisible) {
+    newDiv.style.transform = 'translateX(0)'; // Показать боковую панель
+    document.body.style.marginRight = '350px'; // Сдвинуть содержимое страницы влево
+  } else {
+    newDiv.style.transform = 'translateX(100%)'; // Скрыть боковую панель
+    document.body.style.marginRight = '0'; // Вернуть содержимое страницы на место
+  }
+});
+

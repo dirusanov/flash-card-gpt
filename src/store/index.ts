@@ -6,6 +6,7 @@ import cardsReducer from "./reducers/cards";
 import {settingsReducer} from "./reducers/settings";
 import currentPageReducer from "./reducers/page";
 import ankiReducer from './reducers/anki';
+import sidebarReducer from './reducers/sidebar';
 
 const rootReducer = combineReducers({
     deck: decksReducer,
@@ -13,6 +14,7 @@ const rootReducer = combineReducers({
     settings: settingsReducer,
     currentPage: currentPageReducer,
     anki: ankiReducer,
+    sidebar: sidebarReducer,
 });
 
 export type RootState = ReturnType<typeof rootReducer>;

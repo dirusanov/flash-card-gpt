@@ -37,3 +37,17 @@ chrome.action.onClicked.addListener((tab) => {
     }
   });
 });
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'toggleSidebar') {
+    chrome.tabs.sendMessage(sender.tab.id, { action: 'toggleSidebar' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error sending message:', chrome.runtime.lastError.message);
+        sendResponse({ status: false, error: chrome.runtime.lastError.message });
+      } else {
+        sendResponse({ status: true, response });
+      }
+    });
+    return true; // Keeps the message channel open for sendResponse
+  }
+});

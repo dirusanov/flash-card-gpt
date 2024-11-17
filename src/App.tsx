@@ -8,7 +8,8 @@ import { instantiateStore } from './store';
 import { ExtendedStore } from 'reduxed-chrome-storage';
 import { fetchDecksSuccess } from './store/actions/decks';
 import { fetchDecks } from './services/ankiService';
-import { setAnkiAvailability } from './store/actions/anki'; // Импорт функции для проверки доступности Anki
+import { setAnkiAvailability } from './store/actions/anki';
+import { toggleSidebar } from './store/actions/sidebar'
 
 function App() {
   const [store, setStore] = useState<ExtendedStore | null>(null);
@@ -74,7 +75,35 @@ function App() {
       width: '350px',
       overflow: 'hidden'
     }}>
-      <div style={{ flex: '1 1 auto', maxWidth: '350px', overflow: 'hidden' }}>
+      <div style={{ flex: '1 1 auto', maxWidth: '350px', overflow: 'hidden', position: 'relative' }}>
+        {/* Кнопка для скрытия расширения */}
+        <button
+          onClick={() => {
+            dispatch(toggleSidebar()); // Использование Redux-действия для изменения состояния панели
+            chrome.runtime.sendMessage({ action: 'toggleSidebar' }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('Error sending message:', chrome.runtime.lastError.message);
+              } else {
+                console.log('Extension closed:', response);
+              }
+            });
+          }}
+          style={{
+            position: 'absolute',
+            top: '0px', // Положение крестика
+            right: '30px',
+            backgroundColor: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '26px', // Увеличенный размер шрифта
+            fontWeight: 'bold', // Жирный шрифт
+            padding: '5px',
+            zIndex: 1000 // Добавлен z-index для отображения кнопки поверх других элементов
+          }}
+          title="Close"
+        >
+          &times; {/* Символ крестика */}
+        </button>
         <header className="App-header">
           {/* Показываем Settings при первоначальной загрузке, если Anki недоступен */}
           {isInitialLoad && !isAnkiAvailable ? (
@@ -96,4 +125,3 @@ function App() {
 }
 
 export default App;
-

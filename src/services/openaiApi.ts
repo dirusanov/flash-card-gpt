@@ -1,4 +1,4 @@
-import { OpenAIApi } from 'openai';
+import { OpenAI } from 'openai';
 
 export const translateText = async (
   apiKey: string,
@@ -164,25 +164,25 @@ export const getDescriptionImage = async (
 };
 
 const getImageUrlRequest = async (
-  openai: OpenAIApi,
+  openai: OpenAI,
   description: string
 ): Promise<string | null> => {
   try {
-    const response = await openai.createImage({
+    const response = await openai.images.generate({
       prompt: description,
       n: 1,
       size: '512x512',
       response_format: 'url',
     });
 
-    return response.data.data[0]?.url ?? null;
+    return response.data[0]?.url ?? null;
   } catch (error) {
     console.error('Error during image generation:', error);
     return null;
   }
 };
 
-export const getOpenAiImageUrl = async (openai: OpenAIApi, apiKey: string, word: string): Promise<string | null> => {
+export const getOpenAiImageUrl = async (openai: OpenAI, apiKey: string, word: string): Promise<string | null> => {
     try {
         const isAbstractWord = await isAbstract(apiKey, word);
 

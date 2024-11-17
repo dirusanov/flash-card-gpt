@@ -20,7 +20,8 @@
   ],
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "devtools_page": "devtools.html",
   "web_accessible_resources": [

@@ -12,7 +12,7 @@ import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, t
 import { setMode, setShouldGenerateImage, setTranslateToLanguage} from "../store/actions/settings";
 import {Modes} from "../constants";
 import ResultDisplay from "./ResultDisplay";
-import { Configuration, OpenAIApi } from 'openai';
+import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 
 
@@ -41,10 +41,10 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const haggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
-    const configuration = new Configuration({
+    const openai = new OpenAI({
         apiKey: openAiKey,
+        dangerouslyAllowBrowser: true,
     });
-    const openai = new OpenAIApi(configuration);
 
     const popularLanguages = [
         { code: 'ru', name: 'Русский' },

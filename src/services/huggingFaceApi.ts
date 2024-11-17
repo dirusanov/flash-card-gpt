@@ -59,7 +59,7 @@ export async function generateImageHuggingface(apiKey: string, prompt: string): 
                 throw new Error(`Request failed with status code ${response.status}: ${response.statusText}`);
             }
 
-            return response.data;
+            return response.data as ArrayBuffer
         } catch (error) {
             console.error('Error:', error);
             break; // Это завершит выполнение цикла
