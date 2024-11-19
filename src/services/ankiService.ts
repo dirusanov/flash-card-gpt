@@ -58,56 +58,78 @@ function format_back_general(back: string): string {
 }
 
 export const createAnkiCards = async (
-        mode: Modes, ankiConnectUrl: string, ankiConnectApiKey: string | null, deckName: string, modelName: string, cards: CardLangLearning[] | CardGeneral[]
-    ) => {
-    // Создаем новую колоду, если ее еще нет
-    const createDeckPayload = JSON.stringify({
-        action: 'createDeck',
-        version: 6,
-        key: ankiConnectApiKey,
-        params: { deck: deckName },
-    });
+  mode: Modes,
+  ankiConnectUrl: string,
+  ankiConnectApiKey: string | null,
+  deckName: string,
+  modelName: string,
+  cards: CardLangLearning[] | CardGeneral[]
+) => {
+    try {
+        const createDeckPayload = JSON.stringify({
+            action: 'createDeck',
+            version: 6,
+            key: ankiConnectApiKey,
+            params: { deck: deckName },
+        });
 
-    await fetch(ankiConnectUrl, {
-        method: 'POST',
-        body: createDeckPayload,
-        headers: { 'Content-Type': 'application/json' },
-    });
-    const notes = cards.map((card) => {
-        let fields;
-        if (mode === Modes.LanguageLearning && 'translation' in card && 'examples' in card && 'image_base64' in card) {
-            fields = {
-                Front: card.text,
-                Back: format_back_lang_learning(card as CardLangLearning),
-            };
-        } else if (mode === Modes.GeneralTopic && 'back' in card) {
-            fields = {
-                Front: card.front,
-                Back: format_back_general(card.back),
-            };
+        const createDeckResponse = await fetch(ankiConnectUrl, {
+            method: 'POST',
+            body: createDeckPayload,
+            headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!createDeckResponse.ok) {
+            throw new Error('Failed to create deck.');
         }
-        return {
-            deckName,
-            modelName,
-            fields,
-            options: { allowDuplicate: false },
-            tags: [],
-        };
-    });
-    const addNotesPayload = JSON.stringify({
-        action: 'addNotes',
-        version: 6,
-        key: ankiConnectApiKey,
-        params: { notes },
-    });
-    const response = await fetch(ankiConnectUrl, {
-        method: 'POST',
-        body: addNotesPayload,
-        headers: { 'Content-Type': 'application/json' },
-    });
 
-    const result = await response.json();
-    return result.result;
+        const notes = cards.map((card) => {
+            let fields;
+            if (mode === Modes.LanguageLearning && 'translation' in card && 'examples' in card && 'image_base64' in card) {
+                fields = {
+                    Front: card.text,
+                    Back: format_back_lang_learning(card as CardLangLearning),
+                };
+            } else if (mode === Modes.GeneralTopic && 'back' in card) {
+                fields = {
+                    Front: card.front,
+                    Back: format_back_general(card.back),
+                };
+            }
+            return {
+                deckName,
+                modelName,
+                fields,
+                options: { allowDuplicate: false },
+                tags: [],
+            };
+        });
+
+        const addNotesPayload = JSON.stringify({
+            action: 'addNotes',
+            version: 6,
+            key: ankiConnectApiKey,
+            params: { notes },
+        });
+
+        const response = await fetch(ankiConnectUrl, {
+            method: 'POST',
+            body: addNotesPayload,
+            headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to add notes.');
+        }
+
+        const result = await response.json();
+        if (result.error) {
+            throw new Error(`Anki error: ${result.error}`);
+        }
+        return result.result;
+    } catch (error) {
+        throw error; // Пробрасываем ошибку, чтобы вызвать showError в компоненте
+    }
 };
 
 export async function imageUrlToBase64(url: string): Promise<string | null> {

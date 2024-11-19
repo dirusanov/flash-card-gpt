@@ -14,6 +14,7 @@ import {Modes} from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
+import useErrorNotification from './useErrorHandler';
 
 
 interface CreateCardProps {
@@ -41,6 +42,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const haggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
+    const { showError, renderErrorNotification } = useErrorNotification()
     const openai = new OpenAI({
         apiKey: openAiKey,
         dangerouslyAllowBrowser: true,
@@ -104,38 +106,30 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
         }
     }
 
-    const handleSave = () => {
-        setLoadingSave(true)
-        const modelName = 'Basic';
+    const handleSave = async () => {
+        showError(null)
+        try {
+            setLoadingSave(true);
+            const modelName = 'Basic';
 
-        if (mode == Modes.LanguageLearning) {
-            if (!text || !translation) {
-                alert('Some required data is missing. Please make sure you have all the required data before saving.');
-                return;
+            if (mode === Modes.LanguageLearning) {
+                if (!text || !translation) {
+                    showError('Some required data is missing. Please make sure you have all the required data before saving.');
+                    return;
+                }
+                const cards: CardLangLearning[] = [{ text, translation, examples, image_base64: image }];
+                await dispatch(saveAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
+            } else if (mode === Modes.GeneralTopic && back) {
+                const cards: CardGeneral[] = [{ front, back, text }];
+                await dispatch(saveAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
             }
-            const cards: CardLangLearning[] = [
-                {
-                    text: text,
-                    translation: translation,
-                    examples: examples,
-                    image_base64: image,
-                },
-            ];
-            dispatch(saveAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
+        } catch (error) {
+            showError(`Error saving card. Anki not available`);
+        } finally {
+            setTimeout(() => {
+                setLoadingSave(false);
+            }, 1000);
         }
-        else if (mode == Modes.GeneralTopic && back) {
-            const cards: CardGeneral[] = [
-                {
-                    front: front,
-                    back: back,
-                    text: text,
-                },
-            ];
-            dispatch(saveAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
-        }
-        setTimeout(() => {
-            setLoadingSave(false);
-        }, 1000);     
     };
 
     useEffect(() => {
@@ -268,13 +262,13 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                 </div>
               )}
               <form onSubmit={handleSubmit} className="flex flex-col space-y-4 w-full">
-        <textarea
-          value={text}
-          onChange={(e) => dispatch(setText(e.target.value))}
-          placeholder="Enter what you want to learn"
-          className="border-2 border-gray-300 p-2 rounded resize-y"
-          rows={4}
-        />
+                <textarea
+                  value={text}
+                  onChange={(e) => dispatch(setText(e.target.value))}
+                  placeholder="Enter what you want to learn"
+                  className="border-2 border-gray-300 p-2 rounded resize-y"
+                  rows={4}
+                />
                   <button
                     type="submit"
                     disabled={loadingGetResult}
@@ -283,7 +277,11 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                   >
                       Start
                   </button>
+
               </form>
+              <div className="mt-2 w-full max-w-[calc(100%-16px)] overflow-hidden">
+                  {renderErrorNotification()}
+              </div>
           </div>
           {showResult && (
             <div className="flex flex-col items-center space-y-4 w-full max-w-full overflow-y-auto">

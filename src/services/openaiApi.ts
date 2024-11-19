@@ -7,7 +7,7 @@ export const translateText = async (
 ): Promise<string | null> => {
   try {
     const body = {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
@@ -50,7 +50,7 @@ export const getExamples = async (
 
   try {
     const body = {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini',
       messages: promptMessages,
       max_tokens: 3500,
     };
@@ -104,7 +104,7 @@ export const isAbstract = async (
 
   try {
     const body = {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini',
       messages: promptMessages,
       max_tokens: 900,
     };
@@ -141,7 +141,7 @@ export const getDescriptionImage = async (
 
   try {
     const body = {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini',
       messages: promptMessages,
       max_tokens: 100,
     };
@@ -209,7 +209,7 @@ const getLangaugeNameText = async (
 ): Promise<string | null> => {
   try {
     const body = {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: 'You are langauage expert' },
         {
@@ -245,7 +245,7 @@ export const generateAnkiFront = async (
 
   try {
     const body = {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
@@ -287,7 +287,7 @@ export const generateAnkiBack = async (
 
   try {
     const body = {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',

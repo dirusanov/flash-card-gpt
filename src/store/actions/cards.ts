@@ -23,6 +23,7 @@ export const saveAnkiCards = (
         dispatch({ type: SAVE_ANKI_CARDS, payload: result });
     } catch (error) {
         console.error('Error saving Anki cards:', error);
+        throw error
     }
 };
 

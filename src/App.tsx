@@ -10,6 +10,7 @@ import { fetchDecksSuccess } from './store/actions/decks';
 import { fetchDecks } from './services/ankiService';
 import { setAnkiAvailability } from './store/actions/anki';
 import { toggleSidebar } from './store/actions/sidebar'
+import useErrorNotification from './components/useErrorHandler';
 
 function App() {
   const [store, setStore] = useState<ExtendedStore | null>(null);
@@ -18,6 +19,7 @@ function App() {
   const currentPage = useSelector((state: RootState) => state.currentPage);
   const dispatch = useDispatch();
   const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
+  const { showError, renderErrorNotification } = useErrorNotification()
 
   useEffect(() => {
     const initializeStoreAndCheckAnki = async () => {
@@ -29,6 +31,7 @@ function App() {
 
           if (decks.error) {
             console.error('Anki returned an error:', decks.error);
+            showError('Anki is unavailable. Please check your Anki settings.');
             dispatch(setAnkiAvailability(false));
             if (isInitialLoad) {
               dispatch(setCurrentPage('settings'))
@@ -40,6 +43,7 @@ function App() {
           }
         } catch (error) {
           console.error('Anki is unavailable:', error);
+          showError('Anki is unavailable. Please check your Anki settings.');
           dispatch(setAnkiAvailability(false));
           if (isInitialLoad) {
             dispatch(setCurrentPage('settings'))
@@ -76,10 +80,9 @@ function App() {
       overflow: 'hidden'
     }}>
       <div style={{ flex: '1 1 auto', maxWidth: '350px', overflow: 'hidden', position: 'relative' }}>
-        {/* Кнопка для скрытия расширения */}
         <button
           onClick={() => {
-            dispatch(toggleSidebar()); // Использование Redux-действия для изменения состояния панели
+            dispatch(toggleSidebar());
             chrome.runtime.sendMessage({ action: 'toggleSidebar' }, (response) => {
               if (chrome.runtime.lastError) {
                 console.error('Error sending message:', chrome.runtime.lastError.message);
@@ -90,26 +93,24 @@ function App() {
           }}
           style={{
             position: 'absolute',
-            top: '0px', // Положение крестика
+            top: '0px',
             right: '30px',
             backgroundColor: 'transparent',
             border: 'none',
             cursor: 'pointer',
-            fontSize: '26px', // Увеличенный размер шрифта
-            fontWeight: 'bold', // Жирный шрифт
+            fontSize: '26px',
+            fontWeight: 'bold',
             padding: '5px',
-            zIndex: 1000 // Добавлен z-index для отображения кнопки поверх других элементов
+            zIndex: 1000
           }}
           title="Close"
         >
-          &times; {/* Символ крестика */}
+          &times;
         </button>
         <header className="App-header">
-          {/* Показываем Settings при первоначальной загрузке, если Anki недоступен */}
           {isInitialLoad && !isAnkiAvailable ? (
             <Settings onBackClick={() => handlePageChange('createCard')} popup={false} />
           ) : (
-            // Иначе показываем либо CreateCard, либо Settings в зависимости от currentPage
             currentPage === 'settings' ? (
               <Settings onBackClick={() => handlePageChange('createCard')} popup={false} />
             ) : (
@@ -118,6 +119,9 @@ function App() {
               </div>
             )
           )}
+          <div className="absolute top-2 left-0 right-0 w-full z-60">
+            {renderErrorNotification()}
+          </div>
         </header>
       </div>
     </div>

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Flash Cards + GPT",
+  "name": "Anki Flash Cards + GPT",
   "description": "Create flash cards to learn a language and different topics in your browser",
   "options_page": "options.html",
   "background": { "service_worker": "background.bundle.js" },
@@ -20,8 +20,7 @@
   ],
   "permissions": [
     "storage",
-    "activeTab",
-    "scripting"
+    "activeTab"
   ],
   "devtools_page": "devtools.html",
   "web_accessible_resources": [
