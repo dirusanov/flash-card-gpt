@@ -9,6 +9,10 @@ export const SET_EXAMPLES = "SET_EXAMPLES";
 export const SET_IMAGE = "SET_IMAGE";
 export const SET_IMAGE_URL = 'SET_IMAGE_URL';
 export const SET_BACK = 'SET_BACK';
+export const SAVE_CARD_TO_STORAGE = 'SAVE_CARD_TO_STORAGE';
+export const LOAD_STORED_CARDS = 'LOAD_STORED_CARDS';
+export const DELETE_STORED_CARD = 'DELETE_STORED_CARD';
+export const SET_STORED_CARDS = 'SET_STORED_CARDS';
 
 export const saveAnkiCards = (
         mode: Modes, 
@@ -26,6 +30,37 @@ export const saveAnkiCards = (
         throw error
     }
 };
+
+export const saveCardToStorage = (
+    card: {
+        mode: Modes;
+        front?: string;
+        back?: string | null;
+        text: string;
+        translation?: string | null;
+        examples?: Array<[string, string | null]>;
+        image?: string | null;
+        imageUrl?: string | null;
+        createdAt: Date;
+    }
+) => ({
+    type: SAVE_CARD_TO_STORAGE,
+    payload: card,
+});
+
+export const loadStoredCards = () => ({
+    type: LOAD_STORED_CARDS,
+});
+
+export const setStoredCards = (cards: any[]) => ({
+    type: SET_STORED_CARDS,
+    payload: cards,
+});
+
+export const deleteStoredCard = (cardId: string) => ({
+    type: DELETE_STORED_CARD,
+    payload: cardId,
+});
 
 export const setText = (text: string) => ({
     type: SET_TEXT,

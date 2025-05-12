@@ -1,15 +1,30 @@
 import React, { useState } from 'react';
 import ErrorNotification from './ErrorNotification';
 
-const useErrorNotification = () => {
-  const [error, setError] = useState<string | null>(null);
+interface NotificationState {
+  message: string;
+  type: 'error' | 'success';
+}
 
-  const showError = (message: string | null) => {
-    setError(message);
+const useErrorNotification = () => {
+  const [notification, setNotification] = useState<NotificationState | null>(null);
+
+  const showError = (message: string | null, type: 'error' | 'success' = 'error') => {
+    if (message) {
+      setNotification({ message, type });
+    } else {
+      setNotification(null);
+    }
   };
 
   const renderErrorNotification = () =>
-    error ? <ErrorNotification message={error} onClose={() => setError(null)} /> : null;
+    notification ? (
+      <ErrorNotification 
+        message={notification.message} 
+        type={notification.type} 
+        onClose={() => setNotification(null)} 
+      />
+    ) : null;
 
   return {
     showError,

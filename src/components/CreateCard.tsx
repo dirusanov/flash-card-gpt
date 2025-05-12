@@ -3,10 +3,9 @@ import { useDispatch, useSelector } from 'react-redux';
 
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
-import { FaCog } from 'react-icons/fa';
 import {RootState} from "../store";
 import {setDeckId} from "../store/actions/decks";
-import {saveAnkiCards, setBack, setExamples, setImage, setImageUrl, setTranslation, setText} from "../store/actions/cards";
+import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards} from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage} from "../store/actions/settings";
@@ -15,13 +14,14 @@ import ResultDisplay from "./ResultDisplay";
 import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 import useErrorNotification from './useErrorHandler';
+import { setCurrentPage } from "../store/actions/page";
 
 
 interface CreateCardProps {
-    onSettingsClick: () => void;
+    // Пустой интерфейс, так как больше не нужен onSettingsClick
 }
 
-const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
+const CreateCard: React.FC<CreateCardProps> = () => {
     const [showResult, setShowResult] = useState(false);
     const deckId = useSelector((state: RootState) => state.deck.deckId);
 
@@ -38,7 +38,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     const [loadingGetResult, setLoadingGetResult] = useState(false);
     const [loadingNewImage, setLoadingNewImage] = useState(false);
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
-    const [loadingSave, setLoadingSave] = useState(false);
+    const [loadingAccept, setLoadingAccept] = useState(false);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const haggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
@@ -84,7 +84,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     };
 
     const handleSettingsClick = () => {
-        onSettingsClick();
+        // Эта функция больше не нужна, но оставим ее пустой, чтобы не рефакторить весь код
     };
 
     const handleImageToggle = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,30 +106,53 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
         }
     }
 
-    const handleSave = async () => {
-        showError(null)
+    const handleAccept = async () => {
+        showError(null);
         try {
-            setLoadingSave(true);
-            const modelName = 'Basic';
-
+            setLoadingAccept(true);
+            
             if (mode === Modes.LanguageLearning) {
                 if (!text || !translation) {
                     showError('Some required data is missing. Please make sure you have all the required data before saving.');
                     return;
                 }
-                const cards: CardLangLearning[] = [{ text, translation, examples, image_base64: image }];
-                await dispatch(saveAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
+                
+                // Save to localStorage only
+                dispatch(saveCardToStorage({
+                    mode,
+                    text,
+                    translation,
+                    examples,
+                    image,
+                    imageUrl,
+                    createdAt: new Date()
+                }));
+                
             } else if (mode === Modes.GeneralTopic && back) {
-                const cards: CardGeneral[] = [{ front, back, text }];
-                await dispatch(saveAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckId, modelName, cards));
+                // Save to localStorage only
+                dispatch(saveCardToStorage({
+                    mode,
+                    front,
+                    back,
+                    text,
+                    createdAt: new Date()
+                }));
             }
+            
+            // Show success notification
+            showError('Card saved to your collection!', 'success');
+            
         } catch (error) {
-            showError(`Error saving card. Anki not available`);
+            showError('Error saving card.');
         } finally {
             setTimeout(() => {
-                setLoadingSave(false);
+                setLoadingAccept(false);
             }, 1000);
         }
+    };
+    
+    const handleViewSavedCards = () => {
+        dispatch(setCurrentPage('storedCards'));
     };
 
     useEffect(() => {
@@ -156,6 +179,9 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
         } else {
             setShowResult(false);
         }
+        
+        // Load stored cards from localStorage
+        dispatch(loadStoredCards());
     }, [dispatch]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -201,26 +227,68 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
     };
 
     return (
-      <div className="flex flex-col items-center justify-start space-y-4 w-full px-4 h-screen overflow-y-auto">
-          <div className="flex flex-col items-center space-y-4 w-full max-w-full"> {/* Ограничение ширины контента */}
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        gap: '12px',
+        width: '100%',
+        padding: '12px',
+        paddingTop: '16px',
+        height: '100%',
+        overflowY: 'auto',
+        backgroundColor: '#ffffff',
+        paddingBottom: '16px'
+      }}>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '12px',
+            width: '100%',
+            maxWidth: '320px'
+          }}>
               {mode === Modes.LanguageLearning && (
-                <div className="flex flex-col items-center w-full">
-                    <div className="relative w-full mb-2 mt-2">
-                        <label htmlFor="language" className="text-gray-700 font-bold text-center block">Translate
-                            to:</label>
-                        <button
-                          onClick={handleSettingsClick}
-                          className="absolute top-0 right-0 text-2xl"
-                          style={{ paddingRight: '16px' }} // Жестко заданный отступ справа
-                        >
-                            <FaCog />
-                        </button>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  width: '100%',
+                  gap: '8px'
+                }}>
+                    <div style={{
+                      position: 'relative',
+                      width: '100%',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                        <label htmlFor="language" style={{
+                          color: '#111827',
+                          fontWeight: '600',
+                          fontSize: '14px',
+                          margin: 0
+                        }}>Translate to:</label>
                     </div>
                     <select
                       id="language"
                       value={translateToLanguage}
                       onChange={(e) => dispatch(setTranslateToLanguage(e.target.value))}
-                      className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #E5E7EB',
+                        backgroundColor: '#ffffff',
+                        color: '#374151',
+                        fontSize: '14px',
+                        outline: 'none',
+                        transition: 'all 0.2s ease',
+                        cursor: 'pointer'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+                      onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
                     >
                         {popularLanguages.map(({ code, name }) => (
                           <option key={code} value={code}>
@@ -228,77 +296,162 @@ const CreateCard: React.FC<CreateCardProps> = ({ onSettingsClick }) => {
                           </option>
                         ))}
                     </select>
-                    <div className="flex items-center mt-2 space-x-4 self-start">
-                        <label htmlFor="generateImage" className="text-gray-700 font-bold">Image:</label>
-                        <div
-                          className="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      width: '100%'
+                    }}>
+                        <label htmlFor="generateImage" style={{
+                          color: '#111827',
+                          fontWeight: '600',
+                          fontSize: '14px',
+                          margin: 0
+                        }}>Image:</label>
+                        <div style={{
+                          position: 'relative',
+                          display: 'inline-block',
+                          width: '40px',
+                          height: '22px'
+                        }}>
                             <input
                               type="checkbox"
                               id="generateImage"
                               checked={shouldGenerateImage}
                               onChange={handleImageToggle}
-                              className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                              style={{
+                                opacity: 0,
+                                width: 0,
+                                height: 0
+                              }}
                             />
-                            <label htmlFor="generateImage"
-                                   className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                            <label
+                              htmlFor="generateImage"
+                              style={{
+                                position: 'absolute',
+                                cursor: 'pointer',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: shouldGenerateImage ? '#2563EB' : '#E5E7EB',
+                                transition: '.3s',
+                                borderRadius: '22px'
+                              }}
+                            >
+                                <span style={{
+                                  position: 'absolute',
+                                  content: '""',
+                                  height: '18px',
+                                  width: '18px',
+                                  left: '2px',
+                                  bottom: '2px',
+                                  backgroundColor: 'white',
+                                  transition: '.3s',
+                                  borderRadius: '50%',
+                                  transform: shouldGenerateImage ? 'translateX(18px)' : 'translateX(0)'
+                                }} />
+                            </label>
                         </div>
                     </div>
                 </div>
               )}
-              {useAnkiConnect && decks && (
-                <div className="flex flex-col items-center w-full">
-                    <label htmlFor="language" className="text-gray-700 font-bold">Decks:</label>
-                    <select
-                      value={deckId}
-                      onChange={(e) => dispatch(setDeckId(e.target.value))}
-                      className="border-2 border-blue-500 p-2 rounded mt-2 w-full text-gray-600"
-                    >
-                        {decks.map((deckName: string) => (
-                          <option key={deckName} value={deckName}>
-                              {deckName}
-                          </option>
-                        ))}
-                    </select>
-                </div>
-              )}
-              <form onSubmit={handleSubmit} className="flex flex-col space-y-4 w-full">
-                <textarea
-                  value={text}
-                  onChange={(e) => dispatch(setText(e.target.value))}
-                  placeholder="Enter what you want to learn"
-                  className="border-2 border-gray-300 p-2 rounded resize-y"
-                  rows={4}
-                />
+              <form onSubmit={handleSubmit} style={{
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                marginTop: '4px',
+                marginBottom: '0'
+              }}>
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    width: '100%'
+                  }}>
+                      <label htmlFor="text" style={{
+                        color: '#111827',
+                        fontWeight: '600',
+                        fontSize: '14px'
+                      }}>Text:</label>
+                      <textarea
+                        id="text"
+                        value={text}
+                        onChange={(e) => dispatch(setText(e.target.value))}
+                        placeholder="Enter text to translate or select text from a webpage"
+                        style={{
+                          width: '100%',
+                          minHeight: '80px',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid #E5E7EB',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          fontSize: '14px',
+                          resize: 'vertical',
+                          outline: 'none',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+                        onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                      />
+                  </div>
                   <button
                     type="submit"
                     disabled={loadingGetResult}
-                    className={`text-white font-bold py-2 px-4 rounded 
-                ${loadingGetResult ? 'loading-btn bg-blue-500' : 'bg-blue-500 hover:bg-blue-700'}`}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      marginTop: '4px',
+                      borderRadius: '6px',
+                      backgroundColor: '#2563EB',
+                      color: '#ffffff',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      opacity: loadingGetResult ? 0.7 : 1
+                    }}
+                    onMouseOver={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#1D4ED8')}
+                    onMouseOut={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#2563EB')}
                   >
-                      Start
+                      {loadingGetResult ? 'Processing...' : 'Create Card'}
                   </button>
-
               </form>
-              <div className="mt-2 w-full max-w-[calc(100%-16px)] overflow-hidden">
+              <div style={{
+                width: '100%',
+                margin: '4px 0 0 0'
+              }}>
                   {renderErrorNotification()}
               </div>
           </div>
           {showResult && (
-            <div className="flex flex-col items-center space-y-4 w-full max-w-full overflow-y-auto">
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              width: '100%',
+              maxWidth: '320px',
+              marginBottom: '8px'
+            }}>
                 <ResultDisplay
                   front={front}
                   back={back}
                   translation={translation}
                   examples={examples}
                   imageUrl={imageUrl}
+                  image={image}
                   onNewImage={handleNewImage}
                   onNewExamples={handleNewExamples}
-                  onSave={handleSave}
+                  onAccept={handleAccept}
+                  onViewSavedCards={handleViewSavedCards}
                   mode={mode}
+                  shouldGenerateImage={shouldGenerateImage}
                   loadingNewImage={loadingNewImage}
                   loadingNewExamples={loadingNewExamples}
-                  loadingSave={loadingSave}
-                  shouldGenerateImage={shouldGenerateImage}
+                  loadingAccept={loadingAccept}
                 />
             </div>
           )}

@@ -1,26 +1,30 @@
 import React, {useEffect} from 'react';
 
-interface ErrorAlertProps {
+interface NotificationProps {
   message: string;
+  type?: 'error' | 'success';
   onClose: () => void;
 }
 
-const ErrorNotification: React.FC<ErrorAlertProps> = ({ message, onClose }) => {
+const ErrorNotification: React.FC<NotificationProps> = ({ message, type = 'error', onClose }) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
-    }, 10000); // 10 seconds
+    }, 5000); // 5 seconds
 
-    // Cleanup the timer if the component is unmounted before 10 seconds
+    // Cleanup the timer if the component is unmounted before 5 seconds
     return () => clearTimeout(timer);
   }, [onClose]);
+
+  const bgColor = type === 'error' ? '#f89f9d' : '#9df8b1';
+  const textColor = 'black';
 
   return (
     <div
       className="fixed top-4 right-4 border border-black rounded shadow-lg z-50 p-3"
       style={{
-        backgroundColor: '#f89f9d',
-        color: 'black',
+        backgroundColor: bgColor,
+        color: textColor,
         boxSizing: 'border-box',
         width: '300px', // Hardcoded width
       }}

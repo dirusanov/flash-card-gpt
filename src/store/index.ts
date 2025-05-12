@@ -7,6 +7,7 @@ import {settingsReducer} from "./reducers/settings";
 import currentPageReducer from "./reducers/page";
 import ankiReducer from './reducers/anki';
 import sidebarReducer from './reducers/sidebar';
+import cardsLocalStorageMiddleware from './middleware/cardsLocalStorage';
 
 const rootReducer = combineReducers({
     deck: decksReducer,
@@ -20,6 +21,6 @@ const rootReducer = combineReducers({
 export type RootState = ReturnType<typeof rootReducer>;
 
 const storeCreator = (preloadedState?: RootState) => 
-  createStore(rootReducer, preloadedState, applyMiddleware(thunk));
+  createStore(rootReducer, preloadedState, applyMiddleware(thunk, cardsLocalStorageMiddleware));
 
 export const instantiateStore = setupReduxed(storeCreator);

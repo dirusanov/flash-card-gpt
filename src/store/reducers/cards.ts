@@ -1,10 +1,36 @@
-import {SAVE_ANKI_CARDS, SET_EXAMPLES, SET_IMAGE, SET_IMAGE_URL, SET_TRANSLATION, SET_TEXT, SET_BACK} from '../actions/cards';
+import {
+    SAVE_ANKI_CARDS, 
+    SET_EXAMPLES, 
+    SET_IMAGE, 
+    SET_IMAGE_URL, 
+    SET_TRANSLATION, 
+    SET_TEXT, 
+    SET_BACK,
+    SAVE_CARD_TO_STORAGE,
+    LOAD_STORED_CARDS,
+    DELETE_STORED_CARD,
+    SET_STORED_CARDS
+} from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
+import { Modes } from '../../constants';
 
+export interface StoredCard {
+    id: string;
+    mode: Modes;
+    front?: string;
+    back?: string | null;
+    text: string;
+    translation?: string | null;
+    examples?: Array<[string, string | null]>;
+    image?: string | null;
+    imageUrl?: string | null;
+    createdAt: Date;
+}
 
 const initialState: CardState = {
     ...{
         savedCards: [],
+        storedCards: [],
         text: "",
         translation: "",
         examples: [],
@@ -17,6 +43,7 @@ const initialState: CardState = {
 
 export interface CardState {
     savedCards: CardLangLearning[] | CardGeneral[];
+    storedCards: StoredCard[];
     text: string;
     translation: string;
     examples: Array<[string, string | null]>;
@@ -32,6 +59,22 @@ const cardsReducer = (state = initialState, action: any): CardState => {
     switch (action.type) {
         case SAVE_ANKI_CARDS:
             newState.savedCards = [...state.savedCards, ...action.payload];
+            break;
+        case SAVE_CARD_TO_STORAGE:
+            const newCard: StoredCard = {
+                id: Date.now().toString(),
+                ...action.payload
+            };
+            newState.storedCards = [...state.storedCards, newCard];
+            break;
+        case LOAD_STORED_CARDS:
+            // This will be handled by the persistence middleware
+            break;
+        case SET_STORED_CARDS:
+            newState.storedCards = action.payload;
+            break;
+        case DELETE_STORED_CARD:
+            newState.storedCards = state.storedCards.filter(card => card.id !== action.payload);
             break;
         case SET_TEXT:
             newState.text = action.payload;

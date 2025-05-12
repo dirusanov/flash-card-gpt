@@ -153,7 +153,15 @@ interface AnkiResponse {
     error: string | null;
 }
 
-export const fetchDecks = async (apiKey: string | null): Promise<AnkiResponse> => {
+interface DeckResponse {
+    result: Array<{
+        deckId: string;
+        name: string;
+    }>;
+    error: string | null;
+}
+
+export const fetchDecks = async (apiKey: string | null): Promise<DeckResponse> => {
     try {
         const response = await fetch('http://localhost:8765', {
             method: 'POST',
@@ -165,9 +173,21 @@ export const fetchDecks = async (apiKey: string | null): Promise<AnkiResponse> =
             throw new Error(`HTTP error! Status: ${response.status}`);
         }
 
-        return await response.json() as AnkiResponse; // Явно указываем тип
+        const data = await response.json() as AnkiResponse;
+        
+        // Transform string array into Deck objects
+        if (data.result) {
+            return {
+                result: data.result.map(deckName => ({
+                    deckId: deckName,
+                    name: deckName
+                })),
+                error: data.error
+            };
+        }
+        return data as unknown as DeckResponse;
     } catch (error) {
         console.error('Error fetching decks:', error);
-        throw error; // Бросаем ошибку для обработки
+        throw error;
     }
 };

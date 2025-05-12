@@ -4,10 +4,12 @@ export const FETCH_DECKS = 'FETCH_DECKS';
 export const FETCH_DECKS_SUCCESS = 'FETCH_DECKS_SUCCESS';
 export const SET_DECK_ID = 'SET_DECK_ID';
 
-export type Deck = string;
+export interface Deck {
+  deckId: string;
+  name: string;
+}
 
-
-export const fetchDecksSuccess = (decks: string[]) => {
+export const fetchDecksSuccess = (decks: Deck[]) => {
     return {
         type: FETCH_DECKS_SUCCESS,
         payload: decks,
