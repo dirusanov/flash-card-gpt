@@ -5,7 +5,7 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import {RootState} from "../store";
 import {setDeckId} from "../store/actions/decks";
-import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards} from "../store/actions/cards";
+import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront} from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage} from "../store/actions/settings";
@@ -26,12 +26,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const deckId = useSelector((state: RootState) => state.deck.deckId);
 
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
-    const { text, translation, examples, image, imageUrl } = useSelector((state: RootState) => state.cards);
+    const { text, translation, examples, image, imageUrl, front, back } = useSelector((state: RootState) => state.cards);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const decks = useSelector((state: RootState) => state.deck.decks);
     const mode = useSelector((state: RootState) => state.settings.mode);
-    const [front, setFront] = useState('');
-    const back = useSelector((state: RootState) => state.cards.back);
+    const [originalSelectedText, setOriginalSelectedText] = useState('');
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
@@ -112,7 +111,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setLoadingAccept(true);
             
             if (mode === Modes.LanguageLearning) {
-                if (!text || !translation) {
+                if (!originalSelectedText || !translation) {
                     showError('Some required data is missing. Please make sure you have all the required data before saving.');
                     return;
                 }
@@ -120,7 +119,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Save to localStorage only
                 dispatch(saveCardToStorage({
                     mode,
-                    text,
+                    text: originalSelectedText,
                     translation,
                     examples,
                     image,
@@ -134,7 +133,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     mode,
                     front,
                     back,
-                    text,
+                    text: originalSelectedText,
                     createdAt: new Date()
                 }));
             }
@@ -190,7 +189,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setLoadingGetResult(true);
     
         if (mode === Modes.LanguageLearning) {
-            setFront(text);
+            setOriginalSelectedText(text);
+            dispatch(setFront(text));
             const translatedText = await translateText(openAiKey, text, translateToLanguage)
             const examples = await getExamples(openAiKey, text, translateToLanguage, true)
             if (shouldGenerateImage) {
@@ -214,11 +214,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 setShowResult(true);
             }
         } else if (mode === Modes.GeneralTopic) {
+            setOriginalSelectedText(text);
             setText(text);
             const front = await generateAnkiFront(openAiKey, text)
             const back = await generateAnkiBack(openAiKey, text)
             if (front && back) {
-                setFront(front)
+                dispatch(setFront(front))
                 dispatch(setBack(back)) 
             }
             setLoadingGetResult(false);

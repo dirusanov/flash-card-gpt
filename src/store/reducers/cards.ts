@@ -6,6 +6,7 @@ import {
     SET_TRANSLATION, 
     SET_TEXT, 
     SET_BACK,
+    SET_FRONT,
     SAVE_CARD_TO_STORAGE,
     LOAD_STORED_CARDS,
     DELETE_STORED_CARD,
@@ -37,7 +38,8 @@ const initialState: CardState = {
         image: null,
         imageUrl: null,
         error: undefined,
-        back: null
+        back: null,
+        front: ""
     },
 };
 
@@ -49,8 +51,9 @@ export interface CardState {
     examples: Array<[string, string | null]>;
     image: string | null;
     imageUrl: string | null;
-    error: string | undefined
-    back: string | null
+    error: string | undefined;
+    back: string | null;
+    front: string;
 }
 
 const cardsReducer = (state = initialState, action: any): CardState => {
@@ -92,6 +95,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             return { ...state, imageUrl: action.payload };
         case SET_BACK:
             return { ...state, back: action.payload };
+        case SET_FRONT:
+            return { ...state, front: action.payload };
         default:
             return state;
     }

@@ -9,6 +9,7 @@ export const SET_EXAMPLES = "SET_EXAMPLES";
 export const SET_IMAGE = "SET_IMAGE";
 export const SET_IMAGE_URL = 'SET_IMAGE_URL';
 export const SET_BACK = 'SET_BACK';
+export const SET_FRONT = 'SET_FRONT';
 export const SAVE_CARD_TO_STORAGE = 'SAVE_CARD_TO_STORAGE';
 export const LOAD_STORED_CARDS = 'LOAD_STORED_CARDS';
 export const DELETE_STORED_CARD = 'DELETE_STORED_CARD';
@@ -91,4 +92,9 @@ export const setImageUrl = (url: string | null) => ({
 export const setBack = (back: string | null) => ({
     type: SET_BACK,
     payload: back,
+});
+
+export const setFront = (front: string) => ({
+    type: SET_FRONT,
+    payload: front,
 });
