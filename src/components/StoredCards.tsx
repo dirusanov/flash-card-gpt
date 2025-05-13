@@ -715,8 +715,24 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Start editing a card
     const handleStartEditing = (card: StoredCard) => {
+        // Create a copy of the card for editing
+        const cardForEdit = { ...card };
+        
+        // Make sure the examples array is properly initialized
+        if (card.mode === Modes.LanguageLearning) {
+            cardForEdit.examples = Array.isArray(card.examples) ? [...card.examples] : [];
+            
+            // Ensure text and translation fields are not null
+            cardForEdit.text = cardForEdit.text || '';
+            cardForEdit.translation = cardForEdit.translation || '';
+        } else {
+            // For general topic cards, ensure front and back are not null
+            cardForEdit.front = cardForEdit.front || '';
+            cardForEdit.back = cardForEdit.back || '';
+        }
+        
         setEditingCardId(card.id);
-        setEditFormData({...card});
+        setEditFormData(cardForEdit);
     };
     
     // Cancel editing
@@ -730,23 +746,55 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         if (!editFormData) return;
         
         try {
-            console.log('Saving edited card:', editFormData);
+            // Prepare the updated card data with deep copy to avoid reference issues
+            const updatedCardData = JSON.parse(JSON.stringify(editFormData)) as StoredCard;
+            
+            console.log('Original editFormData:', editFormData);
+            console.log('Deep copied updatedCardData:', updatedCardData);
+            
+            // Make sure we preserve the ID and other required fields
+            updatedCardData.id = editFormData.id;
+            updatedCardData.createdAt = editFormData.createdAt;
+            updatedCardData.exportStatus = editFormData.exportStatus;
+            
+            // Clean up any empty examples
+            if (Array.isArray(updatedCardData.examples)) {
+                updatedCardData.examples = updatedCardData.examples
+                    .filter(example => example[0].trim() !== '') // Filter out examples with empty text
+                    .map(([text, translation]) => [
+                        text.trim(), 
+                        translation ? translation.trim() : null
+                    ]); // Trim whitespace from all values
+            } else {
+                // Make sure examples is at least an empty array
+                updatedCardData.examples = [];
+            }
             
             // Validate form data
-            if (editFormData.mode === Modes.LanguageLearning) {
-                if (!editFormData.text || !editFormData.translation) {
+            if (updatedCardData.mode === Modes.LanguageLearning) {
+                if (!updatedCardData.text || !updatedCardData.translation) {
                     showError('Please provide both text and translation');
                     return;
                 }
+                
+                // Ensure these fields are properly set
+                updatedCardData.text = updatedCardData.text.trim();
+                updatedCardData.translation = updatedCardData.translation.trim();
             } else {
-                if (!editFormData.front || !editFormData.back) {
+                if (!updatedCardData.front || !updatedCardData.back) {
                     showError('Please provide both front and back content');
                     return;
                 }
+                
+                // Ensure these fields are properly set
+                updatedCardData.front = updatedCardData.front.trim();
+                updatedCardData.back = updatedCardData.back?.trim() || null;
             }
             
-            // Update the card in the store
-            dispatch(updateStoredCard(editFormData));
+            console.log('Final data being saved to Redux:', updatedCardData);
+            
+            // Update the card in the Redux store
+            dispatch(updateStoredCard(updatedCardData));
             
             // Reset the editing state
             setEditingCardId(null);
@@ -908,79 +956,101 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Handle the addition of a new example for language cards
     const handleAddExample = () => {
-        if (!editFormData || editFormData.mode !== Modes.LanguageLearning) return;
+        if (!editFormData || editFormData.mode !== Modes.LanguageLearning) {
+            console.warn('Cannot add example: form data is null or not in language learning mode');
+            return;
+        }
         
-        // Make sure we have a valid examples array
-        const currentExamples = Array.isArray(editFormData.examples) ? editFormData.examples : [];
-        
-        // Create a new array with the existing examples plus a new empty one
-        const newExamples: [string, string | null][] = [...currentExamples, ['', null]];
-        
-        console.log('Adding new example:', newExamples);
-        
-        // Update the form data with the new examples array
-        setEditFormData({
-            ...editFormData,
-            examples: newExamples
-        });
+        try {
+            // Make sure we have a valid examples array
+            const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
+            
+            // Create a new array with the existing examples plus a new empty one
+            const newExamples: [string, string | null][] = [...currentExamples, ['', null]];
+            
+            console.log('Adding new example, total examples:', newExamples.length);
+            
+            // Update the form data with the new examples array
+            setEditFormData({
+                ...editFormData,
+                examples: newExamples
+            });
+        } catch (error) {
+            console.error('Error adding example:', error);
+        }
     };
     
     // Handle removal of an example
     const handleRemoveExample = (index: number) => {
-        if (!editFormData) return;
+        if (!editFormData) {
+            console.warn('Cannot remove example: form data is null');
+            return;
+        }
         
-        // Make sure we have a valid examples array
-        const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
-        
-        // Check if the index is valid
-        if (index < 0 || index >= currentExamples.length) return;
-        
-        // Create a new array without the example at the specified index
-        const newExamples: [string, string | null][] = [
-            ...currentExamples.slice(0, index),
-            ...currentExamples.slice(index + 1)
-        ];
-        
-        console.log('Removed example at index:', index);
-        console.log('New examples array:', newExamples);
-        
-        // Update the form data with the modified examples
-        setEditFormData({
-            ...editFormData,
-            examples: newExamples
-        });
+        try {
+            // Make sure we have a valid examples array
+            const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
+            
+            // Check if the index is valid
+            if (index < 0 || index >= currentExamples.length) {
+                console.warn(`Invalid example index: ${index}, examples length: ${currentExamples.length}`);
+                return;
+            }
+            
+            // Create a new array without the example at the specified index
+            const newExamples: [string, string | null][] = [
+                ...currentExamples.slice(0, index),
+                ...currentExamples.slice(index + 1)
+            ];
+            
+            console.log(`Removed example at index ${index}, remaining examples:`, newExamples.length);
+            
+            // Update the form data with the modified examples
+            setEditFormData({
+                ...editFormData,
+                examples: newExamples
+            });
+        } catch (error) {
+            console.error('Error removing example:', error);
+        }
     };
     
     // Handle changes to an example
     const handleExampleChange = (index: number, isExample: boolean, value: string) => {
-        if (!editFormData) return;
-        
-        // Make sure we have a valid examples array
-        const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
-        
-        // Create a copy of the examples array
-        const newExamples: [string, string | null][] = [...currentExamples];
-        
-        // If the index doesn't exist, add empty examples up to this index
-        while (newExamples.length <= index) {
-            newExamples.push(['', null]);
+        if (!editFormData) {
+            console.warn('Cannot change example: form data is null');
+            return;
         }
         
-        // Update the specific example text or translation
-        if (isExample) {
-            newExamples[index][0] = value;
-        } else {
-            newExamples[index][1] = value;
+        try {
+            // Make sure we have a valid examples array
+            const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
+            
+            // Create a copy of the examples array
+            const newExamples: [string, string | null][] = [...currentExamples];
+            
+            // If the index doesn't exist, add empty examples up to this index
+            while (newExamples.length <= index) {
+                newExamples.push(['', null]);
+            }
+            
+            // Update the specific example text or translation
+            if (isExample) {
+                newExamples[index][0] = value;
+                console.log(`Updated example text at index ${index}:`, value.substring(0, 20) + (value.length > 20 ? '...' : ''));
+            } else {
+                newExamples[index][1] = value;
+                console.log(`Updated translation at index ${index}:`, value.substring(0, 20) + (value.length > 20 ? '...' : ''));
+            }
+            
+            // Update the form data with the modified examples
+            setEditFormData({
+                ...editFormData,
+                examples: newExamples
+            });
+        } catch (error) {
+            console.error('Error updating example:', error);
         }
-        
-        console.log('Updated example:', index, isExample ? 'text' : 'translation', value);
-        console.log('New examples array:', newExamples);
-        
-        // Update the form data with the modified examples
-        setEditFormData({
-            ...editFormData,
-            examples: newExamples
-        });
     };
 
     // Render the edit form for a card
