@@ -8,6 +8,10 @@ import {
     SET_TRANSLATE_TO_LANGUAGE,
     SET_USE_ANKI_CONNECT,
     SET_VISIBLE_SIDEBAR,
+    SET_TRANSLATION_PROMPT,
+    SET_EXAMPLES_PROMPT,
+    SET_AI_INSTRUCTIONS,
+    SET_IMAGE_INSTRUCTIONS,
 } from "../actions/settings";
 import {Modes} from "../../constants";
 
@@ -21,6 +25,10 @@ interface SettingsState {
     visibleSideBar: boolean
     huggingFaceApiKey: string
     shouldGenerateImage: boolean
+    translationPrompt: string
+    examplesPrompt: string
+    aiInstructions: string
+    imageInstructions: string
 }
 
 const initialState: SettingsState = {
@@ -33,6 +41,10 @@ const initialState: SettingsState = {
     visibleSideBar: true,
     huggingFaceApiKey: '',
     shouldGenerateImage: true,
+    translationPrompt: '',
+    examplesPrompt: '',
+    aiInstructions: '',
+    imageInstructions: ''
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {
@@ -81,6 +93,26 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 shouldGenerateImage: action.payload,
+            };
+        case SET_TRANSLATION_PROMPT:
+            return {
+                ...state,
+                translationPrompt: action.payload,
+            };
+        case SET_EXAMPLES_PROMPT:
+            return {
+                ...state,
+                examplesPrompt: action.payload,
+            };
+        case SET_AI_INSTRUCTIONS:
+            return {
+                ...state,
+                aiInstructions: action.payload,
+            };
+        case SET_IMAGE_INSTRUCTIONS:
+            return {
+                ...state,
+                imageInstructions: action.payload,
             };
         default:
             return state;

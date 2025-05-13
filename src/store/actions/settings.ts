@@ -7,6 +7,10 @@ export const SET_USE_ANKI_CONNECT = 'SET_USE_ANKI_CONNECT';
 export const SET_VISIBLE_SIDEBAR = 'SET_VISIBLE_SIDEBAR';
 export const SET_HUGGING_FACE_API_KEY = 'SET_HUGGING_FACE_API_KEY';
 export const SET_SHOULD_GENERATE_IMAGE = 'SET_SHOULD_GENERATE_IMAGE';
+export const SET_TRANSLATION_PROMPT = 'SET_TRANSLATION_PROMPT';
+export const SET_EXAMPLES_PROMPT = 'SET_EXAMPLES_PROMPT';
+export const SET_AI_INSTRUCTIONS = 'SET_AI_INSTRUCTIONS';
+export const SET_IMAGE_INSTRUCTIONS = 'SET_IMAGE_INSTRUCTIONS';
 
 
 export const setOpenAiKey = (openAiKey: string) => ({
@@ -52,4 +56,24 @@ export const setHuggingFaceApiKey = (huggingFaceApiKey: string) => ({
 export const setShouldGenerateImage = (shouldGenerateImage: boolean) => ({
     type: SET_SHOULD_GENERATE_IMAGE,
     payload: shouldGenerateImage,
+});
+
+export const setTranslationPrompt = (prompt: string) => ({
+    type: SET_TRANSLATION_PROMPT,
+    payload: prompt,
+});
+
+export const setExamplesPrompt = (prompt: string) => ({
+    type: SET_EXAMPLES_PROMPT,
+    payload: prompt,
+});
+
+export const setAIInstructions = (instructions: string) => ({
+    type: SET_AI_INSTRUCTIONS,
+    payload: instructions,
+});
+
+export const setImageInstructions = (instructions: string) => ({
+    type: SET_IMAGE_INSTRUCTIONS,
+    payload: instructions,
 });

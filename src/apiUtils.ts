@@ -7,7 +7,8 @@ export async function getImage(
     haggingFaceApiKey: string | null,
     openai: any, 
     openAiKey: string,
-    descriptionImage: string
+    descriptionImage: string,
+    imageInstructions: string = ''
 ): Promise<{ imageUrl: string | null, imageBase64: string | null }> {
     let arrayBuffer: ArrayBuffer;
     let imageUrl: string | null = null;
@@ -21,13 +22,13 @@ export async function getImage(
             imageBase64 = imageUrl
         } catch (error) {
             console.error('Error with Hugging Face:', error);
-            imageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage);
+            imageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage, imageInstructions);
             if (imageUrl) {
                 imageBase64 = await imageUrlToBase64(imageUrl);
             }
         }
     } else {
-        imageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage);
+        imageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage, imageInstructions);
         if (imageUrl) {
             imageBase64 = await imageUrlToBase64(imageUrl);
         }

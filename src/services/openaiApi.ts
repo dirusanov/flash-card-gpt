@@ -3,15 +3,22 @@ import { OpenAI } from 'openai';
 export const translateText = async (
   apiKey: string,
   text: string,
-  translateToLanguage: string = 'ru'
+  translateToLanguage: string = 'ru',
+  customPrompt: string = ''
 ): Promise<string | null> => {
   try {
+    const basePrompt = `Translate the following text to ${translateToLanguage}`;
+    
+    const systemPrompt = customPrompt 
+      ? `${basePrompt}. ${customPrompt}`
+      : basePrompt;
+    
     const body = {
       model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
-          content: `Translate the following text to ${translateToLanguage}`,
+          content: systemPrompt,
         },
         { role: 'user', content: `${text}` },
       ],
@@ -39,12 +46,21 @@ export const getExamples = async (
   apiKey: string,
   word: string,
   translateToLanguage: string,
-  translate: boolean = false
+  translate: boolean = false,
+  customPrompt: string = ''
 ): Promise<Array<[string, string | null]>> => {
+  const processedCustomPrompt = customPrompt.replace(/\{word\}/g, word);
+  
+  const basePrompt = `Give me three example sentences using the word '${word}'. Using the language of this word ${word}.`;
+  
+  const systemPrompt = customPrompt 
+    ? `${basePrompt} ${processedCustomPrompt}` 
+    : basePrompt;
+  
   const promptMessages = [
     {
       role: 'system',
-      content: `Give me three example sentences using the word '${word}'. Using the language of this word ${word}.`,
+      content: systemPrompt,
     },
   ];
 
@@ -71,6 +87,8 @@ export const getExamples = async (
     const resultExamples: Array<[string, string | null]> = [];
 
     for (const example of examples) {
+      if (!example.trim()) continue; // Skip empty lines
+      
       let translatedExample: string | null = null;
 
       if (translate) {
@@ -130,12 +148,19 @@ export const isAbstract = async (
 
 export const getDescriptionImage = async (
   apiKey: string,
-  word: string
+  word: string,
+  customInstructions: string = ''
 ): Promise<string> => {
+  const basePrompt = `Provide a detailed description for an image that represents the concept of '${word}'`;
+  
+  const finalPrompt = customInstructions 
+    ? `${basePrompt}. ${customInstructions}`
+    : basePrompt;
+
   const promptMessages = [
     {
       role: 'system',
-      content: `Provide a detailed description for an image that represents the abstract concept of '${word}'`,
+      content: finalPrompt,
     },
   ];
 
@@ -165,11 +190,16 @@ export const getDescriptionImage = async (
 
 const getImageUrlRequest = async (
   openai: OpenAI,
-  description: string
+  description: string,
+  customInstructions: string = ''
 ): Promise<string | null> => {
   try {
+    const finalDescription = customInstructions 
+      ? `${description}. ${customInstructions}`
+      : description;
+      
     const response = await openai.images.generate({
-      prompt: description,
+      prompt: finalDescription,
       n: 1,
       size: '512x512',
       response_format: 'url',
@@ -182,20 +212,25 @@ const getImageUrlRequest = async (
   }
 };
 
-export const getOpenAiImageUrl = async (openai: OpenAI, apiKey: string, word: string): Promise<string | null> => {
+export const getOpenAiImageUrl = async (
+  openai: OpenAI, 
+  apiKey: string, 
+  word: string,
+  customInstructions: string = ''
+): Promise<string | null> => {
     try {
         const isAbstractWord = await isAbstract(apiKey, word);
 
         if (isAbstractWord) {
-            const description = await getDescriptionImage(apiKey, word);
+            const description = await getDescriptionImage(apiKey, word, customInstructions);
             return await getImageUrlRequest(
                 openai,
-                `Create a vivid, high-quality illustration representing the concept of '${description}'`
+                `Create a vivid, high-quality illustration representing the concept of '${description}'`,
+                customInstructions
             );
         } else {
-            const photorealisticPrompt = `Create a high-quality, photorealistic image of 
-                                          a ${word} with a neutral expression and clear features`;
-            return await getImageUrlRequest(openai, photorealisticPrompt); 
+            const photorealisticPrompt = `Create a high-quality, photorealistic image of a ${word} with a neutral expression and clear features`;
+            return await getImageUrlRequest(openai, photorealisticPrompt, customInstructions); 
         }
     } catch (error) {
         console.error('Error during getting image for word:', error);
