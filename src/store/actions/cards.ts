@@ -1,7 +1,7 @@
 import { Dispatch } from 'redux';
 import {CardLangLearning, CardGeneral, createAnkiCards} from "../../services/ankiService";
 import { Modes } from '../../constants';
-import { ExportStatus } from '../reducers/cards';
+import { ExportStatus, StoredCard } from '../reducers/cards';
 
 export const SAVE_ANKI_CARDS = 'SAVE_ANKI_CARDS';
 export const SET_TEXT = "SET_TEXT";
@@ -16,6 +16,7 @@ export const LOAD_STORED_CARDS = 'LOAD_STORED_CARDS';
 export const DELETE_STORED_CARD = 'DELETE_STORED_CARD';
 export const SET_STORED_CARDS = 'SET_STORED_CARDS';
 export const UPDATE_CARD_EXPORT_STATUS = 'UPDATE_CARD_EXPORT_STATUS';
+export const UPDATE_STORED_CARD = 'UPDATE_STORED_CARD';
 
 export const saveAnkiCards = (
         mode: Modes, 
@@ -107,4 +108,9 @@ export const updateCardExportStatus = (cardId: string, status: ExportStatus) => 
         cardId,
         status
     }
+});
+
+export const updateStoredCard = (updatedCard: StoredCard) => ({
+    type: UPDATE_STORED_CARD,
+    payload: updatedCard,
 });

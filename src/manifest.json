@@ -22,6 +22,12 @@
     "storage",
     "activeTab"
   ],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://api-inference.huggingface.co/*",
+    "https://oaidalleapiprodscus.blob.core.windows.net/*",
+    "https://*/*"
+  ],
   "devtools_page": "devtools.html",
   "web_accessible_resources": [
     {

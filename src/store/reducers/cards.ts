@@ -11,7 +11,8 @@ import {
     LOAD_STORED_CARDS,
     DELETE_STORED_CARD,
     SET_STORED_CARDS,
-    UPDATE_CARD_EXPORT_STATUS
+    UPDATE_CARD_EXPORT_STATUS,
+    UPDATE_STORED_CARD
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
 import { Modes } from '../../constants';
@@ -79,6 +80,13 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             newState.storedCards = state.storedCards.map(card => 
                 card.id === action.payload.cardId 
                     ? { ...card, exportStatus: action.payload.status }
+                    : card
+            );
+            break;
+        case UPDATE_STORED_CARD:
+            newState.storedCards = state.storedCards.map(card =>
+                card.id === action.payload.id
+                    ? { ...action.payload }
                     : card
             );
             break;
