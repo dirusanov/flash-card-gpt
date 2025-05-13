@@ -6,9 +6,10 @@ import { RootState } from '../store';
 import { loadStoredCards, deleteStoredCard, saveAnkiCards, updateCardExportStatus } from '../store/actions/cards';
 import { StoredCard, ExportStatus } from '../store/reducers/cards';
 import { Modes } from '../constants';
-import { FaArrowLeft, FaTrash, FaDownload } from 'react-icons/fa';
-import { CardLangLearning, CardGeneral } from '../services/ankiService';
+import { FaArrowLeft, FaTrash, FaDownload, FaSync } from 'react-icons/fa';
+import { CardLangLearning, CardGeneral, fetchDecks } from '../services/ankiService';
 import useErrorNotification from './useErrorHandler';
+import { Deck, setDeckId } from '../store/actions/decks';
 
 interface StoredCardsProps {
     onBackClick: () => void;
@@ -20,17 +21,54 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
     const { storedCards } = useSelector((state: RootState) => state.cards);
     const deckId = useSelector((state: RootState) => state.deck.deckId);
+    const decks = useSelector((state: RootState) => state.deck.decks);
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [loadingDecks, setLoadingDecks] = useState(false);
     const [activeFilter, setActiveFilter] = useState<CardFilterType>('not_exported');
+    const [showDeckSelector, setShowDeckSelector] = useState(false);
     const { showError, renderErrorNotification } = useErrorNotification();
 
     useEffect(() => {
         dispatch(loadStoredCards());
     }, [dispatch]);
+
+    // Load Anki decks when needed
+    const loadAnkiDecks = async () => {
+        if (!useAnkiConnect) return;
+        
+        try {
+            setLoadingDecks(true);
+            const response = await fetchDecks(ankiConnectApiKey);
+            
+            if (response.result) {
+                dispatch({ 
+                    type: 'FETCH_DECKS_SUCCESS', 
+                    payload: response.result 
+                });
+                
+                // Select first deck if none is selected
+                if (!deckId && response.result.length > 0) {
+                    dispatch(setDeckId(response.result[0].deckId));
+                }
+            }
+        } catch (error) {
+            console.error('Error loading decks:', error);
+            showError('Failed to load Anki decks. Make sure Anki is running with AnkiConnect plugin.');
+        } finally {
+            setLoadingDecks(false);
+        }
+    };
+
+    // Load decks initially if using AnkiConnect
+    useEffect(() => {
+        if (useAnkiConnect && decks.length === 0) {
+            loadAnkiDecks();
+        }
+    }, [useAnkiConnect]);
 
     // Get filtered cards based on current tab
     const getFilteredCards = () => {
@@ -455,6 +493,170 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         ));
     };
 
+    const handleDeckChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        dispatch(setDeckId(e.target.value));
+    };
+
+    const toggleDeckSelector = () => {
+        setShowDeckSelector(prev => !prev);
+    };
+
+    // Render deck selector dropdown or button
+    const renderDeckSelector = () => {
+        if (!useAnkiConnect) return null;
+        
+        const deckSelectorStyle = {
+            container: {
+                display: 'flex',
+                flexDirection: 'column' as const,
+                gap: '8px',
+                marginBottom: '16px',
+                backgroundColor: '#F9FAFB',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid #E5E7EB'
+            },
+            header: {
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                width: '100%'
+            },
+            title: {
+                fontSize: '14px',
+                fontWeight: '600' as const,
+                color: '#111827',
+            },
+            button: {
+                backgroundColor: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#6B7280',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '0',
+                fontSize: '12px'
+            },
+            selectContainer: {
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                width: '100%'
+            },
+            select: {
+                flex: 1,
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #E5E7EB',
+                backgroundColor: '#ffffff',
+                color: '#374151',
+                fontSize: '14px',
+                cursor: 'pointer'
+            },
+            refreshButton: {
+                backgroundColor: '#F3F4F6',
+                border: '1px solid #E5E7EB',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                color: '#6B7280',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '8px',
+                minWidth: '36px',
+                height: '38px'
+            }
+        };
+
+        if (!showDeckSelector) {
+            return (
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    width: '100%',
+                    marginBottom: '12px',
+                    padding: '8px 12px',
+                    backgroundColor: '#F9FAFB',
+                    borderRadius: '6px',
+                    border: '1px solid #E5E7EB'
+                }}>
+                    <div>
+                        <span style={{ fontSize: '13px', color: '#6B7280' }}>Anki Deck:</span>
+                        <span style={{ fontSize: '14px', fontWeight: '500', marginLeft: '8px', color: '#111827' }}>
+                            {decks.find(d => d.deckId === deckId)?.name || 'None selected'}
+                        </span>
+                    </div>
+                    <button
+                        onClick={toggleDeckSelector}
+                        style={{
+                            backgroundColor: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#2563EB',
+                            fontSize: '13px'
+                        }}
+                    >
+                        Change
+                    </button>
+                </div>
+            );
+        }
+
+        return (
+            <div style={deckSelectorStyle.container}>
+                <div style={deckSelectorStyle.header}>
+                    <span style={deckSelectorStyle.title}>Select Anki Deck</span>
+                    <button 
+                        onClick={toggleDeckSelector}
+                        style={deckSelectorStyle.button}
+                    >
+                        Hide
+                    </button>
+                </div>
+                
+                <div style={deckSelectorStyle.selectContainer}>
+                    <select
+                        value={deckId}
+                        onChange={handleDeckChange}
+                        style={deckSelectorStyle.select}
+                        disabled={loadingDecks}
+                    >
+                        {decks.length === 0 && <option value="">No decks available</option>}
+                        {decks.map(deck => (
+                            <option key={deck.deckId} value={deck.deckId}>
+                                {deck.name}
+                            </option>
+                        ))}
+                    </select>
+                    <button
+                        onClick={loadAnkiDecks}
+                        disabled={loadingDecks}
+                        title="Refresh decks list"
+                        style={deckSelectorStyle.refreshButton}
+                        aria-label="Refresh decks"
+                    >
+                        <FaSync 
+                            size={14} 
+                            style={{ 
+                                animation: loadingDecks ? 'spin 1s linear infinite' : 'none' 
+                            }} 
+                        />
+                    </button>
+                </div>
+                
+                <style>
+                    {`
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                    `}
+                </style>
+            </div>
+        );
+    };
+
     return (
         <div style={{
             display: 'flex',
@@ -500,6 +702,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 <>
                     {renderTabNavigation()}
                     
+                    {useAnkiConnect && renderDeckSelector()}
+                    
                     <div style={{
                         display: 'flex',
                         justifyContent: 'space-between',
@@ -523,7 +727,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <button
                                 onClick={handleSaveToAnki}
-                                disabled={isLoading || selectedCards.length === 0 || !useAnkiConnect}
+                                disabled={isLoading || selectedCards.length === 0 || !useAnkiConnect || !deckId}
                                 style={{
                                     padding: '6px 10px',
                                     borderRadius: '6px',
@@ -532,8 +736,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     fontSize: '13px',
                                     border: 'none',
                                     cursor: 'pointer',
-                                    opacity: (isLoading || selectedCards.length === 0 || !useAnkiConnect) ? 0.6 : 1
+                                    opacity: (isLoading || selectedCards.length === 0 || !useAnkiConnect || !deckId) ? 0.6 : 1
                                 }}
+                                title={!deckId && useAnkiConnect ? 'Please select a deck first' : ''}
                             >
                                 {isLoading ? 'Saving...' : 'Save to Anki'}
                             </button>
