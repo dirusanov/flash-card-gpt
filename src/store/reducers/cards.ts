@@ -10,10 +10,13 @@ import {
     SAVE_CARD_TO_STORAGE,
     LOAD_STORED_CARDS,
     DELETE_STORED_CARD,
-    SET_STORED_CARDS
+    SET_STORED_CARDS,
+    UPDATE_CARD_EXPORT_STATUS
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
 import { Modes } from '../../constants';
+
+export type ExportStatus = 'not_exported' | 'exported_to_file' | 'exported_to_anki';
 
 export interface StoredCard {
     id: string;
@@ -26,6 +29,7 @@ export interface StoredCard {
     image?: string | null;
     imageUrl?: string | null;
     createdAt: Date;
+    exportStatus: ExportStatus;
 }
 
 const initialState: CardState = {
@@ -66,9 +70,17 @@ const cardsReducer = (state = initialState, action: any): CardState => {
         case SAVE_CARD_TO_STORAGE:
             const newCard: StoredCard = {
                 id: Date.now().toString(),
-                ...action.payload
+                ...action.payload,
+                exportStatus: 'not_exported'
             };
             newState.storedCards = [...state.storedCards, newCard];
+            break;
+        case UPDATE_CARD_EXPORT_STATUS:
+            newState.storedCards = state.storedCards.map(card => 
+                card.id === action.payload.cardId 
+                    ? { ...card, exportStatus: action.payload.status }
+                    : card
+            );
             break;
         case LOAD_STORED_CARDS:
             // This will be handled by the persistence middleware

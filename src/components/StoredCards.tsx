@@ -3,8 +3,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from '../store';
-import { loadStoredCards, deleteStoredCard, saveAnkiCards } from '../store/actions/cards';
-import { StoredCard } from '../store/reducers/cards';
+import { loadStoredCards, deleteStoredCard, saveAnkiCards, updateCardExportStatus } from '../store/actions/cards';
+import { StoredCard, ExportStatus } from '../store/reducers/cards';
 import { Modes } from '../constants';
 import { FaArrowLeft, FaTrash, FaDownload } from 'react-icons/fa';
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
@@ -13,6 +13,8 @@ import useErrorNotification from './useErrorHandler';
 interface StoredCardsProps {
     onBackClick: () => void;
 }
+
+type CardFilterType = 'all' | 'not_exported' | 'exported';
 
 const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
@@ -23,11 +25,57 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [activeFilter, setActiveFilter] = useState<CardFilterType>('not_exported');
     const { showError, renderErrorNotification } = useErrorNotification();
 
     useEffect(() => {
         dispatch(loadStoredCards());
     }, [dispatch]);
+
+    // Get filtered cards based on current tab
+    const getFilteredCards = () => {
+        let cards;
+        switch (activeFilter) {
+            case 'not_exported':
+                cards = storedCards.filter(card => card.exportStatus === 'not_exported');
+                break;
+            case 'exported':
+                cards = storedCards.filter(card => 
+                    card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file');
+                break;
+            case 'all':
+            default:
+                // Sort all cards - put new cards first, then exported
+                cards = [...storedCards].sort((a, b) => {
+                    // New cards come first
+                    if (a.exportStatus === 'not_exported' && b.exportStatus !== 'not_exported') {
+                        return -1;
+                    }
+                    // Exported cards come after
+                    if (a.exportStatus !== 'not_exported' && b.exportStatus === 'not_exported') {
+                        return 1;
+                    }
+                    // For cards with same export status, sort by creation date (newest first)
+                    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                });
+                break;
+        }
+        
+        // Sort by creation date within each category (newest first)
+        return cards.sort((a, b) => {
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+    };
+    
+    const filteredCards = getFilteredCards();
+    
+    // Count cards by status for the tab counters
+    const cardCounts = {
+        all: storedCards.length,
+        not_exported: storedCards.filter(card => card.exportStatus === 'not_exported').length,
+        exported: storedCards.filter(card => 
+            card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file').length
+    };
 
     const handleCardSelect = (cardId: string) => {
         if (selectedCards.includes(cardId)) {
@@ -38,10 +86,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     };
 
     const handleSelectAll = () => {
-        if (selectedCards.length === storedCards.length) {
+        if (selectedCards.length === filteredCards.length) {
             setSelectedCards([]);
         } else {
-            setSelectedCards(storedCards.map(card => card.id));
+            setSelectedCards(filteredCards.map(card => card.id));
         }
     };
 
@@ -105,6 +153,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 ));
             }
             
+            // Update export status for selected cards
+            selectedCards.forEach(cardId => {
+                dispatch(updateCardExportStatus(cardId, 'exported_to_anki'));
+            });
+            
             // Show success notification with type parameter
             showError('Cards saved to Anki successfully!', 'success');
         } catch (error) {
@@ -157,11 +210,27 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+
+        // Update export status for selected cards
+        selectedCards.forEach(cardId => {
+            dispatch(updateCardExportStatus(cardId, 'exported_to_file'));
+        });
     };
 
     const formatDate = (dateString: Date) => {
         const date = new Date(dateString);
         return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const renderCardStatus = (status: ExportStatus) => {
+        switch (status) {
+            case 'exported_to_anki':
+                return <span style={{ fontSize: '11px', color: '#10B981', marginLeft: '8px' }}>✓ Anki</span>;
+            case 'exported_to_file':
+                return <span style={{ fontSize: '11px', color: '#2563EB', marginLeft: '8px' }}>✓ File</span>;
+            default:
+                return null;
+        }
     };
 
     const renderCardContent = (card: StoredCard) => {
@@ -209,6 +278,183 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
     };
 
+    // Modified to render the tab navigation
+    const renderTabNavigation = () => {
+        const tabStyle = {
+            base: {
+                padding: '8px 16px',
+                fontSize: '14px',
+                fontWeight: '500',
+                borderRadius: '6px 6px 0 0',
+                cursor: 'pointer',
+                textAlign: 'center' as const,
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+            },
+            active: {
+                backgroundColor: '#ffffff',
+                color: '#2563EB',
+                borderBottom: '2px solid #2563EB',
+            },
+            inactive: {
+                backgroundColor: '#F3F4F6',
+                color: '#6B7280',
+                borderBottom: '2px solid transparent',
+            }
+        };
+
+        return (
+            <div style={{ 
+                display: 'flex', 
+                width: '100%', 
+                borderBottom: '1px solid #E5E7EB',
+                marginBottom: '16px',
+                backgroundColor: '#F3F4F6',
+            }}>
+                <div 
+                    onClick={() => setActiveFilter('not_exported')}
+                    style={{
+                        ...tabStyle.base,
+                        ...(activeFilter === 'not_exported' ? tabStyle.active : tabStyle.inactive),
+                        flex: 1
+                    }}
+                >
+                    New
+                    <span style={{ 
+                        backgroundColor: activeFilter === 'not_exported' ? '#2563EB' : '#9CA3AF',
+                        color: 'white',
+                        borderRadius: '9999px',
+                        fontSize: '12px',
+                        padding: '1px 6px',
+                        minWidth: '20px',
+                    }}>
+                        {cardCounts.not_exported}
+                    </span>
+                </div>
+                <div 
+                    onClick={() => setActiveFilter('all')}
+                    style={{
+                        ...tabStyle.base,
+                        ...(activeFilter === 'all' ? tabStyle.active : tabStyle.inactive),
+                        flex: 1
+                    }}
+                >
+                    All
+                    <span style={{ 
+                        backgroundColor: activeFilter === 'all' ? '#2563EB' : '#9CA3AF',
+                        color: 'white',
+                        borderRadius: '9999px',
+                        fontSize: '12px',
+                        padding: '1px 6px',
+                        minWidth: '20px',
+                    }}>
+                        {cardCounts.all}
+                    </span>
+                </div>
+                <div 
+                    onClick={() => setActiveFilter('exported')}
+                    style={{
+                        ...tabStyle.base,
+                        ...(activeFilter === 'exported' ? tabStyle.active : tabStyle.inactive),
+                        flex: 1
+                    }}
+                >
+                    Exported
+                    <span style={{ 
+                        backgroundColor: activeFilter === 'exported' ? '#2563EB' : '#9CA3AF',
+                        color: 'white',
+                        borderRadius: '9999px',
+                        fontSize: '12px',
+                        padding: '1px 6px',
+                        minWidth: '20px',
+                    }}>
+                        {cardCounts.exported}
+                    </span>
+                </div>
+            </div>
+        );
+    };
+
+    // Remove the renderCardsByStatus function and create a new function to render all cards
+    const renderCards = () => {
+        if (filteredCards.length === 0) {
+            return (
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '200px',
+                    color: '#6B7280',
+                    textAlign: 'center',
+                    padding: '20px'
+                }}>
+                    <p style={{ fontSize: '14px' }}>
+                        {activeFilter === 'all' ? 'No cards yet' : 
+                         activeFilter === 'not_exported' ? 'No new cards' : 
+                         'No exported cards'}
+                    </p>
+                </div>
+            );
+        }
+
+        return filteredCards.map(card => (
+            <div
+                key={card.id}
+                style={{
+                    border: '1px solid #E5E7EB',
+                    borderRadius: '6px',
+                    marginBottom: '8px',
+                    backgroundColor: selectedCards.includes(card.id) ? '#F3F4F6' : '#ffffff'
+                }}
+            >
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    borderBottom: '1px solid #E5E7EB'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <input
+                            type="checkbox"
+                            checked={selectedCards.includes(card.id)}
+                            onChange={() => handleCardSelect(card.id)}
+                            style={{ marginRight: '8px' }}
+                        />
+                        <div>
+                            <span style={{ fontSize: '12px', color: '#6B7280' }}>
+                                {card.mode === Modes.LanguageLearning ? 'Language' : 'Topic'}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#9CA3AF', marginLeft: '8px' }}>
+                                {formatDate(card.createdAt)}
+                            </span>
+                            {renderCardStatus(card.exportStatus)}
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => handleDelete(card.id)}
+                        style={{
+                            backgroundColor: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#EF4444',
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '4px'
+                        }}
+                        title="Delete card"
+                    >
+                        <FaTrash size={14} />
+                    </button>
+                </div>
+                {renderCardContent(card)}
+            </div>
+        ));
+    };
+
     return (
         <div style={{
             display: 'flex',
@@ -243,13 +489,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     <FaArrowLeft style={{ marginRight: '4px' }} />
                     <span style={{ fontSize: '14px' }}>Back</span>
                 </button>
-                <span style={{ fontWeight: '600', fontSize: '16px' }}>Saved Cards ({storedCards.length})</span>
+                <span style={{ fontWeight: '600', fontSize: '16px' }}>
+                    Saved Cards ({storedCards.length})
+                </span>
             </div>
 
             {renderErrorNotification()}
             
             {storedCards.length > 0 ? (
                 <>
+                    {renderTabNavigation()}
+                    
                     <div style={{
                         display: 'flex',
                         justifyContent: 'space-between',
@@ -260,12 +510,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             <input
                                 type="checkbox"
                                 id="selectAll"
-                                checked={selectedCards.length === storedCards.length && storedCards.length > 0}
+                                checked={selectedCards.length === filteredCards.length && filteredCards.length > 0}
                                 onChange={handleSelectAll}
                                 style={{ marginRight: '8px' }}
                             />
                             <label htmlFor="selectAll" style={{ fontSize: '14px', cursor: 'pointer' }}>
-                                {selectedCards.length === storedCards.length && storedCards.length > 0
+                                {selectedCards.length === filteredCards.length && filteredCards.length > 0
                                     ? 'Deselect All'
                                     : 'Select All'}
                             </label>
@@ -311,58 +561,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     </div>
                     
                     <div style={{ flex: 1, overflowY: 'auto' }}>
-                        {storedCards.map(card => (
-                            <div
-                                key={card.id}
-                                style={{
-                                    border: '1px solid #E5E7EB',
-                                    borderRadius: '6px',
-                                    marginBottom: '8px',
-                                    backgroundColor: selectedCards.includes(card.id) ? '#F3F4F6' : '#ffffff'
-                                }}
-                            >
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    padding: '8px 12px',
-                                    borderBottom: '1px solid #E5E7EB'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedCards.includes(card.id)}
-                                            onChange={() => handleCardSelect(card.id)}
-                                            style={{ marginRight: '8px' }}
-                                        />
-                                        <div>
-                                            <span style={{ fontSize: '12px', color: '#6B7280' }}>
-                                                {card.mode === Modes.LanguageLearning ? 'Language' : 'Topic'}
-                                            </span>
-                                            <span style={{ fontSize: '11px', color: '#9CA3AF', marginLeft: '8px' }}>
-                                                {formatDate(card.createdAt)}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => handleDelete(card.id)}
-                                        style={{
-                                            backgroundColor: 'transparent',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            color: '#EF4444',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            padding: '4px'
-                                        }}
-                                        title="Delete card"
-                                    >
-                                        <FaTrash size={14} />
-                                    </button>
-                                </div>
-                                {renderCardContent(card)}
-                            </div>
-                        ))}
+                        {renderCards()}
                     </div>
                 </>
             ) : (
