@@ -21,23 +21,21 @@ function App() {
   const currentPage = useSelector((state: RootState) => state.currentPage);
   const dispatch = useDispatch();
   const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
-  const { showError, renderErrorNotification } = useErrorNotification()
+  const { showError, renderErrorNotification } = useErrorNotification();
 
   useEffect(() => {
-    const initializeStoreAndCheckAnki = async () => {
+    const initializeStore = async () => {
       try {
         const resolvedStore = await instantiateStore();
         setStore(resolvedStore);
+        
+        // Check Anki availability but don't affect the initial page
         try {
           const decks = await fetchDecks(ankiConnectApiKey);
 
           if (decks.error) {
             console.error('Anki returned an error:', decks.error);
-            showError('Anki is unavailable. Please check your Anki settings.');
             dispatch(setAnkiAvailability(false));
-            if (isInitialLoad) {
-              dispatch(setCurrentPage('settings'))
-            }
           } else {
             dispatch(fetchDecksSuccess(decks.result));
             dispatch(setAnkiAvailability(true));
@@ -45,21 +43,17 @@ function App() {
           }
         } catch (error) {
           console.error('Anki is unavailable:', error);
-          showError('Anki is unavailable. Please check your Anki settings.');
           dispatch(setAnkiAvailability(false));
-          if (isInitialLoad) {
-            dispatch(setCurrentPage('settings'))
-          }
-        } finally {
-          setIsInitialLoad(false)
         }
       } catch (error) {
         console.error('Error loading state from Chrome storage:', error);
+      } finally {
+        setIsInitialLoad(false);
       }
     };
 
-    initializeStoreAndCheckAnki();
-  }, [dispatch, ankiConnectApiKey, isInitialLoad])
+    initializeStore();
+  }, [dispatch, ankiConnectApiKey, isInitialLoad, currentPage])
 
   if (!store) {
     return null;
@@ -263,11 +257,7 @@ function App() {
           marginTop: '44px',
           height: 'calc(100% - 44px)'
         }}>
-          {isInitialLoad && !isAnkiAvailable ? (
-            <Settings onBackClick={() => handlePageChange('createCard')} popup={false} />
-          ) : (
-            renderMainContent()
-          )}
+          {renderMainContent()}
           <div style={{
             position: 'absolute',
             top: '8px',

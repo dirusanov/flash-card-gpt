@@ -40,7 +40,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const [editFormData, setEditFormData] = useState<StoredCard | null>(null);
     const [loadingImage, setLoadingImage] = useState(false);
     const { showError, renderErrorNotification } = useErrorNotification();
-    
+
     // Initialize OpenAI client
     const openai = new OpenAI({
         apiKey: openAiKey,
@@ -54,17 +54,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     // Load Anki decks when needed
     const loadAnkiDecks = async () => {
         if (!useAnkiConnect) return;
-        
+
         try {
             setLoadingDecks(true);
             const response = await fetchDecks(ankiConnectApiKey);
-            
+
             if (response.result) {
-                dispatch({ 
-                    type: 'FETCH_DECKS_SUCCESS', 
-                    payload: response.result 
+                dispatch({
+                    type: 'FETCH_DECKS_SUCCESS',
+                    payload: response.result
                 });
-                
+
                 // Select first deck if none is selected
                 if (!deckId && response.result.length > 0) {
                     dispatch(setDeckId(response.result[0].deckId));
@@ -72,7 +72,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             }
         } catch (error) {
             console.error('Error loading decks:', error);
-            showError('Failed to load Anki decks. Make sure Anki is running with AnkiConnect plugin.');
+            // Only show error if useAnkiConnect is enabled
+            if (useAnkiConnect) {
+                showError('Failed to load Anki decks. Make sure Anki is running with AnkiConnect plugin.');
+            }
         } finally {
             setLoadingDecks(false);
         }
@@ -93,7 +96,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 cards = storedCards.filter(card => card.exportStatus === 'not_exported');
                 break;
             case 'exported':
-                cards = storedCards.filter(card => 
+                cards = storedCards.filter(card =>
                     card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file');
                 break;
             case 'all':
@@ -113,27 +116,27 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 });
                 break;
         }
-        
+
         // Sort by creation date within each category (newest first)
         return cards.sort((a, b) => {
             return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         });
     };
-    
+
     const filteredCards = getFilteredCards();
-    
+
     // Count cards by status for the tab counters
     const cardCounts = {
         all: storedCards.length,
         not_exported: storedCards.filter(card => card.exportStatus === 'not_exported').length,
-        exported: storedCards.filter(card => 
+        exported: storedCards.filter(card =>
             card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file').length
     };
 
     const handleCardSelect = (cardId: string) => {
         // Don't allow selection changes when a card is being edited
         if (editingCardId) return;
-        
+
         if (selectedCards.includes(cardId)) {
             setSelectedCards(selectedCards.filter(id => id !== cardId));
         } else {
@@ -144,7 +147,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const handleSelectAll = () => {
         // Don't allow selection changes when a card is being edited
         if (editingCardId) return;
-        
+
         if (selectedCards.length === filteredCards.length) {
             setSelectedCards([]);
         } else {
@@ -166,11 +169,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         try {
             const modelName = 'Basic';
             const selectedCardsData = storedCards.filter(card => selectedCards.includes(card.id));
-            
+
             // Group cards by mode
             const langLearningCards: CardLangLearning[] = [];
             const generalTopicCards: CardGeneral[] = [];
-            
+
             selectedCardsData.forEach(card => {
                 if (card.mode === Modes.LanguageLearning && card.translation) {
                     langLearningCards.push({
@@ -187,7 +190,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     });
                 }
             });
-            
+
             // Save language learning cards
             if (langLearningCards.length > 0) {
                 await dispatch(saveAnkiCards(
@@ -199,7 +202,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     langLearningCards
                 ));
             }
-            
+
             // Save general topic cards
             if (generalTopicCards.length > 0) {
                 await dispatch(saveAnkiCards(
@@ -211,12 +214,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     generalTopicCards
                 ));
             }
-            
+
             // Update export status for selected cards
             selectedCards.forEach(cardId => {
                 dispatch(updateCardExportStatus(cardId, 'exported_to_anki'));
             });
-            
+
             // Show success notification with type parameter
             showError('Cards saved to Anki successfully!', 'success');
         } catch (error) {
@@ -233,13 +236,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
 
         const selectedCardsData = storedCards.filter(card => selectedCards.includes(card.id));
-        
+
         // Format data for export
         const exportData = selectedCardsData.map(card => {
             if (card.mode === Modes.LanguageLearning) {
                 return {
                     front: card.text,
-                    back: `${card.translation}<br><br>${(card.examples || []).map(([ex, trans]) => 
+                    back: `${card.translation}<br><br>${(card.examples || []).map(([ex, trans]) =>
                         `${ex}${trans ? `<br>${trans}` : ''}`).join('<br><br>')}`
                 };
             } else {
@@ -249,7 +252,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 };
             }
         });
-        
+
         // Create CSV content (compatible with Anki import)
         let csvContent = "front,back\n";
         exportData.forEach(card => {
@@ -258,7 +261,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             const back = card.back.replace(/\n/g, '<br>').replace(/"/g, '""');
             csvContent += `"${front}","${back}"\n`;
         });
-        
+
         // Create and download file
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
@@ -297,7 +300,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         if (editingCardId === card.id) {
             return null;
         }
-        
+
         if (card.mode === Modes.LanguageLearning) {
             return (
                 <div style={{ padding: '8px' }}>
@@ -370,14 +373,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         };
 
         return (
-            <div style={{ 
-                display: 'flex', 
-                width: '100%', 
+            <div style={{
+                display: 'flex',
+                width: '100%',
                 borderBottom: '1px solid #E5E7EB',
                 marginBottom: '16px',
                 backgroundColor: '#F3F4F6',
             }}>
-                <div 
+                <div
                     onClick={() => setActiveFilter('not_exported')}
                     style={{
                         ...tabStyle.base,
@@ -386,7 +389,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     }}
                 >
                     New
-                    <span style={{ 
+                    <span style={{
                         backgroundColor: activeFilter === 'not_exported' ? '#2563EB' : '#9CA3AF',
                         color: 'white',
                         borderRadius: '9999px',
@@ -397,7 +400,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         {cardCounts.not_exported}
                     </span>
                 </div>
-                <div 
+                <div
                     onClick={() => setActiveFilter('all')}
                     style={{
                         ...tabStyle.base,
@@ -406,7 +409,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     }}
                 >
                     All
-                    <span style={{ 
+                    <span style={{
                         backgroundColor: activeFilter === 'all' ? '#2563EB' : '#9CA3AF',
                         color: 'white',
                         borderRadius: '9999px',
@@ -417,7 +420,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         {cardCounts.all}
                     </span>
                 </div>
-                <div 
+                <div
                     onClick={() => setActiveFilter('exported')}
                     style={{
                         ...tabStyle.base,
@@ -426,7 +429,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     }}
                 >
                     Exported
-                    <span style={{ 
+                    <span style={{
                         backgroundColor: activeFilter === 'exported' ? '#2563EB' : '#9CA3AF',
                         color: 'white',
                         borderRadius: '9999px',
@@ -456,9 +459,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     padding: '20px'
                 }}>
                     <p style={{ fontSize: '14px' }}>
-                        {activeFilter === 'all' ? 'No cards yet' : 
-                         activeFilter === 'not_exported' ? 'No new cards' : 
-                         'No exported cards'}
+                        {activeFilter === 'all' ? 'No cards yet' :
+                            activeFilter === 'not_exported' ? 'No new cards' :
+                                'No exported cards'}
                     </p>
                 </div>
             );
@@ -560,7 +563,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     // Render deck selector dropdown or button
     const renderDeckSelector = () => {
         if (!useAnkiConnect) return null;
-        
+
         const deckSelectorStyle = {
             container: {
                 display: 'flex',
@@ -663,14 +666,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             <div style={deckSelectorStyle.container}>
                 <div style={deckSelectorStyle.header}>
                     <span style={deckSelectorStyle.title}>Select Anki Deck</span>
-                    <button 
+                    <button
                         onClick={toggleDeckSelector}
                         style={deckSelectorStyle.button}
                     >
                         Hide
                     </button>
                 </div>
-                
+
                 <div style={deckSelectorStyle.selectContainer}>
                     <select
                         value={deckId}
@@ -692,15 +695,15 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         style={deckSelectorStyle.refreshButton}
                         aria-label="Refresh decks"
                     >
-                        <FaSync 
-                            size={14} 
-                            style={{ 
-                                animation: loadingDecks ? 'spin 1s linear infinite' : 'none' 
-                            }} 
+                        <FaSync
+                            size={14}
+                            style={{
+                                animation: loadingDecks ? 'spin 1s linear infinite' : 'none'
+                            }}
                         />
                     </button>
                 </div>
-                
+
                 <style>
                     {`
                     @keyframes spin {
@@ -717,11 +720,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const handleStartEditing = (card: StoredCard) => {
         // Create a copy of the card for editing
         const cardForEdit = { ...card };
-        
+
         // Make sure the examples array is properly initialized
         if (card.mode === Modes.LanguageLearning) {
             cardForEdit.examples = Array.isArray(card.examples) ? [...card.examples] : [];
-            
+
             // Ensure text and translation fields are not null
             cardForEdit.text = cardForEdit.text || '';
             cardForEdit.translation = cardForEdit.translation || '';
@@ -730,53 +733,53 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             cardForEdit.front = cardForEdit.front || '';
             cardForEdit.back = cardForEdit.back || '';
         }
-        
+
         setEditingCardId(card.id);
         setEditFormData(cardForEdit);
     };
-    
+
     // Cancel editing
     const handleCancelEdit = () => {
         setEditingCardId(null);
         setEditFormData(null);
     };
-    
+
     // Save edited card
     const handleSaveEdit = () => {
         if (!editFormData) return;
-        
+
         try {
             // Prepare the updated card data with deep copy to avoid reference issues
             const updatedCardData = JSON.parse(JSON.stringify(editFormData)) as StoredCard;
-            
+
             console.log('Original editFormData:', editFormData);
             console.log('Deep copied updatedCardData:', updatedCardData);
-            
+
             // Make sure we preserve the ID and other required fields
             updatedCardData.id = editFormData.id;
             updatedCardData.createdAt = editFormData.createdAt;
             updatedCardData.exportStatus = editFormData.exportStatus;
-            
+
             // Clean up any empty examples
             if (Array.isArray(updatedCardData.examples)) {
                 updatedCardData.examples = updatedCardData.examples
                     .filter(example => example[0].trim() !== '') // Filter out examples with empty text
                     .map(([text, translation]) => [
-                        text.trim(), 
+                        text.trim(),
                         translation ? translation.trim() : null
                     ]); // Trim whitespace from all values
             } else {
                 // Make sure examples is at least an empty array
                 updatedCardData.examples = [];
             }
-            
+
             // Validate form data
             if (updatedCardData.mode === Modes.LanguageLearning) {
                 if (!updatedCardData.text || !updatedCardData.translation) {
                     showError('Please provide both text and translation');
                     return;
                 }
-                
+
                 // Ensure these fields are properly set
                 updatedCardData.text = updatedCardData.text.trim();
                 updatedCardData.translation = updatedCardData.translation.trim();
@@ -785,28 +788,28 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     showError('Please provide both front and back content');
                     return;
                 }
-                
+
                 // Ensure these fields are properly set
                 updatedCardData.front = updatedCardData.front.trim();
                 updatedCardData.back = updatedCardData.back?.trim() || null;
             }
-            
+
             console.log('Final data being saved to Redux:', updatedCardData);
-            
+
             // Update the card in the Redux store
             dispatch(updateStoredCard(updatedCardData));
-            
+
             // Reset the editing state
             setEditingCardId(null);
             setEditFormData(null);
-            
+
             showError('Card updated successfully!', 'success');
         } catch (error) {
             console.error('Error saving card:', error);
             showError('Failed to update card. Please try again.');
         }
     };
-    
+
     // Handle form field changes
     const handleEditFormChange = (field: keyof StoredCard, value: any) => {
         if (!editFormData) return;
@@ -815,49 +818,49 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             [field]: value
         });
     };
-    
+
     // Generate a new image for the card
     const handleGenerateNewImage = async () => {
         if (!editFormData || !editFormData.text) return;
-        
+
         try {
             setLoadingImage(true);
-            
+
             // Check if we have API keys
             if (!openAiKey) {
                 throw new Error('OpenAI API key is not configured. Please add it in the settings.');
             }
-            
+
             // We need to add proper error handling and logs to diagnose issues
             console.log('Starting image generation for text:', editFormData.text);
-            
+
             // 1. Get an image description
             const descriptionImage = await getDescriptionImage(openAiKey, editFormData.text, imageInstructions);
             console.log('Description generated:', descriptionImage);
-            
+
             if (!descriptionImage) {
                 throw new Error('Failed to generate image description');
             }
-            
+
             // 2. Generate an image URL using the OpenAI client
             // Use direct API calls for better debugging
             try {
                 console.log('Attempting to generate image...');
-                
+
                 // Try with HuggingFace first if we have an API key
                 if (haggingFaceApiKey) {
                     try {
                         console.log('Trying HuggingFace image generation');
                         const result = await getImage(
-                            haggingFaceApiKey, 
-                            openai, 
-                            openAiKey, 
-                            descriptionImage, 
+                            haggingFaceApiKey,
+                            openai,
+                            openAiKey,
+                            descriptionImage,
                             imageInstructions
                         );
-                        
+
                         console.log('Image generation result:', result);
-                        
+
                         if (result.imageUrl && result.imageBase64) {
                             // Update the form data with new image
                             setEditFormData({
@@ -865,7 +868,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 imageUrl: result.imageUrl,
                                 image: result.imageBase64
                             });
-                            
+
                             showError('New image generated successfully!', 'success');
                             return;
                         }
@@ -875,14 +878,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         // Fall back to direct OpenAI API call
                     }
                 }
-                
+
                 // Fallback to direct OpenAI API call
                 console.log('Trying direct OpenAI image generation');
-                
-                const finalPrompt = imageInstructions 
+
+                const finalPrompt = imageInstructions
                     ? `${descriptionImage}. ${imageInstructions}`
                     : descriptionImage;
-                
+
                 // Direct OpenAI API call to get image
                 const response = await fetch('https://api.openai.com/v1/images/generations', {
                     method: 'POST',
@@ -897,20 +900,20 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         response_format: 'url'
                     })
                 });
-                
+
                 const data = await response.json();
                 console.log('OpenAI direct API response:', data);
-                
+
                 if (!data.data || !data.data[0] || !data.data[0].url) {
                     throw new Error('OpenAI did not return an image URL');
                 }
-                
+
                 const imageUrl = data.data[0].url;
                 console.log('Image URL generated:', imageUrl);
-                
+
                 // 3. Send a message to the background script to fetch the image and convert to base64
                 console.log('Sending message to background script to fetch image');
-                
+
                 // Create a promise that resolves when the background script sends a response
                 const imageData = await new Promise((resolve, reject) => {
                     chrome.runtime.sendMessage(imageUrl, (response) => {
@@ -919,9 +922,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             reject(chrome.runtime.lastError);
                             return;
                         }
-                        
+
                         console.log('Response from background script:', response);
-                        
+
                         if (response && response.status && response.data) {
                             resolve(response.data);
                         } else {
@@ -929,18 +932,18 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         }
                     });
                 });
-                
+
                 console.log('Image data received from background');
-                
+
                 // Update the form data with the new image
                 setEditFormData({
                     ...editFormData,
                     imageUrl: imageData as string,
                     image: imageData as string
                 });
-                
+
                 showError('New image generated successfully!', 'success');
-                
+
             } catch (imageError: any) {
                 console.error('Error in image generation:', imageError);
                 throw new Error(`Image generation failed: ${imageError?.message || 'Unknown error'}`);
@@ -960,16 +963,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             console.warn('Cannot add example: form data is null or not in language learning mode');
             return;
         }
-        
+
         try {
             // Make sure we have a valid examples array
             const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
-            
+
             // Create a new array with the existing examples plus a new empty one
             const newExamples: [string, string | null][] = [...currentExamples, ['', null]];
-            
+
             console.log('Adding new example, total examples:', newExamples.length);
-            
+
             // Update the form data with the new examples array
             setEditFormData({
                 ...editFormData,
@@ -979,32 +982,32 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             console.error('Error adding example:', error);
         }
     };
-    
+
     // Handle removal of an example
     const handleRemoveExample = (index: number) => {
         if (!editFormData) {
             console.warn('Cannot remove example: form data is null');
             return;
         }
-        
+
         try {
             // Make sure we have a valid examples array
             const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
-            
+
             // Check if the index is valid
             if (index < 0 || index >= currentExamples.length) {
                 console.warn(`Invalid example index: ${index}, examples length: ${currentExamples.length}`);
                 return;
             }
-            
+
             // Create a new array without the example at the specified index
             const newExamples: [string, string | null][] = [
                 ...currentExamples.slice(0, index),
                 ...currentExamples.slice(index + 1)
             ];
-            
+
             console.log(`Removed example at index ${index}, remaining examples:`, newExamples.length);
-            
+
             // Update the form data with the modified examples
             setEditFormData({
                 ...editFormData,
@@ -1014,26 +1017,26 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             console.error('Error removing example:', error);
         }
     };
-    
+
     // Handle changes to an example
     const handleExampleChange = (index: number, isExample: boolean, value: string) => {
         if (!editFormData) {
             console.warn('Cannot change example: form data is null');
             return;
         }
-        
+
         try {
             // Make sure we have a valid examples array
             const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
-            
+
             // Create a copy of the examples array
             const newExamples: [string, string | null][] = [...currentExamples];
-            
+
             // If the index doesn't exist, add empty examples up to this index
             while (newExamples.length <= index) {
                 newExamples.push(['', null]);
             }
-            
+
             // Update the specific example text or translation
             if (isExample) {
                 newExamples[index][0] = value;
@@ -1042,7 +1045,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 newExamples[index][1] = value;
                 console.log(`Updated translation at index ${index}:`, value.substring(0, 20) + (value.length > 20 ? '...' : ''));
             }
-            
+
             // Update the form data with the modified examples
             setEditFormData({
                 ...editFormData,
@@ -1056,7 +1059,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     // Render the edit form for a card
     const renderCardEditForm = () => {
         if (!editFormData) return null;
-        
+
         const formStyles = {
             container: {
                 display: 'flex' as const,
@@ -1198,64 +1201,64 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 marginTop: '8px'
             }
         };
-        
+
         return (
             <div style={formStyles.container}>
                 <div style={formStyles.header}>
                     <h3 style={formStyles.title}>Edit Card</h3>
                     <div style={formStyles.buttonGroup}>
-                        <button onClick={handleCancelEdit} style={{...formStyles.button, ...formStyles.cancelButton}}>
+                        <button onClick={handleCancelEdit} style={{ ...formStyles.button, ...formStyles.cancelButton }}>
                             <FaTimes size={12} /> Cancel
                         </button>
-                        <button onClick={handleSaveEdit} style={{...formStyles.button, ...formStyles.saveButton}}>
+                        <button onClick={handleSaveEdit} style={{ ...formStyles.button, ...formStyles.saveButton }}>
                             <FaCheck size={12} /> Save
                         </button>
                     </div>
                 </div>
-                
+
                 {editFormData.mode === Modes.LanguageLearning ? (
                     <>
                         <div style={formStyles.fieldGroup}>
                             <label style={formStyles.label}>Text</label>
-                            <input 
+                            <input
                                 type="text"
                                 value={editFormData.text || ''}
                                 onChange={(e) => handleEditFormChange('text', e.target.value)}
                                 style={formStyles.input}
                             />
                         </div>
-                        
+
                         <div style={formStyles.fieldGroup}>
                             <label style={formStyles.label}>Translation</label>
-                            <input 
+                            <input
                                 type="text"
                                 value={editFormData.translation || ''}
                                 onChange={(e) => handleEditFormChange('translation', e.target.value)}
                                 style={formStyles.input}
                             />
                         </div>
-                        
+
                         <div style={formStyles.fieldGroup}>
                             <label style={formStyles.label}>Examples</label>
                             <div style={formStyles.examplesContainer}>
                                 {Array.isArray(editFormData.examples) && editFormData.examples.length > 0 ? (
                                     editFormData.examples.map((example, index) => (
                                         <div key={index} style={formStyles.exampleItem}>
-                                            <button 
+                                            <button
                                                 onClick={() => handleRemoveExample(index)}
                                                 style={formStyles.removeButton}
                                                 type="button"
                                             >
                                                 <FaTimes size={12} />
                                             </button>
-                                            <input 
+                                            <input
                                                 type="text"
                                                 value={example[0] || ''}
                                                 onChange={(e) => handleExampleChange(index, true, e.target.value)}
                                                 placeholder="Example"
                                                 style={formStyles.input}
                                             />
-                                            <input 
+                                            <input
                                                 type="text"
                                                 value={example[1] || ''}
                                                 onChange={(e) => handleExampleChange(index, false, e.target.value)}
@@ -1277,8 +1280,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                         No examples added yet
                                     </div>
                                 )}
-                                <button 
-                                    onClick={handleAddExample} 
+                                <button
+                                    onClick={handleAddExample}
                                     style={formStyles.addButton}
                                     type="button"
                                 >
@@ -1286,7 +1289,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 </button>
                             </div>
                         </div>
-                        
+
                         <div style={formStyles.fieldGroup}>
                             <label style={formStyles.label}>Image</label>
                             <div style={formStyles.imageContainer}>
@@ -1307,12 +1310,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                         No image available
                                     </div>
                                 )}
-                                <button 
-                                    onClick={handleGenerateNewImage} 
+                                <button
+                                    onClick={handleGenerateNewImage}
                                     disabled={loadingImage}
                                     style={formStyles.imageButton}
                                 >
-                                    <FaImage size={14} /> 
+                                    <FaImage size={14} />
                                     {loadingImage ? 'Generating...' : 'Generate New Image'}
                                 </button>
                             </div>
@@ -1322,17 +1325,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     <>
                         <div style={formStyles.fieldGroup}>
                             <label style={formStyles.label}>Front</label>
-                            <input 
+                            <input
                                 type="text"
                                 value={editFormData.front || ''}
                                 onChange={(e) => handleEditFormChange('front', e.target.value)}
                                 style={formStyles.input}
                             />
                         </div>
-                        
+
                         <div style={formStyles.fieldGroup}>
                             <label style={formStyles.label}>Back</label>
-                            <textarea 
+                            <textarea
                                 value={editFormData.back || ''}
                                 onChange={(e) => handleEditFormChange('back', e.target.value)}
                                 style={formStyles.textarea}
@@ -1384,13 +1387,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             </div>
 
             {renderErrorNotification()}
-            
+
             {storedCards.length > 0 ? (
                 <>
                     {renderTabNavigation()}
-                    
+
                     {useAnkiConnect && renderDeckSelector()}
-                    
+
                     <div style={{
                         display: 'flex',
                         justifyContent: 'space-between',
@@ -1406,8 +1409,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 style={{ marginRight: '8px' }}
                                 disabled={editingCardId !== null}
                             />
-                            <label htmlFor="selectAll" style={{ 
-                                fontSize: '14px', 
+                            <label htmlFor="selectAll" style={{
+                                fontSize: '14px',
                                 cursor: editingCardId !== null ? 'default' : 'pointer',
                                 opacity: editingCardId !== null ? 0.6 : 1
                             }}>
@@ -1432,7 +1435,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 }}
                                 title={
                                     editingCardId !== null ? 'Finish editing first' :
-                                    !deckId && useAnkiConnect ? 'Please select a deck first' : ''
+                                        !deckId && useAnkiConnect ? 'Please select a deck first' : ''
                                 }
                             >
                                 {isLoading ? 'Saving...' : 'Save to Anki'}
@@ -1459,7 +1462,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             </button>
                         </div>
                     </div>
-                    
+
                     <div style={{ flex: 1, overflowY: 'auto' }}>
                         {renderCards()}
                     </div>

@@ -37,7 +37,7 @@ const initialState: SettingsState = {
     translateToLanguage: 'ru',
     ankiConnectUrl: 'http://127.0.0.1:8765',
     ankiConnectApiKey: null,
-    useAnkiConnect: true,
+    useAnkiConnect: false,
     visibleSideBar: true,
     huggingFaceApiKey: '',
     shouldGenerateImage: true,
