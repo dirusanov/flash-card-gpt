@@ -5,7 +5,7 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import {RootState} from "../store";
 import {setDeckId} from "../store/actions/decks";
-import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront} from "../store/actions/cards";
+import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard} from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
@@ -41,6 +41,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [loadingNewImage, setLoadingNewImage] = useState(false);
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
     const [loadingAccept, setLoadingAccept] = useState(false);
+    const [isSaved, setIsSaved] = useState(false);
+    const [isEdited, setIsEdited] = useState(false);
+    const [currentCardId, setCurrentCardId] = useState<string | null>(null);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const haggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
@@ -55,6 +58,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     });
     const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
+    
+    // Selector для получения всех сохраненных карточек
+    const storedCards = useSelector((state: RootState) => state.cards.storedCards);
 
     const popularLanguages = [
         { code: 'ru', name: 'Русский' },
@@ -70,6 +76,37 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         { code: 'ar', name: 'العربية' },
     ];
 
+    // Track changes to card data
+    useEffect(() => {
+        if (isSaved) {
+            setIsEdited(true);
+        }
+    }, [text, translation, examples, image, imageUrl, front, back]);
+
+    // Custom event handler for text change to ensure we track edits
+    const handleTextChange = (newText: string) => {
+        dispatch(setText(newText));
+        if (isSaved) {
+            setIsEdited(true);
+        }
+    };
+
+    // Handler for translation update
+    const handleTranslationUpdate = (newTranslation: string) => {
+        dispatch(setTranslation(newTranslation));
+        if (isSaved) {
+            setIsEdited(true);
+        }
+    };
+
+    // Handler for examples update
+    const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
+        dispatch(setExamples(newExamples));
+        if (isSaved) {
+            setIsEdited(true);
+        }
+    };
+
     const handleNewImage = async () => {
         setLoadingNewImage(true);
         const descriptionImage = await getDescriptionImage(openAiKey, text, imageInstructions);
@@ -82,6 +119,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             dispatch(setImage(imageBase64));
         }
         setLoadingNewImage(false);
+        if (isSaved) {
+            setIsEdited(true);
+        }
     }
 
     const handleNewExamples = async () => {
@@ -89,6 +129,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const newExamples = await getExamples(openAiKey, text, translateToLanguage, true);
         dispatch(setExamples(newExamples));
         setLoadingNewExamples(false)
+        if (isSaved) {
+            setIsEdited(true);
+        }
     };
 
     const handleApplyCustomInstruction = async () => {
@@ -206,65 +249,95 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         try {
             setLoadingAccept(true);
             
+            const cardId = currentCardId || Date.now().toString();
+            
             if (mode === Modes.LanguageLearning) {
                 if (!originalSelectedText || !translation) {
                     showError('Some required data is missing. Please make sure you have all the required data before saving.');
                     return;
                 }
                 
-                // Save to localStorage only - include all required fields
                 const cardData = {
+                    id: cardId,
                     mode,
                     text: originalSelectedText,
                     translation,
                     examples,
                     image,
                     imageUrl,
-                    createdAt: new Date()
+                    createdAt: new Date(),
+                    exportStatus: 'not_exported' as const
                 };
                 
                 console.log('Saving card to storage:', cardData);
-                dispatch(saveCardToStorage(cardData));
+                
+                if (currentCardId) {
+                    dispatch(updateStoredCard(cardData));
+                } else {
+                    dispatch(saveCardToStorage(cardData));
+                    setCurrentCardId(cardId);
+                    // Save current card ID to localStorage
+                    localStorage.setItem('current_card_id', cardId);
+                }
                 
             } else if (mode === Modes.GeneralTopic && back) {
-                // Save to localStorage only
                 const cardData = {
+                    id: cardId,
                     mode,
                     front,
                     back,
                     text: originalSelectedText || '',
-                    createdAt: new Date()
+                    createdAt: new Date(),
+                    exportStatus: 'not_exported' as const
                 };
                 
                 console.log('Saving general topic card to storage:', cardData);
-                dispatch(saveCardToStorage(cardData));
+                
+                if (currentCardId) {
+                    dispatch(updateStoredCard(cardData));
+                } else {
+                    dispatch(saveCardToStorage(cardData));
+                    setCurrentCardId(cardId);
+                    // Save current card ID to localStorage
+                    localStorage.setItem('current_card_id', cardId);
+                }
             }
             
-            // Show success notification
-            showError('Card saved to your collection! Go to "Cards" to see it.', 'success');
+            if (isEdited || currentCardId) {
+                showError('Card updated successfully!', 'success');
+            } else {
+                showError('Card saved successfully!', 'success');
+            }
             
-            // Clear form or reset values if needed
-            // This helps the user know they can create a new card
-            setTimeout(() => {
-                setShowResult(false);
-                dispatch(setText(''));
-                dispatch(setTranslation(''));
-                dispatch(setExamples([]));
-                dispatch(setImage(null));
-                dispatch(setImageUrl(null));
-                setOriginalSelectedText('');
-            }, 1500);
+            setIsSaved(true);
+            setIsEdited(false);
             
         } catch (error) {
             console.error('Error saving card:', error);
             showError('Error saving card. Please try again.');
         } finally {
-            setTimeout(() => {
-                setLoadingAccept(false);
-            }, 1000);
+            setLoadingAccept(false);
         }
     };
     
+    // Add a function to create a new card after saving
+    const handleCreateNew = () => {
+        setShowResult(false);
+        setIsSaved(false);
+        setIsEdited(false);
+        setCurrentCardId(null);
+        
+        // Clear the current card ID from localStorage
+        localStorage.removeItem('current_card_id');
+        
+        dispatch(setText(''));
+        dispatch(setTranslation(''));
+        dispatch(setExamples([]));
+        dispatch(setImage(null));
+        dispatch(setImageUrl(null));
+        setOriginalSelectedText('');
+    };
+
     const handleViewSavedCards = () => {
         dispatch(setCurrentPage('storedCards'));
     };
@@ -294,9 +367,85 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setShowResult(false);
         }
         
-        // Load stored cards from localStorage
+        // Load stored cards from localStorage on initial load
         dispatch(loadStoredCards());
     }, [dispatch]);
+
+    // Ensure cards load correctly on page refresh, and check saved status before showing UI
+    useEffect(() => {
+        // Only run once on component mount
+        const checkSavedCardsOnMount = async () => {
+            // First, ensure stored cards are loaded from localStorage
+            dispatch(loadStoredCards());
+            
+            // Retrieve the current card ID from localStorage if it exists
+            const savedCardId = localStorage.getItem('current_card_id');
+            
+            if (savedCardId) {
+                setCurrentCardId(savedCardId);
+                console.log('Retrieved current card ID from localStorage:', savedCardId);
+                
+                // Wait a brief moment to ensure cards are loaded
+                setTimeout(() => {
+                    // Find the card by ID instead of text
+                    const savedCard = storedCards.find(card => card.id === savedCardId);
+                    if (savedCard) {
+                        // If card is found by ID, update the state
+                        setIsSaved(true);
+                        setIsEdited(false);
+                        
+                        // Restore card data
+                        dispatch(setText(savedCard.text));
+                        if (savedCard.translation) dispatch(setTranslation(savedCard.translation));
+                        if (savedCard.examples) dispatch(setExamples(savedCard.examples));
+                        if (savedCard.image) dispatch(setImage(savedCard.image));
+                        if (savedCard.imageUrl) dispatch(setImageUrl(savedCard.imageUrl));
+                        if (savedCard.front) dispatch(setFront(savedCard.front));
+                        if (savedCard.back) dispatch(setBack(savedCard.back));
+                        setOriginalSelectedText(savedCard.text);
+                        
+                        console.log('Restored card data from ID:', savedCardId);
+                        setShowResult(true);
+                    } else {
+                        // If card with this ID no longer exists, clear the ID
+                        localStorage.removeItem('current_card_id');
+                        setCurrentCardId(null);
+                    }
+                }, 100);
+            }
+        };
+        
+        checkSavedCardsOnMount();
+        // This effect should only run once on mount, so empty dependency array
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Проверка при загрузке или изменении текста, была ли карточка уже сохранена
+    useEffect(() => {
+        // Добавляем проверку на наличие текста, чтобы избежать излишних проверок
+        if (!text) {
+            return;
+        }
+        
+        // Only run this check if we don't already have a current card ID
+        // This prevents overriding the card we're currently working with
+        if (!currentCardId) {
+            // Ищем карточку среди сохраненных
+            const savedCard = storedCards.find(card => card.text === text);
+            
+            if (savedCard) {
+                // Если нашли карточку, обновляем состояние isSaved и сохраняем ID
+                setIsSaved(true);
+                setIsEdited(false); // Сбрасываем флаг редактирования
+                setCurrentCardId(savedCard.id);
+                
+                // Save current card ID to localStorage
+                localStorage.setItem('current_card_id', savedCard.id);
+                
+                console.log('Found existing card:', savedCard.id);
+            }
+        }
+        
+    }, [storedCards, text, currentCardId]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -768,7 +917,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                       <textarea
                         id="text"
                         value={text}
-                        onChange={(e) => dispatch(setText(e.target.value))}
+                        onChange={(e) => handleTextChange(e.target.value)}
                         placeholder="Enter text to translate or select text from a webpage"
                         style={{
                           width: '100%',
@@ -882,6 +1031,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 </div>
                 
                 <ResultDisplay
+                  mode={mode}
                   front={front}
                   back={back}
                   translation={translation}
@@ -892,11 +1042,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                   onNewExamples={handleNewExamples}
                   onAccept={handleAccept}
                   onViewSavedCards={handleViewSavedCards}
-                  mode={mode}
-                  shouldGenerateImage={shouldGenerateImage}
                   loadingNewImage={loadingNewImage}
                   loadingNewExamples={loadingNewExamples}
                   loadingAccept={loadingAccept}
+                  shouldGenerateImage={shouldGenerateImage}
+                  isSaved={isSaved}
+                  isEdited={isEdited}
+                  setTranslation={handleTranslationUpdate}
+                  setExamples={handleExamplesUpdate}
                 />
             </div>
           )}

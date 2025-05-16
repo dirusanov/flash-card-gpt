@@ -70,11 +70,25 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             break;
         case SAVE_CARD_TO_STORAGE:
             const newCard: StoredCard = {
-                id: Date.now().toString(),
-                ...action.payload,
-                exportStatus: 'not_exported'
+                ...(action.payload.id ? 
+                    action.payload : 
+                    { ...action.payload, id: Date.now().toString() }),
+                exportStatus: action.payload.exportStatus || 'not_exported'
             };
-            newState.storedCards = [...state.storedCards, newCard];
+            
+            const existingCard = state.storedCards.find(card => card.text === newCard.text);
+            
+            if (existingCard) {
+                newState.storedCards = state.storedCards.map(card => 
+                    card.id === existingCard.id ? 
+                        { ...newCard, id: existingCard.id } : 
+                        card
+                );
+                console.log('Updated existing card with text:', newCard.text);
+            } else {
+                newState.storedCards = [...state.storedCards, newCard];
+                console.log('Added new card:', newCard.text);
+            }
             break;
         case UPDATE_CARD_EXPORT_STATUS:
             newState.storedCards = state.storedCards.map(card => 
@@ -84,11 +98,30 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             );
             break;
         case UPDATE_STORED_CARD:
-            newState.storedCards = state.storedCards.map(card =>
-                card.id === action.payload.id
-                    ? { ...action.payload }
-                    : card
-            );
+            if (!action.payload.id) {
+                console.error('Cannot update card without ID');
+                return state;
+            }
+            
+            const cardExists = state.storedCards.some(card => card.id === action.payload.id);
+            
+            if (cardExists) {
+                newState.storedCards = state.storedCards.map(card =>
+                    card.id === action.payload.id
+                        ? { 
+                            ...action.payload,
+                            exportStatus: action.payload.exportStatus || card.exportStatus 
+                        }
+                        : card
+                );
+                console.log('Updated card with ID:', action.payload.id);
+            } else {
+                newState.storedCards = [...state.storedCards, {
+                    ...action.payload,
+                    exportStatus: action.payload.exportStatus || 'not_exported'
+                }];
+                console.log('Added new card with ID:', action.payload.id);
+            }
             break;
         case LOAD_STORED_CARDS:
             // This will be handled by the persistence middleware

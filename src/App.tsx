@@ -13,6 +13,8 @@ import { setAnkiAvailability } from './store/actions/anki';
 import { toggleSidebar } from './store/actions/sidebar'
 import useErrorNotification from './components/useErrorHandler';
 import { FaList, FaCog, FaTimes } from 'react-icons/fa';
+import { loadStoredCards } from './store/actions/cards';
+import { loadCardsFromStorage } from './store/middleware/cardsLocalStorage';
 
 function App() {
   const [store, setStore] = useState<ExtendedStore | null>(null);
@@ -22,6 +24,7 @@ function App() {
   const dispatch = useDispatch();
   const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
   const { showError, renderErrorNotification } = useErrorNotification();
+  const storedCards = useSelector((state: RootState) => state.cards.storedCards);
 
   useEffect(() => {
     const initializeStore = async () => {
@@ -29,6 +32,10 @@ function App() {
         const resolvedStore = await instantiateStore();
         setStore(resolvedStore);
         
+        // Загружаем сохраненные карточки при запуске приложения
+        dispatch(loadStoredCards());
+        console.log('Initial card load from App component');
+
         // Check Anki availability but don't affect the initial page
         try {
           const decks = await fetchDecks(ankiConnectApiKey);
@@ -54,6 +61,11 @@ function App() {
 
     initializeStore();
   }, [dispatch, ankiConnectApiKey, isInitialLoad, currentPage])
+
+  // Отслеживаем загрузку сохраненных карточек
+  useEffect(() => {
+    console.log('App: Stored cards count:', storedCards.length);
+  }, [storedCards]);
 
   if (!store) {
     return null;
