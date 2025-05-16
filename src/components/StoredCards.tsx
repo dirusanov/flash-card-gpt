@@ -6,7 +6,7 @@ import { RootState } from '../store';
 import { loadStoredCards, deleteStoredCard, saveAnkiCards, updateCardExportStatus, updateStoredCard, setImageUrl, setImage } from '../store/actions/cards';
 import { StoredCard, ExportStatus } from '../store/reducers/cards';
 import { Modes } from '../constants';
-import { FaArrowLeft, FaTrash, FaDownload, FaSync, FaEdit, FaCheck, FaTimes, FaImage } from 'react-icons/fa';
+import { FaArrowLeft, FaTrash, FaDownload, FaSync, FaEdit, FaCheck, FaTimes, FaImage, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import { CardLangLearning, CardGeneral, fetchDecks } from '../services/ankiService';
 import useErrorNotification from './useErrorHandler';
 import { Deck, setDeckId } from '../store/actions/decks';
@@ -34,11 +34,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingDecks, setLoadingDecks] = useState(false);
-    const [activeFilter, setActiveFilter] = useState<CardFilterType>('not_exported');
+    const [activeFilter, setActiveFilter] = useState<CardFilterType>('all');
     const [showDeckSelector, setShowDeckSelector] = useState(false);
     const [editingCardId, setEditingCardId] = useState<string | null>(null);
     const [editFormData, setEditFormData] = useState<StoredCard | null>(null);
     const [loadingImage, setLoadingImage] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [totalPages, setTotalPages] = useState(1);
     const { showError, renderErrorNotification } = useErrorNotification();
 
     // Initialize OpenAI client
@@ -49,11 +52,29 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Load stored cards when the component mounts
     useEffect(() => {
-        console.log('StoredCards component mounted, loading cards...');
+        console.log('StoredCards component mounted, reloading cards...');
         dispatch(loadStoredCards());
         
-        // Log current cards to help with debugging
-        console.log('Current stored cards in state:', storedCards);
+        // Add a small delay to make sure cards are loaded
+        const timer = setTimeout(() => {
+            console.log('Current stored cards after initial load:', storedCards.length);
+            
+            // If there are no cards after initial load, force another reload
+            if (storedCards.length === 0) {
+                console.log('No cards loaded, trying again...');
+                dispatch(loadStoredCards());
+            }
+            
+            // Log card counts by filter type
+            const notExported = storedCards.filter(card => card.exportStatus === 'not_exported').length;
+            const exported = storedCards.filter(card => 
+                card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file'
+            ).length;
+            
+            console.log('Card stats: total=', storedCards.length, 'not_exported=', notExported, 'exported=', exported);
+        }, 500);
+        
+        return () => clearTimeout(timer);
     }, [dispatch]);
 
     // Check if we have cards after loading
@@ -98,7 +119,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
     }, [useAnkiConnect]);
 
-    // Get filtered cards based on current tab
+    // Get filtered cards based on current tab with pagination
     const getFilteredCards = () => {
         let cards;
         switch (activeFilter) {
@@ -134,6 +155,31 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     };
 
     const filteredCards = getFilteredCards();
+    
+    // Update total pages when filtered cards or items per page changes
+    useEffect(() => {
+        setTotalPages(Math.max(1, Math.ceil(filteredCards.length / itemsPerPage)));
+        // Reset to first page when filter changes
+        setCurrentPage(1);
+    }, [filteredCards.length, itemsPerPage, activeFilter]);
+
+    // Get paginated cards for current page
+    const getPaginatedCards = () => {
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        console.log('Pagination debug:', { 
+            totalCards: storedCards.length,
+            filteredCards: filteredCards.length,
+            currentPage,
+            itemsPerPage,
+            startIndex,
+            endIndex,
+            cardsOnThisPage: filteredCards.slice(startIndex, endIndex).length
+        });
+        return filteredCards.slice(startIndex, endIndex);
+    };
+    
+    const paginatedCards = getPaginatedCards();
 
     // Count cards by status for the tab counters
     const cardCounts = {
@@ -512,7 +558,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             );
         }
 
-        return filteredCards.map(card => (
+        return paginatedCards.map(card => (
             <div
                 key={card.id}
                 style={{
@@ -1392,6 +1438,114 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         );
     };
 
+    // Pagination controls
+    const handlePageChange = (newPage: number) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            setCurrentPage(newPage);
+        }
+    };
+
+    const handleItemsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        setItemsPerPage(Number(e.target.value));
+        setCurrentPage(1); // Reset to first page when changing items per page
+    };
+
+    const renderPagination = () => {
+        // Temporarily show pagination controls even with few cards (for debugging)
+        // if (filteredCards.length <= itemsPerPage) {
+        //     return null;
+        // }
+
+        return (
+            <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: '16px',
+                padding: '8px 0',
+                borderTop: '1px solid #E5E7EB',
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ fontSize: '13px', color: '#6B7280', marginRight: '8px' }}>
+                        Cards per page:
+                    </span>
+                    <select
+                        value={itemsPerPage}
+                        onChange={handleItemsPerPageChange}
+                        style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid #D1D5DB',
+                            fontSize: '13px',
+                            backgroundColor: '#F9FAFB'
+                        }}
+                    >
+                        <option value={5}>5</option>
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                    </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        style={{
+                            padding: '4px 8px',
+                            backgroundColor: currentPage === 1 ? '#F3F4F6' : '#FFFFFF',
+                            border: '1px solid #D1D5DB',
+                            borderRadius: '4px',
+                            cursor: currentPage === 1 ? 'default' : 'pointer',
+                            color: currentPage === 1 ? '#9CA3AF' : '#111827',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                    >
+                        <FaChevronLeft size={12} />
+                    </button>
+
+                    <span style={{ fontSize: '13px', color: '#6B7280' }}>
+                        Page {currentPage} of {totalPages} ({filteredCards.length} total cards)
+                    </span>
+
+                    <button
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        style={{
+                            padding: '4px 8px',
+                            backgroundColor: currentPage === totalPages ? '#F3F4F6' : '#FFFFFF',
+                            border: '1px solid #D1D5DB',
+                            borderRadius: '4px',
+                            cursor: currentPage === totalPages ? 'default' : 'pointer',
+                            color: currentPage === totalPages ? '#9CA3AF' : '#111827',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                    >
+                        <FaChevronRight size={12} />
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
+    // Debug function to reset viewing state and force reload
+    const resetViewState = () => {
+        console.log('Resetting view state...');
+        setActiveFilter('all');
+        setCurrentPage(1);
+        setItemsPerPage(10);
+        
+        // Log current state of cards
+        console.log('All cards in redux store:', storedCards);
+        
+        // Force reload cards from storage
+        dispatch(loadStoredCards());
+    };
+
     return (
         <div style={{
             display: 'flex',
@@ -1429,6 +1583,20 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 <span style={{ fontWeight: '600', fontSize: '16px' }}>
                     Saved Cards ({storedCards.length})
                 </span>
+                <button 
+                    onClick={resetViewState}
+                    style={{
+                        backgroundColor: '#f3f4f6',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '4px',
+                        padding: '4px 8px',
+                        fontSize: '12px',
+                        color: '#6b7280',
+                        cursor: 'pointer'
+                    }}
+                >
+                    Reset View
+                </button>
             </div>
 
             {renderErrorNotification()}
@@ -1508,8 +1676,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         </div>
                     </div>
 
-                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                    <div style={{ flex: 1, overflow: 'auto' }}>
                         {renderCards()}
+                        {renderPagination()}
                     </div>
                 </>
             ) : (
@@ -1518,15 +1687,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    height: '100%',
+                    height: '300px',
                     color: '#6B7280',
-                    textAlign: 'center',
-                    padding: '20px'
+                    textAlign: 'center'
                 }}>
-                    <p style={{ marginBottom: '16px', fontSize: '15px' }}>No saved cards yet</p>
-                    <p style={{ fontSize: '13px' }}>
-                        Create cards using the "Create Card" button and save them to view here.
-                    </p>
+                    <p>No saved cards yet.</p>
                 </div>
             )}
         </div>
