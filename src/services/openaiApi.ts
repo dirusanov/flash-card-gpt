@@ -51,7 +51,9 @@ export const getExamples = async (
 ): Promise<Array<[string, string | null]>> => {
   const processedCustomPrompt = customPrompt.replace(/\{word\}/g, word);
   
-  const basePrompt = `Give me three example sentences using the word '${word}'. Using the language of this word ${word}.`;
+  const basePrompt = `Give me three example sentences using the word '${word}' in the original language (the language of this word). 
+Each example should show natural usage of '${word}' in its native language context.
+Return ONLY the examples, one per line, without any numbering, explanations, or translations.`;
   
   const systemPrompt = customPrompt 
     ? `${basePrompt} ${processedCustomPrompt}` 

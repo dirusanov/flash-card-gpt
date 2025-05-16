@@ -326,6 +326,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setIsSaved(false);
         setIsEdited(false);
         setCurrentCardId(null);
+        setIsNewSubmission(true);
         
         // Clear the current card ID from localStorage
         localStorage.removeItem('current_card_id');
@@ -393,6 +394,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         // If card is found by ID, update the state
                         setIsSaved(true);
                         setIsEdited(false);
+                        setIsNewSubmission(false); // Make sure to set this explicitly
                         
                         // Restore card data
                         dispatch(setText(savedCard.text));
@@ -410,8 +412,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         // If card with this ID no longer exists, clear the ID
                         localStorage.removeItem('current_card_id');
                         setCurrentCardId(null);
+                        setIsNewSubmission(true); // Set this to true for a new card
                     }
                 }, 100);
+            } else {
+                setIsNewSubmission(true); // Set this to true for a new card
             }
         };
         
@@ -419,10 +424,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // This effect should only run once on mount, so empty dependency array
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Добавим новый хук Effect для обработки текста после сабмита
+    const [isNewSubmission, setIsNewSubmission] = useState(false);
+
     // Проверка при загрузке или изменении текста, была ли карточка уже сохранена
     useEffect(() => {
-        // Добавляем проверку на наличие текста, чтобы избежать излишних проверок
-        if (!text) {
+        // Skip this check if this is a new submission
+        if (!text || isNewSubmission) {
+            if (isNewSubmission) {
+                // Reset the flag after this check is skipped
+                setIsNewSubmission(false);
+            }
             return;
         }
         
@@ -445,7 +457,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
         }
         
-    }, [storedCards, text, currentCardId]);
+    }, [storedCards, text, currentCardId, isNewSubmission]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -476,6 +488,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setLoadingGetResult(false);
             if (translatedText) {
                 setShowResult(true);
+                // Set this flag to true to prevent the card from being marked as saved
+                setIsNewSubmission(true);
             }
         } else if (mode === Modes.GeneralTopic) {
             setOriginalSelectedText(text);
@@ -488,6 +502,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
             setLoadingGetResult(false);
             setShowResult(true);
+            // Set this flag to true to prevent the card from being marked as saved
+            setIsNewSubmission(true);
         }
     };
 
