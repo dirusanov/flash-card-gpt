@@ -12,7 +12,8 @@ import {
     DELETE_STORED_CARD,
     SET_STORED_CARDS,
     UPDATE_CARD_EXPORT_STATUS,
-    UPDATE_STORED_CARD
+    UPDATE_STORED_CARD,
+    SET_CURRENT_CARD_ID
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
 import { Modes } from '../../constants';
@@ -44,7 +45,8 @@ const initialState: CardState = {
         imageUrl: null,
         error: undefined,
         back: null,
-        front: ""
+        front: "",
+        currentCardId: null
     },
 };
 
@@ -59,6 +61,7 @@ export interface CardState {
     error: string | undefined;
     back: string | null;
     front: string;
+    currentCardId: string | null;
 }
 
 const cardsReducer = (state = initialState, action: any): CardState => {
@@ -150,6 +153,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             return { ...state, back: action.payload };
         case SET_FRONT:
             return { ...state, front: action.payload };
+        case SET_CURRENT_CARD_ID:
+            return { ...state, currentCardId: action.payload };
         default:
             return state;
     }

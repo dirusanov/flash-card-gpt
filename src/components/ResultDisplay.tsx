@@ -13,6 +13,7 @@ interface ResultDisplayProps {
     onNewExamples: () => void;
     onAccept: () => void;
     onViewSavedCards: () => void;
+    onCancel?: () => void;
     loadingNewImage: boolean;
     loadingNewExamples: boolean;
     loadingAccept: boolean;
@@ -36,6 +37,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             onNewExamples, 
             onAccept,
             onViewSavedCards,
+            onCancel,
             mode = Modes.LanguageLearning, 
             loadingNewImage, 
             loadingNewExamples, 
@@ -274,8 +276,8 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                 }}>{isEditMode 
                     ? 'Editing' 
                     : (isSaved 
-                        ? 'Saved'
-                        : 'New')}
+                        ? 'Saved to Collection'
+                        : 'New - Not Saved Yet')}
                 </strong>
             </div>
 
@@ -691,32 +693,68 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             <div style={{ marginBottom: '10px' }}>
                 {!isEditMode && !isSaved && (
                     // Только для новых карточек показываем кнопку "Save Card"
-                    <button 
-                        onClick={onAccept} 
-                        disabled={loadingAccept}
-                        style={{
-                            width: '100%',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            backgroundColor: '#22C55E',
-                            color: '#ffffff',
-                            fontWeight: '600',
-                            fontSize: '14px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            opacity: loadingAccept ? 0.7 : 1,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px'
-                        }}
-                        onMouseOver={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#15803D')}
-                        onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#22C55E')}
-                    >
-                        <FaCheck />
-                        {loadingAccept ? 'Saving...' : 'Save Card'}
-                    </button>
+                    <div style={{ 
+                        display: 'flex', 
+                        gap: '8px', 
+                        width: '100%' 
+                    }}>
+                        <button 
+                            onClick={onCancel} 
+                            style={{
+                                flex: '1',
+                                padding: '10px',
+                                borderRadius: '6px',
+                                backgroundColor: '#F3F4F6',
+                                color: '#4B5563',
+                                fontWeight: '600',
+                                fontSize: '14px',
+                                border: '1px solid #E5E7EB',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}
+                            onMouseOver={(e) => {
+                                e.currentTarget.style.backgroundColor = '#E5E7EB';
+                                e.currentTarget.style.color = '#374151';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = '#F3F4F6';
+                                e.currentTarget.style.color = '#4B5563';
+                            }}
+                        >
+                            <FaTimes />
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={onAccept} 
+                            disabled={loadingAccept}
+                            style={{
+                                flex: '2',
+                                padding: '10px',
+                                borderRadius: '6px',
+                                backgroundColor: '#22C55E',
+                                color: '#ffffff',
+                                fontWeight: '600',
+                                fontSize: '14px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                opacity: loadingAccept ? 0.7 : 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}
+                            onMouseOver={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#15803D')}
+                            onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#22C55E')}
+                        >
+                            <FaCheck />
+                            {loadingAccept ? 'Saving...' : 'Save Card'}
+                        </button>
+                    </div>
                 )}
                 
                 {!isEditMode && isSaved && (

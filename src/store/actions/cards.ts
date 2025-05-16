@@ -17,6 +17,7 @@ export const DELETE_STORED_CARD = 'DELETE_STORED_CARD';
 export const SET_STORED_CARDS = 'SET_STORED_CARDS';
 export const UPDATE_CARD_EXPORT_STATUS = 'UPDATE_CARD_EXPORT_STATUS';
 export const UPDATE_STORED_CARD = 'UPDATE_STORED_CARD';
+export const SET_CURRENT_CARD_ID = 'SET_CURRENT_CARD_ID';
 
 export const saveAnkiCards = (
         mode: Modes, 
@@ -113,4 +114,9 @@ export const updateCardExportStatus = (cardId: string, status: ExportStatus) => 
 export const updateStoredCard = (updatedCard: StoredCard) => ({
     type: UPDATE_STORED_CARD,
     payload: updatedCard,
+});
+
+export const setCurrentCardId = (cardId: string | null) => ({
+    type: SET_CURRENT_CARD_ID,
+    payload: cardId,
 });

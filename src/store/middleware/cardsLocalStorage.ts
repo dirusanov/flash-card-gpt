@@ -1,6 +1,6 @@
 import { Middleware } from 'redux';
 import { RootState } from '..';
-import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT } from '../actions/cards';
+import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID } from '../actions/cards';
 import { StoredCard } from '../reducers/cards';
 
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
@@ -84,6 +84,15 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 saveCardsToStorage(storedCards);
             } catch (error) {
                 console.error('Error in card storage middleware:', error);
+            }
+            break;
+            
+        // Persist current card ID to localStorage
+        case SET_CURRENT_CARD_ID:
+            if (action.payload) {
+                localStorage.setItem('current_card_id', action.payload);
+            } else {
+                localStorage.removeItem('current_card_id');
             }
             break;
             
