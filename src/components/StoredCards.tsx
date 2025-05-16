@@ -237,28 +237,56 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
         const selectedCardsData = storedCards.filter(card => selectedCards.includes(card.id));
 
-        // Format data for export
-        const exportData = selectedCardsData.map(card => {
-            if (card.mode === Modes.LanguageLearning) {
-                return {
-                    front: card.text,
-                    back: `${card.translation}<br><br>${(card.examples || []).map(([ex, trans]) =>
-                        `${ex}${trans ? `<br>${trans}` : ''}`).join('<br><br>')}`
-                };
-            } else {
-                return {
-                    front: card.front || '',
-                    back: card.back || ''
-                };
-            }
-        });
-
         // Create CSV content (compatible with Anki import)
         let csvContent = "front,back\n";
-        exportData.forEach(card => {
-            // Replace newlines with <br> and escape quotes
-            const front = card.front.replace(/\n/g, '<br>').replace(/"/g, '""');
-            const back = card.back.replace(/\n/g, '<br>').replace(/"/g, '""');
+        
+        selectedCardsData.forEach(card => {
+            let front = '';
+            let back = '';
+            
+            if (card.mode === Modes.LanguageLearning) {
+                // Front contains ONLY the word being learned
+                front = card.text.trim();
+                
+                // Build the back content
+                back = card.translation || '';
+                
+                // Add examples if they exist
+                if (card.examples && card.examples.length > 0) {
+                    back += '<br><br><b>Examples:</b><br>';
+                    card.examples.forEach(([ex, trans]) => {
+                        back += ex;
+                        if (trans) {
+                            back += `<br>${trans}`;
+                        }
+                        back += '<br><br>';
+                    });
+                }
+                
+                // Add image at the end of the back content if it exists
+                if (card.image) {
+                    const imageData = card.image.startsWith('data:') ? 
+                        card.image : 
+                        `data:image/jpeg;base64,${card.image}`;
+                    back += `<img src="${imageData}">`;
+                } else if (card.imageUrl) {
+                    back += `<img src="${card.imageUrl}">`;
+                }
+            } else {
+                front = card.front || '';
+                back = card.back || '';
+            }
+            
+            // Properly escape CSV fields
+            // Replace newlines with <br> for HTML compatibility
+            front = front.replace(/\n/g, '<br>');
+            back = back.replace(/\n/g, '<br>');
+            
+            // Double quotes for CSV escaping
+            front = front.replace(/"/g, '""');
+            back = back.replace(/"/g, '""');
+            
+            // Add the row to CSV content
             csvContent += `"${front}","${back}"\n`;
         });
 
