@@ -52,30 +52,67 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Load stored cards when the component mounts
     useEffect(() => {
-        console.log('StoredCards component mounted, reloading cards...');
-        dispatch(loadStoredCards());
-        
-        // Add a small delay to make sure cards are loaded
-        const timer = setTimeout(() => {
-            console.log('Current stored cards after initial load:', storedCards.length);
+        const loadAllCards = async () => {
+            console.log('StoredCards component mounted, forcing complete reload of cards...');
             
-            // If there are no cards after initial load, force another reload
-            if (storedCards.length === 0) {
-                console.log('No cards loaded, trying again...');
-                dispatch(loadStoredCards());
+            // First, try to directly access localStorage to see what's there
+            try {
+                const rawData = localStorage.getItem('anki_stored_cards');
+                if (rawData) {
+                    try {
+                        const directCards = JSON.parse(rawData);
+                        console.log('Direct from localStorage, found cards:', directCards.length);
+                    } catch (e) {
+                        console.error('Failed to parse localStorage data directly:', e);
+                    }
+                } else {
+                    console.log('No cards found directly in localStorage');
+                }
+            } catch (e) {
+                console.error('Error accessing localStorage directly:', e);
             }
             
-            // Log card counts by filter type
-            const notExported = storedCards.filter(card => card.exportStatus === 'not_exported').length;
-            const exported = storedCards.filter(card => 
-                card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file'
-            ).length;
+            // Now load through the Redux action
+            dispatch(loadStoredCards());
             
-            console.log('Card stats: total=', storedCards.length, 'not_exported=', notExported, 'exported=', exported);
-        }, 500);
+            // Add a small delay to make sure cards are loaded
+            const timer = setTimeout(() => {
+                console.log('Current stored cards after initial load:', storedCards.length);
+                
+                // If there are no cards after initial load, try a different approach
+                if (storedCards.length === 0) {
+                    console.log('No cards loaded, trying to load directly from localStorage...');
+                    
+                    try {
+                        const rawData = localStorage.getItem('anki_stored_cards');
+                        if (rawData) {
+                            const parsedCards = JSON.parse(rawData);
+                            if (Array.isArray(parsedCards) && parsedCards.length > 0) {
+                                console.log('Found cards directly in localStorage, manually setting in Redux...');
+                                dispatch({ type: 'SET_STORED_CARDS', payload: parsedCards });
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to manually load cards:', error);
+                    }
+                }
+                
+                // Log card counts by filter type for debugging
+                if (storedCards.length > 0) {
+                    const notExported = storedCards.filter(card => card.exportStatus === 'not_exported').length;
+                    const exported = storedCards.filter(card => 
+                        card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file'
+                    ).length;
+                    
+                    console.log('Card stats: total=', storedCards.length, 'not_exported=', notExported, 'exported=', exported);
+                }
+            }, 500);
+            
+            return () => clearTimeout(timer);
+        };
         
-        return () => clearTimeout(timer);
-    }, [dispatch]);
+        loadAllCards();
+    }, [dispatch, storedCards.length]);
 
     // Check if we have cards after loading
     useEffect(() => {
@@ -121,52 +158,79 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Get filtered cards based on current tab with pagination
     const getFilteredCards = () => {
+        // Log all cards first to see what we're working with
+        console.log('All cards in store:', storedCards.length, 'cards');
+        
+        // If cards array is empty or invalid, return empty array
+        if (!Array.isArray(storedCards) || storedCards.length === 0) {
+            console.log('No cards to filter');
+            return [];
+        }
+        
+        // Log the exportStatus of each card to help diagnose issues
+        const statusCounts = {
+            not_exported: 0,
+            exported_to_anki: 0,
+            exported_to_file: 0,
+            unknown: 0
+        };
+        
+        storedCards.forEach(card => {
+            if (card.exportStatus === 'not_exported') statusCounts.not_exported++;
+            else if (card.exportStatus === 'exported_to_anki') statusCounts.exported_to_anki++;
+            else if (card.exportStatus === 'exported_to_file') statusCounts.exported_to_file++;
+            else statusCounts.unknown++;
+        });
+        
+        console.log('Card status counts:', statusCounts);
+        
         let cards;
         switch (activeFilter) {
             case 'not_exported':
                 cards = storedCards.filter(card => card.exportStatus === 'not_exported');
+                console.log('Filtered to not_exported cards:', cards.length);
                 break;
             case 'exported':
                 cards = storedCards.filter(card =>
                     card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file');
+                console.log('Filtered to exported cards:', cards.length);
                 break;
             case 'all':
             default:
-                // Sort all cards - put new cards first, then exported
-                cards = [...storedCards].sort((a, b) => {
-                    // New cards come first
-                    if (a.exportStatus === 'not_exported' && b.exportStatus !== 'not_exported') {
-                        return -1;
-                    }
-                    // Exported cards come after
-                    if (a.exportStatus !== 'not_exported' && b.exportStatus === 'not_exported') {
-                        return 1;
-                    }
-                    // For cards with same export status, sort by creation date (newest first)
-                    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-                });
+                // Just return all cards, don't sort by export status to avoid any issues
+                cards = [...storedCards];
+                console.log('Using all cards:', cards.length);
                 break;
         }
 
         // Sort by creation date within each category (newest first)
-        return cards.sort((a, b) => {
+        const sortedCards = cards.sort((a, b) => {
             return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         });
+        
+        console.log('Final filtered and sorted cards:', sortedCards.length);
+        
+        return sortedCards;
     };
 
     const filteredCards = getFilteredCards();
     
-    // Update total pages when filtered cards or items per page changes
-    useEffect(() => {
-        setTotalPages(Math.max(1, Math.ceil(filteredCards.length / itemsPerPage)));
-        // Reset to first page when filter changes
-        setCurrentPage(1);
-    }, [filteredCards.length, itemsPerPage, activeFilter]);
-
     // Get paginated cards for current page
     const getPaginatedCards = () => {
+        if (filteredCards.length === 0) {
+            return [];
+        }
+        
         const startIndex = (currentPage - 1) * itemsPerPage;
         const endIndex = startIndex + itemsPerPage;
+        
+        // If the startIndex is beyond the available cards (which could happen
+        // if we were on page 2 and then filtered to fewer cards), reset to page 1
+        if (startIndex >= filteredCards.length) {
+            setCurrentPage(1);
+            return filteredCards.slice(0, itemsPerPage);
+        }
+        
         console.log('Pagination debug:', { 
             totalCards: storedCards.length,
             filteredCards: filteredCards.length,
@@ -176,10 +240,23 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             endIndex,
             cardsOnThisPage: filteredCards.slice(startIndex, endIndex).length
         });
+        
         return filteredCards.slice(startIndex, endIndex);
     };
     
     const paginatedCards = getPaginatedCards();
+    
+    // Update total pages when filtered cards or items per page changes
+    useEffect(() => {
+        // Ensure we have at least 1 page
+        const calculatedTotalPages = Math.max(1, Math.ceil(filteredCards.length / itemsPerPage));
+        setTotalPages(calculatedTotalPages);
+        
+        // If current page is greater than total pages, reset to page 1
+        if (currentPage > calculatedTotalPages) {
+            setCurrentPage(1);
+        }
+    }, [filteredCards.length, itemsPerPage]);
 
     // Count cards by status for the tab counters
     const cardCounts = {
@@ -1451,7 +1528,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     };
 
     const renderPagination = () => {
-        // Temporarily show pagination controls even with few cards (for debugging)
+        // Always show pagination controls regardless of item count
         // if (filteredCards.length <= itemsPerPage) {
         //     return null;
         // }
@@ -1459,74 +1536,212 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         return (
             <div style={{
                 display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
+                flexDirection: 'column',
+                gap: '12px',
                 marginTop: '16px',
-                padding: '8px 0',
-                borderTop: '1px solid #E5E7EB',
+                marginBottom: '16px',
+                padding: '12px',
+                backgroundColor: '#F9FAFB',
+                borderRadius: '8px',
+                border: '1px solid #E5E7EB',
             }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ fontSize: '13px', color: '#6B7280', marginRight: '8px' }}>
-                        Cards per page:
-                    </span>
-                    <select
-                        value={itemsPerPage}
-                        onChange={handleItemsPerPageChange}
-                        style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            border: '1px solid #D1D5DB',
-                            fontSize: '13px',
-                            backgroundColor: '#F9FAFB'
-                        }}
-                    >
-                        <option value={5}>5</option>
-                        <option value={10}>10</option>
-                        <option value={20}>20</option>
-                        <option value={50}>50</option>
-                    </select>
+                {/* Top row with cards per page and results count */}
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                }}>
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <select
+                            value={itemsPerPage}
+                            onChange={handleItemsPerPageChange}
+                            style={{
+                                padding: '6px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #D1D5DB',
+                                fontSize: '13px',
+                                backgroundColor: '#FFFFFF',
+                                color: '#111827',
+                                fontWeight: '500',
+                                cursor: 'pointer',
+                                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                                WebkitAppearance: 'none',
+                                MozAppearance: 'none',
+                                appearance: 'none',
+                                backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23424242%22%20d%3D%22M6%2C9L1.2%2C4.2%20c-0.4-0.4-0.4-1%2C0-1.4s1-0.4%2C1.4%2C0L6%2C6.2l3.4-3.4c0.4-0.4%2C1-0.4%2C1.4%2C0s0.4%2C1%2C0%2C1.4L6%2C9z%22%2F%3E%3C%2Fsvg%3E")',
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 8px center',
+                                paddingRight: '28px',
+                                minWidth: '90px'
+                            }}
+                            aria-label="Cards per page"
+                        >
+                            <option value={5}>5 per page</option>
+                            <option value={10}>10 per page</option>
+                            <option value={20}>20 per page</option>
+                            <option value={50}>50 per page</option>
+                        </select>
+                    </div>
+                    
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#4B5563',
+                    }}>
+                        {filteredCards.length > 0 ? 
+                            `${Math.min((currentPage - 1) * itemsPerPage + 1, filteredCards.length)}-${Math.min(currentPage * itemsPerPage, filteredCards.length)} of ${filteredCards.length} cards` : 
+                            '0 cards'
+                        }
+                    </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                        onClick={() => handlePageChange(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        style={{
-                            padding: '4px 8px',
-                            backgroundColor: currentPage === 1 ? '#F3F4F6' : '#FFFFFF',
-                            border: '1px solid #D1D5DB',
-                            borderRadius: '4px',
-                            cursor: currentPage === 1 ? 'default' : 'pointer',
-                            color: currentPage === 1 ? '#9CA3AF' : '#111827',
+                {/* Bottom row with page navigation */}
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                }}>
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center',
+                        border: '1px solid #D1D5DB',
+                        borderRadius: '8px',
+                        overflow: 'hidden',
+                        backgroundColor: '#FFFFFF',
+                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                    }}>
+                        <button
+                            onClick={() => handlePageChange(1)}
+                            disabled={currentPage === 1}
+                            style={{
+                                padding: '8px 10px',
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                borderRight: '1px solid #E5E7EB',
+                                cursor: currentPage === 1 ? 'default' : 'pointer',
+                                color: currentPage === 1 ? '#9CA3AF' : '#111827',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'background-color 0.2s'
+                            }}
+                            onMouseOver={(e) => {
+                                if (currentPage !== 1) e.currentTarget.style.backgroundColor = '#F9FAFB';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                            aria-label="Go to first page"
+                            title="First page"
+                        >
+                            <svg width="14" height="14" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M15.707 15.707a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 010 1.414zm-6 0a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 011.414 1.414L5.414 10l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+                            </svg>
+                        </button>
+                        
+                        <button
+                            onClick={() => handlePageChange(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            style={{
+                                padding: '8px 12px',
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                borderRight: '1px solid #E5E7EB',
+                                cursor: currentPage === 1 ? 'default' : 'pointer',
+                                color: currentPage === 1 ? '#9CA3AF' : '#111827',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'background-color 0.2s'
+                            }}
+                            onMouseOver={(e) => {
+                                if (currentPage !== 1) e.currentTarget.style.backgroundColor = '#F9FAFB';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                            aria-label="Previous page"
+                            title="Previous page"
+                        >
+                            <FaChevronLeft size={14} />
+                        </button>
+
+                        <div style={{ 
+                            padding: '6px 16px',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#111827',
                             display: 'flex',
                             alignItems: 'center',
+                            backgroundColor: 'transparent',
+                            borderRight: '1px solid #E5E7EB',
+                            minWidth: '60px',
                             justifyContent: 'center'
-                        }}
-                    >
-                        <FaChevronLeft size={12} />
-                    </button>
+                        }}>
+                            {currentPage} / {totalPages || 1}
+                        </div>
 
-                    <span style={{ fontSize: '13px', color: '#6B7280' }}>
-                        Page {currentPage} of {totalPages} ({filteredCards.length} total cards)
-                    </span>
-
-                    <button
-                        onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        style={{
-                            padding: '4px 8px',
-                            backgroundColor: currentPage === totalPages ? '#F3F4F6' : '#FFFFFF',
-                            border: '1px solid #D1D5DB',
-                            borderRadius: '4px',
-                            cursor: currentPage === totalPages ? 'default' : 'pointer',
-                            color: currentPage === totalPages ? '#9CA3AF' : '#111827',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}
-                    >
-                        <FaChevronRight size={12} />
-                    </button>
+                        <button
+                            onClick={() => handlePageChange(currentPage + 1)}
+                            disabled={currentPage === totalPages || totalPages === 0}
+                            style={{
+                                padding: '8px 12px',
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                borderRight: '1px solid #E5E7EB',
+                                cursor: (currentPage === totalPages || totalPages === 0) ? 'default' : 'pointer',
+                                color: (currentPage === totalPages || totalPages === 0) ? '#9CA3AF' : '#111827',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'background-color 0.2s'
+                            }}
+                            onMouseOver={(e) => {
+                                if (currentPage !== totalPages && totalPages !== 0) e.currentTarget.style.backgroundColor = '#F9FAFB';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                            aria-label="Next page"
+                            title="Next page"
+                        >
+                            <FaChevronRight size={14} />
+                        </button>
+                        
+                        <button
+                            onClick={() => handlePageChange(totalPages)}
+                            disabled={currentPage === totalPages || totalPages === 0}
+                            style={{
+                                padding: '8px 10px',
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                cursor: (currentPage === totalPages || totalPages === 0) ? 'default' : 'pointer',
+                                color: (currentPage === totalPages || totalPages === 0) ? '#9CA3AF' : '#111827',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'background-color 0.2s'
+                            }}
+                            onMouseOver={(e) => {
+                                if (currentPage !== totalPages && totalPages !== 0) e.currentTarget.style.backgroundColor = '#F9FAFB';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                            aria-label="Go to last page"
+                            title="Last page"
+                        >
+                            <svg width="14" height="14" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4.293 15.707a1 1 0 001.414 0l5-5a1 1 0 000-1.414l-5-5a1 1 0 00-1.414 1.414L8.586 10l-4.293 4.293a1 1 0 000 1.414zm6 0a1 1 0 001.414 0l5-5a1 1 0 000-1.414l-5-5a1 1 0 00-1.414 1.414L14.586 10l-4.293 4.293a1 1 0 000 1.414z" clipRule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         );
@@ -1545,6 +1760,116 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         // Force reload cards from storage
         dispatch(loadStoredCards());
     };
+    
+    // Function to completely clear storage and reset (for emergency use)
+    const clearAllCards = () => {
+        if (window.confirm('This will delete ALL your cards. Are you sure?')) {
+            console.log('Clearing all cards from storage...');
+            try {
+                localStorage.removeItem('anki_stored_cards');
+                dispatch({ type: 'SET_STORED_CARDS', payload: [] });
+                showError('All cards have been cleared. Refresh the page to start fresh.', 'info');
+            } catch (error) {
+                console.error('Error clearing storage:', error);
+                showError('Failed to clear storage. Try again.', 'error');
+            }
+        }
+    };
+
+    // Diagnostic function to check storage size and fix quota issues
+    const diagnosisAndRepair = () => {
+        try {
+            // First check what's in localStorage
+            const rawData = localStorage.getItem('anki_stored_cards');
+            if (!rawData) {
+                showError('No cards found in localStorage.', 'error');
+                return;
+            }
+            
+            // Check storage size
+            const storageSizeInBytes = new Blob([rawData]).size;
+            const storageSizeInKB = Math.round(storageSizeInBytes / 1024);
+            
+            console.log(`Storage diagnosis: Size = ${storageSizeInKB}KB, Raw data length = ${rawData.length}`);
+            
+            try {
+                // Parse the data
+                const parsedCards = JSON.parse(rawData);
+                
+                if (!Array.isArray(parsedCards)) {
+                    showError('Storage data is not a valid array!', 'error');
+                    return;
+                }
+                
+                // Display stats
+                showError(`Found ${parsedCards.length} cards in localStorage (${storageSizeInKB}KB). Looking for quota issues...`, 'info');
+                
+                // Check if emergency quota function was triggered (exactly 4 cards is suspicious)
+                if (parsedCards.length === 4) {
+                    const shouldFix = window.confirm(
+                        'It looks like you hit the storage quota limit, which is why only 4 cards are showing. ' +
+                        'Would you like to try to recover your cards by reducing their size?'
+                    );
+                    
+                    if (shouldFix) {
+                        // Try to reduce size by removing large fields
+                        const trimmedCards = parsedCards.map(card => {
+                            // Create a version with smaller data
+                            const trimmed = {
+                                ...card,
+                                // Remove the large image data which takes up most space
+                                image: null,
+                                // Keep only essential fields for display
+                                text: card.text,
+                                translation: card.translation,
+                                front: card.front,
+                                back: card.back ? card.back.substring(0, 500) : null, // Limit back field length
+                                // Keep only a few examples
+                                examples: card.examples && card.examples.length > 2 ? 
+                                    card.examples.slice(0, 2) : card.examples
+                            };
+                            return trimmed;
+                        });
+                        
+                        // Try to restore using trimmed cards
+                        dispatch({ type: 'SET_STORED_CARDS', payload: trimmedCards });
+                        
+                        // Request backup of full cards for manual restore
+                        const saveBackup = window.confirm(
+                            'We have temporarily recovered your cards with reduced data. ' +
+                            'Would you like to download a backup of your full cards for manual restore later?'
+                        );
+                        
+                        if (saveBackup) {
+                            // Create and download backup file
+                            const blob = new Blob([rawData], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = 'anki_cards_backup.json';
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            
+                            showError('Backup file downloaded. You can use this file later to restore your full cards.', 'success');
+                        }
+                        
+                        showError('Your cards have been temporarily recovered with reduced data. Note that images have been removed to save space.', 'warning');
+                    }
+                } else {
+                    showError(`Storage seems healthy. Found ${parsedCards.length} cards.`, 'success');
+                }
+                
+            } catch (error) {
+                console.error('Error parsing localStorage data:', error);
+                showError('Error parsing localStorage data. Storage may be corrupted.', 'error');
+            }
+            
+        } catch (error) {
+            console.error('Error accessing localStorage:', error);
+            showError('Error accessing localStorage', 'error');
+        }
+    };
 
     return (
         <div style={{
@@ -1552,6 +1877,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             flexDirection: 'column',
             height: '100%',
             padding: '12px',
+            paddingBottom: '20px',
             overflowY: 'auto',
             width: '100%',
             maxWidth: '320px',
@@ -1561,7 +1887,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginBottom: '16px'
+                marginBottom: '16px',
+                paddingBottom: '12px',
+                borderBottom: '1px solid #E5E7EB'
             }}>
                 <button
                     onClick={onBackClick}
@@ -1577,26 +1905,25 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     onMouseOver={(e) => e.currentTarget.style.color = '#111827'}
                     onMouseOut={(e) => e.currentTarget.style.color = '#6B7280'}
                 >
-                    <FaArrowLeft style={{ marginRight: '4px' }} />
+                    <FaArrowLeft style={{ marginRight: '6px' }} />
                     <span style={{ fontSize: '14px' }}>Back</span>
                 </button>
-                <span style={{ fontWeight: '600', fontSize: '16px' }}>
+                <div style={{ 
+                    fontWeight: '600', 
+                    fontSize: '16px',
+                    color: '#111827',
+                    background: 'linear-gradient(to right, #4F46E5, #2563EB)',
+                    backgroundClip: 'text',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    padding: '4px 12px',
+                    borderRadius: '16px',
+                    border: '1px solid #E5E7EB',
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                }}>
                     Saved Cards ({storedCards.length})
-                </span>
-                <button 
-                    onClick={resetViewState}
-                    style={{
-                        backgroundColor: '#f3f4f6',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '4px',
-                        padding: '4px 8px',
-                        fontSize: '12px',
-                        color: '#6b7280',
-                        cursor: 'pointer'
-                    }}
-                >
-                    Reset View
-                </button>
+                </div>
+                <div style={{ width: '24px' }}></div> {/* Spacer to maintain balance */}
             </div>
 
             {renderErrorNotification()}
@@ -1676,10 +2003,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         </div>
                     </div>
 
-                    <div style={{ flex: 1, overflow: 'auto' }}>
+                    <div style={{ 
+                        flex: 1, 
+                        overflow: 'auto',
+                        marginBottom: '16px'
+                    }}>
                         {renderCards()}
-                        {renderPagination()}
                     </div>
+                    
+                    {/* Always render pagination outside scrollable area */}
+                    {renderPagination()}
                 </>
             ) : (
                 <div style={{

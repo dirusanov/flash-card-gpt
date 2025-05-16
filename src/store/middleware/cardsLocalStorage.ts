@@ -15,7 +15,18 @@ export const loadCardsFromStorage = (): StoredCard[] => {
             // Try to parse the JSON
             try {
                 const storedCards: StoredCard[] = JSON.parse(storedCardsJson);
-                console.log('Successfully parsed cards from localStorage, count:', storedCards.length);
+                console.log('Successfully parsed cards from localStorage, total count:', storedCards.length);
+                
+                // List first few and last few cards to help diagnose issues
+                if (storedCards.length > 0) {
+                    const firstFew = storedCards.slice(0, Math.min(3, storedCards.length));
+                    const lastFew = storedCards.length > 3 ? storedCards.slice(-3) : [];
+                    
+                    console.log('First few cards:', firstFew.map(c => ({ id: c.id, text: c.text?.substring(0, 20) })));
+                    if (lastFew.length > 0) {
+                        console.log('Last few cards:', lastFew.map(c => ({ id: c.id, text: c.text?.substring(0, 20) })));
+                    }
+                }
                 
                 // Check for data format issues
                 if (!Array.isArray(storedCards)) {
@@ -97,6 +108,18 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
     } catch (error) {
         console.error('Error saving cards to localStorage:', error);
         
+        // Get original size again to use in the error handler
+        let originalSize = 0;
+        try {
+            const tempSerialized = JSON.stringify(cards, (key, value) => {
+                if (value instanceof Date) return value.toISOString();
+                return value;
+            });
+            originalSize = new Blob([tempSerialized]).size;
+        } catch (e) {
+            console.error('Could not determine original size:', e);
+        }
+        
         // Check if it's a quota error
         if (error instanceof DOMException && (
             error.name === 'QuotaExceededError' ||
@@ -105,23 +128,90 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
             console.error('localStorage quota exceeded. Cannot save more cards. Try removing some cards.');
             // We need to handle this gracefully - remove some cards to make space
             if (cards.length > 0) {
-                // Emergency solution: keep only the most recent half of the cards
-                const reducedCards = cards.sort((a, b) => 
-                    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-                ).slice(0, Math.max(4, Math.ceil(cards.length / 2)));
-                
-                console.warn(`Emergency cleanup: reduced cards from ${cards.length} to ${reducedCards.length}`);
+                console.warn('CRITICAL: Storage quota exceeded. Attempting to fix by reducing card data size instead of removing cards.');
                 
                 try {
-                    const smallerSerializedCards = JSON.stringify(reducedCards, (key, value) => {
+                    // Instead of removing cards, try to reduce their size by removing large data
+                    const reducedSizeCards = cards.map(card => ({
+                        ...card,
+                        // Remove images which are the largest data
+                        image: null,
+                        // Keep other essential fields
+                        id: card.id,
+                        text: card.text,
+                        translation: card.translation,
+                        front: card.front,
+                        // Trim large text fields
+                        back: card.back ? card.back.substring(0, 1000) : null,
+                        // Limit examples to first 2
+                        examples: card.examples && card.examples.length > 2 ? 
+                            card.examples.slice(0, 2) : card.examples,
+                        createdAt: card.createdAt,
+                        exportStatus: card.exportStatus,
+                    }));
+                    
+                    console.warn(`Attempting to save cards with reduced data instead of limiting to 4 cards.`);
+                    
+                    const smallerSerializedCards = JSON.stringify(reducedSizeCards, (key, value) => {
                         if (value instanceof Date) return value.toISOString();
                         return value;
                     });
                     
-                    localStorage.setItem(LOCAL_STORAGE_KEY, smallerSerializedCards);
-                    console.log('Saved reduced card set successfully');
+                    // Check if our size reduction helped
+                    const newSize = new Blob([smallerSerializedCards]).size;
+                    console.log(`Reduced size from ${originalSize} to ${newSize} bytes`);
+                    
+                    // If still too large, we have to fall back to limiting cards, but preserve more than just 4
+                    if (newSize > 4.5 * 1024 * 1024) {
+                        console.warn('Still too large after size reduction, falling back to limiting card count');
+                        
+                        // Don't limit to only 4! That's too few. Instead keep as many as possible
+                        // Sort by date (newest first) and keep as many as possible up to storage limit
+                        const sortedCards = [...reducedSizeCards].sort((a, b) => 
+                            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                        );
+                        
+                        // Start with at least 10 cards and keep adding until we hit size limit
+                        let cardsToKeep = Math.min(10, sortedCards.length);
+                        let currentBatch;
+                        let currentSize;
+                        
+                        // Try to add more cards until we're close to limit
+                        while (cardsToKeep < sortedCards.length) {
+                            currentBatch = sortedCards.slice(0, cardsToKeep);
+                            const serialized = JSON.stringify(currentBatch, (key, value) => {
+                                if (value instanceof Date) return value.toISOString();
+                                return value;
+                            });
+                            currentSize = new Blob([serialized]).size;
+                            
+                            // If adding more would exceed limit, stop
+                            if (currentSize > 4.5 * 1024 * 1024) {
+                                break;
+                            }
+                            
+                            // Otherwise try adding more
+                            cardsToKeep += 5;
+                        }
+                        
+                        console.warn(`Emergency preservation: keeping ${cardsToKeep} newest cards out of ${sortedCards.length} total`);
+                        
+                        // Use the latest known good batch
+                        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentBatch, (key, value) => {
+                            if (value instanceof Date) return value.toISOString();
+                            return value;
+                        }));
+                    } else {
+                        // Our size reduction worked, save all cards with reduced data
+                        localStorage.setItem(LOCAL_STORAGE_KEY, smallerSerializedCards);
+                    }
+                    
+                    console.log('Saved cards with data reduction to fit within quota');
+                    
+                    // Return true to indicate we handled the error
+                    return;
                 } catch (innerError) {
-                    console.error('Failed to save even reduced card set:', innerError);
+                    console.error('Failed to save with data reduction:', innerError);
                 }
             }
         }
