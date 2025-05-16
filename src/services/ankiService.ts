@@ -33,15 +33,22 @@ function format_back_lang_learning(card: CardLangLearning): string {
         .map((ex) => format_example(ex[0], card.text, ex[1]))
         .join('<br><br>');
 
-    const backgroundImageDiv = card.image_base64
-        ? `<div style='background-image: url("${card.image_base64}"); background-size: cover; background-position: center; background-repeat: 
-            no-repeat; width: 350px; height: 350px; margin: 0 auto;'></div>`
-        : '';
+    let imageHtml = '';
+    if (card.image_base64) {
+        // Make sure we have the proper data URI prefix
+        let imageData = card.image_base64;
+        if (!imageData.startsWith('data:')) {
+            // If there's no data URI prefix, add it
+            imageData = `data:image/jpeg;base64,${imageData}`;
+        }
+        // Use img tag for consistency with file export
+        imageHtml = `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+    }
 
     return `
         <b>${card.translation}</b>
         <br><br>${formatted_examples}<br><br>
-        ${backgroundImageDiv}
+        ${imageHtml}
     `;
 }
 

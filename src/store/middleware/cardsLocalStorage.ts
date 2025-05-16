@@ -14,8 +14,11 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
         case LOAD_STORED_CARDS:
             try {
                 const storedCardsJson = localStorage.getItem(LOCAL_STORAGE_KEY);
+                console.log('Loading cards from localStorage:', storedCardsJson);
+                
                 if (storedCardsJson) {
                     const storedCards: StoredCard[] = JSON.parse(storedCardsJson);
+                    console.log('Parsed cards:', storedCards);
                     
                     // Convert date strings back to Date objects
                     const cardsWithDates = storedCards.map(card => ({
@@ -28,9 +31,21 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                         type: 'SET_STORED_CARDS',
                         payload: cardsWithDates
                     });
+                } else {
+                    console.log('No stored cards found in localStorage');
+                    // Initialize with empty array if nothing exists
+                    store.dispatch({
+                        type: 'SET_STORED_CARDS',
+                        payload: []
+                    });
                 }
             } catch (error) {
                 console.error('Error loading cards from localStorage:', error);
+                // Initialize with empty array on error
+                store.dispatch({
+                    type: 'SET_STORED_CARDS',
+                    payload: []
+                });
             }
             break;
             
@@ -40,9 +55,19 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
             try {
                 // Get the current state after the action has been processed
                 const { cards: { storedCards } } = store.getState();
+                console.log('Saving cards to localStorage:', storedCards);
                 
-                // Save to localStorage
-                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(storedCards));
+                // Save to localStorage - ensure we're not trying to save circular structures
+                const serializedCards = JSON.stringify(storedCards, (key, value) => {
+                    // Convert Date objects to ISO strings for proper serialization
+                    if (value instanceof Date) {
+                        return value.toISOString();
+                    }
+                    return value;
+                });
+                
+                localStorage.setItem(LOCAL_STORAGE_KEY, serializedCards);
+                console.log('Cards saved successfully to localStorage');
             } catch (error) {
                 console.error('Error saving cards to localStorage:', error);
             }

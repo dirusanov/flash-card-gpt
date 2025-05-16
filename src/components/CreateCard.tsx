@@ -212,8 +212,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     return;
                 }
                 
-                // Save to localStorage only
-                dispatch(saveCardToStorage({
+                // Save to localStorage only - include all required fields
+                const cardData = {
                     mode,
                     text: originalSelectedText,
                     translation,
@@ -221,24 +221,43 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     image,
                     imageUrl,
                     createdAt: new Date()
-                }));
+                };
+                
+                console.log('Saving card to storage:', cardData);
+                dispatch(saveCardToStorage(cardData));
                 
             } else if (mode === Modes.GeneralTopic && back) {
                 // Save to localStorage only
-                dispatch(saveCardToStorage({
+                const cardData = {
                     mode,
                     front,
                     back,
-                    text: originalSelectedText,
+                    text: originalSelectedText || '',
                     createdAt: new Date()
-                }));
+                };
+                
+                console.log('Saving general topic card to storage:', cardData);
+                dispatch(saveCardToStorage(cardData));
             }
             
             // Show success notification
-            showError('Card saved to your collection!', 'success');
+            showError('Card saved to your collection! Go to "Cards" to see it.', 'success');
+            
+            // Clear form or reset values if needed
+            // This helps the user know they can create a new card
+            setTimeout(() => {
+                setShowResult(false);
+                dispatch(setText(''));
+                dispatch(setTranslation(''));
+                dispatch(setExamples([]));
+                dispatch(setImage(null));
+                dispatch(setImageUrl(null));
+                setOriginalSelectedText('');
+            }, 1500);
             
         } catch (error) {
-            showError('Error saving card.');
+            console.error('Error saving card:', error);
+            showError('Error saving card. Please try again.');
         } finally {
             setTimeout(() => {
                 setLoadingAccept(false);

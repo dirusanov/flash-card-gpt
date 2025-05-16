@@ -47,9 +47,19 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         dangerouslyAllowBrowser: true,
     });
 
+    // Load stored cards when the component mounts
     useEffect(() => {
+        console.log('StoredCards component mounted, loading cards...');
         dispatch(loadStoredCards());
+        
+        // Log current cards to help with debugging
+        console.log('Current stored cards in state:', storedCards);
     }, [dispatch]);
+
+    // Check if we have cards after loading
+    useEffect(() => {
+        console.log('Stored cards updated:', storedCards);
+    }, [storedCards]);
 
     // Load Anki decks when needed
     const loadAnkiDecks = async () => {
@@ -236,66 +246,73 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
 
         const selectedCardsData = storedCards.filter(card => selectedCards.includes(card.id));
-
-        // Create CSV content (compatible with Anki import)
-        let csvContent = "front,back\n";
         
-        selectedCardsData.forEach(card => {
-            let front = '';
-            let back = '';
-            
+        // Create a simpler format without embedded images, following the exact example format
+        let exportContent = "#separator:tab\n#html:true\n";
+        
+        selectedCardsData.forEach((card, index) => {
             if (card.mode === Modes.LanguageLearning) {
-                // Front contains ONLY the word being learned
-                front = card.text.trim();
+                // Front is just the word/phrase
+                const front = card.text.trim();
                 
-                // Build the back content
-                back = card.translation || '';
+                // Start building the back without any images
+                let back = '';
                 
-                // Add examples if they exist
+                // Add translation
+                if (card.translation) {
+                    back += `<b>${card.translation}</b>`;
+                }
+                
+                // Add examples
                 if (card.examples && card.examples.length > 0) {
-                    back += '<br><br><b>Examples:</b><br>';
-                    card.examples.forEach(([ex, trans]) => {
-                        back += ex;
+                    back += "<br><br>";
+                    
+                    card.examples.forEach(([ex, trans], exIndex) => {
+                        back += `${exIndex + 1}. ${ex}`;
                         if (trans) {
-                            back += `<br>${trans}`;
+                            back += `<br><span style='font-size: 0.8em;'><i>${trans}</i></span>`;
                         }
-                        back += '<br><br>';
+                        back += "<br><br>";
                     });
                 }
                 
-                // Add image at the end of the back content if it exists
+                // Add the actual image if the card has one
                 if (card.image) {
-                    const imageData = card.image.startsWith('data:') ? 
-                        card.image : 
-                        `data:image/jpeg;base64,${card.image}`;
-                    back += `<img src="${imageData}">`;
+                    // The image is already in base64 format, but may start with data:image/png;base64, or similar prefix
+                    // Make sure we're using the raw data correctly
+                    let imageData = card.image;
+                    if (!imageData.startsWith('data:')) {
+                        // If there's no data URI prefix, add it
+                        imageData = `data:image/jpeg;base64,${imageData}`;
+                    }
+                    back += `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
                 } else if (card.imageUrl) {
-                    back += `<img src="${card.imageUrl}">`;
+                    // ImageUrl might be a base64 string or a URL
+                    let imageUrl = card.imageUrl;
+                    if (!imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
+                        // If it's a raw base64 string without a prefix, add one
+                        imageUrl = `data:image/jpeg;base64,${imageUrl}`;
+                    }
+                    back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
                 }
-            } else {
-                front = card.front || '';
-                back = card.back || '';
+                
+                // Export the formatted card
+                exportContent += `${front}\t"${back}"\n`;
             }
-            
-            // Properly escape CSV fields
-            // Replace newlines with <br> for HTML compatibility
-            front = front.replace(/\n/g, '<br>');
-            back = back.replace(/\n/g, '<br>');
-            
-            // Double quotes for CSV escaping
-            front = front.replace(/"/g, '""');
-            back = back.replace(/"/g, '""');
-            
-            // Add the row to CSV content
-            csvContent += `"${front}","${back}"\n`;
+            else if (card.mode === Modes.GeneralTopic) {
+                const front = (card.front || '').trim();
+                const back = (card.back || '').trim();
+                
+                exportContent += `${front}\t"${back}"\n`;
+            }
         });
 
         // Create and download file
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const blob = new Blob([exportContent], { type: 'text/plain;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.setAttribute('href', url);
-        link.setAttribute('download', 'anki_cards.csv');
+        link.setAttribute('download', 'anki_cards.txt');
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
