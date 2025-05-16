@@ -1,6 +1,6 @@
 import { Middleware } from 'redux';
 import { RootState } from '..';
-import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID } from '../actions/cards';
+import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS } from '../actions/cards';
 import { StoredCard } from '../reducers/cards';
 
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
@@ -245,6 +245,7 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
         case SAVE_CARD_TO_STORAGE:
         case DELETE_STORED_CARD:
         case UPDATE_STORED_CARD:
+        case UPDATE_CARD_EXPORT_STATUS:
             try {
                 // Get the current state after the action has been processed
                 const { cards: { storedCards } } = store.getState();

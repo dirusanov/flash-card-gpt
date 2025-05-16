@@ -351,10 +351,27 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             // Update export status for selected cards
             selectedCards.forEach(cardId => {
                 dispatch(updateCardExportStatus(cardId, 'exported_to_anki'));
+                console.log(`Updated card ${cardId} export status to 'exported_to_anki'`);
             });
 
             // Show success notification with type parameter
             showError('Cards saved to Anki successfully!', 'success');
+
+            // Add debug check of localStorage after status update
+            setTimeout(() => {
+                try {
+                    const rawData = localStorage.getItem('anki_stored_cards');
+                    if (rawData) {
+                        const savedCards = JSON.parse(rawData);
+                        console.log('Verified localStorage after export:', 
+                            savedCards.filter((c: any) => c.id && selectedCards.includes(c.id))
+                                .map((c: any) => ({id: c.id, status: c.exportStatus}))
+                        );
+                    }
+                } catch (e) {
+                    console.error('Error verifying localStorage after export:', e);
+                }
+            }, 500);
         } catch (error) {
             showError('Failed to save cards to Anki. Make sure Anki is running and AnkiConnect is properly configured.');
         } finally {
@@ -444,7 +461,24 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         // Update export status for selected cards
         selectedCards.forEach(cardId => {
             dispatch(updateCardExportStatus(cardId, 'exported_to_file'));
+            console.log(`Updated card ${cardId} export status to 'exported_to_file'`);
         });
+
+        // Add debug check of localStorage after status update
+        setTimeout(() => {
+            try {
+                const rawData = localStorage.getItem('anki_stored_cards');
+                if (rawData) {
+                    const savedCards = JSON.parse(rawData);
+                    console.log('Verified localStorage after file export:', 
+                        savedCards.filter((c: any) => c.id && selectedCards.includes(c.id))
+                            .map((c: any) => ({id: c.id, status: c.exportStatus}))
+                    );
+                }
+            } catch (e) {
+                console.error('Error verifying localStorage after file export:', e);
+            }
+        }, 500);
     };
 
     const formatDate = (dateString: Date) => {
