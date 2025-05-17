@@ -258,9 +258,16 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
         // Persist current card ID to localStorage
         case SET_CURRENT_CARD_ID:
             if (action.payload) {
+                // Set the current card ID in localStorage
                 localStorage.setItem('current_card_id', action.payload);
+                
+                // We do not automatically set the explicitly saved flag - this will be 
+                // set only when a card is actually saved by the user
+                // This prevents cards from being marked as "Saved to Collection" prematurely
             } else {
+                // When clearing the current card ID, also clear the explicitly saved flag
                 localStorage.removeItem('current_card_id');
+                localStorage.removeItem('explicitly_saved');
             }
             break;
             

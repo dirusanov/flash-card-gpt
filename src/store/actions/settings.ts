@@ -5,12 +5,15 @@ export const SET_ANKI_CONNECT_URL = 'SET_ANKI_CONNECT_URL';
 export const SET_ANKI_CONNECT_API_KEY = 'SET_ANKI_CONNECT_API_KEY';
 export const SET_USE_ANKI_CONNECT = 'SET_USE_ANKI_CONNECT';
 export const SET_VISIBLE_SIDEBAR = 'SET_VISIBLE_SIDEBAR';
-export const SET_HUGGING_FACE_API_KEY = 'SET_HUGGING_FACE_API_KEY';
+export const SET_HUGGINGFACE_API_KEY = 'SET_HUGGINGFACE_API_KEY';
+export const SET_GROQ_API_KEY = 'SET_GROQ_API_KEY';
+export const SET_GROQ_MODEL_NAME = 'SET_GROQ_MODEL_NAME';
 export const SET_SHOULD_GENERATE_IMAGE = 'SET_SHOULD_GENERATE_IMAGE';
 export const SET_TRANSLATION_PROMPT = 'SET_TRANSLATION_PROMPT';
 export const SET_EXAMPLES_PROMPT = 'SET_EXAMPLES_PROMPT';
 export const SET_AI_INSTRUCTIONS = 'SET_AI_INSTRUCTIONS';
 export const SET_IMAGE_INSTRUCTIONS = 'SET_IMAGE_INSTRUCTIONS';
+export const SET_MODEL_PROVIDER = 'SET_MODEL_PROVIDER';
 
 
 export const setOpenAiKey = (openAiKey: string) => ({
@@ -49,8 +52,18 @@ export const setVisibleSideBar = (visible: boolean) => ({
 });
 
 export const setHuggingFaceApiKey = (huggingFaceApiKey: string) => ({
-    type: SET_HUGGING_FACE_API_KEY,
+    type: SET_HUGGINGFACE_API_KEY,
     payload: huggingFaceApiKey,
+});
+
+export const setGroqApiKey = (groqApiKey: string) => ({
+    type: SET_GROQ_API_KEY,
+    payload: groqApiKey,
+});
+
+export const setGroqModelName = (groqModelName: string) => ({
+    type: SET_GROQ_MODEL_NAME,
+    payload: groqModelName,
 });
 
 export const setShouldGenerateImage = (shouldGenerateImage: boolean) => ({
@@ -76,4 +89,9 @@ export const setAIInstructions = (instructions: string) => ({
 export const setImageInstructions = (instructions: string) => ({
     type: SET_IMAGE_INSTRUCTIONS,
     payload: instructions,
+});
+
+export const setModelProvider = (provider: string) => ({
+    type: SET_MODEL_PROVIDER,
+    payload: provider,
 });

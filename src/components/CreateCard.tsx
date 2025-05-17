@@ -19,6 +19,8 @@ import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
+import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard } from '../services/aiServiceFactory';
+import { ModelProvider } from '../store/reducers/settings';
 
 
 interface CreateCardProps {
@@ -48,7 +50,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [isNewSubmission, setIsNewSubmission] = useState(true);
     const [explicitlySaved, setExplicitlySaved] = useState(false);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
-    const haggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
+    const huggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
+    const groqApiKey = useSelector((state: RootState) => state.settings.groqApiKey);
+    const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
+    const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
     const [showAISettings, setShowAISettings] = useState(false);
     const [showImageSettings, setShowImageSettings] = useState(false);
@@ -65,34 +70,43 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Selector для получения всех сохраненных карточек
     const storedCards = useSelector((state: RootState) => state.cards.storedCards);
     
+    // Get the appropriate AI service based on the selected provider
+    const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
+    
+    // Get the appropriate API key based on the selected provider
+    const apiKey = useMemo(() => 
+        getApiKeyForProvider(
+            modelProvider as ModelProvider, 
+            openAiKey, 
+            huggingFaceApiKey,
+            groqApiKey
+        ), 
+        [modelProvider, openAiKey, huggingFaceApiKey, groqApiKey]
+    );
+    
     // Derive isSaved from both currentCardId AND storage check
     const isSaved = useMemo(() => {
-        // First check if we have explicitly saved this card
+        console.log('Calculating isSaved:', { currentCardId, explicitlySaved });
+        
+        // Only consider a card saved if it has been explicitly saved by the user in this session
         if (currentCardId && explicitlySaved) {
             return true;
         }
         
-        // If no explicitlySaved flag but we have text, check storage
-        if (text && text.trim() !== '') {
-            const existsInStorage = storedCards.some(card => card.text === text);
-            if (existsInStorage) {
-                // If found in storage but not marked as explicitly saved, update the state
-                if (!explicitlySaved) {
-                    setExplicitlySaved(true);
-                }
-                return true;
-            }
-        }
+        // No longer automatically marking cards as saved just because text matches something in storage
+        // This was causing the "Saved to Collection" message to appear prematurely
         
         return false;
-    }, [currentCardId, explicitlySaved, text, storedCards]);
+    }, [currentCardId, explicitlySaved]);
 
-    console.log('Card state:', { 
+    // Add more detailed logging to debug the issue
+    console.log('Card state details:', { 
         isNewSubmission, 
         explicitlySaved,
         isSaved, 
         currentCardId, 
-        text: text.substring(0, 20) + (text.length > 20 ? '...' : '') 
+        text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
+        localStorage_explicitly_saved: localStorage.getItem('explicitly_saved')
     });
 
     const popularLanguages = [
@@ -114,7 +128,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (isSaved) {
             setIsEdited(true);
         }
-    }, [text, translation, examples, image, imageUrl, front, back, isSaved]);
+    }, [text, translation, examples, image, imageUrl, front, isSaved]);
 
     // Add a function to check if a card with this text already exists in storage
     const checkExistingCard = useCallback((textToCheck: string) => {
@@ -127,9 +141,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const exactMatch = storedCards.find((card: StoredCard) => card.text === textToCheck);
         
         if (exactMatch) {
-            console.log('Found existing card with matching text in storage:', exactMatch.id);
+            console.log('Found existing card with matching text:', exactMatch?.text || textToCheck, 'ID:', exactMatch.id);
+            console.log('Setting currentCardId but NOT setting explicitlySaved');
+            
+            // Only set the ID for reference, but DON'T mark as explicitly saved
+            // This ensures "Saved to Collection" only appears after user explicitly saves
             dispatch(setCurrentCardId(exactMatch.id));
-            setExplicitlySaved(true);
+            
+            // IMPORTANT: We do NOT set explicitlySaved to true here, as that would cause
+            // the "Saved to Collection" message to appear prematurely
             return true;
         }
         
@@ -167,26 +187,70 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const handleNewImage = async () => {
         setLoadingNewImage(true);
-        const descriptionImage = await getDescriptionImage(openAiKey, text, imageInstructions);
-        const { imageUrl, imageBase64 } = await getImage(haggingFaceApiKey, openai, openAiKey, descriptionImage, imageInstructions);
-
-        if (imageUrl) {
-            dispatch(setImageUrl(imageUrl));
+        try {
+            const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
+            
+            // Use different image generation based on provider
+            let imageResponse = null;
+            if (modelProvider === ModelProvider.OpenAI) {
+                // Use existing OpenAI implementation
+                const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, imageInstructions);
+                
+                if (imageUrl) {
+                    dispatch(setImageUrl(imageUrl));
+                }
+                if (imageBase64) {
+                    dispatch(setImage(imageBase64));
+                }
+            } else if (modelProvider === ModelProvider.HuggingFace && aiService.getImageUrl) {
+                // Use HuggingFace implementation
+                const imageData = await aiService.getImageUrl(apiKey, descriptionImage);
+                if (imageData) {
+                    dispatch(setImageUrl(''));
+                    dispatch(setImage(imageData));
+                }
+            } else {
+                // Local models - show error that image generation isn't supported
+                showError("Image generation is not supported with the selected provider.");
+            }
+        } catch (error) {
+            console.error('Error generating image:', error);
+            showError(error instanceof Error ? error.message : "Failed to generate image");
+        } finally {
+            setLoadingNewImage(false);
         }
-        if (imageBase64) {
-            dispatch(setImage(imageBase64));
-        }
-        setLoadingNewImage(false);
+        
         if (isSaved) {
             setIsEdited(true);
         }
     }
 
     const handleNewExamples = async () => {
-        setLoadingNewExamples(true)
-        const newExamples = await getExamples(openAiKey, text, translateToLanguage, true);
-        dispatch(setExamples(newExamples));
-        setLoadingNewExamples(false)
+        setLoadingNewExamples(true);
+        try {
+            const newExamplesResult = await createExamples(
+                aiService,
+                apiKey,
+                text,
+                translateToLanguage,
+                true,
+                aiInstructions
+            );
+            
+            if (newExamplesResult && newExamplesResult.length > 0) {
+                // Преобразуем в старый формат для совместимости с существующим кодом
+                const formattedExamples = newExamplesResult.map(example => 
+                    [example.original, example.translated] as [string, string | null]
+                );
+                dispatch(setExamples(formattedExamples));
+            }
+        } catch (error) {
+            console.error('Error getting examples:', error);
+            showError(error instanceof Error ? error.message : "Failed to generate examples");
+        } finally {
+            setLoadingNewExamples(false);
+        }
+        
         if (isSaved) {
             setIsEdited(true);
         }
@@ -208,7 +272,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 // Generate new image based on instructions
                 const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
-                const { imageUrl, imageBase64 } = await getImage(haggingFaceApiKey, openai, openAiKey, descriptionImage, customInstruction);
+                const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, customInstruction);
                 
                 if (imageUrl) {
                     dispatch(setImageUrl(imageUrl));
@@ -246,7 +310,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 if (shouldGenerateImage) {
                     const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
-                    const { imageUrl, imageBase64 } = await getImage(haggingFaceApiKey, openai, openAiKey, descriptionImage, customInstruction);
+                    const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, customInstruction);
                     
                     if (imageUrl) {
                         dispatch(setImageUrl(imageUrl));
@@ -290,7 +354,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     
         if (isChecked) {
             const descriptionImage = await getDescriptionImage(openAiKey, text, imageInstructions);
-            const { imageUrl, imageBase64 } = await getImage(haggingFaceApiKey, openai, openAiKey, descriptionImage, imageInstructions)
+            const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, imageInstructions)
             if (imageUrl) {
                 dispatch(setImageUrl(imageUrl))
             }
@@ -352,9 +416,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
                 
             } else if (mode === Modes.GeneralTopic) {
-                // Make sure we have back content before saving
-                if (!back) {
-                    console.error('Missing back data for general topic card');
+                // Для GeneralTopic будем использовать front вместо back
+                if (!front) {
+                    console.error('Missing front data for general topic card');
                     showError('Please generate card content before saving.');
                     return;
                 }
@@ -366,7 +430,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     id: cardId,
                     mode,
                     front,
-                    back,
+                    // Вместо back будем использовать комбинацию перевода и примеров
+                    // или front в случае их отсутствия
+                    back: translation || front,
                     text: cardText,
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
@@ -382,6 +448,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
             }
             
+            // Important: When the user explicitly saves the card, mark it as explicitly saved
+            // and store this state in localStorage
+            setExplicitlySaved(true);
+            localStorage.setItem('explicitly_saved', 'true');
+            
             if (isEdited) {
                 showError('Card updated successfully!', 'success');
             } else {
@@ -390,7 +461,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             setIsEdited(false);
             setIsNewSubmission(false); // Reset the new submission flag after explicitly saving
-            setExplicitlySaved(true); // Mark as explicitly saved
             
         } catch (error) {
             console.error('Error saving card:', error);
@@ -407,6 +477,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
         setExplicitlySaved(false); // Reset explicit save
+        localStorage.removeItem('explicitly_saved'); // Also remove from localStorage
         
         dispatch(setText(''));
         dispatch(setTranslation(''));
@@ -465,6 +536,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 // Get currentCardId from localStorage
                 const savedCardId = localStorage.getItem('current_card_id');
+                const explicitlySavedFlag = localStorage.getItem('explicitly_saved');
+                
+                console.log('localStorage values on mount:', { 
+                    savedCardId, 
+                    explicitlySavedFlag,
+                    cardCount: savedCards.length
+                });
                 
                 if (savedCardId) {
                     console.log('Found current card ID in localStorage:', savedCardId);
@@ -476,7 +554,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         // If card is found by ID, update the state
                         setIsEdited(false);
                         setIsNewSubmission(false);
-                        setExplicitlySaved(true);
+                        
+                        // Set explicitlySaved based on localStorage flag
+                        if (explicitlySavedFlag === 'true') {
+                            console.log('Setting explicitlySaved to TRUE based on localStorage flag');
+                            setExplicitlySaved(true);
+                        } else {
+                            console.log('Setting explicitlySaved to FALSE based on localStorage flag');
+                            setExplicitlySaved(false);
+                        }
                         
                         // Restore card data
                         dispatch(setCurrentCardId(savedCardId));
@@ -494,6 +580,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         console.log('Card ID from localStorage not found in storage, resetting');
                         // If card with this ID no longer exists, clear the ID
                         localStorage.removeItem('current_card_id');
+                        localStorage.removeItem('explicitly_saved');
                         dispatch(setCurrentCardId(null));
                         setIsNewSubmission(true);
                         setExplicitlySaved(false);
@@ -523,6 +610,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
         
+        // If we're actively typing in a new card (not yet saved), make sure it's not marked as saved
+        if (!currentCardId) {
+            console.log('Actively typing new card text - ensuring not marked as saved');
+            setExplicitlySaved(false);
+            localStorage.removeItem('explicitly_saved');
+        }
+        
         // Check if the card already exists in storage
         checkExistingCard(text);
         
@@ -530,73 +624,101 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setShowResult(false);
+        if (!text.trim()) return;
+        
+        // IMPORTANT: Explicitly clear saved state when creating a new card
+        setExplicitlySaved(false);
+        localStorage.removeItem('explicitly_saved');
+        
         setLoadingGetResult(true);
-        
-        // Clear current card ID to ensure new card creation doesn't inherit saved state
-        dispatch(setCurrentCardId(null));
-        
-        // Mark this as a new submission right away to prevent automatic "saved" detection
-        setIsNewSubmission(true);
-        
-        // Always set originalSelectedText to ensure it's available when saving
         setOriginalSelectedText(text);
-    
-        if (mode === Modes.LanguageLearning) {
-            // Don't set originalSelectedText again here since we did it above
-            dispatch(setFront(text));
+        try {
+            // Добавляем логирование для отладки
+            console.log("=== DEBUG INFO ===");
+            console.log("Model Provider:", modelProvider);
+            console.log("API Key available:", Boolean(apiKey));
+            console.log("Model Name (if Groq):", modelProvider === ModelProvider.Groq ? groqModelName : 'N/A');
+            console.log("AI Service:", Object.keys(aiService));
             
-            try {
-                const translatedText = await translateText(openAiKey, text, translateToLanguage, aiInstructions)
-                
-                // If translation fails, use text as fallback to prevent errors
-                if (!translatedText) {
-                    console.warn('Translation failed, using text as fallback');
-                    dispatch(setTranslation(text));
-                } else {
-                    dispatch(setTranslation(translatedText));
-                }
-                
-                const examples = await getExamples(openAiKey, text, translateToLanguage, true, aiInstructions)
-                if (shouldGenerateImage) {
-                    const descriptionImage = await getDescriptionImage(openAiKey, text, imageInstructions);
-                    const { imageUrl, imageBase64 } = await getImage(haggingFaceApiKey, openai, openAiKey, descriptionImage, imageInstructions)
-
-                    if (imageUrl) {
-                        dispatch(setImageUrl(imageUrl))
-                    }
-                    if (imageBase64) {
-                        dispatch(setImage(imageBase64))
-                    }
-                }
-                
-                dispatch(setText(text));
-                dispatch(setExamples(examples));
-        
-                setLoadingGetResult(false);
-                setShowResult(true);
-                // Set this flag to true to prevent the card from being marked as saved
-                setIsNewSubmission(true);
-            } catch (error) {
-                console.error('Error during translation:', error);
-                showError('Error generating card content. Please try again.');
-                setLoadingGetResult(false);
-            }
-        } else if (mode === Modes.GeneralTopic) {
-            // No need to set originalSelectedText again since we now do it above
-            // setOriginalSelectedText(text);
-            dispatch(setText(text));
+            // Используем универсальные функции для получения данных, которые обрабатывают результаты одинаково для всех провайдеров
             
-            const front = await generateAnkiFront(openAiKey, text)
-            const back = await generateAnkiBack(openAiKey, text)
-            if (front && back) {
-                dispatch(setFront(front))
-                dispatch(setBack(back)) 
+            // 1. Получаем перевод с помощью универсальной функции
+            const translation = await createTranslation(
+                aiService, 
+                apiKey, 
+                text, 
+                translateToLanguage, 
+                aiInstructions
+            );
+            
+            if (translation.translated) {
+                dispatch(setTranslation(translation.translated));
             }
-            setLoadingGetResult(false);
+            
+            // 2. Получаем примеры с помощью универсальной функции
+            const examplesResult = await createExamples(
+                aiService, 
+                apiKey, 
+                text, 
+                translateToLanguage, 
+                true, 
+                aiInstructions
+            );
+            
+            if (examplesResult && examplesResult.length > 0) {
+                // Преобразуем в старый формат для совместимости с существующим кодом
+                const formattedExamples = examplesResult.map(example => 
+                    [example.original, example.translated] as [string, string | null]
+                );
+                dispatch(setExamples(formattedExamples));
+            }
+            
+            // 3. Создаем карточку с помощью универсальной функции
+            const flashcard = await createFlashcard(aiService, apiKey, text);
+            
+            if (flashcard.front) {
+                dispatch(setFront(flashcard.front));
+            }
+            
+            // Для генерации изображений используем отдельную логику, так как не все провайдеры поддерживают эту функцию
+            if (shouldGenerateImage) {
+                try {
+                    const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
+                    
+                    let imageResponse = null;
+                    if (modelProvider === ModelProvider.OpenAI) {
+                        const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, imageInstructions);
+                        
+                        if (imageUrl) {
+                            dispatch(setImageUrl(imageUrl));
+                        }
+                        if (imageBase64) {
+                            dispatch(setImage(imageBase64));
+                        }
+                    } else if (modelProvider === ModelProvider.HuggingFace && aiService.getImageUrl) {
+                        const imageData = await aiService.getImageUrl(apiKey, descriptionImage);
+                        if (imageData) {
+                            dispatch(setImageUrl(''));
+                            dispatch(setImage(imageData));
+                        }
+                    }
+                    // Local models don't support image generation
+                } catch (imageError) {
+                    console.error('Error generating image:', imageError);
+                    // Don't show error for image failure, continue with the rest of the card
+                }
+            }
+            
+            // Ensure this is treated as a brand new card
+            dispatch(setCurrentCardId(null));
+            
             setShowResult(true);
-            // Set this flag to true to prevent the card from being marked as saved
             setIsNewSubmission(true);
+        } catch (error) {
+            console.error('Error processing text:', error);
+            showError(error instanceof Error ? error.message : "Failed to process text");
+        } finally {
+            setLoadingGetResult(false);
         }
     };
 
@@ -877,6 +999,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
         setExplicitlySaved(false); // Reset explicit save
+        localStorage.removeItem('explicitly_saved'); // Also remove from localStorage
         
         // Reset all form fields
         dispatch(setText(''));
@@ -888,6 +1011,62 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setBack(null));
         setOriginalSelectedText('');
     };
+
+    // Add a function to render the AI provider badge
+    const renderProviderBadge = () => {
+        let badgeText = '';
+        let bgColor = '';
+        let textColor = '';
+        
+        switch (modelProvider) {
+            case ModelProvider.OpenAI:
+                badgeText = 'OpenAI';
+                bgColor = '#10a37f'; // OpenAI green
+                textColor = '#ffffff';
+                break;
+            case ModelProvider.HuggingFace:
+                badgeText = 'HuggingFace';
+                bgColor = '#ffbd59'; // HuggingFace yellow
+                textColor = '#000000';
+                break;
+            case ModelProvider.Local:
+                badgeText = 'Local Model';
+                bgColor = '#7c3aed'; // Purple for local
+                textColor = '#ffffff';
+                break;
+            default:
+                badgeText = 'AI';
+                bgColor = '#2563EB';
+                textColor = '#ffffff';
+        }
+        
+        return (
+            <div style={{
+                display: 'inline-block',
+                backgroundColor: bgColor,
+                color: textColor,
+                padding: '2px 8px',
+                borderRadius: '12px',
+                fontSize: '11px',
+                fontWeight: '600',
+                marginLeft: '8px',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+            }}>
+                {badgeText}
+            </div>
+        );
+    };
+
+    // Add a useEffect to check explicitly_saved flag in localStorage on startup
+    useEffect(() => {
+        // Check for explicitly_saved flag in localStorage
+        const explicitlySavedFlag = localStorage.getItem('explicitly_saved');
+        if (explicitlySavedFlag === 'true') {
+            setExplicitlySaved(true);
+        } else {
+            setExplicitlySaved(false);
+        }
+    }, []);
 
     return (
         <div style={{
@@ -1079,8 +1258,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             <label htmlFor="text" style={{
                                 color: '#111827',
                                 fontWeight: '600',
-                                fontSize: '14px'
-                            }}>Text:</label>
+                                fontSize: '14px',
+                                display: 'flex',
+                                alignItems: 'center'
+                            }}>
+                                Text:
+                                {renderProviderBadge()}
+                            </label>
                             <textarea
                                 id="text"
                                 value={text}
@@ -1203,7 +1387,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         <ResultDisplay
                             mode={mode}
                             front={front}
-                            back={back}
                             translation={translation}
                             examples={examples}
                             imageUrl={imageUrl}

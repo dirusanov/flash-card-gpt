@@ -1,7 +1,7 @@
 import {
     SET_ANKI_CONNECT_API_KEY,
     SET_ANKI_CONNECT_URL,
-    SET_HUGGING_FACE_API_KEY,
+    SET_HUGGINGFACE_API_KEY,
     SET_OPEN_AI_KEY,
     SET_SELECTED_MODE,
     SET_SHOULD_GENERATE_IMAGE,
@@ -12,8 +12,19 @@ import {
     SET_EXAMPLES_PROMPT,
     SET_AI_INSTRUCTIONS,
     SET_IMAGE_INSTRUCTIONS,
+    SET_MODEL_PROVIDER,
+    SET_GROQ_API_KEY,
+    SET_GROQ_MODEL_NAME,
 } from "../actions/settings";
 import {Modes} from "../../constants";
+
+// Define provider types as a constant
+export enum ModelProvider {
+    OpenAI = 'openai',
+    HuggingFace = 'huggingface',
+    Groq = 'groq',
+    Local = 'local'
+}
 
 interface SettingsState {
     openAiKey: string;
@@ -24,11 +35,14 @@ interface SettingsState {
     useAnkiConnect: boolean
     visibleSideBar: boolean
     huggingFaceApiKey: string
+    groqApiKey: string
+    groqModelName: string
     shouldGenerateImage: boolean
     translationPrompt: string
     examplesPrompt: string
     aiInstructions: string
     imageInstructions: string
+    modelProvider: ModelProvider
 }
 
 const initialState: SettingsState = {
@@ -40,11 +54,14 @@ const initialState: SettingsState = {
     useAnkiConnect: false,
     visibleSideBar: true,
     huggingFaceApiKey: '',
+    groqApiKey: '',
+    groqModelName: 'llama3-8b-8192',
     shouldGenerateImage: true,
     translationPrompt: '',
     examplesPrompt: '',
     aiInstructions: '',
-    imageInstructions: ''
+    imageInstructions: '',
+    modelProvider: ModelProvider.OpenAI
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {
@@ -84,10 +101,20 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
                 ...state,
                 visibleSideBar: action.visible,
             };
-        case SET_HUGGING_FACE_API_KEY:
+        case SET_HUGGINGFACE_API_KEY:
             return {
                 ...state,
                 huggingFaceApiKey: action.payload,
+            };
+        case SET_GROQ_API_KEY:
+            return {
+                ...state,
+                groqApiKey: action.payload,
+            };
+        case SET_GROQ_MODEL_NAME:
+            return {
+                ...state,
+                groqModelName: action.payload,
             };
         case SET_SHOULD_GENERATE_IMAGE:
             return {
@@ -113,6 +140,11 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 imageInstructions: action.payload,
+            };
+        case SET_MODEL_PROVIDER:
+            return {
+                ...state,
+                modelProvider: action.payload,
             };
         default:
             return state;

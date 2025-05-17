@@ -1,5 +1,32 @@
 import { OpenAI } from 'openai';
 
+// Хелпер-функция для форматирования сообщений об ошибках от OpenAI
+const formatOpenAIErrorMessage = (errorData: any): string => {
+  if (!errorData || !errorData.error) {
+    return "Unknown OpenAI API error";
+  }
+  
+  const { message, type, code } = errorData.error;
+  
+  let formattedMessage = "";
+  
+  // Основная часть сообщения об ошибке
+  if (code === "insufficient_quota") {
+    formattedMessage = "Your OpenAI account has exceeded its quota.\n\nPlease check your billing details or use a different API key.";
+  } else if (type === "invalid_request_error") {
+    formattedMessage = "Invalid request to OpenAI.\n\nPlease check your API key and settings.";
+  } else if (type === "rate_limit_exceeded") {
+    formattedMessage = "OpenAI rate limit exceeded.\n\nPlease try again in a few minutes.";
+  } else {
+    formattedMessage = `OpenAI API Error: ${message || "Unknown error"}`;
+  }
+  
+  // Добавляем технические детали (для разработчиков)
+  formattedMessage += `\n\nDetails:\n- Type: ${type || "unknown"}\n- Code: ${code || "none"}`;
+  
+  return formattedMessage;
+};
+
 export const translateText = async (
   apiKey: string,
   text: string,
@@ -7,6 +34,10 @@ export const translateText = async (
   customPrompt: string = ''
 ): Promise<string | null> => {
   try {
+    if (!apiKey) {
+      throw new Error("OpenAI API key is missing. Please check your settings.");
+    }
+    
     const basePrompt = `Translate the following text to ${translateToLanguage}`;
     
     const systemPrompt = customPrompt 
@@ -34,11 +65,19 @@ export const translateText = async (
       body: JSON.stringify(body),
     });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      if (errorData && errorData.error) {
+        throw new Error(formatOpenAIErrorMessage(errorData));
+      }
+      throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+    }
+
     const data = await response.json();
     return data.choices[0]?.message?.content?.trim() ?? null;
   } catch (error) {
     console.error('Error during translation:', error);
-    return null;
+    throw error; // Пробрасываем ошибку вверх, чтобы компонент мог ее обработать
   }
 };
 
@@ -49,6 +88,10 @@ export const getExamples = async (
   translate: boolean = false,
   customPrompt: string = ''
 ): Promise<Array<[string, string | null]>> => {
+  if (!apiKey) {
+    throw new Error("OpenAI API key is missing. Please check your settings.");
+  }
+
   const processedCustomPrompt = customPrompt.replace(/\{word\}/g, word);
   
   const basePrompt = `Give me three example sentences using the word '${word}' in the original language (the language of this word). 
@@ -82,6 +125,14 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
       body: JSON.stringify(body),
     });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      if (errorData && errorData.error) {
+        throw new Error(formatOpenAIErrorMessage(errorData));
+      }
+      throw new Error(`Could not generate examples. OpenAI API error: ${response.status} ${response.statusText}`);
+    }
+
     const data = await response.json();
     const resultText = data.choices[0]?.message?.content;
     const examples = resultText?.trim().split('\n') ?? [];
@@ -94,20 +145,29 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
       let translatedExample: string | null = null;
 
       if (translate) {
-        translatedExample = await translateText(
-          apiKey,
-          example,
-          translateToLanguage
-        );
+        try {
+          translatedExample = await translateText(
+            apiKey,
+            example,
+            translateToLanguage
+          );
+        } catch (translationError) {
+          console.error('Error translating example:', translationError);
+          // Если перевод не удался, оставляем null
+        }
       }
 
       resultExamples.push([example, translatedExample]);
     }
 
+    if (resultExamples.length === 0) {
+      throw new Error("Could not generate examples. Please try again with a different word or check your API key.");
+    }
+
     return resultExamples;
   } catch (error) {
     console.error('Error during getting examples:', error);
-    return [];
+    throw error; // Пробрасываем ошибку вверх, чтобы компонент мог ее обработать
   }
 };
 
@@ -115,6 +175,10 @@ export const isAbstract = async (
   apiKey: string,
   word: string
 ): Promise<boolean> => {
+  if (!apiKey) {
+    throw new Error("OpenAI API key is missing. Please check your settings.");
+  }
+
   const promptMessages = [
     {
       role: 'system',
@@ -138,12 +202,21 @@ export const isAbstract = async (
       body: JSON.stringify(body),
     });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      if (errorData && errorData.error) {
+        throw new Error(formatOpenAIErrorMessage(errorData));
+      }
+      throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+    }
+
     const data = await response.json();
     const answer =
       data.choices[0]?.message?.content?.trim().toLowerCase() ?? '';
     return answer === 'abstract';
   } catch (error) {
     console.error('Error during determining abstractness:', error);
+    // Предполагаем, что объект конкретный, если не можем определить
     return false;
   }
 };
@@ -153,6 +226,10 @@ export const getDescriptionImage = async (
   word: string,
   customInstructions: string = ''
 ): Promise<string> => {
+  if (!apiKey) {
+    throw new Error("OpenAI API key is missing. Please check your settings.");
+  }
+
   const basePrompt = `Provide a detailed description for an image that represents the concept of '${word}'`;
   
   const finalPrompt = customInstructions 
@@ -182,11 +259,25 @@ export const getDescriptionImage = async (
       body: JSON.stringify(body),
     });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      if (errorData && errorData.error) {
+        throw new Error(formatOpenAIErrorMessage(errorData));
+      }
+      throw new Error(`Could not generate image description. OpenAI API error: ${response.status} ${response.statusText}`);
+    }
+
     const data = await response.json();
-    return data.choices[0]?.message?.content?.trim() ?? '';
+    const description = data.choices[0]?.message?.content?.trim() ?? '';
+    
+    if (!description) {
+      throw new Error("Could not generate a valid image description. Please try again.");
+    }
+    
+    return description;
   } catch (error) {
     console.error('Error during getting description image:', error);
-    return '';
+    throw error; // Пробрасываем ошибку вверх, чтобы компонент мог ее обработать
   }
 };
 
@@ -207,10 +298,57 @@ const getImageUrlRequest = async (
       response_format: 'url',
     });
 
-    return response.data[0]?.url ?? null;
+    if (!response.data || !response.data[0]?.url) {
+      throw new Error("OpenAI did not return an image URL. Please try again.");
+    }
+
+    return response.data[0].url;
   } catch (error) {
     console.error('Error during image generation:', error);
-    return null;
+    
+    // Проверяем, есть ли дополнительная информация об ошибке
+    if (error instanceof Error) {
+      const errorMessage = error.message || '';
+      
+      // Проверяем типичные ошибки OpenAI
+      if (errorMessage.includes('quota') || errorMessage.includes('billing')) {
+        throw new Error("Your OpenAI account has exceeded its quota.\n\nPlease check your billing details or use a different API key.");
+      }
+      
+      if (errorMessage.includes('rate limit')) {
+        throw new Error("OpenAI rate limit exceeded.\n\nPlease try again in a few minutes.");
+      }
+      
+      if (errorMessage.includes('invalid API key')) {
+        throw new Error("Invalid OpenAI API key.\n\nPlease check your API key in settings.");
+      }
+      
+      // Для ошибок, связанных с модерацией контента
+      if (errorMessage.includes('moderation') || errorMessage.includes('policy')) {
+        throw new Error("OpenAI content policy violation.\n\nThe image request was flagged for content policy violation. Please modify your request.");
+      }
+      
+      // Если ошибка содержит JSON с деталями
+      if (errorMessage.includes('{') && errorMessage.includes('}')) {
+        try {
+          // Пытаемся извлечь JSON из строки ошибки
+          const jsonStr = errorMessage.substring(
+            errorMessage.indexOf('{'),
+            errorMessage.lastIndexOf('}') + 1
+          );
+          const errorData = JSON.parse(jsonStr);
+          if (errorData && errorData.error) {
+            return formatOpenAIErrorMessage(errorData);
+          }
+        } catch (jsonError) {
+          // Если не удалось разобрать JSON, просто используем исходное сообщение
+        }
+      }
+      
+      throw error; // Пробрасываем оригинальную ошибку, если она не подходит под известные шаблоны
+    }
+    
+    throw new Error("Failed to generate image.\n\nPlease check your OpenAI API key and try again.");
   }
 };
 
@@ -220,6 +358,10 @@ export const getOpenAiImageUrl = async (
   word: string,
   customInstructions: string = ''
 ): Promise<string | null> => {
+    if (!apiKey) {
+      throw new Error("OpenAI API key is missing. Please check your settings.");
+    }
+    
     try {
         const isAbstractWord = await isAbstract(apiKey, word);
 
@@ -236,7 +378,22 @@ export const getOpenAiImageUrl = async (
         }
     } catch (error) {
         console.error('Error during getting image for word:', error);
-        return null;
+        
+        // Проверка типичных ошибок OpenAI
+        if (error instanceof Error) {
+            // Если в сообщении уже содержится пользовательское объяснение, передаем его дальше
+            if (error.message.includes("OpenAI API Error") || 
+                error.message.includes("exceeded its quota") || 
+                error.message.includes("rate limit") || 
+                error.message.includes("API key")) {
+                throw error;
+            }
+            
+            // Общее сообщение об ошибке
+            throw new Error(`Failed to generate image for "${word}". ${error.message}`);
+        }
+        
+        throw new Error(`Failed to generate image for "${word}". Please check your OpenAI API key and try again.`);
     }
 };
 

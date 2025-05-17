@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import { FaCheckCircle, FaTimesCircle, FaTimes, FaExclamationTriangle, FaInfoCircle } from 'react-icons/fa';
+import { FaCheckCircle, FaTimesCircle, FaTimes, FaExclamationTriangle, FaInfoCircle, FaChevronDown, FaChevronUp } from 'react-icons/fa';
 
 interface NotificationProps {
   message: string;
@@ -25,6 +25,20 @@ const ErrorNotification: React.FC<NotificationProps> = ({
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isLongMessage, setIsLongMessage] = useState(false);
+
+  // Проверка на длинное сообщение при монтировании
+  useEffect(() => {
+    // Считаем сообщение длинным, если оно больше 120 символов или содержит определенные маркеры
+    setIsLongMessage(
+      message.length > 120 || 
+      message.includes("\n") || 
+      message.includes("OpenAI API Error") || 
+      message.includes("quota") ||
+      message.includes("API key")
+    );
+  }, [message]);
 
   // Entrance animation on mount
   useEffect(() => {
@@ -54,6 +68,12 @@ const ErrorNotification: React.FC<NotificationProps> = ({
       setIsVisible(false);
       onClose();
     }, 300); // Match this with CSS transition duration
+  };
+
+  // Toggle expanded state for long messages
+  const toggleExpanded = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsExpanded(!isExpanded);
   };
 
   // Determine style based on type
@@ -97,6 +117,16 @@ const ErrorNotification: React.FC<NotificationProps> = ({
 
   const styles = getNotificationStyles();
 
+  // Prepare message for display
+  const renderMessage = () => {
+    if (!isLongMessage || isExpanded) {
+      return message;
+    }
+    
+    // Если сообщение длинное и не развернуто, показываем только начало
+    return message.substring(0, 120) + '...';
+  };
+
   // Combined styles
   const combinedStyles: React.CSSProperties = {
     backgroundColor: styles.bgColor,
@@ -111,7 +141,7 @@ const ErrorNotification: React.FC<NotificationProps> = ({
     opacity: isExiting ? 0 : (isVisible ? 1 : 0),
     transform: isExiting ? 'translateX(20px)' : (isVisible ? 'translateX(0)' : 'translateX(20px)'),
     transition: 'all 0.3s ease',
-    maxHeight: '100px',
+    maxHeight: isExpanded ? '400px' : '100px',
     overflow: 'hidden',
     marginBottom: '8px',
     ...style
@@ -136,9 +166,36 @@ const ErrorNotification: React.FC<NotificationProps> = ({
         fontSize: '14px', 
         lineHeight: '1.5',
         fontWeight: 500,
-        paddingRight: '20px'
+        paddingRight: '20px',
+        maxHeight: isExpanded ? '350px' : '65px',
+        overflow: isExpanded ? 'auto' : 'hidden',
+        transition: 'max-height 0.3s ease'
       }}>
-        {message}
+        {renderMessage()}
+        
+        {isLongMessage && (
+          <button
+            onClick={toggleExpanded}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'transparent',
+              border: 'none',
+              color: styles.iconColor,
+              fontWeight: 500,
+              fontSize: '12px',
+              padding: '4px 0',
+              marginTop: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            {isExpanded ? 
+              <><FaChevronUp size={12} /> Свернуть</> : 
+              <><FaChevronDown size={12} /> Показать больше</>
+            }
+          </button>
+        )}
       </div>
       <button
         onClick={handleDismiss}

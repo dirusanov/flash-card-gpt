@@ -30,7 +30,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
-    const haggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
+    const huggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -1097,11 +1097,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 console.log('Attempting to generate image...');
 
                 // Try with HuggingFace first if we have an API key
-                if (haggingFaceApiKey) {
+                if (huggingFaceApiKey) {
                     try {
                         console.log('Trying HuggingFace image generation');
                         const result = await getImage(
-                            haggingFaceApiKey,
+                            huggingFaceApiKey,
                             openai,
                             openAiKey,
                             descriptionImage,

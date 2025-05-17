@@ -5,7 +5,6 @@ import Loader from './Loader';
 
 interface ResultDisplayProps {
     front: string | null
-    back: string | null
     translation: string | null;
     examples: Array<[string, string | null]>;
     imageUrl: string | null;
@@ -29,7 +28,6 @@ interface ResultDisplayProps {
 const ResultDisplay: React.FC<ResultDisplayProps> = (
         { 
             front, 
-            back, 
             translation, 
             examples, 
             imageUrl,
@@ -293,31 +291,55 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
 
             {front && (
                 <div style={{ marginBottom: '12px' }}>
-                    <h3 style={{
-                        fontSize: '16px',
-                        fontWeight: '600',
-                        textAlign: 'center',
-                        margin: '2px 0',
-                        color: '#111827'
-                    }}>{front}</h3>
-                </div>
-            )}
-            {back && (
-                <div style={{ marginBottom: '16px' }}>
-                    {back.replace("Key Points", "").split("-").filter(point => point.trim() !== '').map((point, index) => (
-                        <div key={index} style={{
-                            marginBottom: '12px',
+                    {/* Format the front content nicely */}
+                    {front.includes("/") ? (
+                        // If it has pronunciation (contains a slash), format it appropriately
+                        (() => {
+                            // Extract word and pronunciation
+                            const parts = front.split(/\s*\//)
+                            const wordPart = parts[0]?.trim() || ''
+                            const pronunciation = parts.length > 1 ? 
+                                `/${parts.slice(1).join('/').replace(/\/$/, '')}` : ''
+                            
+                            return (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '12px',
+                                    backgroundColor: '#F3F4F6',
+                                    borderRadius: '8px'
+                                }}>
+                                    <h3 style={{
+                                        fontSize: '20px',
+                                        fontWeight: '700',
+                                        margin: '0 0 6px 0',
+                                        color: '#111827'
+                                    }}>{wordPart}</h3>
+                                    {pronunciation && (
+                                        <div style={{
+                                            fontSize: '14px',
+                                            color: '#6B7280',
+                                            fontStyle: 'italic'
+                                        }}>{pronunciation}</div>
+                                    )}
+                                </div>
+                            )
+                        })()
+                    ) : (
+                        // Simple formatting for plain text
+                        <h3 style={{
+                            fontSize: '18px',
+                            fontWeight: '600',
+                            textAlign: 'center',
+                            margin: '2px 0',
+                            color: '#111827',
                             padding: '10px',
-                            backgroundColor: '#F9FAFB',
-                            borderRadius: '6px',
-                            color: '#374151',
-                            fontSize: '13px',
-                            lineHeight: '1.4'
-                        }}>{point}</div>
-                    ))}
+                            backgroundColor: '#F3F4F6',
+                            borderRadius: '8px'
+                        }}>{front}</h3>
+                    )}
                 </div>
             )}
-
+            
             {translation && (
                 <>
                     <hr style={{
