@@ -18,6 +18,7 @@ import { setCurrentPage } from "../store/actions/page";
 import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
+import Loader from './Loader';
 
 
 interface CreateCardProps {
@@ -889,299 +890,342 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'flex-start',
-        gap: '12px',
-        width: '100%',
-        padding: '12px',
-        paddingTop: '16px',
-        height: '100%',
-        overflowY: 'auto',
-        backgroundColor: '#ffffff',
-        paddingBottom: '16px'
-      }}>
-          <div style={{
+        <div style={{
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'center',
-            gap: '12px',
+            flex: 1,
             width: '100%',
-            maxWidth: '320px'
-          }}>
-              {mode === Modes.LanguageLearning && (
+            height: '100%',
+            position: 'relative'
+        }}>
+            {loadingGetResult && (
                 <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  width: '100%',
-                  gap: '8px'
-                }}>
-                    <div style={{
-                      position: 'relative',
-                      width: '100%',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}>
-                        <label htmlFor="language" style={{
-                          color: '#111827',
-                          fontWeight: '600',
-                          fontSize: '14px',
-                          margin: 0
-                        }}>Translate to:</label>
-                    </div>
-                    <select
-                      id="language"
-                      value={translateToLanguage}
-                      onChange={(e) => dispatch(setTranslateToLanguage(e.target.value))}
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        border: '1px solid #E5E7EB',
-                        backgroundColor: '#ffffff',
-                        color: '#374151',
-                        fontSize: '14px',
-                        outline: 'none',
-                        transition: 'all 0.2s ease',
-                        cursor: 'pointer'
-                      }}
-                      onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                      onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-                    >
-                        {popularLanguages.map(({ code, name }) => (
-                          <option key={code} value={code}>
-                              {name}
-                          </option>
-                        ))}
-                    </select>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      width: '100%'
-                    }}>
-                        <label htmlFor="generateImage" style={{
-                          color: '#111827',
-                          fontWeight: '600',
-                          fontSize: '14px',
-                          margin: 0
-                        }}>Image:</label>
-                        <div style={{
-                          position: 'relative',
-                          display: 'inline-block',
-                          width: '40px',
-                          height: '22px'
-                        }}>
-                            <input
-                              type="checkbox"
-                              id="generateImage"
-                              checked={shouldGenerateImage}
-                              onChange={handleImageToggle}
-                              style={{
-                                opacity: 0,
-                                width: 0,
-                                height: 0
-                              }}
-                            />
-                            <label
-                              htmlFor="generateImage"
-                              style={{
-                                position: 'absolute',
-                                cursor: 'pointer',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                backgroundColor: shouldGenerateImage ? '#2563EB' : '#E5E7EB',
-                                transition: '.3s',
-                                borderRadius: '22px'
-                              }}
-                            >
-                                <span style={{
-                                  position: 'absolute',
-                                  content: '""',
-                                  height: '18px',
-                                  width: '18px',
-                                  left: '2px',
-                                  bottom: '2px',
-                                  backgroundColor: 'white',
-                                  transition: '.3s',
-                                  borderRadius: '50%',
-                                  transform: shouldGenerateImage ? 'translateX(18px)' : 'translateX(0)'
-                                }} />
-                            </label>
-                        </div>
-                    </div>
-                    {shouldGenerateImage && renderImageSettings()}
-                </div>
-              )}
-              
-              {renderAISettings()}
-              
-              <form onSubmit={handleSubmit} style={{
-                width: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                marginTop: '4px',
-                marginBottom: '0'
-              }}>
-                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                    zIndex: 10,
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '4px',
-                    width: '100%'
-                  }}>
-                      <label htmlFor="text" style={{
-                        color: '#111827',
-                        fontWeight: '600',
-                        fontSize: '14px'
-                      }}>Text:</label>
-                      <textarea
-                        id="text"
-                        value={text}
-                        onChange={(e) => handleTextChange(e.target.value)}
-                        placeholder="Enter text to translate or select text from a webpage"
-                        style={{
-                          width: '100%',
-                          minHeight: '80px',
-                          padding: '8px 12px',
-                          borderRadius: '6px',
-                          border: '1px solid #E5E7EB',
-                          backgroundColor: '#ffffff',
-                          color: '#374151',
-                          fontSize: '14px',
-                          resize: 'vertical',
-                          outline: 'none',
-                          transition: 'all 0.2s ease'
-                        }}
-                        onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                        onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-                      />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loadingGetResult}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      marginTop: '4px',
-                      borderRadius: '6px',
-                      backgroundColor: '#2563EB',
-                      color: '#ffffff',
-                      fontWeight: '600',
-                      fontSize: '14px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      opacity: loadingGetResult ? 0.7 : 1
-                    }}
-                    onMouseOver={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#1D4ED8')}
-                    onMouseOut={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#2563EB')}
-                  >
-                      {loadingGetResult ? 'Processing...' : 'Create Card'}
-                  </button>
-              </form>
-              <div style={{
-                width: '100%',
-                margin: '4px 0 0 0'
-              }}>
-                  {renderErrorNotification()}
-              </div>
-          </div>
-          {showResult && (
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              width: '100%',
-              maxWidth: '320px',
-              marginBottom: '8px'
-            }}>
-                <div style={{
-                  width: '100%',
-                  marginBottom: '12px'
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '20px',
+                    padding: '0 20px'
                 }}>
-                    <div style={{
-                      position: 'relative',
-                      width: '100%',
+                    <Loader type="spinner" size="large" color="#3B82F6" text="Creating your Anki card..." />
+                    <div style={{ 
+                        backgroundColor: '#F3F4F6', 
+                        padding: '10px 16px', 
+                        borderRadius: '8px', 
+                        fontSize: '13px',
+                        color: '#4B5563',
+                        maxWidth: '90%',
+                        textAlign: 'center',
+                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                     }}>
-                        <input
-                          type="text"
-                          value={customInstruction}
-                          onChange={(e) => setCustomInstruction(e.target.value)}
-                          onKeyDown={handleCustomInstructionKeyDown}
-                          placeholder="Enter custom instructions (e.g., 'more formal examples', 'change image style')"
-                          style={{
-                            width: '100%',
-                            padding: '8px 12px',
-                            paddingRight: '40px',
-                            borderRadius: '6px',
-                            border: '1px solid #E5E7EB',
-                            fontSize: '14px',
-                            color: '#374151',
-                          }}
-                          disabled={isProcessingCustomInstruction}
-                        />
-                        <button
-                          onClick={handleApplyCustomInstruction}
-                          disabled={!customInstruction.trim() || isProcessingCustomInstruction}
-                          style={{
-                            position: 'absolute',
-                            right: '8px',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            background: 'none',
-                            border: 'none',
-                            color: customInstruction.trim() && !isProcessingCustomInstruction ? '#2563EB' : '#9CA3AF',
-                            cursor: customInstruction.trim() && !isProcessingCustomInstruction ? 'pointer' : 'not-allowed',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '4px'
-                          }}
-                        >
-                          <FaMagic size={16} />
-                        </button>
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#6B7280',
-                      marginTop: '4px',
-                    }}>
-                      {isProcessingCustomInstruction ? 'Applying your instructions...' : 'Type instructions and press Enter or click the magic wand'}
+                        We're analyzing your text and generating learning materials
                     </div>
                 </div>
-                
-                <ResultDisplay
-                  mode={mode}
-                  front={front}
-                  back={back}
-                  translation={translation}
-                  examples={examples}
-                  imageUrl={imageUrl}
-                  image={image}
-                  onNewImage={handleNewImage}
-                  onNewExamples={handleNewExamples}
-                  onAccept={handleAccept}
-                  onViewSavedCards={handleViewSavedCards}
-                  onCancel={handleCancel}
-                  loadingNewImage={loadingNewImage}
-                  loadingNewExamples={loadingNewExamples}
-                  loadingAccept={loadingAccept}
-                  shouldGenerateImage={shouldGenerateImage}
-                  isSaved={isSaved}
-                  isEdited={isEdited}
-                  setTranslation={handleTranslationUpdate}
-                  setExamples={handleExamplesUpdate}
-                />
+            )}
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                gap: '12px',
+                width: '100%',
+                padding: '12px',
+                paddingTop: '16px',
+                height: '100%',
+                overflowY: 'auto',
+                backgroundColor: '#ffffff',
+                paddingBottom: '16px'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '12px',
+                    width: '100%',
+                    maxWidth: '320px'
+                }}>
+                    {mode === Modes.LanguageLearning && (
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'flex-start',
+                            width: '100%',
+                            gap: '8px'
+                        }}>
+                            <div style={{
+                                position: 'relative',
+                                width: '100%',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
+                            }}>
+                                <label htmlFor="language" style={{
+                                    color: '#111827',
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    margin: 0
+                                }}>Translate to:</label>
+                            </div>
+                            <select
+                                id="language"
+                                value={translateToLanguage}
+                                onChange={(e) => dispatch(setTranslateToLanguage(e.target.value))}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #E5E7EB',
+                                    backgroundColor: '#ffffff',
+                                    color: '#374151',
+                                    fontSize: '14px',
+                                    outline: 'none',
+                                    transition: 'all 0.2s ease',
+                                    cursor: 'pointer'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            >
+                                {popularLanguages.map(({ code, name }) => (
+                                    <option key={code} value={code}>
+                                        {name}
+                                    </option>
+                                ))}
+                            </select>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                width: '100%'
+                            }}>
+                                <label htmlFor="generateImage" style={{
+                                    color: '#111827',
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    margin: 0
+                                }}>Image:</label>
+                                <div style={{
+                                    position: 'relative',
+                                    display: 'inline-block',
+                                    width: '40px',
+                                    height: '22px'
+                                }}>
+                                    <input
+                                        type="checkbox"
+                                        id="generateImage"
+                                        checked={shouldGenerateImage}
+                                        onChange={handleImageToggle}
+                                        style={{
+                                            opacity: 0,
+                                            width: 0,
+                                            height: 0
+                                        }}
+                                    />
+                                    <label
+                                        htmlFor="generateImage"
+                                        style={{
+                                            position: 'absolute',
+                                            cursor: 'pointer',
+                                            top: 0,
+                                            left: 0,
+                                            right: 0,
+                                            bottom: 0,
+                                            backgroundColor: shouldGenerateImage ? '#2563EB' : '#E5E7EB',
+                                            transition: '.3s',
+                                            borderRadius: '22px'
+                                        }}
+                                    >
+                                        <span style={{
+                                            position: 'absolute',
+                                            content: '""',
+                                            height: '18px',
+                                            width: '18px',
+                                            left: '2px',
+                                            bottom: '2px',
+                                            backgroundColor: 'white',
+                                            transition: '.3s',
+                                            borderRadius: '50%',
+                                            transform: shouldGenerateImage ? 'translateX(18px)' : 'translateX(0)'
+                                        }} />
+                                    </label>
+                                </div>
+                            </div>
+                            {shouldGenerateImage && renderImageSettings()}
+                        </div>
+                    )}
+                    
+                    {renderAISettings()}
+                    
+                    <form onSubmit={handleSubmit} style={{
+                        width: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        marginTop: '4px',
+                        marginBottom: '0'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px',
+                            width: '100%'
+                        }}>
+                            <label htmlFor="text" style={{
+                                color: '#111827',
+                                fontWeight: '600',
+                                fontSize: '14px'
+                            }}>Text:</label>
+                            <textarea
+                                id="text"
+                                value={text}
+                                onChange={(e) => handleTextChange(e.target.value)}
+                                placeholder="Enter text to translate or select text from a webpage"
+                                style={{
+                                    width: '100%',
+                                    minHeight: '80px',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #E5E7EB',
+                                    backgroundColor: '#ffffff',
+                                    color: '#374151',
+                                    fontSize: '14px',
+                                    resize: 'vertical',
+                                    outline: 'none',
+                                    transition: 'all 0.2s ease'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            />
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={loadingGetResult}
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                marginTop: '4px',
+                                borderRadius: '6px',
+                                backgroundColor: '#2563EB',
+                                color: '#ffffff',
+                                fontWeight: '600',
+                                fontSize: '14px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                opacity: loadingGetResult ? 0.7 : 1
+                            }}
+                            onMouseOver={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#1D4ED8')}
+                            onMouseOut={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#2563EB')}
+                        >
+                            {loadingGetResult ? 
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Loader type="dots" size="small" inline color="#ffffff" text="Creating card" />
+                                </div> : 'Create Card'}
+                        </button>
+                    </form>
+                    <div style={{
+                        width: '100%',
+                        margin: '4px 0 0 0'
+                    }}>
+                        {renderErrorNotification()}
+                    </div>
+                </div>
+                {showResult && (
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        width: '100%',
+                        maxWidth: '320px',
+                        marginBottom: '8px'
+                    }}>
+                        <div style={{
+                            width: '100%',
+                            marginBottom: '12px'
+                        }}>
+                            <div style={{
+                                position: 'relative',
+                                width: '100%',
+                            }}>
+                                <input
+                                    type="text"
+                                    value={customInstruction}
+                                    onChange={(e) => setCustomInstruction(e.target.value)}
+                                    onKeyDown={handleCustomInstructionKeyDown}
+                                    placeholder="Enter custom instructions (e.g., 'more formal examples', 'change image style')"
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        paddingRight: '40px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #E5E7EB',
+                                        fontSize: '14px',
+                                        color: '#374151',
+                                    }}
+                                    disabled={isProcessingCustomInstruction}
+                                />
+                                <button
+                                    onClick={handleApplyCustomInstruction}
+                                    disabled={!customInstruction.trim() || isProcessingCustomInstruction}
+                                    style={{
+                                        position: 'absolute',
+                                        right: '8px',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        background: 'none',
+                                        border: 'none',
+                                        color: customInstruction.trim() && !isProcessingCustomInstruction ? '#2563EB' : '#9CA3AF',
+                                        cursor: customInstruction.trim() && !isProcessingCustomInstruction ? 'pointer' : 'not-allowed',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: '4px'
+                                    }}
+                                >
+                                    <FaMagic size={16} />
+                                </button>
+                            </div>
+                            <div style={{
+                                fontSize: '12px',
+                                color: '#6B7280',
+                                marginTop: '4px',
+                            }}>
+                                {isProcessingCustomInstruction ? 'Applying your instructions...' : 'Type instructions and press Enter or click the magic wand'}
+                            </div>
+                        </div>
+                        
+                        <ResultDisplay
+                            mode={mode}
+                            front={front}
+                            back={back}
+                            translation={translation}
+                            examples={examples}
+                            imageUrl={imageUrl}
+                            image={image}
+                            onNewImage={handleNewImage}
+                            onNewExamples={handleNewExamples}
+                            onAccept={handleAccept}
+                            onViewSavedCards={handleViewSavedCards}
+                            onCancel={handleCancel}
+                            loadingNewImage={loadingNewImage}
+                            loadingNewExamples={loadingNewExamples}
+                            loadingAccept={loadingAccept}
+                            shouldGenerateImage={shouldGenerateImage}
+                            isSaved={isSaved}
+                            isEdited={isEdited}
+                            setTranslation={handleTranslationUpdate}
+                            setExamples={handleExamplesUpdate}
+                        />
+                    </div>
+                )}
             </div>
-          )}
-      </div>
+        </div>
     );
 };
 

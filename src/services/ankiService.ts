@@ -35,14 +35,25 @@ function format_back_lang_learning(card: CardLangLearning): string {
 
     let imageHtml = '';
     if (card.image_base64) {
-        // Make sure we have the proper data URI prefix
         let imageData = card.image_base64;
-        if (!imageData.startsWith('data:')) {
-            // If there's no data URI prefix, add it
-            imageData = `data:image/jpeg;base64,${imageData}`;
+        
+        // Extract the actual base64 data if it has a prefix
+        if (imageData.startsWith('data:')) {
+            const base64Prefix = 'base64,';
+            const prefixIndex = imageData.indexOf(base64Prefix);
+            if (prefixIndex !== -1) {
+                // Extract just the base64 part without the prefix
+                const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
+                // Anki format requires the proper data URI format for HTML
+                imageHtml = `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+            } else {
+                // Fallback if prefix structure is unexpected
+                imageHtml = `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+            }
+        } else {
+            // If it's already just base64 data, use it directly with proper prefix
+            imageHtml = `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
         }
-        // Use img tag for consistency with file export
-        imageHtml = `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
     }
 
     return `

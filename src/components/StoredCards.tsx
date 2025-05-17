@@ -10,6 +10,7 @@ import { FaArrowLeft, FaTrash, FaDownload, FaSync, FaEdit, FaCheck, FaTimes, FaI
 import { CardLangLearning, CardGeneral, fetchDecks } from '../services/ankiService';
 import useErrorNotification from './useErrorHandler';
 import { Deck, setDeckId } from '../store/actions/decks';
+import Loader from './Loader';
 import { getDescriptionImage } from "../services/openaiApi";
 import { getImage } from '../apiUtils';
 import { OpenAI } from 'openai';
@@ -309,11 +310,28 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
             selectedCardsData.forEach(card => {
                 if (card.mode === Modes.LanguageLearning && card.translation) {
+                    // Process image data for Anki
+                    let processedImageBase64 = null;
+                    if (card.image) {
+                        // Extract the base64 part if it has a data URI prefix
+                        if (card.image.startsWith('data:')) {
+                            const base64Prefix = 'base64,';
+                            const prefixIndex = card.image.indexOf(base64Prefix);
+                            if (prefixIndex !== -1) {
+                                processedImageBase64 = card.image.substring(prefixIndex + base64Prefix.length);
+                            } else {
+                                processedImageBase64 = card.image;
+                            }
+                        } else {
+                            processedImageBase64 = card.image;
+                        }
+                    }
+                    
                     langLearningCards.push({
                         text: card.text,
                         translation: card.translation,
                         examples: card.examples || [],
-                        image_base64: card.image || null
+                        image_base64: processedImageBase64
                     });
                 } else if (card.mode === Modes.GeneralTopic && card.front && card.back) {
                     generalTopicCards.push({
@@ -419,31 +437,59 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 // Add the actual image if the card has one
                 if (card.image) {
                     // The image is already in base64 format, but may start with data:image/png;base64, or similar prefix
-                    // Make sure we're using the raw data correctly
                     let imageData = card.image;
-                    if (!imageData.startsWith('data:')) {
-                        // If there's no data URI prefix, add it
-                        imageData = `data:image/jpeg;base64,${imageData}`;
+                    
+                    // Extract the actual base64 data if it has a prefix
+                    if (imageData.startsWith('data:')) {
+                        const base64Prefix = 'base64,';
+                        const prefixIndex = imageData.indexOf(base64Prefix);
+                        if (prefixIndex !== -1) {
+                            // Extract just the base64 part without the prefix
+                            const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
+                            // Anki format requires just the raw base64 without data URI
+                            back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        } else {
+                            // Fallback if prefix structure is unexpected
+                            back += `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        }
+                    } else {
+                        // If it's already just base64 data, use it directly
+                        back += `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
                     }
-                    back += `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
                 } else if (card.imageUrl) {
                     // ImageUrl might be a base64 string or a URL
                     let imageUrl = card.imageUrl;
-                    if (!imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
-                        // If it's a raw base64 string without a prefix, add one
-                        imageUrl = `data:image/jpeg;base64,${imageUrl}`;
+                    
+                    if (imageUrl.startsWith('data:')) {
+                        // Extract the actual base64 data if it has a prefix
+                        const base64Prefix = 'base64,';
+                        const prefixIndex = imageUrl.indexOf(base64Prefix);
+                        if (prefixIndex !== -1) {
+                            // Extract just the base64 part without the prefix
+                            const rawBase64 = imageUrl.substring(prefixIndex + base64Prefix.length);
+                            // Anki format requires just the raw base64 without data URI
+                            back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        } else {
+                            // Fallback if prefix structure is unexpected
+                            back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        }
+                    } else if (imageUrl.startsWith('http')) {
+                        // For remote URLs, just use as is
+                        back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                    } else {
+                        // If it's already just base64 data, use it directly
+                        back += `<div><img src="data:image/jpeg;base64,${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
                     }
-                    back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
                 }
                 
-                // Export the formatted card
-                exportContent += `${front}\t"${back}"\n`;
+                // Export the formatted card - remove the outer quotes which cause trailing quote issue
+                exportContent += `${front}\t${back}\n`;
             }
             else if (card.mode === Modes.GeneralTopic) {
                 const front = (card.front || '').trim();
                 const back = (card.back || '').trim();
                 
-                exportContent += `${front}\t"${back}"\n`;
+                exportContent += `${front}\t${back}\n`;
             }
         });
 
@@ -897,12 +943,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         style={deckSelectorStyle.refreshButton}
                         aria-label="Refresh decks"
                     >
-                        <FaSync
-                            size={14}
-                            style={{
-                                animation: loadingDecks ? 'spin 1s linear infinite' : 'none'
-                            }}
-                        />
+                        {loadingDecks ? (
+                            <span style={{ marginLeft: '2px' }}>
+                                <Loader type="spinner" size="small" color="#4B5563" />
+                            </span>
+                        ) : (
+                            <FaSync size={14} />
+                        )}
                     </button>
                 </div>
 
@@ -1518,7 +1565,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     style={formStyles.imageButton}
                                 >
                                     <FaImage size={14} />
-                                    {loadingImage ? 'Generating...' : 'Generate New Image'}
+                                    {loadingImage ? 
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader type="pulse" size="small" inline color="#ffffff" text="Generating" />
+    </div> : 'Generate New Image'}
                                 </button>
                             </div>
                         </div>
@@ -2012,7 +2062,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                         !deckId && useAnkiConnect ? 'Please select a deck first' : ''
                                 }
                             >
-                                {isLoading ? 'Saving...' : 'Save to Anki'}
+                                {isLoading ? 
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader type="spinner" size="small" inline color="#ffffff" text="Saving to Anki" />
+    </div> : 'Save to Anki'}
                             </button>
                             <button
                                 onClick={exportCardsAsFile}

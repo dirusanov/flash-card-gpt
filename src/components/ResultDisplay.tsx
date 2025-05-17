@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FaCheck, FaList, FaPen, FaTrash, FaPlus, FaTimes, FaEdit, FaSave } from 'react-icons/fa';
 import { Modes } from "../constants";
+import Loader from './Loader';
 
 interface ResultDisplayProps {
     front: string | null
@@ -157,7 +158,10 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#3B82F6')}
                 >
                     <FaSave size={14} />
-                    {loadingAccept ? 'Saving...' : 'Save & Finish Editing'}
+                    {loadingAccept ? 
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
+    </div> : 'Save & Finish Editing'}
                 </button>
             );
         }
@@ -660,7 +664,10 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             onMouseOver={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#D97706')}
                             onMouseOut={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#F59E0B')}
                         >
-                            {loadingNewImage ? 'Loading...' : 'New Image'}
+                            {loadingNewImage ? 
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader type="pulse" size="small" inline color="#ffffff" text="Generating" />
+    </div> : 'New Image'}
                         </button>
                     )}
                     {examples.length > 0 && (
@@ -683,7 +690,10 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             onMouseOver={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#D97706')}
                             onMouseOut={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#F59E0B')}
                         >
-                            {loadingNewExamples ? 'Loading...' : 'New Examples'}
+                            {loadingNewExamples ? 
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader type="dots" size="small" inline color="#ffffff" text="Loading" />
+    </div> : 'New Examples'}
                         </button>
                     )}
                 </div>
@@ -752,7 +762,10 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#22C55E')}
                         >
                             <FaCheck />
-                            {loadingAccept ? 'Saving...' : 'Save Card'}
+                            {loadingAccept ? 
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
+    </div> : 'Save Card'}
                         </button>
                     </div>
                 )}
