@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import ErrorNotification from './ErrorNotification';
-import { NotificationType } from './useErrorHandler';
+import { ErrorType } from './useErrorHandler';
 
 export interface Notification {
   id: string;
   message: string;
-  type: NotificationType;
+  type: ErrorType;
 }
 
 interface NotificationManagerProps {
@@ -46,7 +46,7 @@ export const useNotificationManager = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   // Function to add a notification
-  const addNotification = (message: string, type: NotificationType = 'info') => {
+  const addNotification = (message: string, type: ErrorType = 'info') => {
     const id = Date.now().toString();
     setNotifications(prev => [...prev, { id, message, type }]);
     

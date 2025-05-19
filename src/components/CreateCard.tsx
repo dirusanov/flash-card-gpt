@@ -629,60 +629,101 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         
         setLoadingGetResult(true);
         setOriginalSelectedText(text);
+        
+        // Clear any previous errors
+        showError(null);
+        
         try {
-            // Добавляем логирование для отладки
+            // Debug logging
             console.log("=== DEBUG INFO ===");
             console.log("Model Provider:", modelProvider);
             console.log("API Key available:", Boolean(apiKey));
             console.log("Model Name (if Groq):", modelProvider === ModelProvider.Groq ? groqModelName : 'N/A');
             console.log("AI Service:", Object.keys(aiService));
             
-            // Используем универсальные функции для получения данных, которые обрабатывают результаты одинаково для всех провайдеров
-            
-            // 1. Получаем перевод с помощью универсальной функции
-            const translation = await createTranslation(
-                aiService, 
-                apiKey, 
-                text, 
-                translateToLanguage, 
-                aiInstructions
-            );
-            
-            if (translation.translated) {
-                dispatch(setTranslation(translation.translated));
+            if (!apiKey) {
+                throw new Error(`API key for ${modelProvider} is missing. Please go to settings and add your API key.`);
             }
             
-            // 2. Получаем примеры с помощью универсальной функции
-            const examplesResult = await createExamples(
-                aiService, 
-                apiKey, 
-                text, 
-                translateToLanguage, 
-                true, 
-                aiInstructions
-            );
+            // Track which operations completed successfully to give better error messages
+            let completedOperations = {
+                translation: false,
+                examples: false,
+                flashcard: false,
+                image: false
+            };
             
-            if (examplesResult && examplesResult.length > 0) {
-                // Преобразуем в старый формат для совместимости с существующим кодом
-                const formattedExamples = examplesResult.map(example => 
-                    [example.original, example.translated] as [string, string | null]
+            try {
+                // 1. Get translation
+                const translation = await createTranslation(
+                    aiService, 
+                    apiKey, 
+                    text, 
+                    translateToLanguage, 
+                    aiInstructions
                 );
-                dispatch(setExamples(formattedExamples));
+                
+                if (translation.translated) {
+                    dispatch(setTranslation(translation.translated));
+                    completedOperations.translation = true;
+                }
+            } catch (translationError) {
+                console.error('Translation failed:', translationError);
+                throw new Error(`Translation failed: ${translationError instanceof Error ? translationError.message : "Unknown error"}`);
             }
             
-            // 3. Создаем карточку с помощью универсальной функции
-            const flashcard = await createFlashcard(aiService, apiKey, text);
-            
-            if (flashcard.front) {
-                dispatch(setFront(flashcard.front));
+            try {
+                // 2. Get examples
+                const examplesResult = await createExamples(
+                    aiService, 
+                    apiKey, 
+                    text, 
+                    translateToLanguage, 
+                    true, 
+                    aiInstructions
+                );
+                
+                if (examplesResult && examplesResult.length > 0) {
+                    // Convert to old format for compatibility with existing code
+                    const formattedExamples = examplesResult.map(example => 
+                        [example.original, example.translated] as [string, string | null]
+                    );
+                    dispatch(setExamples(formattedExamples));
+                    completedOperations.examples = true;
+                }
+            } catch (examplesError) {
+                console.error('Examples generation failed:', examplesError);
+                // Continue if translation worked but examples failed
+                if (completedOperations.translation) {
+                    showError(`Examples generation failed: ${examplesError instanceof Error ? examplesError.message : "Unknown error"}. Continuing with translation only.`, 'warning');
+                } else {
+                    throw new Error(`Examples generation failed: ${examplesError instanceof Error ? examplesError.message : "Unknown error"}`);
+                }
             }
             
-            // Для генерации изображений используем отдельную логику, так как не все провайдеры поддерживают эту функцию
+            try {
+                // 3. Create flashcard
+                const flashcard = await createFlashcard(aiService, apiKey, text);
+                
+                if (flashcard.front) {
+                    dispatch(setFront(flashcard.front));
+                    completedOperations.flashcard = true;
+                }
+            } catch (flashcardError) {
+                console.error('Flashcard creation failed:', flashcardError);
+                // Continue if at least translation worked
+                if (completedOperations.translation) {
+                    showError(`Flashcard creation failed: ${flashcardError instanceof Error ? flashcardError.message : "Unknown error"}. Continuing with available data.`, 'warning');
+                } else {
+                    throw new Error(`Flashcard creation failed: ${flashcardError instanceof Error ? flashcardError.message : "Unknown error"}`);
+                }
+            }
+            
+            // 4. Generate image if needed and supported
             if (shouldGenerateImage) {
                 try {
                     const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
                     
-                    let imageResponse = null;
                     if (modelProvider === ModelProvider.OpenAI) {
                         const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
                         
@@ -692,22 +733,36 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         if (imageBase64) {
                             dispatch(setImage(imageBase64));
                         }
+                        completedOperations.image = true;
+                    } else {
+                        // Skip image for providers that don't support it
+                        console.log('Image generation not supported for this provider');
                     }
-                    // Другие провайдеры не поддерживают генерацию изображений
                 } catch (imageError) {
-                    console.error('Error generating image:', imageError);
-                    // Don't show error for image failure, continue with the rest of the card
+                    console.error('Image generation failed:', imageError);
+                    // Image errors are not critical - continue with the card creation
+                    if (completedOperations.translation || completedOperations.examples) {
+                        showError(`Image generation failed: ${imageError instanceof Error ? imageError.message : "Unknown error"}. Continuing without image.`, 'warning');
+                    }
                 }
             }
             
             // Ensure this is treated as a brand new card
             dispatch(setCurrentCardId(null));
             
-            setShowResult(true);
-            setIsNewSubmission(true);
+            // Show result if we have at least some data
+            if (completedOperations.translation || completedOperations.examples || completedOperations.flashcard) {
+                setShowResult(true);
+                setIsNewSubmission(true);
+            } else {
+                throw new Error("Failed to create card: No data was successfully generated. Please check your API key and try again.");
+            }
         } catch (error) {
             console.error('Error processing text:', error);
-            showError(error instanceof Error ? error.message : "Failed to process text");
+            showError(error instanceof Error 
+                ? `${error.message}` 
+                : "Failed to create card. Please check your API key and try again.");
+            setShowResult(false);
         } finally {
             setLoadingGetResult(false);
         }

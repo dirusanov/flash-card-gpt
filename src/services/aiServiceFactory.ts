@@ -141,6 +141,10 @@ export const createTranslation = async (
   customPrompt?: string
 ): Promise<TranslationResult> => {
   try {
+    if (!apiKey) {
+      throw new Error("API key is missing. Please check your settings.");
+    }
+
     const translatedText = await service.translateText(
       apiKey,
       text,
@@ -154,10 +158,10 @@ export const createTranslation = async (
     };
   } catch (error) {
     console.error('Error in unified translation:', error);
-    return {
-      original: text,
-      translated: null
-    };
+    // Throw error to be handled by the UI instead of returning null
+    throw error instanceof Error 
+      ? error 
+      : new Error("Failed to translate text. Please check your API key and settings.");
   }
 };
 
@@ -173,6 +177,10 @@ export const createExamples = async (
   customPrompt?: string
 ): Promise<ExampleItem[]> => {
   try {
+    if (!apiKey) {
+      throw new Error("API key is missing. Please check your settings.");
+    }
+
     const examples = await service.getExamples(
       apiKey,
       word,
@@ -187,7 +195,10 @@ export const createExamples = async (
     }));
   } catch (error) {
     console.error('Error in unified examples generation:', error);
-    return [];
+    // Throw error to be handled by the UI instead of returning empty array
+    throw error instanceof Error 
+      ? error 
+      : new Error("Failed to generate examples. Please check your API key and settings.");
   }
 };
 
@@ -200,13 +211,24 @@ export const createFlashcard = async (
   text: string
 ): Promise<FlashcardContent> => {
   try {
+    if (!apiKey) {
+      throw new Error("API key is missing. Please check your settings.");
+    }
+    
     // Получаем только фронт карточки, содержимое для обратной стороны формируется
     // из примеров и перевода в компоненте интерфейса
     const front = await service.generateAnkiFront(apiKey, text);
     
+    if (!front) {
+      throw new Error("Failed to generate flashcard content. Please try again or check your API key.");
+    }
+    
     return { front };
   } catch (error) {
     console.error('Error in unified flashcard creation:', error);
-    return { front: null };
+    // Throw error to be handled by the UI
+    throw error instanceof Error 
+      ? error 
+      : new Error("Failed to create flashcard. Please check your API key and settings.");
   }
 }; 
