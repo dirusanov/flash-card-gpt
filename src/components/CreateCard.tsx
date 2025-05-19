@@ -15,7 +15,7 @@ import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 import useErrorNotification from './useErrorHandler';
 import { setCurrentPage } from "../store/actions/page";
-import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes } from 'react-icons/fa';
+import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
@@ -66,6 +66,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
     const [showModal, setShowModal] = useState(false);
+    const [selectedTextOptions, setSelectedTextOptions] = useState<string[]>([]);
+    const [showTextOptionsModal, setShowTextOptionsModal] = useState(false);
+    const [textAnalysisLoader, setTextAnalysisLoader] = useState(false);
+    const [selectedOptionsMap, setSelectedOptionsMap] = useState<{[key: string]: boolean}>({});
+    const [createdCards, setCreatedCards] = useState<StoredCard[]>([]);
+    const [currentCardIndex, setCurrentCardIndex] = useState(0);
+    const [isMultipleCards, setIsMultipleCards] = useState(false);
     
     // Selector для получения всех сохраненных карточек
     const storedCards = useSelector((state: RootState) => state.cards.storedCards);
@@ -474,6 +481,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setExplicitlySaved(false); // Reset explicit save
         localStorage.removeItem('explicitly_saved'); // Also remove from localStorage
         
+        // Сбрасываем историю карточек
+        setCreatedCards([]);
+        setIsMultipleCards(false);
+        
         dispatch(setText(''));
         dispatch(setTranslation(''));
         dispatch(setExamples([]));
@@ -489,8 +500,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     useEffect(() => {
         const handleMouseUp = () => {
             const selectedText = window.getSelection()?.toString().trim();
-            if (selectedText) {
-                dispatch(setText(selectedText));
+            if (selectedText && selectedText.length > 0) {
+                // Вместо прямой установки текста, анализируем его и предлагаем варианты
+                analyzeSelectedText(selectedText);
             }
         };
     
@@ -499,8 +511,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         return () => {
             document.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [dispatch]);    
-
+    }, [dispatch, apiKey]);
+    
     useEffect(() => {
         // Пока по дефолту ставим LanguageLearning
         dispatch(setMode(Modes.LanguageLearning))
@@ -624,6 +636,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // IMPORTANT: Explicitly clear saved state when creating a new card
         setExplicitlySaved(false);
         localStorage.removeItem('explicitly_saved');
+        
+        // Сбрасываем предыдущие сохраненные карточки
+        setCreatedCards([]);
+        setIsMultipleCards(false);
+        
+        // Очищаем флаг текущей карточки
+        dispatch(setCurrentCardId(null));
         
         // Clear previous image data before generating a new card
         dispatch(setImage(null));
@@ -1051,6 +1070,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setExplicitlySaved(false); // Reset explicit save
         localStorage.removeItem('explicitly_saved'); // Also remove from localStorage
         
+        // Сбрасываем историю карточек
+        setCreatedCards([]);
+        setIsMultipleCards(false);
+        
         // Reset all form fields
         dispatch(setText(''));
         dispatch(setTranslation(''));
@@ -1170,7 +1193,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             fontWeight: 600,
                             color: '#111827'
                         }}>
-                            Your Card
+                            {isMultipleCards 
+                                ? `Карточка ${currentCardIndex + 1} из ${createdCards.length}` 
+                                : 'Ваша карточка'}
                         </h3>
                         <button 
                             onClick={handleCloseModal}
@@ -1300,6 +1325,59 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         `}</style>
                     </div>
                     
+                    {/* Добавляем навигацию для множественных карточек */}
+                    {isMultipleCards && (
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            marginBottom: '12px'
+                        }}>
+                            <button
+                                onClick={prevCard}
+                                disabled={currentCardIndex === 0}
+                                style={{
+                                    padding: '8px 16px',
+                                    backgroundColor: currentCardIndex === 0 ? '#F3F4F6' : '#EFF6FF',
+                                    color: currentCardIndex === 0 ? '#9CA3AF' : '#2563EB',
+                                    border: `1px solid ${currentCardIndex === 0 ? '#E5E7EB' : '#BFDBFE'}`,
+                                    borderRadius: '6px',
+                                    fontSize: '14px',
+                                    fontWeight: 500,
+                                    cursor: currentCardIndex === 0 ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    flex: 1
+                                }}
+                            >
+                                ← Пред.
+                            </button>
+                            
+                            <button
+                                onClick={nextCard}
+                                disabled={currentCardIndex === createdCards.length - 1}
+                                style={{
+                                    padding: '8px 16px',
+                                    backgroundColor: currentCardIndex === createdCards.length - 1 ? '#F3F4F6' : '#EFF6FF',
+                                    color: currentCardIndex === createdCards.length - 1 ? '#9CA3AF' : '#2563EB',
+                                    border: `1px solid ${currentCardIndex === createdCards.length - 1 ? '#E5E7EB' : '#BFDBFE'}`,
+                                    borderRadius: '6px',
+                                    fontSize: '14px',
+                                    fontWeight: 500,
+                                    cursor: currentCardIndex === createdCards.length - 1 ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    flex: 1,
+                                    justifyContent: 'flex-end'
+                                }}
+                            >
+                                След. →
+                            </button>
+                        </div>
+                    )}
+                    
                     <ResultDisplay
                         mode={mode}
                         front={front}
@@ -1326,6 +1404,545 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         );
     };
 
+    // Функция для выбора/отмены выбора опции
+    const toggleOptionSelection = (option: string) => {
+        setSelectedOptionsMap(prev => ({
+            ...prev,
+            [option]: !prev[option]
+        }));
+    };
+    
+    // Функция для создания карточек из выбранных опций
+    const createCardsFromSelectedOptions = async () => {
+        const selectedOptions = Object.keys(selectedOptionsMap).filter(key => selectedOptionsMap[key]);
+        
+        if (selectedOptions.length === 0) {
+            showError("Пожалуйста, выберите хотя бы один вариант текста", "warning");
+            return;
+        }
+        
+        setShowTextOptionsModal(false);
+        setLoadingGetResult(true);
+        
+        try {
+            const newCards: StoredCard[] = [];
+            
+            // Создаем карточки для каждого выбранного варианта
+            for (const option of selectedOptions) {
+                // Установка текста для текущей карточки
+                dispatch(setText(option));
+                setOriginalSelectedText(option);
+                
+                // Очистим предыдущие данные
+                dispatch(setTranslation(''));
+                dispatch(setExamples([]));
+                dispatch(setImage(null));
+                dispatch(setImageUrl(null));
+                
+                // Сброс статуса явного сохранения для предотвращения ложного отображения "Saved to Collection"
+                setExplicitlySaved(false);
+                localStorage.removeItem('explicitly_saved');
+                
+                try {
+                    // 1. Получаем перевод
+                    const translation = await createTranslation(
+                        aiService, 
+                        apiKey, 
+                        option, 
+                        translateToLanguage, 
+                        aiInstructions
+                    );
+                    
+                    if (translation.translated) {
+                        dispatch(setTranslation(translation.translated));
+                    }
+                    
+                    // 2. Получаем примеры
+                    const examplesResult = await createExamples(
+                        aiService, 
+                        apiKey, 
+                        option, 
+                        translateToLanguage, 
+                        true, 
+                        aiInstructions
+                    );
+                    
+                    if (examplesResult && examplesResult.length > 0) {
+                        const formattedExamples = examplesResult.map(example => 
+                            [example.original, example.translated] as [string, string | null]
+                        );
+                        dispatch(setExamples(formattedExamples));
+                    }
+                    
+                    // 3. Создаем переднюю часть карточки
+                    const flashcard = await createFlashcard(aiService, apiKey, option);
+                    if (flashcard.front) {
+                        dispatch(setFront(flashcard.front));
+                    }
+                    
+                    // 4. Генерируем изображение, если нужно
+                    if (shouldGenerateImage && modelProvider === ModelProvider.OpenAI) {
+                        const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions);
+                        const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
+                        
+                        if (imageUrl) {
+                            dispatch(setImageUrl(imageUrl));
+                        }
+                        if (imageBase64) {
+                            dispatch(setImage(imageBase64));
+                        }
+                    }
+                    
+                    // 5. Сохраняем карточку
+                    const cardId = Date.now().toString() + '_' + newCards.length;
+                    
+                    const cardData: StoredCard = {
+                        id: cardId,
+                        mode,
+                        text: option,
+                        translation: translation.translated || '',
+                        examples: examplesResult.map(example => [example.original, example.translated]) as [string, string | null][],
+                        front: flashcard.front || '',
+                        back: translation.translated || '',
+                        image: shouldGenerateImage ? image : null,
+                        imageUrl: shouldGenerateImage ? imageUrl : null,
+                        createdAt: new Date(),
+                        exportStatus: 'not_exported' as const
+                    };
+                    
+                    // Сохраняем карточку и добавляем в список
+                    dispatch(saveCardToStorage(cardData));
+                    newCards.push(cardData);
+                    
+                } catch (error) {
+                    console.error(`Error creating card for "${option}":`, error);
+                    showError(`Не удалось создать карточку для "${option.substring(0, 20)}...": ${error instanceof Error ? error.message : "Неизвестная ошибка"}`, "error");
+                }
+            }
+            
+            if (newCards.length > 0) {
+                setCreatedCards(newCards);
+                setCurrentCardIndex(0);
+                setIsMultipleCards(newCards.length > 1);
+                
+                // Устанавливаем текущую карточку в состояние Redux для отображения
+                const currentCard = newCards[0];
+                if (currentCard) {
+                    // Проверяем каждое поле перед установкой
+                    if (typeof currentCard.text === 'string') {
+                        dispatch(setText(currentCard.text));
+                    }
+                    
+                    // Translation может быть null, но не undefined
+                    dispatch(setTranslation(currentCard.translation === undefined ? null : currentCard.translation));
+                    
+                    // Examples всегда должен быть массивом
+                    dispatch(setExamples(Array.isArray(currentCard.examples) ? currentCard.examples : []));
+                    
+                    // Image может быть null, но не undefined
+                    dispatch(setImage(currentCard.image === undefined ? null : currentCard.image));
+                    
+                    // ImageUrl может быть null, но не undefined
+                    dispatch(setImageUrl(currentCard.imageUrl === undefined ? null : currentCard.imageUrl));
+                    
+                    // Front должен быть строкой
+                    if (typeof currentCard.front === 'string') {
+                        dispatch(setFront(currentCard.front));
+                    }
+                    
+                    // Back может быть null, но не undefined
+                    dispatch(setBack(currentCard.back === undefined ? null : currentCard.back));
+                }
+                
+                // Сброс статуса явного сохранения карточек
+                setExplicitlySaved(false);
+                localStorage.removeItem('explicitly_saved');
+                
+                // Показываем результат
+                setShowResult(true);
+                setShowModal(true);
+                showError(`Создано ${newCards.length} карточек!`, "success");
+            } else {
+                showError("Не удалось создать карточки. Пожалуйста, попробуйте еще раз.", "error");
+            }
+            
+        } catch (error) {
+            console.error('Error processing selected options:', error);
+            showError(error instanceof Error ? error.message : "Не удалось создать карточки. Пожалуйста, проверьте настройки и попробуйте еще раз.");
+        } finally {
+            setLoadingGetResult(false);
+            // Очищаем карту выбранных опций
+            setSelectedOptionsMap({});
+        }
+    };
+    
+    // Обновляем handleTextOptionSelect для поддержки множественного выбора
+    const handleTextOptionSelect = (option: string) => {
+        toggleOptionSelection(option);
+    };
+    
+    // Функция для перехода к следующей карточке
+    const nextCard = () => {
+        if (createdCards.length <= 1 || currentCardIndex >= createdCards.length - 1) return;
+        
+        const nextIndex = currentCardIndex + 1;
+        setCurrentCardIndex(nextIndex);
+        
+        // Загружаем данные следующей карточки
+        const card = createdCards[nextIndex];
+        if (card) {
+            // Проверяем каждое поле перед установкой
+            if (typeof card.text === 'string') {
+                dispatch(setText(card.text));
+            }
+            
+            // Translation может быть null, но не undefined
+            dispatch(setTranslation(card.translation === undefined ? null : card.translation));
+            
+            // Examples всегда должен быть массивом
+            dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
+            
+            // Image может быть null, но не undefined
+            dispatch(setImage(card.image === undefined ? null : card.image));
+            
+            // ImageUrl может быть null, но не undefined
+            dispatch(setImageUrl(card.imageUrl === undefined ? null : card.imageUrl));
+            
+            // Front должен быть строкой
+            if (typeof card.front === 'string') {
+                dispatch(setFront(card.front));
+            }
+            
+            // Back может быть null, но не undefined
+            dispatch(setBack(card.back === undefined ? null : card.back));
+        }
+    };
+    
+    // Функция для перехода к предыдущей карточке
+    const prevCard = () => {
+        if (createdCards.length <= 1 || currentCardIndex <= 0) return;
+        
+        const prevIndex = currentCardIndex - 1;
+        setCurrentCardIndex(prevIndex);
+        
+        // Загружаем данные предыдущей карточки
+        const card = createdCards[prevIndex];
+        if (card) {
+            // Проверяем каждое поле перед установкой
+            if (typeof card.text === 'string') {
+                dispatch(setText(card.text));
+            }
+            
+            // Translation может быть null, но не undefined
+            dispatch(setTranslation(card.translation === undefined ? null : card.translation));
+            
+            // Examples всегда должен быть массивом
+            dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
+            
+            // Image может быть null, но не undefined
+            dispatch(setImage(card.image === undefined ? null : card.image));
+            
+            // ImageUrl может быть null, но не undefined
+            dispatch(setImageUrl(card.imageUrl === undefined ? null : card.imageUrl));
+            
+            // Front должен быть строкой
+            if (typeof card.front === 'string') {
+                dispatch(setFront(card.front));
+            }
+            
+            // Back может быть null, но не undefined
+            dispatch(setBack(card.back === undefined ? null : card.back));
+        }
+    };
+    
+    // Анализировать текст и предложить варианты создания карточек
+    const analyzeSelectedText = async (selectedText: string) => {
+        if (!selectedText || selectedText.length < 3) {
+            dispatch(setText(selectedText));
+            return;
+        }
+        
+        // Получаем список слов из выделенного текста, если их несколько
+        const words = selectedText.split(/\s+/).filter(word => word.length > 2);
+        
+        // Если только одно слово, просто используем его
+        if (words.length <= 1) {
+            dispatch(setText(selectedText));
+            return;
+        }
+        
+        setTextAnalysisLoader(true);
+        
+        try {
+            // Предложим несколько вариантов использования выделенного текста
+            let options: string[] = [];
+            
+            // 1. Полный текст как есть
+            options.push(selectedText);
+            
+            // 2. Если похоже на предложение (заканчивается точкой, содержит глагол и т.д.)
+            if (selectedText.match(/[.!?]$/) || selectedText.length > 30) {
+                // Оставляем полное предложение в опциях
+            } else {
+                // 3. Каждое отдельное слово длиннее 3 символов
+                words.forEach(word => {
+                    if (word.length > 3 && !options.includes(word)) {
+                        options.push(word);
+                    }
+                });
+                
+                // 4. Если 2-3 слова, то можно предложить их как фразу
+                if (words.length >= 2 && words.length <= 3) {
+                    options.push(words.join(' '));
+                }
+            }
+            
+            // 5. Если выделенный текст длинный, попробуем использовать AI для выделения ключевых слов
+            if (selectedText.length > 50 && apiKey) {
+                try {
+                    // Простой запрос к AI для выделения ключевых слов и фраз
+                    const response = await aiService.extractKeyTerms(apiKey, selectedText);
+                    
+                    if (response && response.length > 0) {
+                        // Добавить ключевые термины в опции, если их нет
+                        response.forEach((term: string) => {
+                            if (!options.includes(term)) {
+                                options.push(term);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.error("Failed to extract key terms with AI", e);
+                }
+            }
+            
+            // Удалить дубликаты и слишком короткие варианты
+            options = Array.from(new Set(options)).filter(opt => opt.length > 2);
+            
+            // Если нашли варианты, показываем модальное окно выбора
+            if (options.length > 1) {
+                setSelectedTextOptions(options);
+                setShowTextOptionsModal(true);
+            } else {
+                // Если вариант только один, используем его
+                dispatch(setText(selectedText));
+            }
+        } catch (e) {
+            console.error("Error analyzing text", e);
+            // В случае ошибки, просто используем выделенный текст
+            dispatch(setText(selectedText));
+        } finally {
+            setTextAnalysisLoader(false);
+        }
+    };
+    
+    // Обновляем renderTextOptionsModal с поддержкой множественного выбора
+    const renderTextOptionsModal = () => {
+        if (!showTextOptionsModal) return null;
+        
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                backdropFilter: 'blur(2px)',
+                padding: '16px'
+            }} onClick={() => setShowTextOptionsModal(false)}>
+                <div style={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: '12px',
+                    maxWidth: '340px',
+                    width: '100%',
+                    maxHeight: '90vh',
+                    overflowY: 'auto',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                    position: 'relative',
+                    padding: '16px'
+                }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{
+                        position: 'sticky',
+                        top: 0,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        borderBottom: '1px solid #E5E7EB',
+                        paddingBottom: '12px',
+                        marginBottom: '16px',
+                        backgroundColor: '#ffffff',
+                        zIndex: 2
+                    }}>
+                        <h3 style={{
+                            margin: 0,
+                            fontSize: '16px',
+                            fontWeight: 600,
+                            color: '#111827',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}>
+                            <FaFont size={14} color="#2563EB" />
+                            Выберите текст для карточек
+                        </h3>
+                        <button 
+                            onClick={() => setShowTextOptionsModal(false)}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '8px',
+                                borderRadius: '50%',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.2s'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
+                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            aria-label="Close"
+                        >
+                            <FaTimes size={16} color="#6B7280" />
+                        </button>
+                    </div>
+                    
+                    <p style={{
+                        fontSize: '14px',
+                        color: '#4B5563',
+                        marginBottom: '12px',
+                        lineHeight: '1.4'
+                    }}>
+                        Выберите один или несколько вариантов для создания карточек:
+                    </p>
+                    
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        marginBottom: '16px'
+                    }}>
+                        {textAnalysisLoader ? (
+                            <div style={{ 
+                                display: 'flex', 
+                                justifyContent: 'center', 
+                                padding: '20px' 
+                            }}>
+                                <Loader type="pulse" size="small" color="#4F46E5" text="Анализируем текст..." />
+                            </div>
+                        ) : (
+                            selectedTextOptions.map((option, index) => (
+                                <div
+                                    key={index}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        padding: '10px 12px',
+                                        backgroundColor: selectedOptionsMap[option] ? '#EFF6FF' : '#F9FAFB',
+                                        border: `1px solid ${selectedOptionsMap[option] ? '#BFDBFE' : '#E5E7EB'}`,
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                    }}
+                                    onClick={() => handleTextOptionSelect(option)}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={!!selectedOptionsMap[option]}
+                                        onChange={() => handleTextOptionSelect(option)}
+                                        style={{
+                                            marginRight: '12px',
+                                            width: '16px',
+                                            height: '16px',
+                                            accentColor: '#2563EB'
+                                        }}
+                                    />
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        fontSize: '14px',
+                                        color: '#374151',
+                                        flex: 1
+                                    }}>
+                                        {option.length > 30 ? (
+                                            <FaList size={14} color="#2563EB" />
+                                        ) : option.includes(' ') ? (
+                                            <FaList size={14} color="#2563EB" />
+                                        ) : (
+                                            <FaFont size={14} color="#2563EB" />
+                                        )}
+                                        <span style={{ wordBreak: 'break-word' }}>
+                                            {option.length > 60 ? option.substring(0, 57) + '...' : option}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    
+                    <div style={{
+                        display: 'flex',
+                        gap: '8px',
+                        marginTop: '12px'
+                    }}>
+                        <button
+                            onClick={() => setShowTextOptionsModal(false)}
+                            style={{
+                                flex: '1',
+                                padding: '8px 12px',
+                                backgroundColor: '#EFF6FF',
+                                color: '#2563EB',
+                                border: '1px solid #BFDBFE',
+                                borderRadius: '6px',
+                                fontSize: '14px',
+                                fontWeight: 500,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
+                            }}
+                            onMouseOver={(e) => {
+                                e.currentTarget.style.backgroundColor = '#DBEAFE';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = '#EFF6FF';
+                            }}
+                        >
+                            Отмена
+                        </button>
+                        
+                        <button
+                            onClick={createCardsFromSelectedOptions}
+                            style={{
+                                flex: '2',
+                                padding: '8px 12px',
+                                backgroundColor: '#2563EB',
+                                color: '#FFFFFF',
+                                border: 'none',
+                                borderRadius: '6px',
+                                fontSize: '14px',
+                                fontWeight: 500,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
+                            }}
+                            onMouseOver={(e) => {
+                                e.currentTarget.style.backgroundColor = '#1D4ED8';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = '#2563EB';
+                            }}
+                        >
+                            Создать карточки
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+    
     return (
         <div style={{
             display: 'flex',
@@ -1362,8 +1979,29 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         textAlign: 'center',
                         boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                     }}>
-                        We're analyzing your text and generating learning materials
+                        {isMultipleCards 
+                            ? "We're creating multiple cards from your selected options..." 
+                            : "We're analyzing your text and generating learning materials"}
                     </div>
+                </div>
+            )}
+            {textAnalysisLoader && (
+                <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                    zIndex: 5,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '20px',
+                    padding: '0 20px'
+                }}>
+                    <Loader type="pulse" size="medium" color="#3B82F6" text="Анализируем выделенный текст..." />
                 </div>
             )}
             <div style={{
@@ -1590,6 +2228,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     </div>
                 </div>
             </div>
+            
+            {/* Add the text options modal */}
+            {renderTextOptionsModal()}
             
             {/* Add the modal */}
             {renderModal()}

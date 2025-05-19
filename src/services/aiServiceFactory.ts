@@ -49,6 +49,8 @@ export interface AIService {
     apiKey: string,
     text: string
   ) => Promise<string | null>;
+  
+  extractKeyTerms: (apiKey: string, text: string) => Promise<string[]>;
 }
 
 // Адаптер для совместимости со старым кодом
@@ -102,6 +104,11 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
     ): Promise<string | null> => {
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.generateAnkiFront(text);
+    },
+    
+    extractKeyTerms: async (apiKey: string, text: string): Promise<string[]> => {
+      const aiProvider = createAIProvider(provider, apiKey);
+      return aiProvider.extractKeyTerms(text);
     }
   };
 };

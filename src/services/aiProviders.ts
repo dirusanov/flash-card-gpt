@@ -31,6 +31,9 @@ export interface AIProviderInterface {
   generateAnkiFront: (
     text: string
   ) => Promise<string | null>;
+  
+  // Метод для извлечения ключевых терминов из текста
+  extractKeyTerms: (text: string) => Promise<string[]>;
 }
 
 /**
@@ -49,6 +52,11 @@ export abstract class BaseAIProvider implements AIProviderInterface {
    * Абстрактный метод для отправки запросов к API
    */
   protected abstract sendRequest(prompt: string, options?: any): Promise<string | null>;
+  
+  /**
+   * Абстрактный метод для извлечения ключевых терминов из текста
+   */
+  public abstract extractKeyTerms(text: string): Promise<string[]>;
   
   /**
    * Очистка текста от HTML и маркировки
@@ -397,6 +405,40 @@ export class OpenAIProvider extends BaseAIProvider {
       throw error;
     }
   }
+  
+  // Обновляем метод extractKeyTerms
+  async extractKeyTerms(text: string): Promise<string[]> {
+    try {
+      const prompt = `You are a helpful language learning assistant. Extract key terms from the text that would be useful to learn as flashcards. Limit to 5 most important terms max. Return only the terms, one per line, without any additional text or formatting.`;
+      
+      const response = await this.sendRequest(prompt, {
+        messages: [
+          {
+            role: "system",
+            content: prompt
+          },
+          {
+            role: "user",
+            content: text
+          }
+        ]
+      });
+      
+      const content = response || '';
+      if (!content) {
+        return [];
+      }
+      
+      // Разбиваем ответ на строки и фильтруем пустые
+      return content
+        .split('\n')
+        .map((line: string) => line.trim())
+        .filter((line: string) => line.length > 0);
+    } catch (error) {
+      console.error("Error extracting key terms with OpenAI:", error);
+      return [];
+    }
+  }
 }
 
 /**
@@ -449,6 +491,40 @@ export class GroqProvider extends BaseAIProvider {
   // Explicitly state that image generation is not supported
   public getImageUrl(): Promise<string | null> {
     throw new Error("Image generation is not supported by Groq.");
+  }
+  
+  // Добавьте метод extractKeyTerms
+  async extractKeyTerms(text: string): Promise<string[]> {
+    try {
+      const prompt = `You are a helpful language learning assistant. Extract key terms from the text that would be useful to learn as flashcards. Limit to 5 most important terms max. Return only the terms, one per line, without any additional text or formatting.`;
+      
+      const response = await this.sendRequest(prompt, {
+        messages: [
+          {
+            role: "system",
+            content: prompt
+          },
+          {
+            role: "user",
+            content: text
+          }
+        ]
+      });
+      
+      const content = response || '';
+      if (!content) {
+        return [];
+      }
+      
+      // Разбиваем ответ на строки и фильтруем пустые
+      return content
+        .split('\n')
+        .map((line: string) => line.trim())
+        .filter((line: string) => line.length > 0);
+    } catch (error) {
+      console.error("Error extracting key terms with Groq:", error);
+      return [];
+    }
   }
 }
 
