@@ -271,9 +271,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 if (imageBase64) {
                     dispatch(setImage(imageBase64));
                 }
-                
-                showError('Image updated with your instructions!', 'success');
-                
             } else if (customInstruction.toLowerCase().includes('example') || 
                       customInstruction.toLowerCase().includes('sentence') || 
                       customInstruction.toLowerCase().includes('пример') || 
@@ -282,20 +279,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Generate new examples based on instructions
                 const newExamples = await getExamples(openAiKey, text, translateToLanguage, true, customInstruction);
                 dispatch(setExamples(newExamples));
-                
-                showError('Examples updated with your instructions!', 'success');
-                
             } else if (customInstruction.toLowerCase().includes('translat') || 
                       customInstruction.toLowerCase().includes('перевод')) {
                 
                 // Update translation based on instructions
                 const translatedText = await translateText(openAiKey, text, translateToLanguage, customInstruction);
                 dispatch(setTranslation(translatedText));
-                
-                showError('Translation updated with your instructions!', 'success');
-                
             } else {
-                // Apply all updates if the intent is not clear
+                // Apply all updates with custom instructions
+                // Always use custom instructions for both translation and examples
+                // This should ensure instructions are always applied
                 const translatedText = await translateText(openAiKey, text, translateToLanguage, customInstruction);
                 const newExamples = await getExamples(openAiKey, text, translateToLanguage, true, customInstruction);
                 
@@ -313,15 +306,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 dispatch(setTranslation(translatedText));
                 dispatch(setExamples(newExamples));
-                
-                showError('Content updated with your instructions!', 'success');
             }
             
             // Clear the instruction after applying
             setCustomInstruction('');
             
+            // No notification, the loader UI is enough feedback
         } catch (error) {
-            showError('Error applying your instructions. Please try again.');
             console.error('Error applying custom instructions:', error);
         } finally {
             setIsProcessingCustomInstruction(false);
@@ -1223,43 +1214,90 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 placeholder="Enter custom instructions (e.g., 'more formal examples', 'change image style')"
                                 style={{
                                     width: '100%',
-                                    padding: '8px 12px',
-                                    paddingRight: '40px',
-                                    borderRadius: '6px',
+                                    padding: '10px 12px',
+                                    paddingRight: '44px',
+                                    borderRadius: '8px',
                                     border: '1px solid #E5E7EB',
                                     fontSize: '14px',
                                     color: '#374151',
+                                    backgroundColor: isProcessingCustomInstruction ? '#F9FAFB' : '#FFFFFF',
+                                    transition: 'all 0.2s ease',
+                                    boxShadow: isProcessingCustomInstruction ? 'inset 0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
                                 }}
                                 disabled={isProcessingCustomInstruction}
                             />
-                            <button
-                                onClick={handleApplyCustomInstruction}
-                                disabled={!customInstruction.trim() || isProcessingCustomInstruction}
-                                style={{
+                            {isProcessingCustomInstruction ? (
+                                <div style={{
                                     position: 'absolute',
-                                    right: '8px',
+                                    right: '10px',
                                     top: '50%',
                                     transform: 'translateY(-50%)',
-                                    background: 'none',
-                                    border: 'none',
-                                    color: customInstruction.trim() && !isProcessingCustomInstruction ? '#2563EB' : '#9CA3AF',
-                                    cursor: customInstruction.trim() && !isProcessingCustomInstruction ? 'pointer' : 'not-allowed',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    padding: '4px'
-                                }}
-                            >
-                                <FaMagic size={16} />
-                            </button>
+                                    padding: '6px',
+                                    borderRadius: '50%',
+                                    color: '#4F46E5'
+                                }}>
+                                    <Loader type="pulse" size="small" inline color="#4F46E5" />
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={handleApplyCustomInstruction}
+                                    disabled={!customInstruction.trim() || isProcessingCustomInstruction}
+                                    style={{
+                                        position: 'absolute',
+                                        right: '8px',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        background: customInstruction.trim() ? 'linear-gradient(to right, #4F46E5, #6366F1)' : 'none',
+                                        border: 'none',
+                                        color: customInstruction.trim() ? '#FFFFFF' : '#9CA3AF',
+                                        cursor: customInstruction.trim() ? 'pointer' : 'not-allowed',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: '6px',
+                                        borderRadius: '50%',
+                                        width: '28px',
+                                        height: '28px',
+                                        boxShadow: customInstruction.trim() ? '0 1px 3px rgba(0, 0, 0, 0.1)' : 'none',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                    title="Apply instructions"
+                                >
+                                    <FaMagic size={14} />
+                                </button>
+                            )}
                         </div>
                         <div style={{
                             fontSize: '12px',
-                            color: '#6B7280',
-                            marginTop: '4px',
+                            color: isProcessingCustomInstruction ? '#4F46E5' : '#6B7280',
+                            marginTop: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontWeight: isProcessingCustomInstruction ? '500' : 'normal',
                         }}>
+                            {isProcessingCustomInstruction && (
+                                <span style={{
+                                    display: 'inline-block',
+                                    width: '6px',
+                                    height: '6px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#4F46E5',
+                                    animation: 'pulse 1.5s infinite',
+                                }}></span>
+                            )}
                             {isProcessingCustomInstruction ? 'Applying your instructions...' : 'Type instructions and press Enter or click the magic wand'}
                         </div>
+                        <style>{`
+                            @keyframes pulse {
+                                0% { opacity: 1; }
+                                50% { opacity: 0.4; }
+                                100% { opacity: 1; }
+                            }
+                        `}</style>
                     </div>
                     
                     <ResultDisplay
