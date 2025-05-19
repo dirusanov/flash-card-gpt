@@ -30,7 +30,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
-    const huggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -1096,40 +1095,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             try {
                 console.log('Attempting to generate image...');
 
-                // Try with HuggingFace first if we have an API key
-                if (huggingFaceApiKey) {
-                    try {
-                        console.log('Trying HuggingFace image generation');
-                        const result = await getImage(
-                            huggingFaceApiKey,
-                            openai,
-                            openAiKey,
-                            descriptionImage,
-                            imageInstructions
-                        );
-
-                        console.log('Image generation result:', result);
-
-                        if (result.imageUrl && result.imageBase64) {
-                            // Update the form data with new image
-                            setEditFormData({
-                                ...editFormData,
-                                imageUrl: result.imageUrl,
-                                image: result.imageBase64
-                            });
-
-                            showError('New image generated successfully!', 'success');
-                            return;
-                        }
-                        throw new Error('HuggingFace image generation failed');
-                    } catch (huggingFaceError) {
-                        console.error('HuggingFace error:', huggingFaceError);
-                        // Fall back to direct OpenAI API call
-                    }
-                }
-
-                // Fallback to direct OpenAI API call
-                console.log('Trying direct OpenAI image generation');
+                // Use OpenAI API for image generation
+                console.log('Using OpenAI for image generation');
 
                 const finalPrompt = imageInstructions
                     ? `${descriptionImage}. ${imageInstructions}`
@@ -1192,7 +1159,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 });
 
                 showError('New image generated successfully!', 'success');
-
             } catch (imageError: any) {
                 console.error('Error in image generation:', imageError);
                 throw new Error(`Image generation failed: ${imageError?.message || 'Unknown error'}`);

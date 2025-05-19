@@ -1,7 +1,6 @@
 import {
     SET_ANKI_CONNECT_API_KEY,
     SET_ANKI_CONNECT_URL,
-    SET_HUGGINGFACE_API_KEY,
     SET_OPEN_AI_KEY,
     SET_SELECTED_MODE,
     SET_SHOULD_GENERATE_IMAGE,
@@ -21,9 +20,7 @@ import {Modes} from "../../constants";
 // Define provider types as a constant
 export enum ModelProvider {
     OpenAI = 'openai',
-    HuggingFace = 'huggingface',
-    Groq = 'groq',
-    Local = 'local'
+    Groq = 'groq'
 }
 
 interface SettingsState {
@@ -34,7 +31,6 @@ interface SettingsState {
     ankiConnectApiKey: string | null
     useAnkiConnect: boolean
     visibleSideBar: boolean
-    huggingFaceApiKey: string
     groqApiKey: string
     groqModelName: string
     shouldGenerateImage: boolean
@@ -53,7 +49,6 @@ const initialState: SettingsState = {
     ankiConnectApiKey: null,
     useAnkiConnect: false,
     visibleSideBar: true,
-    huggingFaceApiKey: '',
     groqApiKey: '',
     groqModelName: 'llama3-8b-8192',
     shouldGenerateImage: true,
@@ -100,11 +95,6 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 visibleSideBar: action.visible,
-            };
-        case SET_HUGGINGFACE_API_KEY:
-            return {
-                ...state,
-                huggingFaceApiKey: action.payload,
             };
         case SET_GROQ_API_KEY:
             return {

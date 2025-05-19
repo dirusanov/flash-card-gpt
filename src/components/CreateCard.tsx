@@ -50,7 +50,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [isNewSubmission, setIsNewSubmission] = useState(true);
     const [explicitlySaved, setExplicitlySaved] = useState(false);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
-    const huggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
     const groqApiKey = useSelector((state: RootState) => state.settings.groqApiKey);
     const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
     const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
@@ -78,10 +77,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         getApiKeyForProvider(
             modelProvider as ModelProvider, 
             openAiKey, 
-            huggingFaceApiKey,
             groqApiKey
         ), 
-        [modelProvider, openAiKey, huggingFaceApiKey, groqApiKey]
+        [modelProvider, openAiKey, groqApiKey]
     );
     
     // Derive isSaved from both currentCardId AND storage check
@@ -191,10 +189,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
             
             // Use different image generation based on provider
-            let imageResponse = null;
             if (modelProvider === ModelProvider.OpenAI) {
                 // Use existing OpenAI implementation
-                const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, imageInstructions);
+                const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
                 
                 if (imageUrl) {
                     dispatch(setImageUrl(imageUrl));
@@ -202,15 +199,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 if (imageBase64) {
                     dispatch(setImage(imageBase64));
                 }
-            } else if (modelProvider === ModelProvider.HuggingFace && aiService.getImageUrl) {
-                // Use HuggingFace implementation
-                const imageData = await aiService.getImageUrl(apiKey, descriptionImage);
-                if (imageData) {
-                    dispatch(setImageUrl(''));
-                    dispatch(setImage(imageData));
-                }
             } else {
-                // Local models - show error that image generation isn't supported
+                // Other models - show error that image generation isn't supported
                 showError("Image generation is not supported with the selected provider.");
             }
         } catch (error) {
@@ -272,7 +262,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 // Generate new image based on instructions
                 const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
-                const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, customInstruction);
+                const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, customInstruction);
                 
                 if (imageUrl) {
                     dispatch(setImageUrl(imageUrl));
@@ -310,7 +300,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 if (shouldGenerateImage) {
                     const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
-                    const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, customInstruction);
+                    const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, customInstruction);
                     
                     if (imageUrl) {
                         dispatch(setImageUrl(imageUrl));
@@ -348,23 +338,30 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Эта функция больше не нужна, но оставим ее пустой, чтобы не рефакторить весь код
     };
 
+    // Function to determine if image generation is available for the current provider
+    const isImageGenerationAvailable = () => {
+        return modelProvider !== ModelProvider.Groq;
+    };
+
     const handleImageToggle = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const isChecked = e.target.checked;
-        dispatch(setShouldGenerateImage(isChecked));
-    
-        if (isChecked) {
-            const descriptionImage = await getDescriptionImage(openAiKey, text, imageInstructions);
-            const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, imageInstructions)
-            if (imageUrl) {
-                dispatch(setImageUrl(imageUrl))
-            }
-            if (imageBase64) {
-                dispatch(setImage(imageBase64))
-            }
-        } else {
-            dispatch(setImageUrl(null))
+        
+        // Don't allow toggling on if image generation is not available
+        if (isChecked && !isImageGenerationAvailable()) {
+            return;
         }
-    }
+        
+        dispatch(setShouldGenerateImage(isChecked));
+        
+        // If toggling on, try to generate an image
+        if (isChecked && text) {
+            try {
+                await handleNewImage();
+            } catch (error) {
+                console.error("Failed to generate image on toggle:", error);
+            }
+        }
+    };
 
     const handleAccept = async () => {
         showError(null);
@@ -687,7 +684,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     
                     let imageResponse = null;
                     if (modelProvider === ModelProvider.OpenAI) {
-                        const { imageUrl, imageBase64 } = await getImage(huggingFaceApiKey, openai, openAiKey, descriptionImage, imageInstructions);
+                        const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
                         
                         if (imageUrl) {
                             dispatch(setImageUrl(imageUrl));
@@ -695,14 +692,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         if (imageBase64) {
                             dispatch(setImage(imageBase64));
                         }
-                    } else if (modelProvider === ModelProvider.HuggingFace && aiService.getImageUrl) {
-                        const imageData = await aiService.getImageUrl(apiKey, descriptionImage);
-                        if (imageData) {
-                            dispatch(setImageUrl(''));
-                            dispatch(setImage(imageData));
-                        }
                     }
-                    // Local models don't support image generation
+                    // Другие провайдеры не поддерживают генерацию изображений
                 } catch (imageError) {
                     console.error('Error generating image:', imageError);
                     // Don't show error for image failure, continue with the rest of the card
@@ -1014,59 +1005,43 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Add a function to render the AI provider badge
     const renderProviderBadge = () => {
-        let badgeText = '';
-        let bgColor = '';
-        let textColor = '';
-        
         switch (modelProvider) {
             case ModelProvider.OpenAI:
-                badgeText = 'OpenAI';
-                bgColor = '#10a37f'; // OpenAI green
-                textColor = '#ffffff';
-                break;
-            case ModelProvider.HuggingFace:
-                badgeText = 'HuggingFace';
-                bgColor = '#ffbd59'; // HuggingFace yellow
-                textColor = '#000000';
-                break;
-            case ModelProvider.Local:
-                badgeText = 'Local Model';
-                bgColor = '#7c3aed'; // Purple for local
-                textColor = '#ffffff';
-                break;
+                return (
+                    <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        marginLeft: '8px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: '#10a37f',
+                        color: 'white',
+                        fontSize: '10px',
+                        fontWeight: '600'
+                    }}>
+                        OpenAI
+                    </span>
+                );
+            case ModelProvider.Groq:
+                return (
+                    <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        marginLeft: '8px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: '#7c3aed',
+                        color: 'white',
+                        fontSize: '10px',
+                        fontWeight: '600'
+                    }}>
+                        Groq
+                    </span>
+                );
             default:
-                badgeText = 'AI';
-                bgColor = '#2563EB';
-                textColor = '#ffffff';
+                return null;
         }
-        
-        return (
-            <div style={{
-                display: 'inline-block',
-                backgroundColor: bgColor,
-                color: textColor,
-                padding: '2px 8px',
-                borderRadius: '12px',
-                fontSize: '11px',
-                fontWeight: '600',
-                marginLeft: '8px',
-                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-            }}>
-                {badgeText}
-            </div>
-        );
     };
-
-    // Add a useEffect to check explicitly_saved flag in localStorage on startup
-    useEffect(() => {
-        // Check for explicitly_saved flag in localStorage
-        const explicitlySavedFlag = localStorage.getItem('explicitly_saved');
-        if (explicitlySavedFlag === 'true') {
-            setExplicitlySaved(true);
-        } else {
-            setExplicitlySaved(false);
-        }
-    }, []);
 
     return (
         <div style={{
@@ -1180,8 +1155,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             <div style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '12px',
-                                width: '100%'
+                                gap: '8px',
+                                marginTop: '4px'
                             }}>
                                 <label htmlFor="generateImage" style={{
                                     color: '#111827',
@@ -1193,13 +1168,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     position: 'relative',
                                     display: 'inline-block',
                                     width: '40px',
-                                    height: '22px'
+                                    height: '22px',
+                                    opacity: isImageGenerationAvailable() ? 1 : 0.5
                                 }}>
                                     <input
                                         type="checkbox"
                                         id="generateImage"
                                         checked={shouldGenerateImage}
                                         onChange={handleImageToggle}
+                                        disabled={!isImageGenerationAvailable()}
                                         style={{
                                             opacity: 0,
                                             width: 0,
@@ -1210,7 +1187,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         htmlFor="generateImage"
                                         style={{
                                             position: 'absolute',
-                                            cursor: 'pointer',
+                                            cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
                                             top: 0,
                                             left: 0,
                                             right: 0,
@@ -1234,8 +1211,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         }} />
                                     </label>
                                 </div>
+                                {!isImageGenerationAvailable() && shouldGenerateImage && (
+                                    <span style={{
+                                        fontSize: '12px',
+                                        color: '#EF4444',
+                                        marginLeft: '4px'
+                                    }}>
+                                        Not available with Groq
+                                    </span>
+                                )}
                             </div>
-                            {shouldGenerateImage && renderImageSettings()}
+                            {shouldGenerateImage && isImageGenerationAvailable() && renderImageSettings()}
                         </div>
                     )}
                     

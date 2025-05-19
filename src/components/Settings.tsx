@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {useDispatch, useSelector} from 'react-redux';
-import {setAnkiConnectApiKey, setAnkiConnectUrl, setHuggingFaceApiKey, setGroqApiKey, setGroqModelName, setOpenAiKey, setUseAnkiConnect, setModelProvider} from "../store/actions/settings";
+import {setAnkiConnectApiKey, setAnkiConnectUrl, setGroqApiKey, setGroqModelName, setOpenAiKey, setUseAnkiConnect, setModelProvider} from "../store/actions/settings";
 import {RootState} from "../store";
 import chatGptLogo from '../assets/img/chat-gpt.png';
 import CopyIcon from '../assets/img/copy-icon.svg';
@@ -13,11 +13,11 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const dispatch = useDispatch();
+  const [testResults, setTestResults] = useState<{success: boolean, message: string} | null>(null);
 
   const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
   const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
   const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
-  const huggingFaceApiKey = useSelector((state: RootState) => state.settings.huggingFaceApiKey);
   const groqApiKey = useSelector((state: RootState) => state.settings.groqApiKey);
   const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
   const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
@@ -34,10 +34,6 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
     dispatch(setAnkiConnectApiKey(event.target.value));
   };
 
-  const handleHuggingFaceApiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    dispatch(setHuggingFaceApiKey(event.target.value));
-  };
-
   const handleGroqApiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     dispatch(setGroqApiKey(event.target.value));
   };
@@ -48,6 +44,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
 
   const handleModelProviderChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     dispatch(setModelProvider(event.target.value as ModelProvider));
+    // Clear test results when changing provider
+    setTestResults(null);
   };
 
   const handleBackClick = () => {
@@ -55,6 +53,111 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   };
   const imageUrl = chrome.runtime.getURL(chatGptLogo);
   const copyIconUrl = chrome.runtime.getURL(CopyIcon);
+
+  // Function to test API connections
+  const testApiConnection = async (provider: ModelProvider) => {
+    setTestResults(null);
+    try {
+      let endpoint = '';
+      let headers = {};
+      let body = {};
+      let apiKey = '';
+
+      switch (provider) {
+        case ModelProvider.OpenAI:
+          endpoint = 'https://api.openai.com/v1/chat/completions';
+          apiKey = openAiKey;
+          headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          };
+          body = {
+            model: 'gpt-3.5-turbo',
+            messages: [
+              {
+                role: "user",
+                content: "Say hello"
+              }
+            ],
+            max_tokens: 10
+          };
+          break;
+        case ModelProvider.Groq:
+          endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+          apiKey = groqApiKey;
+          headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          };
+          body = {
+            model: groqModelName,
+            messages: [
+              {
+                role: "user",
+                content: "Say hello"
+              }
+            ],
+            max_tokens: 10
+          };
+          break;
+      }
+
+      if (!apiKey.trim()) {
+        setTestResults({
+          success: false,
+          message: "API key is missing. Please enter your API key."
+        });
+        return;
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        console.log("API test response:", data);
+        setTestResults({
+          success: true,
+          message: "Connection successful! API is working properly."
+        });
+      } else {
+        console.error("API test error:", data);
+        setTestResults({
+          success: false,
+          message: `Error: ${data.error?.message || 'Unknown error occurred'}`
+        });
+      }
+    } catch (error) {
+      console.error("API connection test error:", error);
+      setTestResults({
+        success: false,
+        message: `Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`
+      });
+    }
+  };
+
+  // Function to render test results
+  const renderTestResults = () => {
+    if (!testResults) return null;
+    
+    return (
+      <div style={{
+        padding: '10px',
+        marginTop: '10px',
+        borderRadius: '6px',
+        backgroundColor: testResults.success ? '#ECFDF5' : '#FEF2F2',
+        color: testResults.success ? '#065F46' : '#B91C1C',
+        fontSize: '14px',
+        borderLeft: `4px solid ${testResults.success ? '#10B981' : '#EF4444'}`
+      }}>
+        {testResults.message}
+      </div>
+    );
+  };
 
   // Render OpenAI API key section
   const renderOpenAISection = () => {
@@ -120,12 +223,30 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
           />
         </div>
+        
+        <button 
+          onClick={() => testApiConnection(ModelProvider.OpenAI)}
+          style={{
+            marginTop: '8px',
+            padding: '6px 12px',
+            backgroundColor: '#10a37f', // Green for OpenAI
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '13px'
+          }}
+        >
+          Test API Connection
+        </button>
+        
+        {renderTestResults()}
       </div>
     );
   };
 
   // Render Groq API key section
-  const renderGroqSection = () => {
+  const renderGroqSettings = () => {
     if (modelProvider !== ModelProvider.Groq) return null;
     
     return (
@@ -169,6 +290,21 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
         />
         
+        <div style={{
+          padding: '8px',
+          backgroundColor: '#DBEAFE',
+          borderRadius: '6px',
+          marginBottom: '16px'
+        }}>
+          <p style={{
+            fontSize: '12px',
+            color: '#1E40AF',
+            margin: 0
+          }}>
+            <strong>Note:</strong> Image generation is not available with Groq.
+          </p>
+        </div>
+        
         <label htmlFor="groqModelName" style={{
           display: 'block',
           fontWeight: '600',
@@ -203,40 +339,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           <option value="gemma-7b-it">Gemma 7B</option>
         </select>
         
-        {/* Debug button - only in development */}
         <button 
-          onClick={() => {
-            console.log("Testing Groq API");
-            console.log("Current key:", groqApiKey);
-            console.log("Model:", groqModelName);
-            fetch(`https://api.groq.com/openai/v1/chat/completions`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${groqApiKey}`
-              },
-              body: JSON.stringify({
-                model: groqModelName,
-                messages: [
-                  {
-                    role: "user",
-                    content: "Translate this to French: Hello world"
-                  }
-                ],
-                max_tokens: 100
-              })
-            })
-            .then(response => {
-              console.log("Groq test response status:", response.status);
-              return response.json();
-            })
-            .then(data => {
-              console.log("Groq test response data:", data);
-            })
-            .catch(error => {
-              console.error("Groq test error:", error);
-            });
-          }}
+          onClick={() => testApiConnection(ModelProvider.Groq)}
           style={{
             marginTop: '8px',
             padding: '6px 12px',
@@ -248,55 +352,22 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             fontSize: '13px'
           }}
         >
-          Test Groq API
+          Test API Connection
         </button>
+        
+        {renderTestResults()}
       </div>
     );
   };
 
-  // Render local model section
-  const renderLocalModelSection = () => {
-    if (modelProvider !== ModelProvider.Local) return null;
-    
+  // Content for Anki Connect section
+  const renderAnkiConnectSection = () => {
     return (
-      <div style={{ 
-        marginBottom: '20px',
-        backgroundColor: '#F9FAFB',
-        padding: '12px',
-        borderRadius: '8px'
-      }}>
-        <h3 style={{
-          fontWeight: '600',
-          marginBottom: '8px',
-          color: '#111827',
-          fontSize: '14px'
-        }}>Local Model Configuration</h3>
-        <p style={{
-          fontSize: '12px',
-          marginBottom: '12px',
-          color: '#6B7280'
-        }}>
-          To use local models, you need to run a local API server like Ollama or LM Studio on your computer.
-          The extension will connect to <code style={{ backgroundColor: '#EFF6FF', padding: '2px 4px', borderRadius: '4px' }}>http://localhost:11434</code> by default.
-        </p>
-
-        <div style={{
-          padding: '8px',
-          backgroundColor: '#DBEAFE',
-          borderRadius: '6px',
-          marginBottom: '8px'
-        }}>
-          <p style={{
-            fontSize: '12px',
-            color: '#1E40AF',
-            margin: 0
-          }}>
-            <strong>Note:</strong> Image generation is not available with local models.
-          </p>
-        </div>
+      <div style={{ marginBottom: '20px' }}>
+        {/* Anki Connect settings */}
       </div>
     );
-  };
+  }
 
   return (
     <div style={{
@@ -351,13 +422,14 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         >
           <option value={ModelProvider.OpenAI}>OpenAI</option>
           <option value={ModelProvider.Groq}>Groq</option>
-          <option value={ModelProvider.Local}>Local Model</option>
         </select>
       </div>
 
-      {renderOpenAISection()}
-      {renderGroqSection()}
-      {renderLocalModelSection()}
+      <div>
+        {renderOpenAISection()}
+        {renderGroqSettings()}
+        {renderAnkiConnectSection()}
+      </div>
 
       <div>
         <label htmlFor="ankiConnectApiKey" style={{

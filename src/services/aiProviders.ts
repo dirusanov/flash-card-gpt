@@ -445,110 +445,10 @@ export class GroqProvider extends BaseAIProvider {
       throw error;
     }
   }
-}
-
-/**
- * Реализация провайдера HuggingFace
- */
-export class HuggingFaceProvider extends BaseAIProvider {
-  private apiBaseUrl: string = 'https://api-inference.huggingface.co/models';
   
-  constructor(apiKey: string, modelName: string = 'mistralai/Mistral-7B-Instruct-v0.2') {
-    super(apiKey, modelName);
-  }
-  
-  protected async sendRequest(prompt: string, options: any = {}): Promise<string | null> {
-    try {
-      const response = await fetch(`${this.apiBaseUrl}/${this.modelName}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
-        },
-        body: JSON.stringify({
-          inputs: prompt,
-          ...options
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HuggingFace API error: ${response.status} ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      if (Array.isArray(data) && data.length > 0) {
-        return data[0]?.generated_text?.trim() ?? null;
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('Error in HuggingFace API request:', error);
-      throw error;
-    }
-  }
-  
-  // Метод для получения изображения специфичный для HuggingFace
-  public async getImageUrl(description: string): Promise<string | null> {
-    try {
-      const imageModel = 'stabilityai/stable-diffusion-2';
-      const response = await fetch(`${this.apiBaseUrl}/${imageModel}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`
-        },
-        body: JSON.stringify({
-          inputs: description
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HuggingFace image generation error: ${response.status} ${response.statusText}`);
-      }
-      
-      const blob = await response.blob();
-      return URL.createObjectURL(blob);
-    } catch (error) {
-      console.error('Error generating image with HuggingFace:', error);
-      throw error;
-    }
-  }
-}
-
-/**
- * Реализация провайдера LocalModel (например, для Ollama)
- */
-export class LocalModelProvider extends BaseAIProvider {
-  constructor(apiKey: string, modelName: string = 'llama2') {
-    super(apiKey, modelName); // apiKey здесь используется как URL
-  }
-  
-  protected async sendRequest(prompt: string, options: any = {}): Promise<string | null> {
-    try {
-      const serverUrl = this.apiKey; // URL сервера Ollama или другой локальной модели
-      
-      const response = await fetch(`${serverUrl}/api/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: this.modelName,
-          prompt: prompt,
-          ...options
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Local model error: ${response.status} ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      return data.response?.trim() ?? null;
-    } catch (error) {
-      console.error('Error in local model request:', error);
-      throw error;
-    }
+  // Explicitly state that image generation is not supported
+  public getImageUrl(): Promise<string | null> {
+    throw new Error("Image generation is not supported by Groq.");
   }
 }
 
@@ -566,12 +466,6 @@ export const createAIProvider = (
     
     case ModelProvider.Groq:
       return new GroqProvider(apiKey, modelName || 'llama3-8b-8192');
-    
-    case ModelProvider.HuggingFace:
-      return new HuggingFaceProvider(apiKey, modelName || 'mistralai/Mistral-7B-Instruct-v0.2');
-    
-    case ModelProvider.Local:
-      return new LocalModelProvider(apiKey, modelName || 'llama2');
     
     default:
       return new OpenAIProvider(apiKey, modelName || 'gpt-3.5-turbo');

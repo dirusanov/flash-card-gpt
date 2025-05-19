@@ -115,19 +115,13 @@ export const getAIService = (provider: ModelProvider): AIService => {
 export const getApiKeyForProvider = (
   provider: ModelProvider, 
   openAiKey: string, 
-  huggingFaceKey: string,
-  groqKey: string = '',
-  localServerUrl: string = 'http://localhost:11434'
+  groqKey: string = ''
 ): string => {
   switch (provider) {
     case ModelProvider.OpenAI:
       return openAiKey;
-    case ModelProvider.HuggingFace:
-      return huggingFaceKey;
     case ModelProvider.Groq:
       return groqKey;
-    case ModelProvider.Local:
-      return localServerUrl;
     default:
       return openAiKey;
   }

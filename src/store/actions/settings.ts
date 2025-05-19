@@ -1,74 +1,57 @@
 export const SET_OPEN_AI_KEY = 'SET_OPEN_AI_KEY';
 export const SET_SELECTED_MODE = 'SET_SELECTED_MODE';
-export const SET_TRANSLATE_TO_LANGUAGE = 'SET_SELECTED_LANGUAGE';
+export const SET_TRANSLATE_TO_LANGUAGE = 'SET_TRANSLATE_TO_LANGUAGE';
 export const SET_ANKI_CONNECT_URL = 'SET_ANKI_CONNECT_URL';
 export const SET_ANKI_CONNECT_API_KEY = 'SET_ANKI_CONNECT_API_KEY';
 export const SET_USE_ANKI_CONNECT = 'SET_USE_ANKI_CONNECT';
 export const SET_VISIBLE_SIDEBAR = 'SET_VISIBLE_SIDEBAR';
-export const SET_HUGGINGFACE_API_KEY = 'SET_HUGGINGFACE_API_KEY';
-export const SET_GROQ_API_KEY = 'SET_GROQ_API_KEY';
-export const SET_GROQ_MODEL_NAME = 'SET_GROQ_MODEL_NAME';
 export const SET_SHOULD_GENERATE_IMAGE = 'SET_SHOULD_GENERATE_IMAGE';
 export const SET_TRANSLATION_PROMPT = 'SET_TRANSLATION_PROMPT';
 export const SET_EXAMPLES_PROMPT = 'SET_EXAMPLES_PROMPT';
 export const SET_AI_INSTRUCTIONS = 'SET_AI_INSTRUCTIONS';
 export const SET_IMAGE_INSTRUCTIONS = 'SET_IMAGE_INSTRUCTIONS';
 export const SET_MODEL_PROVIDER = 'SET_MODEL_PROVIDER';
-
+export const SET_GROQ_API_KEY = 'SET_GROQ_API_KEY';
+export const SET_GROQ_MODEL_NAME = 'SET_GROQ_MODEL_NAME';
 
 export const setOpenAiKey = (openAiKey: string) => ({
     type: SET_OPEN_AI_KEY,
     payload: openAiKey,
 });
 
-export const setMode = (selectedMode: string) => ({
+export const setMode = (mode: string) => ({
     type: SET_SELECTED_MODE,
-    payload: selectedMode,
+    payload: mode,
 });
 
-export const setTranslateToLanguage = (translateToLanguage: string) => ({
+export const setTranslateToLanguage = (language: string) => ({
     type: SET_TRANSLATE_TO_LANGUAGE,
-    payload: translateToLanguage,
+    payload: language,
 });
 
-export const setAnkiConnectUrl = (ankiConnectUrl: string) => ({
+export const setAnkiConnectUrl = (url: string) => ({
     type: SET_ANKI_CONNECT_URL,
-    payload: ankiConnectUrl,
+    payload: url,
 });
 
-export const setAnkiConnectApiKey = (ankiConnectApiKey: string) => ({
+export const setAnkiConnectApiKey = (apiKey: string | null) => ({
     type: SET_ANKI_CONNECT_API_KEY,
-    payload: ankiConnectApiKey,
+    payload: apiKey,
 });
 
-export const setUseAnkiConnect = (useAnkiConnect: boolean) => ({
+export const setUseAnkiConnect = (use: boolean) => ({
     type: SET_USE_ANKI_CONNECT,
-    payload: useAnkiConnect,
+    payload: use,
 });
 
-export const setVisibleSideBar = (visible: boolean) => ({
+export const setVisibleSidebar = (visible: boolean) => ({
     type: SET_VISIBLE_SIDEBAR,
     visible,
 });
 
-export const setHuggingFaceApiKey = (huggingFaceApiKey: string) => ({
-    type: SET_HUGGINGFACE_API_KEY,
-    payload: huggingFaceApiKey,
-});
-
-export const setGroqApiKey = (groqApiKey: string) => ({
-    type: SET_GROQ_API_KEY,
-    payload: groqApiKey,
-});
-
-export const setGroqModelName = (groqModelName: string) => ({
-    type: SET_GROQ_MODEL_NAME,
-    payload: groqModelName,
-});
-
-export const setShouldGenerateImage = (shouldGenerateImage: boolean) => ({
+export const setShouldGenerateImage = (shouldGenerate: boolean) => ({
     type: SET_SHOULD_GENERATE_IMAGE,
-    payload: shouldGenerateImage,
+    payload: shouldGenerate,
 });
 
 export const setTranslationPrompt = (prompt: string) => ({
@@ -94,4 +77,14 @@ export const setImageInstructions = (instructions: string) => ({
 export const setModelProvider = (provider: string) => ({
     type: SET_MODEL_PROVIDER,
     payload: provider,
+});
+
+export const setGroqApiKey = (groqApiKey: string) => ({
+    type: SET_GROQ_API_KEY,
+    payload: groqApiKey,
+});
+
+export const setGroqModelName = (modelName: string) => ({
+    type: SET_GROQ_MODEL_NAME,
+    payload: modelName,
 });
