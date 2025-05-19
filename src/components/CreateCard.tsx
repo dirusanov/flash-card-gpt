@@ -398,8 +398,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     text: cardText,
                     translation,
                     examples,
-                    image,
-                    imageUrl,
+                    // Only include image and imageUrl if they are explicitly defined for this card
+                    // This prevents picking up values from the global Redux state
+                    image: shouldGenerateImage ? image : null,
+                    imageUrl: shouldGenerateImage ? imageUrl : null,
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
@@ -432,6 +434,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // или front в случае их отсутствия
                     back: translation || front,
                     text: cardText,
+                    // Explicitly set image and imageUrl to null for general topic cards
+                    // to prevent them from using global state values
+                    image: null,
+                    imageUrl: null,
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
@@ -627,6 +633,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // IMPORTANT: Explicitly clear saved state when creating a new card
         setExplicitlySaved(false);
         localStorage.removeItem('explicitly_saved');
+        
+        // Clear previous image data before generating a new card
+        dispatch(setImage(null));
+        dispatch(setImageUrl(null));
         
         setLoadingGetResult(true);
         setOriginalSelectedText(text);
@@ -1108,7 +1118,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             const shouldSave = window.confirm('Would you like to save this card to your collection?');
             if (shouldSave) {
                 handleAccept();
+            } else {
+                // If user decides not to save, clear image data
+                dispatch(setImage(null));
+                dispatch(setImageUrl(null));
             }
+        } else if (!isSaved) {
+            // If not saved, clear image data when closing
+            dispatch(setImage(null));
+            dispatch(setImageUrl(null));
         }
         setShowModal(false);
     };

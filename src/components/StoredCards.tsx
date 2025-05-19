@@ -569,9 +569,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             )}
                         </div>
                     )}
-                    {card.imageUrl && (
+                    {/* Check for either imageUrl or image to display */}
+                    {(card.imageUrl || card.image) && (
                         <div style={{ marginTop: '8px', textAlign: 'center' }}>
-                            <img src={card.imageUrl} alt="" style={{ maxWidth: '100%', maxHeight: '80px', borderRadius: '4px' }} />
+                            <img 
+                                src={(card.imageUrl || card.image || '') as string} 
+                                alt="" 
+                                style={{ maxWidth: '100%', maxHeight: '80px', borderRadius: '4px' }} 
+                            />
                         </div>
                     )}
                 </div>
@@ -1152,6 +1157,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 console.log('Image data received from background');
 
                 // Update the form data with the new image
+                // ONLY update the local editFormData, not the global Redux store
                 setEditFormData({
                     ...editFormData,
                     imageUrl: imageData as string,
@@ -1508,8 +1514,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         <div style={formStyles.fieldGroup}>
                             <label style={formStyles.label}>Image</label>
                             <div style={formStyles.imageContainer}>
-                                {editFormData.imageUrl ? (
-                                    <img src={editFormData.imageUrl} alt="" style={formStyles.image} />
+                                {(editFormData.imageUrl || editFormData.image) ? (
+                                    <img 
+                                        src={(editFormData.imageUrl || editFormData.image || '') as string} 
+                                        alt="" 
+                                        style={formStyles.image} 
+                                    />
                                 ) : (
                                     <div style={{
                                         width: '100%',

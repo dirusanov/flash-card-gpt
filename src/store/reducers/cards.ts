@@ -76,6 +76,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 ...(action.payload.id ? 
                     action.payload : 
                     { ...action.payload, id: Date.now().toString() }),
+                image: action.payload.image !== undefined ? action.payload.image : null,
+                imageUrl: action.payload.imageUrl !== undefined ? action.payload.imageUrl : null,
                 exportStatus: action.payload.exportStatus || 'not_exported'
             };
             
@@ -137,6 +139,10 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             break;
         case SET_TEXT:
             newState.text = action.payload;
+            if (!state.currentCardId) {
+                newState.image = null;
+                newState.imageUrl = null;
+            }
             break;
         case SET_TRANSLATION:
             newState.translation = action.payload;
