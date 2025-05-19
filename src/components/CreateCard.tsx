@@ -15,7 +15,7 @@ import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 import useErrorNotification from './useErrorHandler';
 import { setCurrentPage } from "../store/actions/page";
-import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic } from 'react-icons/fa';
+import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
@@ -65,6 +65,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     });
     const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
+    const [showModal, setShowModal] = useState(false);
     
     // Selector для получения всех сохраненных карточек
     const storedCards = useSelector((state: RootState) => state.cards.storedCards);
@@ -750,9 +751,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Ensure this is treated as a brand new card
             dispatch(setCurrentCardId(null));
             
-            // Show result if we have at least some data
+            // Show modal if we have at least some data
             if (completedOperations.translation || completedOperations.examples || completedOperations.flashcard) {
                 setShowResult(true);
+                setShowModal(true);
                 setIsNewSubmission(true);
             } else {
                 throw new Error("Failed to create card: No data was successfully generated. Please check your API key and try again.");
@@ -763,6 +765,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 ? `${error.message}` 
                 : "Failed to create card. Please check your API key and try again.");
             setShowResult(false);
+            setShowModal(false);
         } finally {
             setLoadingGetResult(false);
         }
@@ -1098,6 +1101,175 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     };
 
+    // Function to handle modal close
+    const handleCloseModal = () => {
+        // If the card is not saved but has content, offer to save it
+        if (showResult && !isSaved && !isEdited && translation) {
+            const shouldSave = window.confirm('Would you like to save this card to your collection?');
+            if (shouldSave) {
+                handleAccept();
+            }
+        }
+        setShowModal(false);
+    };
+
+    // Render the modal
+    const renderModal = () => {
+        if (!showModal || !showResult) return null;
+        
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                backdropFilter: 'blur(2px)',
+                padding: '16px'
+            }} onClick={handleCloseModal}>
+                <div style={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: '12px',
+                    maxWidth: '340px',
+                    width: '100%',
+                    maxHeight: '90vh',
+                    overflowY: 'auto',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                    position: 'relative',
+                    padding: '16px'
+                }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{
+                        position: 'sticky',
+                        top: 0,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        borderBottom: '1px solid #E5E7EB',
+                        paddingBottom: '12px',
+                        marginBottom: '16px',
+                        backgroundColor: '#ffffff',
+                        zIndex: 2
+                    }}>
+                        <h3 style={{
+                            margin: 0,
+                            fontSize: '16px',
+                            fontWeight: 600,
+                            color: '#111827'
+                        }}>
+                            Your Card
+                        </h3>
+                        <button 
+                            onClick={handleCloseModal}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '8px',
+                                borderRadius: '50%',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.2s'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
+                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            aria-label="Close"
+                        >
+                            <FaTimes size={16} color="#6B7280" />
+                        </button>
+                    </div>
+                    
+                    {/* Add error notification in modal */}
+                    <div style={{ marginBottom: '12px' }}>
+                        {renderErrorNotification()}
+                    </div>
+                    
+                    <div style={{
+                        width: '100%',
+                        marginBottom: '12px'
+                    }}>
+                        <div style={{
+                            position: 'relative',
+                            width: '100%',
+                        }}>
+                            <input
+                                type="text"
+                                value={customInstruction}
+                                onChange={(e) => setCustomInstruction(e.target.value)}
+                                onKeyDown={handleCustomInstructionKeyDown}
+                                placeholder="Enter custom instructions (e.g., 'more formal examples', 'change image style')"
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    paddingRight: '40px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #E5E7EB',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                }}
+                                disabled={isProcessingCustomInstruction}
+                            />
+                            <button
+                                onClick={handleApplyCustomInstruction}
+                                disabled={!customInstruction.trim() || isProcessingCustomInstruction}
+                                style={{
+                                    position: 'absolute',
+                                    right: '8px',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    background: 'none',
+                                    border: 'none',
+                                    color: customInstruction.trim() && !isProcessingCustomInstruction ? '#2563EB' : '#9CA3AF',
+                                    cursor: customInstruction.trim() && !isProcessingCustomInstruction ? 'pointer' : 'not-allowed',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <FaMagic size={16} />
+                            </button>
+                        </div>
+                        <div style={{
+                            fontSize: '12px',
+                            color: '#6B7280',
+                            marginTop: '4px',
+                        }}>
+                            {isProcessingCustomInstruction ? 'Applying your instructions...' : 'Type instructions and press Enter or click the magic wand'}
+                        </div>
+                    </div>
+                    
+                    <ResultDisplay
+                        mode={mode}
+                        front={front}
+                        translation={translation}
+                        examples={examples}
+                        imageUrl={imageUrl}
+                        image={image}
+                        onNewImage={handleNewImage}
+                        onNewExamples={handleNewExamples}
+                        onAccept={handleAccept}
+                        onViewSavedCards={handleViewSavedCards}
+                        onCancel={handleCancel}
+                        loadingNewImage={loadingNewImage}
+                        loadingNewExamples={loadingNewExamples}
+                        loadingAccept={loadingAccept}
+                        shouldGenerateImage={shouldGenerateImage}
+                        isSaved={isSaved}
+                        isEdited={isEdited}
+                        setTranslation={handleTranslationUpdate}
+                        setExamples={handleExamplesUpdate}
+                    />
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div style={{
             display: 'flex',
@@ -1361,94 +1533,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         {renderErrorNotification()}
                     </div>
                 </div>
-                {showResult && (
-                    <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        width: '100%',
-                        maxWidth: '320px',
-                        marginBottom: '8px'
-                    }}>
-                        <div style={{
-                            width: '100%',
-                            marginBottom: '12px'
-                        }}>
-                            <div style={{
-                                position: 'relative',
-                                width: '100%',
-                            }}>
-                                <input
-                                    type="text"
-                                    value={customInstruction}
-                                    onChange={(e) => setCustomInstruction(e.target.value)}
-                                    onKeyDown={handleCustomInstructionKeyDown}
-                                    placeholder="Enter custom instructions (e.g., 'more formal examples', 'change image style')"
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        paddingRight: '40px',
-                                        borderRadius: '6px',
-                                        border: '1px solid #E5E7EB',
-                                        fontSize: '14px',
-                                        color: '#374151',
-                                    }}
-                                    disabled={isProcessingCustomInstruction}
-                                />
-                                <button
-                                    onClick={handleApplyCustomInstruction}
-                                    disabled={!customInstruction.trim() || isProcessingCustomInstruction}
-                                    style={{
-                                        position: 'absolute',
-                                        right: '8px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        background: 'none',
-                                        border: 'none',
-                                        color: customInstruction.trim() && !isProcessingCustomInstruction ? '#2563EB' : '#9CA3AF',
-                                        cursor: customInstruction.trim() && !isProcessingCustomInstruction ? 'pointer' : 'not-allowed',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        padding: '4px'
-                                    }}
-                                >
-                                    <FaMagic size={16} />
-                                </button>
-                            </div>
-                            <div style={{
-                                fontSize: '12px',
-                                color: '#6B7280',
-                                marginTop: '4px',
-                            }}>
-                                {isProcessingCustomInstruction ? 'Applying your instructions...' : 'Type instructions and press Enter or click the magic wand'}
-                            </div>
-                        </div>
-                        
-                        <ResultDisplay
-                            mode={mode}
-                            front={front}
-                            translation={translation}
-                            examples={examples}
-                            imageUrl={imageUrl}
-                            image={image}
-                            onNewImage={handleNewImage}
-                            onNewExamples={handleNewExamples}
-                            onAccept={handleAccept}
-                            onViewSavedCards={handleViewSavedCards}
-                            onCancel={handleCancel}
-                            loadingNewImage={loadingNewImage}
-                            loadingNewExamples={loadingNewExamples}
-                            loadingAccept={loadingAccept}
-                            shouldGenerateImage={shouldGenerateImage}
-                            isSaved={isSaved}
-                            isEdited={isEdited}
-                            setTranslation={handleTranslationUpdate}
-                            setExamples={handleExamplesUpdate}
-                        />
-                    </div>
-                )}
             </div>
+            
+            {/* Add the modal */}
+            {renderModal()}
         </div>
     );
 };
