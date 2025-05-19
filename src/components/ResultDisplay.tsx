@@ -660,66 +660,64 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                 </>
             )}
             
-            {isEditMode && (
-                <div style={{
-                    display: 'flex',
-                    gap: '6px',
-                    marginBottom: '8px'
-                }}>
-                    {imageUrl && (
-                        <button 
-                            onClick={onNewImage} 
-                            disabled={loadingNewImage}
-                            style={{
-                                flex: 1,
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                backgroundColor: '#F59E0B',
-                                color: '#ffffff',
-                                fontWeight: '600',
-                                fontSize: '13px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                opacity: loadingNewImage ? 0.7 : 1
-                            }}
-                            onMouseOver={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#D97706')}
-                            onMouseOut={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#F59E0B')}
-                        >
-                            {loadingNewImage ? 
+            <div style={{
+                display: 'flex',
+                gap: '6px',
+                marginBottom: '8px'
+            }}>
+                {imageUrl && (
+                    <button 
+                        onClick={onNewImage} 
+                        disabled={loadingNewImage}
+                        style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            backgroundColor: '#F59E0B',
+                            color: '#ffffff',
+                            fontWeight: '600',
+                            fontSize: '13px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            opacity: loadingNewImage ? 0.7 : 1
+                        }}
+                        onMouseOver={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#D97706')}
+                        onMouseOut={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#F59E0B')}
+                    >
+                        {loadingNewImage ? 
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Loader type="pulse" size="small" inline color="#ffffff" text="Generating" />
     </div> : 'New Image'}
-                        </button>
-                    )}
-                    {examples.length > 0 && (
-                        <button 
-                            onClick={onNewExamples} 
-                            disabled={loadingNewExamples}
-                            style={{
-                                flex: 1,
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                backgroundColor: '#F59E0B',
-                                color: '#ffffff',
-                                fontWeight: '600',
-                                fontSize: '13px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                opacity: loadingNewExamples ? 0.7 : 1
-                            }}
-                            onMouseOver={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#D97706')}
-                            onMouseOut={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#F59E0B')}
-                        >
-                            {loadingNewExamples ? 
+                    </button>
+                )}
+                {examples.length > 0 && (
+                    <button 
+                        onClick={onNewExamples} 
+                        disabled={loadingNewExamples}
+                        style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            backgroundColor: '#F59E0B',
+                            color: '#ffffff',
+                            fontWeight: '600',
+                            fontSize: '13px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            opacity: loadingNewExamples ? 0.7 : 1
+                        }}
+                        onMouseOver={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#D97706')}
+                        onMouseOut={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#F59E0B')}
+                    >
+                        {loadingNewExamples ? 
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Loader type="dots" size="small" inline color="#ffffff" text="Loading" />
     </div> : 'New Examples'}
-                        </button>
-                    )}
-                </div>
-            )}
+                    </button>
+                )}
+            </div>
             
             {/* Кнопка сохранения/статус карточки */}
             <div style={{ marginBottom: '10px' }}>
