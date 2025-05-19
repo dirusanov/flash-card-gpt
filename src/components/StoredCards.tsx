@@ -6,7 +6,7 @@ import { RootState } from '../store';
 import { loadStoredCards, deleteStoredCard, saveAnkiCards, updateCardExportStatus, updateStoredCard, setImageUrl, setImage } from '../store/actions/cards';
 import { StoredCard, ExportStatus } from '../store/reducers/cards';
 import { Modes } from '../constants';
-import { FaArrowLeft, FaTrash, FaDownload, FaSync, FaEdit, FaCheck, FaTimes, FaImage, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { FaArrowLeft, FaTrash, FaDownload, FaSync, FaEdit, FaCheck, FaTimes, FaImage, FaChevronLeft, FaChevronRight, FaPlus } from 'react-icons/fa';
 import { CardLangLearning, CardGeneral, fetchDecks } from '../services/ankiService';
 import useErrorNotification from './useErrorHandler';
 import { Deck, setDeckId } from '../store/actions/decks';
@@ -35,7 +35,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingDecks, setLoadingDecks] = useState(false);
-    const [activeFilter, setActiveFilter] = useState<CardFilterType>('all');
+    const [activeFilter, setActiveFilter] = useState<CardFilterType>('not_exported');
     const [showDeckSelector, setShowDeckSelector] = useState(false);
     const [editingCardId, setEditingCardId] = useState<string | null>(null);
     const [editFormData, setEditFormData] = useState<StoredCard | null>(null);
@@ -1969,29 +1969,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }}>
             <div style={{
                 display: 'flex',
-                justifyContent: 'space-between',
+                justifyContent: 'center',
                 alignItems: 'center',
                 marginBottom: '16px',
                 paddingBottom: '12px',
-                borderBottom: '1px solid #E5E7EB'
+                borderBottom: '1px solid #E5E7EB',
+                marginTop: '20px'
             }}>
-                <button
-                    onClick={onBackClick}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        backgroundColor: 'transparent',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: '#6B7280',
-                        padding: '4px'
-                    }}
-                    onMouseOver={(e) => e.currentTarget.style.color = '#111827'}
-                    onMouseOut={(e) => e.currentTarget.style.color = '#6B7280'}
-                >
-                    <FaArrowLeft style={{ marginRight: '6px' }} />
-                    <span style={{ fontSize: '14px' }}>Back</span>
-                </button>
                 <div style={{ 
                     fontWeight: '600', 
                     fontSize: '16px',
@@ -2007,7 +1991,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 }}>
                     Saved Cards ({storedCards.length})
                 </div>
-                <div style={{ width: '24px' }}></div> {/* Spacer to maintain balance */}
             </div>
 
             {renderErrorNotification()}
@@ -2114,6 +2097,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     <p>No saved cards yet.</p>
                 </div>
             )}
+            
+            {/* Remove the floating action button since we've added a button to the top navigation */}
         </div>
     );
 };

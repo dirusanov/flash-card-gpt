@@ -307,7 +307,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
       maxWidth: '320px',
       margin: '0 auto',
       overflowY: 'auto',
-      paddingBottom: '16px'
+      paddingBottom: '16px',
+      marginTop: '20px'
     }}>
       <div style={{
         marginBottom: '20px',
@@ -499,36 +500,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         </div>
       </div>
 
-      {!popup && (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-          width: '100%',
-          marginBottom: '8px',
-          marginTop: '16px'
-        }}>
-          <button
-            onClick={handleBackClick}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              borderRadius: '6px',
-              backgroundColor: '#2563EB',
-              color: '#ffffff',
-              fontWeight: '600',
-              fontSize: '14px',
-              border: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease'
-            }}
-            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#1D4ED8'}
-            onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#2563EB'}
-          >
-            Create Cards
-          </button>
-        </div>
-      )}
+      {/* Removed the floating action button since we've added a button to the top navigation */}
     </div>
   );
 };

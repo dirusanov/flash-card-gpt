@@ -684,6 +684,10 @@ video {
   border-width: 1px;
 }
 
+.lowercase {
+  text-transform: lowercase;
+}
+
 .italic {
   font-style: italic;
 }

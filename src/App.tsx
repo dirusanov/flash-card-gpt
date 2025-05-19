@@ -12,7 +12,7 @@ import { fetchDecks } from './services/ankiService';
 import { setAnkiAvailability } from './store/actions/anki';
 import { toggleSidebar } from './store/actions/sidebar'
 import useErrorNotification from './components/useErrorHandler';
-import { FaList, FaCog, FaTimes } from 'react-icons/fa';
+import { FaList, FaCog, FaTimes, FaPlus } from 'react-icons/fa';
 import { loadStoredCards } from './store/actions/cards';
 import { loadCardsFromStorage } from './store/middleware/cardsLocalStorage';
 
@@ -102,7 +102,8 @@ function App() {
             flexDirection: 'column',
             overflow: 'auto',
             height: '100%',
-            position: 'relative'
+            position: 'relative',
+            marginTop: '20px'
           }}>
             <CreateCard />
           </div>
@@ -111,10 +112,6 @@ function App() {
   };
 
   const renderHeaderButtons = () => {
-    if (currentPage !== 'createCard') {
-      return null;
-    }
-    
     return (
       <div className="header-buttons" style={{
         position: 'absolute',
@@ -127,6 +124,39 @@ function App() {
         gap: '6px',
         zIndex: 100
       }}>
+        {currentPage !== 'createCard' && (
+          <button
+            onClick={() => handlePageChange('createCard')}
+            className="header-button"
+            style={{
+              backgroundColor: '#2563EB',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '15px',
+              padding: '6px 0',
+              color: '#FFFFFF',
+              borderRadius: '6px',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flex: 1.2,
+              height: '34px',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.backgroundColor = '#1D4ED8';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.backgroundColor = '#2563EB';
+            }}
+            title="Create a new card"
+          >
+            <FaPlus style={{ marginRight: '4px' }} size={12} />
+            <span style={{ fontSize: '13px', fontWeight: 500 }}>New Card</span>
+          </button>
+        )}
+        
         <button
           onClick={() => handlePageChange('storedCards')}
           className="header-button"
@@ -266,8 +296,9 @@ function App() {
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: '#ffffff',
-          marginTop: '44px',
-          height: 'calc(100% - 44px)'
+          marginTop: '34px',
+          height: 'calc(100% - 34px)',
+          overflow: 'auto'
         }}>
           {renderMainContent()}
           <div style={{
