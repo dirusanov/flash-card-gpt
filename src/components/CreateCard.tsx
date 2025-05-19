@@ -1194,8 +1194,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             color: '#111827'
                         }}>
                             {isMultipleCards 
-                                ? `Карточка ${currentCardIndex + 1} из ${createdCards.length}` 
-                                : 'Ваша карточка'}
+                                ? `Card ${currentCardIndex + 1} of ${createdCards.length}` 
+                                : 'Your Card'}
                         </h3>
                         <button 
                             onClick={handleCloseModal}
@@ -1351,7 +1351,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     flex: 1
                                 }}
                             >
-                                ← Пред.
+                                ← Prev
                             </button>
                             
                             <button
@@ -1373,7 +1373,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     justifyContent: 'flex-end'
                                 }}
                             >
-                                След. →
+                                Next →
                             </button>
                         </div>
                     )}
@@ -1417,7 +1417,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const selectedOptions = Object.keys(selectedOptionsMap).filter(key => selectedOptionsMap[key]);
         
         if (selectedOptions.length === 0) {
-            showError("Пожалуйста, выберите хотя бы один вариант текста", "warning");
+            showError("Please select at least one text option", "warning");
             return;
         }
         
@@ -1516,7 +1516,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     
                 } catch (error) {
                     console.error(`Error creating card for "${option}":`, error);
-                    showError(`Не удалось создать карточку для "${option.substring(0, 20)}...": ${error instanceof Error ? error.message : "Неизвестная ошибка"}`, "error");
+                    showError(`Failed to create card for "${option.substring(0, 20)}...": ${error instanceof Error ? error.message : "Unknown error"}`, "error");
                 }
             }
             
@@ -1561,14 +1561,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Показываем результат
                 setShowResult(true);
                 setShowModal(true);
-                showError(`Создано ${newCards.length} карточек!`, "success");
+                showError(`Created ${newCards.length} cards!`, "success");
             } else {
-                showError("Не удалось создать карточки. Пожалуйста, попробуйте еще раз.", "error");
+                showError("Failed to create cards. Please try again.", "error");
             }
             
         } catch (error) {
             console.error('Error processing selected options:', error);
-            showError(error instanceof Error ? error.message : "Не удалось создать карточки. Пожалуйста, проверьте настройки и попробуйте еще раз.");
+            showError(error instanceof Error ? error.message : "Failed to create cards. Please try again.");
         } finally {
             setLoadingGetResult(false);
             // Очищаем карту выбранных опций
@@ -1662,83 +1662,189 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
         
-        // Получаем список слов из выделенного текста, если их несколько
-        const words = selectedText.split(/\s+/).filter(word => word.length > 2);
-        
-        // Если только одно слово, просто используем его
-        if (words.length <= 1) {
-            dispatch(setText(selectedText));
+        // If text is a single word or very short phrase (less than 20 chars)
+        // use it directly without showing options
+        if (selectedText.length < 20 && !selectedText.includes('.') && !selectedText.includes('\n')) {
+            // Clean the text by removing leading dashes/hyphens and whitespace
+            const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
+            dispatch(setText(cleanedText));
             return;
         }
         
         setTextAnalysisLoader(true);
         
         try {
-            // Предложим несколько вариантов использования выделенного текста
-            let options: string[] = [];
+            // Extract words more intelligently
+            // Use a regex that properly separates words while preserving their form
+            // This regex splits by spaces and punctuation but keeps the words intact
+            const wordRegex = /[a-zA-Z\u00C0-\u017F]+(?:'[a-zA-Z\u00C0-\u017F]+)*/g;
+            const extractedWords = selectedText.match(wordRegex) || [];
             
-            // 1. Полный текст как есть
-            options.push(selectedText);
-            
-            // 2. Если похоже на предложение (заканчивается точкой, содержит глагол и т.д.)
-            if (selectedText.match(/[.!?]$/) || selectedText.length > 30) {
-                // Оставляем полное предложение в опциях
-            } else {
-                // 3. Каждое отдельное слово длиннее 3 символов
-                words.forEach(word => {
-                    if (word.length > 3 && !options.includes(word)) {
-                        options.push(word);
-                    }
-                });
+            // Filter and clean words
+            let words = extractedWords
+                .filter(word => word.length > 3)  // Only words longer than 3 chars
+                .filter(word => !['the', 'and', 'that', 'this', 'with', 'from', 'have', 'are', 'for'].includes(word.toLowerCase()))  // Filter common stop words
+                .map(word => word.trim())
+                .filter(Boolean);
                 
-                // 4. Если 2-3 слова, то можно предложить их как фразу
-                if (words.length >= 2 && words.length <= 3) {
-                    options.push(words.join(' '));
-                }
-            }
+            // Limit to unique words to prevent duplicates
+            words = Array.from(new Set(words));
             
-            // 5. Если выделенный текст длинный, попробуем использовать AI для выделения ключевых слов
-            if (selectedText.length > 50 && apiKey) {
+            // Initialize array of options to present to the user
+            let options: string[] = [];
+            let phrasesExtracted = false;
+            
+            // For longer texts (>100 chars), rely primarily on AI extraction
+            if (selectedText.length > 100 && apiKey) {
                 try {
-                    // Простой запрос к AI для выделения ключевых слов и фраз
+                    setTextAnalysisLoader(true);
+                    // Prioritize AI extraction for longer text
                     const response = await aiService.extractKeyTerms(apiKey, selectedText);
                     
                     if (response && response.length > 0) {
-                        // Добавить ключевые термины в опции, если их нет
-                        response.forEach((term: string) => {
-                            if (!options.includes(term)) {
-                                options.push(term);
+                        // Take up to 7 AI-selected terms for longer texts
+                        const aiTerms = response.slice(0, 7);
+                        
+                        aiTerms.forEach((term: string) => {
+                            // Clean each term by removing leading dashes/hyphens
+                            const cleanedTerm = term.replace(/^[-–—•\s]+/, '').trim();
+                            if (!options.includes(cleanedTerm)) {
+                                options.push(cleanedTerm);
                             }
                         });
+                        
+                        phrasesExtracted = true;
                     }
                 } catch (e) {
                     console.error("Failed to extract key terms with AI", e);
                 }
             }
             
-            // Удалить дубликаты и слишком короткие варианты
-            options = Array.from(new Set(options)).filter(opt => opt.length > 2);
+            // For medium-length selections, try to extract meaningful phrases
+            if (!phrasesExtracted && selectedText.length > 30 && selectedText.length <= 200) {
+                // Split text into sentences
+                const sentences = selectedText.split(/[.!?]+/).filter(s => s.trim().length > 0);
+                
+                // For each short sentence or segment, add as potential phrase
+                sentences.forEach(sentence => {
+                    const trimmed = sentence.trim();
+                    // Only add reasonably sized phrases (2-8 words) and clean them
+                    if (trimmed.length > 10 && trimmed.length < 80 && 
+                        trimmed.split(/\s+/).length >= 2 && 
+                        trimmed.split(/\s+/).length <= 8) {
+                        // Clean the phrase by removing leading dashes/hyphens
+                        const cleanedPhrase = trimmed.replace(/^[-–—•\s]+/, '').trim();
+                        options.push(cleanedPhrase);
+                    }
+                });
+            }
             
-            // Если нашли варианты, показываем модальное окно выбора
-            if (options.length > 1) {
+            // Add individual important words if we don't have many options yet
+            if (options.length < 5) {
+                // Find potentially important words (longer words are often more significant)
+                const importantWords = words
+                    .filter(word => word.length > 5)  // Prefer longer words
+                    .slice(0, 5);  // Limit to 5 important words
+                    
+                importantWords.forEach(word => {
+                    // Clean the word by removing leading dashes/hyphens
+                    const cleanedWord = word.replace(/^[-–—•\s]+/, '').trim();
+                    if (!options.includes(cleanedWord)) {
+                        options.push(cleanedWord);
+                    }
+                });
+            }
+            
+            // Find potential multi-word terms (2-3 words together)
+            if (options.length < 7) {
+                const wordsArray = selectedText.split(/\s+/);
+                
+                if (wordsArray.length >= 2) {
+                    for (let i = 0; i < wordsArray.length - 1; i++) {
+                        // Get potential 2-word phrases
+                        if (wordsArray[i].length > 3 && wordsArray[i+1].length > 3) {
+                            let twoWordPhrase = `${wordsArray[i]} ${wordsArray[i+1]}`.trim();
+                            // Clean the phrase by removing leading dashes/hyphens
+                            twoWordPhrase = twoWordPhrase.replace(/^[-–—•\s]+/, '').trim();
+                            if (twoWordPhrase.length > 7 && !options.includes(twoWordPhrase)) {
+                                options.push(twoWordPhrase);
+                            }
+                        }
+                        
+                        // Get potential 3-word phrases
+                        if (i < wordsArray.length - 2 && 
+                            wordsArray[i].length > 2 && 
+                            wordsArray[i+1].length > 2 && 
+                            wordsArray[i+2].length > 2) {
+                            let threeWordPhrase = `${wordsArray[i]} ${wordsArray[i+1]} ${wordsArray[i+2]}`.trim();
+                            // Clean the phrase by removing leading dashes/hyphens
+                            threeWordPhrase = threeWordPhrase.replace(/^[-–—•\s]+/, '').trim();
+                            if (threeWordPhrase.length > 10 && !options.includes(threeWordPhrase)) {
+                                options.push(threeWordPhrase);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Also process the original selected text for list items
+            // Extract items that might be in list format (starting with dash, bullet, etc)
+            const listItemRegex = /(?:^|\n)[-–—•*]\s*(.*?)(?=\n[-–—•*]|\n\n|$)/g;
+            let match;
+            const listRegexString = selectedText.toString(); // Ensure it's a string
+            while ((match = listItemRegex.exec(listRegexString)) !== null) {
+                if (match[1] && match[1].trim().length > 3) {
+                    const cleanedItem = match[1].trim();
+                    if (!options.includes(cleanedItem)) {
+                        options.push(cleanedItem);
+                    }
+                }
+            }
+            
+            // Final cleanup and limiting
+            options = Array.from(new Set(options))
+                .filter(opt => opt.length > 2)
+                .map(opt => opt.replace(/^[-–—•\s]+/, '').trim()) // One final cleaning pass
+                .slice(0, 8);  // Limit to max 8 options for better UX
+            
+            // If we have options, show selection modal
+            if (options.length > 0) {
                 setSelectedTextOptions(options);
                 setShowTextOptionsModal(true);
             } else {
-                // Если вариант только один, используем его
-                dispatch(setText(selectedText));
+                // If no good options extracted, use the original selected text
+                // but only if it's not too long
+                if (selectedText.length > 500) {
+                    // Too long, extract first sentence or first 100 chars
+                    const firstSentence = selectedText.split(/[.!?]/)[0];
+                    if (firstSentence && firstSentence.length < 100) {
+                        const cleanedSentence = firstSentence.replace(/^[-–—•\s]+/, '').trim();
+                        dispatch(setText(cleanedSentence + '.'));
+                    } else {
+                        const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
+                        dispatch(setText(cleanedText.substring(0, 100).trim() + '...'));
+                    }
+                } else {
+                    const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
+                    dispatch(setText(cleanedText));
+                }
             }
         } catch (e) {
             console.error("Error analyzing text", e);
-            // В случае ошибки, просто используем выделенный текст
-            dispatch(setText(selectedText));
+            // In case of error, use the original selected text but clean it
+            const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
+            dispatch(setText(cleanedText));
         } finally {
             setTextAnalysisLoader(false);
         }
     };
     
-    // Обновляем renderTextOptionsModal с поддержкой множественного выбора
+    // Обновляем renderTextOptionsModal с улучшенным UI/UX
     const renderTextOptionsModal = () => {
         if (!showTextOptionsModal) return null;
+        
+        // Calculate how many options are selected
+        const selectedCount = Object.values(selectedOptionsMap).filter(Boolean).length;
         
         return (
             <div style={{
@@ -1758,7 +1864,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 <div style={{
                     backgroundColor: '#ffffff',
                     borderRadius: '12px',
-                    maxWidth: '340px',
+                    maxWidth: '360px',
                     width: '100%',
                     maxHeight: '90vh',
                     overflowY: 'auto',
@@ -1788,7 +1894,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             gap: '8px'
                         }}>
                             <FaFont size={14} color="#2563EB" />
-                            Выберите текст для карточек
+                            Select Terms for Cards
                         </h3>
                         <button 
                             onClick={() => setShowTextOptionsModal(false)}
@@ -1811,20 +1917,97 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         </button>
                     </div>
                     
-                    <p style={{
-                        fontSize: '14px',
-                        color: '#4B5563',
-                        marginBottom: '12px',
-                        lineHeight: '1.4'
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '14px'
                     }}>
-                        Выберите один или несколько вариантов для создания карточек:
-                    </p>
+                        <p style={{
+                            fontSize: '14px',
+                            color: '#4B5563',
+                            margin: 0,
+                            lineHeight: '1.4'
+                        }}>
+                            Found {selectedTextOptions.length} key terms
+                        </p>
+                        
+                        {selectedCount > 0 && (
+                            <span style={{
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                color: '#2563EB',
+                                padding: '3px 8px',
+                                backgroundColor: '#EFF6FF',
+                                borderRadius: '6px'
+                            }}>
+                                {selectedCount} selected
+                            </span>
+                        )}
+                    </div>
+                    
+                    {/* Option to select/deselect all */}
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '6px 4px',
+                        marginBottom: '12px'
+                    }}>
+                        <button
+                            onClick={() => {
+                                // Select all if none or some are selected, otherwise deselect all
+                                const shouldSelectAll = selectedCount < selectedTextOptions.length;
+                                const newMap: Record<string, boolean> = {};
+                                selectedTextOptions.forEach(option => {
+                                    newMap[option] = shouldSelectAll;
+                                });
+                                setSelectedOptionsMap(newMap);
+                            }}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                fontSize: '13px',
+                                background: 'none',
+                                border: 'none',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                color: '#4B5563',
+                                cursor: 'pointer'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
+                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                            {selectedCount === selectedTextOptions.length ? (
+                                <>
+                                    <span style={{ fontSize: '13px' }}>✓</span> Deselect all
+                                </>
+                            ) : (
+                                <>
+                                    <span style={{ fontSize: '13px' }}>☐</span> Select all
+                                </>
+                            )}
+                        </button>
+                        
+                        <span style={{
+                            fontSize: '12px',
+                            color: '#6B7280',
+                            fontStyle: 'italic'
+                        }}>
+                            Tap to select
+                        </span>
+                    </div>
                     
                     <div style={{
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '8px',
-                        marginBottom: '16px'
+                        marginBottom: '16px',
+                        maxHeight: '300px',
+                        overflowY: 'auto',
+                        padding: '4px',
+                        listStyle: 'none'
                     }}>
                         {textAnalysisLoader ? (
                             <div style={{ 
@@ -1832,7 +2015,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 justifyContent: 'center', 
                                 padding: '20px' 
                             }}>
-                                <Loader type="pulse" size="small" color="#4F46E5" text="Анализируем текст..." />
+                                <Loader type="pulse" size="small" color="#4F46E5" text="Analyzing selected text..." />
                             </div>
                         ) : (
                             selectedTextOptions.map((option, index) => (
@@ -1847,6 +2030,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         borderRadius: '8px',
                                         cursor: 'pointer',
                                         transition: 'all 0.2s ease',
+                                        position: 'relative',
+                                        listStyleType: 'none'
                                     }}
                                     onClick={() => handleTextOptionSelect(option)}
                                 >
@@ -1858,28 +2043,42 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                             marginRight: '12px',
                                             width: '16px',
                                             height: '16px',
-                                            accentColor: '#2563EB'
+                                            accentColor: '#2563EB',
+                                            minWidth: '16px'
                                         }}
+                                        id={`option-${index}`}
                                     />
-                                    <div style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        fontSize: '14px',
-                                        color: '#374151',
-                                        flex: 1
+                                    <span 
+                                        style={{
+                                            fontSize: '14px',
+                                            color: '#374151',
+                                            flex: 1,
+                                            cursor: 'pointer',
+                                            wordBreak: 'break-word',
+                                            textAlign: 'left',
+                                            paddingLeft: '0',
+                                            marginLeft: '0',
+                                            display: 'inline-block'
+                                        }}
+                                    >
+                                        {/* Clean any leading hyphens or dashes that might be in the text */}
+                                        {option.replace(/^[-–—•\s]+/, '')}
+                                    </span>
+                                    
+                                    {/* Word length indicator tag */}
+                                    <span style={{
+                                        position: 'absolute',
+                                        right: '10px',
+                                        top: '10px',
+                                        fontSize: '10px',
+                                        padding: '2px 6px',
+                                        borderRadius: '10px',
+                                        backgroundColor: option.split(/\s+/).length > 1 ? '#DBEAFE' : '#F3F4F6',
+                                        color: option.split(/\s+/).length > 1 ? '#1E40AF' : '#6B7280',
+                                        fontWeight: option.split(/\s+/).length > 1 ? '500' : 'normal'
                                     }}>
-                                        {option.length > 30 ? (
-                                            <FaList size={14} color="#2563EB" />
-                                        ) : option.includes(' ') ? (
-                                            <FaList size={14} color="#2563EB" />
-                                        ) : (
-                                            <FaFont size={14} color="#2563EB" />
-                                        )}
-                                        <span style={{ wordBreak: 'break-word' }}>
-                                            {option.length > 60 ? option.substring(0, 57) + '...' : option}
-                                        </span>
-                                    </div>
+                                        {option.split(/\s+/).length > 1 ? 'phrase' : 'word'}
+                                    </span>
                                 </div>
                             ))
                         )}
@@ -1894,10 +2093,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             onClick={() => setShowTextOptionsModal(false)}
                             style={{
                                 flex: '1',
-                                padding: '8px 12px',
-                                backgroundColor: '#EFF6FF',
-                                color: '#2563EB',
-                                border: '1px solid #BFDBFE',
+                                padding: '10px 12px',
+                                backgroundColor: '#F9FAFB',
+                                color: '#4B5563',
+                                border: '1px solid #E5E7EB',
                                 borderRadius: '6px',
                                 fontSize: '14px',
                                 fontWeight: 500,
@@ -1905,37 +2104,47 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 transition: 'all 0.2s ease'
                             }}
                             onMouseOver={(e) => {
-                                e.currentTarget.style.backgroundColor = '#DBEAFE';
+                                e.currentTarget.style.backgroundColor = '#F3F4F6';
                             }}
                             onMouseOut={(e) => {
-                                e.currentTarget.style.backgroundColor = '#EFF6FF';
+                                e.currentTarget.style.backgroundColor = '#F9FAFB';
                             }}
                         >
-                            Отмена
+                            Cancel
                         </button>
                         
                         <button
                             onClick={createCardsFromSelectedOptions}
+                            disabled={selectedCount === 0}
                             style={{
                                 flex: '2',
-                                padding: '8px 12px',
-                                backgroundColor: '#2563EB',
-                                color: '#FFFFFF',
+                                padding: '10px 12px',
+                                backgroundColor: selectedCount === 0 ? '#E5E7EB' : '#2563EB',
+                                color: selectedCount === 0 ? '#9CA3AF' : '#FFFFFF',
                                 border: 'none',
                                 borderRadius: '6px',
                                 fontSize: '14px',
                                 fontWeight: 500,
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease'
+                                cursor: selectedCount === 0 ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s ease',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
                             }}
                             onMouseOver={(e) => {
-                                e.currentTarget.style.backgroundColor = '#1D4ED8';
+                                if (selectedCount > 0) {
+                                    e.currentTarget.style.backgroundColor = '#1D4ED8';
+                                }
                             }}
                             onMouseOut={(e) => {
-                                e.currentTarget.style.backgroundColor = '#2563EB';
+                                if (selectedCount > 0) {
+                                    e.currentTarget.style.backgroundColor = '#2563EB';
+                                }
                             }}
                         >
-                            Создать карточки
+                            <FaList size={14} />
+                            Create {selectedCount > 0 ? `${selectedCount} Card${selectedCount > 1 ? 's' : ''}` : 'Cards'}
                         </button>
                     </div>
                 </div>
@@ -2001,7 +2210,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     gap: '20px',
                     padding: '0 20px'
                 }}>
-                    <Loader type="pulse" size="medium" color="#3B82F6" text="Анализируем выделенный текст..." />
+                    <Loader type="pulse" size="medium" color="#3B82F6" text="Analyzing selected text..." />
                 </div>
             )}
             <div style={{
