@@ -2152,6 +2152,360 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         );
     };
     
+    // Расширенный список языков с флагами и локализованными названиями
+    const allLanguages = [
+        { code: 'ru', name: 'Русский', flag: '🇷🇺', englishName: 'Russian' },
+        { code: 'en', name: 'English', flag: '🇬🇧', englishName: 'English' },
+        { code: 'es', name: 'Español', flag: '🇪🇸', englishName: 'Spanish' },
+        { code: 'fr', name: 'Français', flag: '🇫🇷', englishName: 'French' },
+        { code: 'de', name: 'Deutsch', flag: '🇩🇪', englishName: 'German' },
+        { code: 'it', name: 'Italiano', flag: '🇮🇹', englishName: 'Italian' },
+        { code: 'pt', name: 'Português', flag: '🇵🇹', englishName: 'Portuguese' },
+        { code: 'ja', name: '日本語', flag: '🇯🇵', englishName: 'Japanese' },
+        { code: 'ko', name: '한국어', flag: '🇰🇷', englishName: 'Korean' },
+        { code: 'zh', name: '中文', flag: '🇨🇳', englishName: 'Chinese' },
+        { code: 'ar', name: 'العربية', flag: '🇦🇪', englishName: 'Arabic' },
+        { code: 'hi', name: 'हिंदी', flag: '🇮🇳', englishName: 'Hindi' },
+        { code: 'bn', name: 'বাংলা', flag: '🇧🇩', englishName: 'Bengali' },
+        { code: 'tr', name: 'Türkçe', flag: '🇹🇷', englishName: 'Turkish' },
+        { code: 'pl', name: 'Polski', flag: '🇵🇱', englishName: 'Polish' },
+        { code: 'nl', name: 'Nederlands', flag: '🇳🇱', englishName: 'Dutch' },
+        { code: 'cs', name: 'Čeština', flag: '🇨🇿', englishName: 'Czech' },
+        { code: 'sv', name: 'Svenska', flag: '🇸🇪', englishName: 'Swedish' },
+        { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳', englishName: 'Vietnamese' },
+        { code: 'th', name: 'ภาษาไทย', flag: '🇹🇭', englishName: 'Thai' },
+        { code: 'he', name: 'עִבְרִית', flag: '🇮🇱', englishName: 'Hebrew' },
+        { code: 'id', name: 'Bahasa Indonesia', flag: '🇮🇩', englishName: 'Indonesian' },
+        { code: 'uk', name: 'Українська', flag: '🇺🇦', englishName: 'Ukrainian' },
+        { code: 'el', name: 'Ελληνικά', flag: '🇬🇷', englishName: 'Greek' },
+        { code: 'ro', name: 'Română', flag: '🇷🇴', englishName: 'Romanian' },
+        { code: 'hu', name: 'Magyar', flag: '🇭🇺', englishName: 'Hungarian' },
+        { code: 'fi', name: 'Suomi', flag: '🇫🇮', englishName: 'Finnish' },
+        { code: 'da', name: 'Dansk', flag: '🇩🇰', englishName: 'Danish' },
+        { code: 'no', name: 'Norsk', flag: '🇳🇴', englishName: 'Norwegian' },
+        { code: 'sk', name: 'Slovenčina', flag: '🇸🇰', englishName: 'Slovak' },
+        { code: 'lt', name: 'Lietuvių', flag: '🇱🇹', englishName: 'Lithuanian' },
+        { code: 'lv', name: 'Latviešu', flag: '🇱🇻', englishName: 'Latvian' },
+        { code: 'bg', name: 'Български', flag: '🇧🇬', englishName: 'Bulgarian' },
+        { code: 'hr', name: 'Hrvatski', flag: '🇭🇷', englishName: 'Croatian' },
+        { code: 'sr', name: 'Српски', flag: '🇷🇸', englishName: 'Serbian' },
+        { code: 'et', name: 'Eesti', flag: '🇪🇪', englishName: 'Estonian' },
+        { code: 'sl', name: 'Slovenščina', flag: '🇸🇮', englishName: 'Slovenian' },
+    ];
+
+    // Состояние для модального окна выбора языка
+    const [showLanguageSelector, setShowLanguageSelector] = useState(false);
+    const [languageSearch, setLanguageSearch] = useState('');
+
+    // Фильтрация языков по поисковому запросу
+    const filteredLanguages = useMemo(() => {
+        if (!languageSearch) return allLanguages;
+        const search = languageSearch.toLowerCase();
+        return allLanguages.filter(lang => 
+            lang.name.toLowerCase().includes(search) || 
+            lang.englishName.toLowerCase().includes(search) ||
+            lang.code.toLowerCase().includes(search)
+        );
+    }, [languageSearch]);
+
+    // Получение данных о текущем языке
+    const currentLanguage = useMemo(() => {
+        return allLanguages.find(lang => lang.code === translateToLanguage) || allLanguages[0];
+    }, [translateToLanguage]);
+
+    // Компонент выбора языка
+    const renderLanguageSelector = () => {
+        // Если модальное окно не открыто, показываем кнопку выбора
+        if (!showLanguageSelector) {
+            return (
+                <div style={{
+                    position: 'relative',
+                    width: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                }}>
+                    <label style={{
+                        color: '#111827',
+                        fontWeight: '600',
+                        fontSize: '14px',
+                        margin: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}>
+                        Your Language
+                        <span style={{ 
+                            fontSize: '12px', 
+                            color: '#6B7280', 
+                            fontWeight: 'normal',
+                            fontStyle: 'italic'
+                        }}>
+                            (UI & translations)
+                        </span>
+                    </label>
+                    <button
+                        onClick={() => setShowLanguageSelector(true)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            width: '100%',
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid #E5E7EB',
+                            backgroundColor: '#F9FAFB',
+                            color: '#374151',
+                            fontSize: '14px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            textAlign: 'left'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
+                    >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '18px' }}>{currentLanguage.flag}</span>
+                            <span>{currentLanguage.name}</span>
+                        </span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                            <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+                        </svg>
+                    </button>
+                </div>
+            );
+        }
+
+        // Если модальное окно открыто, показываем полный селектор языков
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                backdropFilter: 'blur(2px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                padding: '16px'
+            }} onClick={() => setShowLanguageSelector(false)}>
+                <div style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '12px',
+                    width: '90%',
+                    maxWidth: '360px',
+                    maxHeight: '80vh',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column'
+                }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{
+                        padding: '16px',
+                        borderBottom: '1px solid #E5E7EB',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '16px',
+                                fontWeight: 600,
+                                color: '#111827'
+                            }}>
+                                Select Your Language
+                            </h3>
+                            <button
+                                onClick={() => setShowLanguageSelector(false)}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '6px'
+                                }}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#6B7280" viewBox="0 0 16 16">
+                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div style={{
+                            position: 'relative',
+                            width: '100%'
+                        }}>
+                            <input
+                                type="text"
+                                value={languageSearch}
+                                onChange={(e) => setLanguageSearch(e.target.value)}
+                                placeholder="Search languages..."
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px 10px 36px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #E5E7EB',
+                                    backgroundColor: '#F9FAFB',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            />
+                            <svg 
+                                xmlns="http://www.w3.org/2000/svg" 
+                                width="16" 
+                                height="16" 
+                                fill="#9CA3AF" 
+                                viewBox="0 0 16 16"
+                                style={{
+                                    position: 'absolute',
+                                    left: '12px',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)'
+                                }}
+                            >
+                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                            </svg>
+                            {languageSearch && (
+                                <button
+                                    onClick={() => setLanguageSearch('')}
+                                    style={{
+                                        position: 'absolute',
+                                        right: '12px',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        borderRadius: '50%',
+                                        backgroundColor: '#E5E7EB'
+                                    }}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="#6B7280" viewBox="0 0 16 16">
+                                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                                    </svg>
+                                </button>
+                            )}
+                        </div>
+                        <p style={{
+                            margin: 0,
+                            fontSize: '12px',
+                            color: '#6B7280',
+                            lineHeight: 1.5
+                        }}>
+                            This will be used for both the interface language and translations. Your cards will be created in this language.
+                        </p>
+                    </div>
+                    <div style={{
+                        overflowY: 'auto',
+                        maxHeight: 'calc(80vh - 135px)',
+                        padding: '8px 0'
+                    }}>
+                        {filteredLanguages.length === 0 ? (
+                            <div style={{
+                                padding: '16px',
+                                textAlign: 'center',
+                                color: '#6B7280',
+                                fontSize: '14px'
+                            }}>
+                                No languages found matching "{languageSearch}"
+                            </div>
+                        ) : (
+                            filteredLanguages.map(language => (
+                                <button
+                                    key={language.code}
+                                    onClick={() => {
+                                        dispatch(setTranslateToLanguage(language.code));
+                                        setShowLanguageSelector(false);
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        width: '100%',
+                                        padding: '12px 16px',
+                                        backgroundColor: language.code === translateToLanguage ? '#EFF6FF' : 'transparent',
+                                        border: 'none',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        transition: 'background-color 0.2s'
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (language.code !== translateToLanguage) {
+                                            e.currentTarget.style.backgroundColor = '#F3F4F6';
+                                        }
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (language.code !== translateToLanguage) {
+                                            e.currentTarget.style.backgroundColor = 'transparent';
+                                        }
+                                    }}
+                                >
+                                    <span style={{ 
+                                        fontSize: '22px', 
+                                        marginRight: '12px',
+                                        width: '28px',
+                                        textAlign: 'center'
+                                    }}>
+                                        {language.flag}
+                                    </span>
+                                    <div style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'flex-start'
+                                    }}>
+                                        <span style={{ 
+                                            color: language.code === translateToLanguage ? '#2563EB' : '#111827',
+                                            fontWeight: language.code === translateToLanguage ? '600' : 'normal',
+                                            fontSize: '14px'
+                                        }}>
+                                            {language.name}
+                                        </span>
+                                        {language.englishName !== language.name && (
+                                            <span style={{ 
+                                                color: '#6B7280', 
+                                                fontSize: '12px'
+                                            }}>
+                                                {language.englishName}
+                                            </span>
+                                        )}
+                                    </div>
+                                    {language.code === translateToLanguage && (
+                                        <svg 
+                                            xmlns="http://www.w3.org/2000/svg" 
+                                            width="16" 
+                                            height="16" 
+                                            fill="#2563EB" 
+                                            viewBox="0 0 16 16"
+                                            style={{ marginLeft: 'auto' }}
+                                        >
+                                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
+                                        </svg>
+                                    )}
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+    
     return (
         <div style={{
             display: 'flex',
@@ -2243,45 +2597,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             width: '100%',
                             gap: '8px'
                         }}>
-                            <div style={{
-                                position: 'relative',
-                                width: '100%',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
-                            }}>
-                                <label htmlFor="language" style={{
-                                    color: '#111827',
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    margin: 0
-                                }}>Translate to:</label>
-                            </div>
-                            <select
-                                id="language"
-                                value={translateToLanguage}
-                                onChange={(e) => dispatch(setTranslateToLanguage(e.target.value))}
-                                style={{
-                                    width: '100%',
-                                    padding: '8px 12px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #E5E7EB',
-                                    backgroundColor: '#ffffff',
-                                    color: '#374151',
-                                    fontSize: '14px',
-                                    outline: 'none',
-                                    transition: 'all 0.2s ease',
-                                    cursor: 'pointer'
-                                }}
-                                onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-                            >
-                                {popularLanguages.map(({ code, name }) => (
-                                    <option key={code} value={code}>
-                                        {name}
-                                    </option>
-                                ))}
-                            </select>
+                            {/* Заменяем стандартный select на новый компонент выбора языка */}
+                            {renderLanguageSelector()}
+                            
                             <div style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -2443,6 +2761,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             {/* Add the modal */}
             {renderModal()}
+            
+            {/* Не забываем добавить модальное окно для выбора языка в список отображаемых модальных окон */}
+            {showLanguageSelector && renderLanguageSelector()}
         </div>
     );
 };
