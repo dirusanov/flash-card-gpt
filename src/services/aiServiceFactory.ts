@@ -145,7 +145,8 @@ export const createTranslation = async (
   apiKey: string,
   text: string,
   translateToLanguage: string,
-  customPrompt?: string
+  customPrompt?: string,
+  textLanguage?: string
 ): Promise<TranslationResult> => {
   try {
     if (!apiKey) {
@@ -181,7 +182,8 @@ export const createExamples = async (
   word: string,
   translateToLanguage: string,
   translate: boolean = false,
-  customPrompt?: string
+  customPrompt?: string,
+  textLanguage?: string
 ): Promise<ExampleItem[]> => {
   try {
     if (!apiKey) {

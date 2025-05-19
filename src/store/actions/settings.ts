@@ -13,6 +13,7 @@ export const SET_IMAGE_INSTRUCTIONS = 'SET_IMAGE_INSTRUCTIONS';
 export const SET_MODEL_PROVIDER = 'SET_MODEL_PROVIDER';
 export const SET_GROQ_API_KEY = 'SET_GROQ_API_KEY';
 export const SET_GROQ_MODEL_NAME = 'SET_GROQ_MODEL_NAME';
+export const SET_SOURCE_LANGUAGE = 'SET_SOURCE_LANGUAGE';
 
 export const setOpenAiKey = (openAiKey: string) => ({
     type: SET_OPEN_AI_KEY,
@@ -87,4 +88,9 @@ export const setGroqApiKey = (groqApiKey: string) => ({
 export const setGroqModelName = (modelName: string) => ({
     type: SET_GROQ_MODEL_NAME,
     payload: modelName,
+});
+
+export const setSourceLanguage = (language: string) => ({
+    type: SET_SOURCE_LANGUAGE,
+    payload: language,
 });

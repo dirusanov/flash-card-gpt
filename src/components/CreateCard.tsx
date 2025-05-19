@@ -8,14 +8,14 @@ import {setDeckId} from "../store/actions/decks";
 import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId} from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
-import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
+import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setSourceLanguage } from "../store/actions/settings";
 import {Modes} from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 import useErrorNotification from './useErrorHandler';
 import { setCurrentPage } from "../store/actions/page";
-import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont } from 'react-icons/fa';
+import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
@@ -279,9 +279,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     dispatch(setImage(imageBase64));
                 }
             } else if (customInstruction.toLowerCase().includes('example') || 
-                      customInstruction.toLowerCase().includes('sentence') || 
-                      customInstruction.toLowerCase().includes('пример') || 
-                      customInstruction.toLowerCase().includes('предложени')) {
+                customInstruction.toLowerCase().includes('sentence') || 
+                customInstruction.toLowerCase().includes('пример') || 
+                customInstruction.toLowerCase().includes('предложени')) {
                 
                 // Generate new examples based on instructions
                 const newExamples = await getExamples(openAiKey, text, translateToLanguage, true, customInstruction);
@@ -633,6 +633,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         e.preventDefault();
         if (!text.trim()) return;
         
+        // Установить флаг, что кнопка Create Card была нажата
+        setCreateCardClicked(true);
+        
         // IMPORTANT: Explicitly clear saved state when creating a new card
         setExplicitlySaved(false);
         localStorage.removeItem('explicitly_saved');
@@ -661,10 +664,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.log("API Key available:", Boolean(apiKey));
             console.log("Model Name (if Groq):", modelProvider === ModelProvider.Groq ? groqModelName : 'N/A');
             console.log("AI Service:", Object.keys(aiService));
+            console.log("Source Language:", isAutoDetectLanguage ? detectedLanguage : sourceLanguage);
             
             if (!apiKey) {
                 throw new Error(`API key for ${modelProvider} is missing. Please go to settings and add your API key.`);
             }
+            
+            // Определяем язык исходного текста для API запросов
+            const textLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
             
             // Track which operations completed successfully to give better error messages
             let completedOperations = {
@@ -680,8 +687,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     aiService, 
                     apiKey, 
                     text, 
-                    translateToLanguage, 
-                    aiInstructions
+                    translateToLanguage,
+                    aiInstructions,
+                    textLanguage || undefined // Передаем информацию о языке исходного текста или undefined
                 );
                 
                 if (translation.translated) {
@@ -701,7 +709,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     text, 
                     translateToLanguage, 
                     true, 
-                    aiInstructions
+                    aiInstructions,
+                    textLanguage || undefined // Преобразуем string | null в string | undefined
                 );
                 
                 if (examplesResult && examplesResult.length > 0) {
@@ -1450,12 +1459,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         apiKey, 
                         option, 
                         translateToLanguage, 
-                        aiInstructions
+                        aiInstructions,
+                        undefined // Передаем undefined как шестой параметр
                     );
                     
                     if (translation.translated) {
                         dispatch(setTranslation(translation.translated));
                     }
+                    
                     
                     // 2. Получаем примеры
                     const examplesResult = await createExamples(
@@ -1464,7 +1475,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         option, 
                         translateToLanguage, 
                         true, 
-                        aiInstructions
+                        aiInstructions,
+                        undefined // Передаем undefined как седьмой параметр
                     );
                     
                     if (examplesResult && examplesResult.length > 0) {
@@ -2506,6 +2518,586 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         );
     };
     
+    // Добавим состояние для изучаемого языка (язык исходного текста)
+    const [sourceLanguage, setSourceLanguage] = useState<string>('');
+    const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
+    const [isDetectingLanguage, setIsDetectingLanguage] = useState(false);
+    const [showSourceLanguageSelector, setShowSourceLanguageSelector] = useState(false);
+    const [sourceLanguageSearch, setSourceLanguageSearch] = useState('');
+    const [isAutoDetectLanguage, setIsAutoDetectLanguage] = useState(true);
+
+    // Фильтрация языков для изучаемого языка
+    const filteredSourceLanguages = useMemo(() => {
+        if (!sourceLanguageSearch) return allLanguages;
+        const search = sourceLanguageSearch.toLowerCase();
+        return allLanguages.filter(lang => 
+            lang.name.toLowerCase().includes(search) || 
+            lang.englishName.toLowerCase().includes(search) ||
+            lang.code.toLowerCase().includes(search)
+        );
+    }, [sourceLanguageSearch]);
+
+    // Получение данных о текущем изучаемом языке
+    const currentSourceLanguage = useMemo(() => {
+        if (sourceLanguage) {
+            return allLanguages.find(lang => lang.code === sourceLanguage) || null;
+        }
+        if (detectedLanguage) {
+            return allLanguages.find(lang => lang.code === detectedLanguage) || null;
+        }
+        return null;
+    }, [sourceLanguage, detectedLanguage]);
+
+    // Добавим состояние для отслеживания нажатия кнопки Create Card
+    const [createCardClicked, setCreateCardClicked] = useState(false);
+    
+    // Функция для автоматического определения языка
+    const detectLanguage = useCallback(async (text: string) => {
+        // Определяем язык, если есть текст
+        if (!text || text.trim().length < 2) return;
+        
+        setIsDetectingLanguage(true);
+        
+        try {
+            // Если у нас есть доступ к API OpenAI, используем его для определения языка
+            if (modelProvider === ModelProvider.OpenAI && openAiKey) {
+                const response = await openai.chat.completions.create({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        {
+                            role: "system",
+                            content: "You are a language detection assistant. Respond only with the ISO 639-1 language code."
+                        },
+                        {
+                            role: "user",
+                            content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
+                        }
+                    ],
+                    temperature: 0.3,
+                    max_tokens: 10
+                });
+                
+                const detectedCode = response.choices[0].message.content?.trim().toLowerCase();
+                
+                // Проверяем, является ли результат действительным языковым кодом
+                if (detectedCode && allLanguages.some(lang => lang.code === detectedCode)) {
+                    setDetectedLanguage(detectedCode);
+                    console.log("Language detected:", detectedCode);
+                    // Сбрасываем флаг нажатия кнопки, так как язык определен
+                    setCreateCardClicked(false);
+                    // Сохраняем в localStorage, что язык был определен
+                    localStorage.setItem('language_already_detected', 'true');
+                }
+            } else {
+                // Если OpenAI недоступен, используем более простую эвристику
+                // Это упрощенная версия, в реальном приложении можно использовать 
+                // библиотеки вроде franc.js или langdetect
+                const textSample = text.trim().toLowerCase().slice(0, 100);
+                
+                // Очень простая эвристика для популярных языков
+                const cyrillicPattern = /[а-яё]/gi;
+                const latinPattern = /[a-z]/gi;
+                const chinesePattern = /[\u4e00-\u9fff]/gi;
+                const japanesePattern = /[\u3040-\u309f\u30a0-\u30ff]/gi;
+                const koreanPattern = /[\uac00-\ud7af]/gi;
+                const arabicPattern = /[\u0600-\u06ff]/gi;
+                
+                if (cyrillicPattern.test(textSample)) {
+                    setDetectedLanguage('ru'); // По умолчанию русский для кириллицы
+                } else if (chinesePattern.test(textSample)) {
+                    setDetectedLanguage('zh');
+                } else if (japanesePattern.test(textSample)) {
+                    setDetectedLanguage('ja');
+                } else if (koreanPattern.test(textSample)) {
+                    setDetectedLanguage('ko');
+                } else if (arabicPattern.test(textSample)) {
+                    setDetectedLanguage('ar');
+                } else if (latinPattern.test(textSample)) {
+                    setDetectedLanguage('en'); // По умолчанию английский для латиницы
+                }
+                
+                // Сбрасываем флаг нажатия кнопки, так как язык определен
+                setCreateCardClicked(false);
+                // Сохраняем в localStorage, что язык был определен
+                localStorage.setItem('language_already_detected', 'true');
+            }
+        } catch (error) {
+            console.error("Error detecting language:", error);
+        } finally {
+            setIsDetectingLanguage(false);
+        }
+    }, [openai, openAiKey, modelProvider]);
+    
+    // Обновление определения языка при изменении текста
+    useEffect(() => {
+        // Проверяем, был ли язык уже определен ранее
+        const languageAlreadyDetected = localStorage.getItem('language_already_detected') === 'true';
+        
+        // Определяем язык только в следующих случаях:
+        // 1. Режим автоопределения включен
+        // 2. Есть текст для анализа
+        // 3. И ЛИБО это первый запуск (язык еще не определен), 
+        //    ЛИБО была нажата кнопка Create Card и язык не был определен
+        if (text && text.trim().length > 2 && isAutoDetectLanguage && 
+            ((!languageAlreadyDetected && !detectedLanguage) || createCardClicked)) {
+            
+            // Используем debounce, чтобы не определять язык при каждом нажатии клавиши
+            const timer = setTimeout(() => {
+                detectLanguage(text);
+            }, 500);
+            
+            return () => clearTimeout(timer);
+        }
+    }, [text, detectLanguage, isAutoDetectLanguage, detectedLanguage, createCardClicked]);
+
+    // Обработчик переключения между автоопределением и ручным выбором
+    const toggleAutoDetect = () => {
+        setIsAutoDetectLanguage(!isAutoDetectLanguage);
+        if (isAutoDetectLanguage) {
+            // Если выключаем автоопределение, устанавливаем изучаемый язык 
+            // на текущий определенный (если он есть)
+            if (detectedLanguage) {
+                setSourceLanguage(detectedLanguage);
+            }
+        } else {
+            // Если включаем автоопределение, сбрасываем ручной выбор
+            setSourceLanguage('');
+            if (text) {
+                // И заново определяем язык текста
+                detectLanguage(text);
+            }
+        }
+    };
+
+    // Компонент выбора изучаемого языка
+    const renderSourceLanguageSelector = () => {
+        // Если модальное окно не открыто, показываем кнопку выбора
+        if (!showSourceLanguageSelector) {
+            return (
+                <div style={{
+                    position: 'relative',
+                    width: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                }}>
+                    <div style={{
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        width: '100%'
+                    }}>
+                        <label style={{
+                            color: '#111827',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            margin: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}>
+                            <span>Source Language</span>
+                            <span style={{ 
+                                fontSize: '12px', 
+                                color: '#6B7280', 
+                                fontWeight: 'normal',
+                                fontStyle: 'italic'
+                            }}>
+                                (of your text)
+                            </span>
+                        </label>
+                        <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '8px' 
+                        }}>
+                            <span style={{
+                                fontSize: '12px',
+                                color: isAutoDetectLanguage ? '#10B981' : '#9CA3AF',
+                                transition: 'color 0.2s ease'
+                            }}>
+                                Auto
+                            </span>
+                            <button 
+                                onClick={toggleAutoDetect}
+                                style={{
+                                    width: '36px',
+                                    height: '20px',
+                                    backgroundColor: isAutoDetectLanguage ? '#10B981' : '#E5E7EB',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    position: 'relative',
+                                    cursor: 'pointer',
+                                    transition: 'background-color 0.2s ease'
+                                }}
+                            >
+                                <span style={{
+                                    position: 'absolute',
+                                    width: '16px',
+                                    height: '16px',
+                                    backgroundColor: 'white',
+                                    borderRadius: '50%',
+                                    top: '2px',
+                                    left: isAutoDetectLanguage ? '18px' : '2px',
+                                    transition: 'left 0.2s ease',
+                                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                                }}></span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button
+                        onClick={() => setShowSourceLanguageSelector(true)}
+                        disabled={isAutoDetectLanguage}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            width: '100%',
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid #E5E7EB',
+                            backgroundColor: isAutoDetectLanguage ? '#F3F4F6' : '#F9FAFB',
+                            color: '#374151',
+                            fontSize: '14px',
+                            cursor: isAutoDetectLanguage ? 'not-allowed' : 'pointer',
+                            opacity: isAutoDetectLanguage ? 0.7 : 1,
+                            transition: 'all 0.2s ease',
+                            textAlign: 'left'
+                        }}
+                        onMouseOver={(e) => !isAutoDetectLanguage && (e.currentTarget.style.backgroundColor = '#F3F4F6')}
+                        onMouseOut={(e) => !isAutoDetectLanguage && (e.currentTarget.style.backgroundColor = '#F9FAFB')}
+                    >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {isDetectingLanguage ? (
+                                <Loader type="pulse" size="small" inline color="#6B7280" />
+                            ) : currentSourceLanguage ? (
+                                <>
+                                    <span style={{ fontSize: '18px' }}>{currentSourceLanguage.flag}</span>
+                                    <span>{currentSourceLanguage.name}</span>
+                                    {isAutoDetectLanguage && (
+                                        <span style={{ 
+                                            fontSize: '12px', 
+                                            color: '#10B981', 
+                                            backgroundColor: '#ECFDF5',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            marginLeft: '4px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '3px'
+                                        }}>
+                                            <FaCheck size={10} />
+                                            <span>Detected</span>
+                                        </span>
+                                    )}
+                                </>
+                            ) : (
+                                <span style={{ color: '#9CA3AF' }}>
+                                    {isAutoDetectLanguage ? 'Detecting language...' : 'Select source language'}
+                                </span>
+                            )}
+                        </span>
+                        {!isAutoDetectLanguage && (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+                            </svg>
+                        )}
+                    </button>
+                    
+                    {/* Язык перевода */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '6px 8px',
+                        backgroundColor: '#F3F4F6',
+                        borderRadius: '6px',
+                        marginTop: '4px'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}>
+                            <span style={{ fontSize: '14px' }}>
+                                {currentSourceLanguage ? currentSourceLanguage.flag : '🌐'}
+                            </span>
+                            <FaExchangeAlt size={12} color="#6B7280" />
+                            <span style={{ fontSize: '14px' }}>{currentLanguage.flag}</span>
+                        </div>
+                        <span style={{ 
+                            fontSize: '12px', 
+                            color: '#4B5563'
+                        }}>
+                            Translating {currentSourceLanguage ? `from ${currentSourceLanguage.englishName}` : ''} to {currentLanguage.englishName}
+                        </span>
+                        {isAutoDetectLanguage && (
+                            <button
+                                onClick={() => {
+                                    // Сбрасываем флаг определения языка и повторно определяем
+                                    localStorage.removeItem('language_already_detected');
+                                    if (text) {
+                                        detectLanguage(text);
+                                    }
+                                }}
+                                title="Reset language detection"
+                                style={{
+                                    marginLeft: 'auto',
+                                    background: 'none',
+                                    border: 'none',
+                                    display: 'flex',
+                                    padding: '2px',
+                                    cursor: 'pointer',
+                                    color: '#6B7280'
+                                }}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Если модальное окно открыто, показываем полный селектор языков
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                backdropFilter: 'blur(2px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                padding: '16px'
+            }} onClick={() => setShowSourceLanguageSelector(false)}>
+                <div style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '12px',
+                    width: '90%',
+                    maxWidth: '360px',
+                    maxHeight: '80vh',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column'
+                }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{
+                        padding: '16px',
+                        borderBottom: '1px solid #E5E7EB',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '16px',
+                                fontWeight: 600,
+                                color: '#111827',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}>
+                                <FaLanguage color="#6366F1" size={18} />
+                                <span>Select Source Language</span>
+                            </h3>
+                            <button
+                                onClick={() => setShowSourceLanguageSelector(false)}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '6px'
+                                }}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#6B7280" viewBox="0 0 16 16">
+                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div style={{
+                            position: 'relative',
+                            width: '100%'
+                        }}>
+                            <input
+                                type="text"
+                                value={sourceLanguageSearch}
+                                onChange={(e) => setSourceLanguageSearch(e.target.value)}
+                                placeholder="Search languages..."
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px 10px 36px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #E5E7EB',
+                                    backgroundColor: '#F9FAFB',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            />
+                            <svg 
+                                xmlns="http://www.w3.org/2000/svg" 
+                                width="16" 
+                                height="16" 
+                                fill="#9CA3AF" 
+                                viewBox="0 0 16 16"
+                                style={{
+                                    position: 'absolute',
+                                    left: '12px',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)'
+                                }}
+                            >
+                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                            </svg>
+                            {sourceLanguageSearch && (
+                                <button
+                                    onClick={() => setSourceLanguageSearch('')}
+                                    style={{
+                                        position: 'absolute',
+                                        right: '12px',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        borderRadius: '50%',
+                                        backgroundColor: '#E5E7EB'
+                                    }}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="#6B7280" viewBox="0 0 16 16">
+                                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                                    </svg>
+                                </button>
+                            )}
+                        </div>
+                        <p style={{
+                            margin: 0,
+                            fontSize: '12px',
+                            color: '#6B7280',
+                            lineHeight: 1.5
+                        }}>
+                            Select the language of your text. This helps generate more accurate translations and examples.
+                        </p>
+                    </div>
+                    <div style={{
+                        overflowY: 'auto',
+                        maxHeight: 'calc(80vh - 135px)',
+                        padding: '8px 0'
+                    }}>
+                        {filteredSourceLanguages.length === 0 ? (
+                            <div style={{
+                                padding: '16px',
+                                textAlign: 'center',
+                                color: '#6B7280',
+                                fontSize: '14px'
+                            }}>
+                                No languages found matching "{sourceLanguageSearch}"
+                            </div>
+                        ) : (
+                            filteredSourceLanguages.map(language => (
+                                <button
+                                    key={language.code}
+                                    onClick={() => {
+                                        setSourceLanguage(language.code);
+                                        setShowSourceLanguageSelector(false);
+                                        setIsAutoDetectLanguage(false);
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        width: '100%',
+                                        padding: '12px 16px',
+                                        backgroundColor: language.code === sourceLanguage ? '#EFF6FF' : 'transparent',
+                                        border: 'none',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        transition: 'background-color 0.2s'
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (language.code !== sourceLanguage) {
+                                            e.currentTarget.style.backgroundColor = '#F3F4F6';
+                                        }
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (language.code !== sourceLanguage) {
+                                            e.currentTarget.style.backgroundColor = 'transparent';
+                                        }
+                                    }}
+                                >
+                                    <span style={{ 
+                                        fontSize: '22px', 
+                                        marginRight: '12px',
+                                        width: '28px',
+                                        textAlign: 'center'
+                                    }}>
+                                        {language.flag}
+                                    </span>
+                                    <div style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'flex-start'
+                                    }}>
+                                        <span style={{ 
+                                            color: language.code === sourceLanguage ? '#2563EB' : '#111827',
+                                            fontWeight: language.code === sourceLanguage ? '600' : 'normal',
+                                            fontSize: '14px'
+                                        }}>
+                                            {language.name}
+                                        </span>
+                                        {language.englishName !== language.name && (
+                                            <span style={{ 
+                                                color: '#6B7280', 
+                                                fontSize: '12px'
+                                            }}>
+                                                {language.englishName}
+                                            </span>
+                                        )}
+                                    </div>
+                                    {language.code === sourceLanguage && (
+                                        <svg 
+                                            xmlns="http://www.w3.org/2000/svg" 
+                                            width="16" 
+                                            height="16" 
+                                            fill="#2563EB" 
+                                            viewBox="0 0 16 16"
+                                            style={{ marginLeft: 'auto' }}
+                                        >
+                                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
+                                        </svg>
+                                    )}
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div style={{
             display: 'flex',
@@ -2597,8 +3189,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             width: '100%',
                             gap: '8px'
                         }}>
-                            {/* Заменяем стандартный select на новый компонент выбора языка */}
+                            {/* Компонент выбора языка интерфейса/перевода */}
                             {renderLanguageSelector()}
+                            
+                            {/* Добавляем компонент выбора изучаемого языка */}
+                            {renderSourceLanguageSelector()}
                             
                             <div style={{
                                 display: 'flex',
@@ -2761,6 +3356,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             {/* Add the modal */}
             {renderModal()}
+            
+            {/* Добавляем модальное окно для выбора изучаемого языка */}
+            {showSourceLanguageSelector && renderSourceLanguageSelector()}
             
             {/* Не забываем добавить модальное окно для выбора языка в список отображаемых модальных окон */}
             {showLanguageSelector && renderLanguageSelector()}

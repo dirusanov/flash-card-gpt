@@ -14,6 +14,7 @@ import {
     SET_MODEL_PROVIDER,
     SET_GROQ_API_KEY,
     SET_GROQ_MODEL_NAME,
+    SET_SOURCE_LANGUAGE
 } from "../actions/settings";
 import {Modes} from "../../constants";
 
@@ -39,6 +40,7 @@ interface SettingsState {
     aiInstructions: string
     imageInstructions: string
     modelProvider: ModelProvider
+    sourceLanguage: string
 }
 
 const initialState: SettingsState = {
@@ -56,7 +58,8 @@ const initialState: SettingsState = {
     examplesPrompt: '',
     aiInstructions: '',
     imageInstructions: '',
-    modelProvider: ModelProvider.OpenAI
+    modelProvider: ModelProvider.OpenAI,
+    sourceLanguage: 'en'
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {
@@ -135,6 +138,11 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 modelProvider: action.payload,
+            };
+        case SET_SOURCE_LANGUAGE:
+            return {
+                ...state,
+                sourceLanguage: action.payload,
             };
         default:
             return state;
