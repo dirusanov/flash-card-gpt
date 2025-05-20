@@ -18,6 +18,7 @@ export const SET_STORED_CARDS = 'SET_STORED_CARDS';
 export const UPDATE_CARD_EXPORT_STATUS = 'UPDATE_CARD_EXPORT_STATUS';
 export const UPDATE_STORED_CARD = 'UPDATE_STORED_CARD';
 export const SET_CURRENT_CARD_ID = 'SET_CURRENT_CARD_ID';
+export const SET_LINGUISTIC_INFO = 'SET_LINGUISTIC_INFO';
 
 export const saveAnkiCards = (
         mode: Modes, 
@@ -72,7 +73,7 @@ export const setText = (text: string) => ({
     payload: text,
 });
 
-export const setExamples = (examples: [string, string | null][]) => ({
+export const setExamples = (examples: Array<[string, string | null]>) => ({
     type: SET_EXAMPLES,
     payload: examples,
 });
@@ -82,15 +83,14 @@ export const setTranslation = (translation: string | null) => ({
     payload: translation,
 });
 
-
 export const setImage = (image: string | null) => ({
     type: SET_IMAGE,
     payload: image,
 });
 
-export const setImageUrl = (url: string | null) => ({
+export const setImageUrl = (imageUrl: string | null) => ({
     type: SET_IMAGE_URL,
-    payload: url,
+    payload: imageUrl,
 });
 
 export const setBack = (back: string | null) => ({
@@ -116,7 +116,12 @@ export const updateStoredCard = (updatedCard: StoredCard) => ({
     payload: updatedCard,
 });
 
-export const setCurrentCardId = (cardId: string | null) => ({
+export const setCurrentCardId = (id: string | null) => ({
     type: SET_CURRENT_CARD_ID,
-    payload: cardId,
+    payload: id,
+});
+
+export const setLinguisticInfo = (linguisticInfo: string) => ({
+    type: SET_LINGUISTIC_INFO,
+    payload: linguisticInfo,
 });

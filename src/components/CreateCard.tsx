@@ -5,7 +5,7 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import {RootState} from "../store";
 import {setDeckId} from "../store/actions/decks";
-import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId} from "../store/actions/cards";
+import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo} from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setSourceLanguage } from "../store/actions/settings";
@@ -19,7 +19,7 @@ import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, 
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
-import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard } from '../services/aiServiceFactory';
+import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo} from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
 
 
@@ -32,7 +32,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const deckId = useSelector((state: RootState) => state.deck.deckId);
 
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
-    const { text, translation, examples, image, imageUrl, front, back, currentCardId } = useSelector((state: RootState) => state.cards);
+    
+    // Helper function to update source language in Redux
+    const updateSourceLanguage = useCallback((language: string) => {
+        dispatch({ type: 'SET_SOURCE_LANGUAGE', payload: language });
+    }, [dispatch]);
+    
+    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo } = useSelector((state: RootState) => state.cards);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
@@ -281,7 +287,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             } else if (customInstruction.toLowerCase().includes('example') || 
                 customInstruction.toLowerCase().includes('sentence') || 
                 customInstruction.toLowerCase().includes('пример') || 
-                customInstruction.toLowerCase().includes('предложени')) {
+                customInstruction.toLowerCase().includes('предложение')) {
                 
                 // Generate new examples based on instructions
                 const newExamples = await getExamples(openAiKey, text, translateToLanguage, true, customInstruction);
@@ -376,7 +382,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 translation,
                 examples: examples.length,
                 mode,
-                currentCardId
+                currentCardId,
+                linguisticInfo: linguisticInfo ? 'present' : 'absent'
             });
             
             if (mode === Modes.LanguageLearning) {
@@ -396,6 +403,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     text: cardText,
                     translation,
                     examples,
+                    linguisticInfo, // Добавляем лингвистическое описание
                     // Only include image and imageUrl if they are explicitly defined for this card
                     // This prevents picking up values from the global Redux state
                     image: shouldGenerateImage ? image : null,
@@ -432,6 +440,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // или front в случае их отсутствия
                     back: translation || front,
                     text: cardText,
+                    linguisticInfo, // Добавляем лингвистическое описание
                     // Explicitly set image and imageUrl to null for general topic cards
                     // to prevent them from using global state values
                     image: null,
@@ -490,6 +499,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setExamples([]));
         dispatch(setImage(null));
         dispatch(setImageUrl(null));
+        dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
         setOriginalSelectedText('');
     };
 
@@ -678,7 +688,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 translation: false,
                 examples: false,
                 flashcard: false,
-                image: false
+                image: false,
+                linguisticInfo: false
             };
             
             try {
@@ -746,6 +757,52 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     showError(`Flashcard creation failed: ${flashcardError instanceof Error ? flashcardError.message : "Unknown error"}. Continuing with available data.`, 'warning');
                 } else {
                     throw new Error(`Flashcard creation failed: ${flashcardError instanceof Error ? flashcardError.message : "Unknown error"}`);
+                }
+            }
+            
+            try {
+                // 3.5 Создание лингвистической информации 
+                // Определяем язык источника: автоопределенный или выбранный вручную
+                const wordLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+                
+                console.log(`Generating linguistic info using source language: ${wordLanguage || 'unknown'} for text: "${text.substring(0, 20)}..."`);
+                
+                // Если есть язык источника - используем его
+                if (wordLanguage) {
+                    const linguisticInfo = await createLinguisticInfo(
+                        aiService,
+                        apiKey,
+                        text,
+                        wordLanguage
+                    );
+                    
+                    if (linguisticInfo) {
+                        console.log(`Successfully generated linguistic info for ${wordLanguage} language`);
+                        dispatch(setLinguisticInfo(linguisticInfo));
+                        completedOperations.linguisticInfo = true;
+                    } else {
+                        console.warn(`Empty linguistic info generated for ${wordLanguage} language`);
+                    }
+                } else {
+                    // Используем язык перевода как запасной вариант
+                    console.warn(`No source language detected. Using target language (${translateToLanguage}) as fallback`);
+                    const linguisticInfo = await createLinguisticInfo(
+                        aiService,
+                        apiKey,
+                        text,
+                        translateToLanguage
+                    );
+                    
+                    if (linguisticInfo) {
+                        dispatch(setLinguisticInfo(linguisticInfo));
+                        completedOperations.linguisticInfo = true;
+                    }
+                }
+            } catch (linguisticError) {
+                console.error('Linguistic info generation failed:', linguisticError);
+                // Это не критическая ошибка, продолжаем с доступными данными
+                if (completedOperations.translation) {
+                    console.log(`Linguistic info generation failed: ${linguisticError instanceof Error ? linguisticError.message : "Unknown error"}. Continuing with available data.`);
                 }
             }
             
@@ -1091,6 +1148,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setImageUrl(null));
         dispatch(setFront(''));
         dispatch(setBack(null));
+        dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
         setOriginalSelectedText('');
     };
 
@@ -1394,6 +1452,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         examples={examples}
                         imageUrl={imageUrl}
                         image={image}
+                        linguisticInfo={linguisticInfo} // Передаем лингвистическое описание
                         onNewImage={handleNewImage}
                         onNewExamples={handleNewExamples}
                         onAccept={handleAccept}
@@ -1407,6 +1466,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         isEdited={isEdited}
                         setTranslation={handleTranslationUpdate}
                         setExamples={handleExamplesUpdate}
+                        setLinguisticInfo={handleLinguisticInfoUpdate} // Передаем функцию обновления лингвистического описания
                     />
                 </div>
             </div>
@@ -1447,6 +1507,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 dispatch(setExamples([]));
                 dispatch(setImage(null));
                 dispatch(setImageUrl(null));
+                dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
                 
                 // Сброс статуса явного сохранения для предотвращения ложного отображения "Saved to Collection"
                 setExplicitlySaved(false);
@@ -1492,6 +1553,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         dispatch(setFront(flashcard.front));
                     }
                     
+                    // 3.5 Создаем лингвистическое описание
+                    const textLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+                    if (textLanguage) {
+                        const linguisticInfo = await createLinguisticInfo(
+                            aiService,
+                            apiKey,
+                            option,
+                            textLanguage
+                        );
+                        
+                        if (linguisticInfo) {
+                            dispatch(setLinguisticInfo(linguisticInfo));
+                        }
+                    }
+                    
                     // 4. Генерируем изображение, если нужно
                     if (shouldGenerateImage && modelProvider === ModelProvider.OpenAI) {
                         const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions);
@@ -1514,6 +1590,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         text: option,
                         translation: translation.translated || '',
                         examples: examplesResult.map(example => [example.original, example.translated]) as [string, string | null][],
+                        linguisticInfo: linguisticInfo || '', // Добавляем лингвистическое описание
                         front: flashcard.front || '',
                         back: translation.translated || '',
                         image: shouldGenerateImage ? image : null,
@@ -1564,6 +1641,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     
                     // Back может быть null, но не undefined
                     dispatch(setBack(currentCard.back === undefined ? null : currentCard.back));
+                    
+                    // LinguisticInfo может быть строкой или undefined
+                    dispatch(setLinguisticInfo(currentCard.linguisticInfo || ''));
                 }
                 
                 // Сброс статуса явного сохранения карточек
@@ -1627,6 +1707,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             // Back может быть null, но не undefined
             dispatch(setBack(card.back === undefined ? null : card.back));
+            
+            // LinguisticInfo может быть строкой или undefined
+            dispatch(setLinguisticInfo(card.linguisticInfo || ''));
         }
     };
     
@@ -1664,6 +1747,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             // Back может быть null, но не undefined
             dispatch(setBack(card.back === undefined ? null : card.back));
+            
+            // LinguisticInfo может быть строкой или undefined
+            dispatch(setLinguisticInfo(card.linguisticInfo || ''));
         }
     };
     
@@ -2587,6 +2673,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     setCreateCardClicked(false);
                     // Сохраняем в localStorage, что язык был определен
                     localStorage.setItem('language_already_detected', 'true');
+                    
+                    // Сохраняем определенный язык в Redux
+                    updateSourceLanguage(detectedCode);
                 }
             } else {
                 // Если OpenAI недоступен, используем более простую эвристику
@@ -2594,7 +2683,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // библиотеки вроде franc.js или langdetect
                 const textSample = text.trim().toLowerCase().slice(0, 100);
                 
-                // Очень простая эвристика для популярных языков
+                // Единый блок определения языка
                 const cyrillicPattern = /[а-яё]/gi;
                 const latinPattern = /[a-z]/gi;
                 const chinesePattern = /[\u4e00-\u9fff]/gi;
@@ -2602,31 +2691,59 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const koreanPattern = /[\uac00-\ud7af]/gi;
                 const arabicPattern = /[\u0600-\u06ff]/gi;
                 
+                // Паттерны для испанского языка
+                const spanishPattern = /[áéíóúüñ¿¡]/gi;
+                const spanishWords = ['hasta', 'desde', 'como', 'pero', 'porque', 'adonde', 'quien', 'para', 'por'];
+                
+                // Проверяем испанские слова
+                const isSpanishWord = spanishWords.some(word => 
+                    textSample === word || textSample.startsWith(word + ' ') || textSample.includes(' ' + word + ' ')
+                );
+                
+                // Определяем язык
+                let detectedLang = '';
+                
                 if (cyrillicPattern.test(textSample)) {
-                    setDetectedLanguage('ru'); // По умолчанию русский для кириллицы
+                    console.log("Detected Cyrillic script - setting Russian");
+                    detectedLang = 'ru';
                 } else if (chinesePattern.test(textSample)) {
-                    setDetectedLanguage('zh');
+                    console.log("Detected Chinese characters");
+                    detectedLang = 'zh';
                 } else if (japanesePattern.test(textSample)) {
-                    setDetectedLanguage('ja');
+                    console.log("Detected Japanese characters");
+                    detectedLang = 'ja';
                 } else if (koreanPattern.test(textSample)) {
-                    setDetectedLanguage('ko');
+                    console.log("Detected Korean characters");
+                    detectedLang = 'ko';
                 } else if (arabicPattern.test(textSample)) {
-                    setDetectedLanguage('ar');
+                    console.log("Detected Arabic script");
+                    detectedLang = 'ar';
+                } else if (spanishPattern.test(textSample) || isSpanishWord) {
+                    console.log("Detected Spanish text or common Spanish word");
+                    detectedLang = 'es';
                 } else if (latinPattern.test(textSample)) {
-                    setDetectedLanguage('en'); // По умолчанию английский для латиницы
+                    console.log("Detected Latin script, defaulting to English");
+                    detectedLang = 'en';
                 }
                 
-                // Сбрасываем флаг нажатия кнопки, так как язык определен
-                setCreateCardClicked(false);
-                // Сохраняем в localStorage, что язык был определен
-                localStorage.setItem('language_already_detected', 'true');
+                if (detectedLang) {
+                    setDetectedLanguage(detectedLang);
+                    
+                    // Сохраняем определенный язык в Redux
+                    updateSourceLanguage(detectedLang);
+                    
+                    // Сбрасываем флаг нажатия кнопки, так как язык определен
+                    setCreateCardClicked(false);
+                    // Сохраняем в localStorage, что язык был определен
+                    localStorage.setItem('language_already_detected', 'true');
+                }
             }
         } catch (error) {
             console.error("Error detecting language:", error);
         } finally {
             setIsDetectingLanguage(false);
         }
-    }, [openai, openAiKey, modelProvider]);
+    }, [openai, openAiKey, modelProvider, dispatch, allLanguages, updateSourceLanguage]);
     
     // Обновление определения языка при изменении текста
     useEffect(() => {
@@ -2648,7 +2765,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             return () => clearTimeout(timer);
         }
-    }, [text, detectLanguage, isAutoDetectLanguage, detectedLanguage, createCardClicked]);
+    }, [text, detectLanguage, isAutoDetectLanguage, detectedLanguage, createCardClicked, updateSourceLanguage]);
 
     // Обработчик переключения между автоопределением и ручным выбором
     const toggleAutoDetect = () => {
@@ -2657,11 +2774,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Если выключаем автоопределение, устанавливаем изучаемый язык 
             // на текущий определенный (если он есть)
             if (detectedLanguage) {
-                setSourceLanguage(detectedLanguage);
+                updateSourceLanguage(detectedLanguage);
             }
         } else {
             // Если включаем автоопределение, сбрасываем ручной выбор
-            setSourceLanguage('');
+            updateSourceLanguage('');
             if (text) {
                 // И заново определяем язык текста
                 detectLanguage(text);
@@ -3096,6 +3213,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 </div>
             </div>
         );
+    };
+
+    // Handler для обновления лингвистической информации
+    const handleLinguisticInfoUpdate = (newInfo: string) => {
+        dispatch(setLinguisticInfo(newInfo));
+        if (isSaved) {
+            setIsEdited(true);
+        }
     };
 
     return (

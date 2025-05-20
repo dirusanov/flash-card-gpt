@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { FaCheck, FaList, FaPen, FaTrash, FaPlus, FaTimes, FaEdit, FaSave } from 'react-icons/fa';
+import { FaCheck, FaList, FaPen, FaTrash, FaPlus, FaTimes, FaEdit, FaSave, FaSync, FaChevronDown, FaChevronUp, FaBook, FaInfoCircle } from 'react-icons/fa';
+import { FaLanguage, FaGraduationCap, FaBookOpen, FaQuoteRight, FaTags } from 'react-icons/fa';
 import { Modes } from "../constants";
 import Loader from './Loader';
 
@@ -9,6 +10,7 @@ interface ResultDisplayProps {
     examples: Array<[string, string | null]>;
     imageUrl: string | null;
     image: string | null;
+    linguisticInfo?: string;
     onNewImage: () => void;
     onNewExamples: () => void;
     onAccept: () => void;
@@ -23,6 +25,7 @@ interface ResultDisplayProps {
     isEdited?: boolean;
     setTranslation?: (translation: string) => void;
     setExamples?: (examples: Array<[string, string | null]>) => void;
+    setLinguisticInfo?: (info: string) => void;
 }
 
 const ResultDisplay: React.FC<ResultDisplayProps> = (
@@ -32,6 +35,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             examples, 
             imageUrl,
             image,
+            linguisticInfo,
             onNewImage, 
             onNewExamples, 
             onAccept,
@@ -45,13 +49,16 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             isSaved = false,
             isEdited = false,
             setTranslation,
-            setExamples
+            setExamples,
+            setLinguisticInfo
         }
     ) => {
     
     const [isEditingTranslation, setIsEditingTranslation] = useState(false);
     const [localTranslation, setLocalTranslation] = useState(translation || '');
     const [isEditMode, setIsEditMode] = useState(false);
+    const [expandedExamples, setExpandedExamples] = useState(true);
+    const [expandedLinguistics, setExpandedLinguistics] = useState(true);
 
     // Включить режим редактирования
     const enableEditMode = () => {
@@ -80,8 +87,8 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
         setLocalTranslation(translation || '');
     };
 
-    const saveTranslationEdit = () => {
-        if (setTranslation && localTranslation) {
+    const handleTranslationSave = () => {
+        if (setTranslation) {
             setTranslation(localTranslation);
         }
         setIsEditingTranslation(false);
@@ -234,6 +241,60 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
         );
     }
 
+    const [translationEditable, setTranslationEditable] = useState(false);
+    const [translationValue, setTranslationValue] = useState(translation || '');
+    
+    const handleTranslationChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setTranslationValue(e.target.value);
+    };
+
+    const handleTranslationCancel = () => {
+        setTranslationValue(translation || '');
+        setTranslationEditable(false);
+    };
+
+    const [editingExampleIndex, setEditingExampleIndex] = useState<number | null>(null);
+    const [editingExampleOriginal, setEditingExampleOriginal] = useState('');
+    const [editingExampleTranslated, setEditingExampleTranslated] = useState('');
+    
+    const startEditingExample = (index: number) => {
+        setEditingExampleIndex(index);
+        setEditingExampleOriginal(examples[index][0]);
+        setEditingExampleTranslated(examples[index][1] || '');
+    };
+
+    const cancelEditingExample = () => {
+        setEditingExampleIndex(null);
+    };
+
+    const saveEditingExample = () => {
+        if (editingExampleIndex !== null && setExamples) {
+            const newExamples = [...examples];
+            newExamples[editingExampleIndex] = [editingExampleOriginal, editingExampleTranslated];
+            setExamples(newExamples);
+            setEditingExampleIndex(null);
+        }
+    };
+
+    const [linguisticInfoEditable, setLinguisticInfoEditable] = useState(false);
+    const [linguisticInfoValue, setLinguisticInfoValue] = useState(linguisticInfo || '');
+    
+    const handleLinguisticInfoChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setLinguisticInfoValue(e.target.value);
+    };
+    
+    const handleLinguisticInfoSave = () => {
+        if (setLinguisticInfo) {
+            setLinguisticInfo(linguisticInfoValue);
+        }
+        setLinguisticInfoEditable(false);
+    };
+    
+    const handleLinguisticInfoCancel = () => {
+        setLinguisticInfoValue(linguisticInfo || '');
+        setLinguisticInfoEditable(false);
+    };
+
     return (
         <div style={{
             padding: '16px',
@@ -370,10 +431,10 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     textAlign: 'center',
                                 }}
                                 autoFocus
-                                onBlur={saveTranslationEdit}
+                                onBlur={handleTranslationSave}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
-                                        saveTranslationEdit();
+                                        handleTranslationSave();
                                     }
                                 }}
                             />
@@ -458,6 +519,145 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         </div>
                     )}
                 </>
+            )}
+            
+            {/* Лингвистическая справка сразу после перевода */}
+            {linguisticInfo && (
+                <div style={{
+                    marginTop: '12px',
+                    marginBottom: '16px',
+                    borderRadius: '10px',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+                    border: '1px solid',
+                    borderColor: expandedLinguistics ? '#BFDBFE' : '#E5E7EB',
+                    backgroundColor: expandedLinguistics ? '#EFF6FF' : '#F9FAFB',
+                    transition: 'all 0.3s ease',
+                    overflow: 'hidden'
+                }}>
+                    <div 
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '12px 16px',
+                            cursor: 'pointer',
+                            borderBottom: expandedLinguistics ? '1px solid #BFDBFE' : 'none',
+                            transition: 'background-color 0.2s'
+                        }}
+                        onClick={() => setExpandedLinguistics(!expandedLinguistics)}
+                    >
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            fontWeight: 600,
+                            fontSize: '14px',
+                            color: expandedLinguistics ? '#1D4ED8' : '#4B5563'
+                        }}>
+                            <FaGraduationCap size={16} color={expandedLinguistics ? '#2563EB' : '#6B7280'} />
+                            <span>Grammar & Linguistics</span>
+                        </div>
+                        <div>
+                            {expandedLinguistics ? 
+                                <FaChevronUp size={14} color="#6B7280" /> : 
+                                <FaChevronDown size={14} color="#6B7280" />
+                            }
+                        </div>
+                    </div>
+                    
+                    {expandedLinguistics && (
+                        <div style={{ padding: '16px' }}>
+                            {linguisticInfoEditable ? (
+                                <div style={{ width: '100%' }}>
+                                    <textarea
+                                        value={linguisticInfoValue}
+                                        onChange={handleLinguisticInfoChange}
+                                        style={{
+                                            width: '100%',
+                                            minHeight: '120px',
+                                            padding: '10px 12px',
+                                            borderRadius: '6px',
+                                            border: '1px solid #E5E7EB',
+                                            fontSize: '14px',
+                                            lineHeight: '1.5',
+                                            resize: 'vertical',
+                                            marginBottom: '8px'
+                                        }}
+                                    />
+                                    <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'flex-end',
+                                        gap: '8px'
+                                    }}>
+                                        <button
+                                            onClick={handleLinguisticInfoCancel}
+                                            style={{
+                                                padding: '6px 12px',
+                                                backgroundColor: '#F3F4F6',
+                                                color: '#4B5563',
+                                                border: '1px solid #E5E7EB',
+                                                borderRadius: '6px',
+                                                fontSize: '13px',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleLinguisticInfoSave}
+                                            style={{
+                                                padding: '6px 12px',
+                                                backgroundColor: '#2563EB',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '6px',
+                                                fontSize: '13px',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            Save
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{ position: 'relative' }}>
+                                    <div 
+                                        style={{
+                                            margin: 0,
+                                            fontSize: '14px',
+                                            color: '#1F2937',
+                                            lineHeight: '1.5',
+                                            fontWeight: 400
+                                        }}
+                                        dangerouslySetInnerHTML={{ __html: linguisticInfo || '' }}
+                                    />
+                                    {isEditMode && (
+                                        <button
+                                            onClick={() => setLinguisticInfoEditable(true)}
+                                            style={{
+                                                position: 'absolute',
+                                                top: '0',
+                                                right: '0',
+                                                background: 'none',
+                                                border: 'none',
+                                                color: '#3B82F6',
+                                                fontSize: '13px',
+                                                padding: '4px 8px',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px'
+                                            }}
+                                        >
+                                            <FaEdit size={12} />
+                                            Edit
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             )}
             
             {examples.length > 0 && (

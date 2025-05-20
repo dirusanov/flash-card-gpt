@@ -17,6 +17,11 @@ export interface ExampleItem {
   translated: string | null;
 }
 
+// Определяем интерфейс для лингвистической информации
+export interface LinguisticInfo {
+    info: string;
+}
+
 // Интерфейс для сервисов AI (обертка вокруг провайдеров)
 export interface AIService {
   translateText: (
@@ -240,4 +245,176 @@ export const createFlashcard = async (
       ? error 
       : new Error("Failed to create flashcard. Please check your API key and settings.");
   }
-}; 
+};
+
+// Создаем функцию для получения лингвистического описания
+export async function createLinguisticInfo(
+    aiService: any,
+    apiKey: string,
+    text: string,
+    sourceLanguage: string
+): Promise<string> {
+    console.log(`Creating linguistic info for word: "${text}", language: "${sourceLanguage}"`);
+    
+    try {
+        // Проверим наличие API ключа
+        if (!apiKey) {
+            console.error("API key is missing for linguistic info generation");
+            return "";
+        }
+        
+        // Проверим наличие aiService
+        if (!aiService) {
+            console.error("AI service is missing for linguistic info generation");
+            return "";
+        }
+        
+        // Проверим, имеет ли сервис AI метод для получения лингвистической информации
+        if (aiService.getLinguisticInfo) {
+            console.log("Using direct getLinguisticInfo method from AI service");
+            return await aiService.getLinguisticInfo(apiKey, text, sourceLanguage);
+        } else {
+            // Реализация по умолчанию через общий API сервис
+            console.log("Using standard completion API for linguistic info");
+            
+            // Формируем запрос с учетом особенностей языка
+            const prompt = createLinguisticPrompt(text, sourceLanguage);
+            console.log("Generated prompt for linguistic info:", prompt.substring(0, 100) + "...");
+            
+            // Проверим наличие метода createChatCompletion
+            if (!aiService.createChatCompletion) {
+                console.error("createChatCompletion method not available in AI service");
+                return "";
+            }
+            
+            // Отправляем запрос к API
+            const completion = await aiService.createChatCompletion(apiKey, [
+                {
+                    role: "system",
+                    content: prompt
+                },
+                {
+                    role: "user",
+                    content: `Provide linguistic information for: "${text}"`
+                }
+            ]);
+            
+            // Проверяем ответ
+            if (!completion || !completion.content) {
+                console.error("Linguistic info API returned empty response");
+                return "";
+            }
+            
+            console.log("Received linguistic info from API:", completion.content.substring(0, 100) + "...");
+            
+            // Возвращаем результат
+            return completion.content || "";
+        }
+    } catch (error) {
+        console.error("Error creating linguistic info:", error);
+        // Возвращаем HTML с сообщением об ошибке для отладки
+        return "<p style='color: #b91c1c;'>Failed to generate linguistic information. Please try again.</p>";
+    }
+}
+
+// Вспомогательная функция для создания промпта с учетом особенностей языка
+function createLinguisticPrompt(text: string, sourceLanguage: string): string {
+    // Базовый промпт
+    let basePrompt = `You are a linguistic expert specializing in providing concise linguistic information. 
+Create a short, useful linguistic description for the word or phrase.
+The output should be formatted as HTML with minimal styling (use <span>, <strong>, and simple classes).
+Keep the description short and focused on the most important linguistic features.
+`;
+
+    // Добавляем специфичные для языка инструкции
+    switch (sourceLanguage) {
+        case 'ru': // Русский
+            basePrompt += `For Russian words, include:
+- Part of speech (часть речи)
+- Gender for nouns (род)
+- Declension pattern or case information (склонение)
+- Aspect for verbs (вид глагола)
+- Conjugation for verbs when applicable (спряжение)`;
+            break;
+            
+        case 'en': // Английский
+            basePrompt += `For English words, include:
+- Part of speech
+- Irregular forms if applicable
+- Phrasal verb variations if applicable
+- Common usage patterns
+- British/American differences if notable`;
+            break;
+            
+        case 'de': // Немецкий
+            basePrompt += `For German words, include:
+- Part of speech
+- Gender for nouns (with article)
+- Declension pattern
+- Plural form for nouns
+- Strong/weak/mixed verb forms if applicable`;
+            break;
+            
+        case 'fr': // Французский
+            basePrompt += `For French words, include:
+- Part of speech
+- Gender for nouns (with article)
+- Conjugation pattern for verbs
+- Irregular forms if applicable
+- Pronunciation notes if tricky`;
+            break;
+            
+        case 'es': // Испанский
+            basePrompt += `For Spanish words, include:
+- Part of speech (e.g., adverb, preposition, noun, verb)
+- Gender for nouns with definite article (el/la)
+- For prepositions: common usage patterns and examples
+- For adverbs: usage context and common combinations
+- For verbs: conjugation pattern, tense forms (present, past, future)
+- For adjectives: gender inflection pattern
+- Include any special regional usage if applicable
+- Note any common expressions or phrases that use this word`;
+            break;
+            
+        case 'it': // Итальянский
+            basePrompt += `For Italian words, include:
+- Part of speech
+- Gender for nouns (with article)
+- Conjugation for verbs (regular/irregular)
+- Plural forms for nouns`;
+            break;
+            
+        case 'ja': // Японский
+            basePrompt += `For Japanese words, include:
+- Word type (名詞, 動詞, 形容詞, etc.)
+- Verb group for verbs
+- Kanji and reading (if applicable)
+- Formal/informal usage notes
+- Conjugation pattern for verbs`;
+            break;
+            
+        case 'zh': // Китайский
+            basePrompt += `For Chinese words, include:
+- Word type (noun, verb, etc.)
+- Measure word if a noun
+- Character composition notes
+- Common compounds
+- Usage context`;
+            break;
+            
+        default:
+            basePrompt += `Include:
+- Part of speech
+- Gender if applicable
+- Conjugation/declension if applicable
+- Common forms or variations
+- Usage notes`;
+    }
+    
+    basePrompt += `
+The output should be structured but concise (max 100 words).
+Focus on information a language learner would find most useful.
+Use clean, minimal HTML with no unnecessary styling.`;
+    
+    return basePrompt;
+} 

@@ -13,12 +13,13 @@ import {
     SET_STORED_CARDS,
     UPDATE_CARD_EXPORT_STATUS,
     UPDATE_STORED_CARD,
-    SET_CURRENT_CARD_ID
+    SET_CURRENT_CARD_ID,
+    SET_LINGUISTIC_INFO,
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
 import { Modes } from '../../constants';
 
-export type ExportStatus = 'not_exported' | 'exported_to_file' | 'exported_to_anki';
+export type ExportStatus = 'not_exported' | 'exported_to_file' | 'exported_to_anki' | 'exported' | 'failed';
 
 export interface StoredCard {
     id: string;
@@ -32,6 +33,7 @@ export interface StoredCard {
     imageUrl?: string | null;
     createdAt: Date;
     exportStatus: ExportStatus;
+    linguisticInfo?: string;
 }
 
 const initialState: CardState = {
@@ -46,7 +48,8 @@ const initialState: CardState = {
         error: undefined,
         back: null,
         front: "",
-        currentCardId: null
+        currentCardId: null,
+        linguisticInfo: ""
     },
 };
 
@@ -62,6 +65,7 @@ export interface CardState {
     back: string | null;
     front: string;
     currentCardId: string | null;
+    linguisticInfo: string;
 }
 
 const cardsReducer = (state = initialState, action: any): CardState => {
@@ -78,7 +82,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                     { ...action.payload, id: Date.now().toString() }),
                 image: action.payload.image !== undefined ? action.payload.image : null,
                 imageUrl: action.payload.imageUrl !== undefined ? action.payload.imageUrl : null,
-                exportStatus: action.payload.exportStatus || 'not_exported'
+                exportStatus: action.payload.exportStatus || 'not_exported',
+                linguisticInfo: action.payload.linguisticInfo || ""
             };
             
             const existingCard = state.storedCards.find(card => card.text === newCard.text);
@@ -115,7 +120,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                     card.id === action.payload.id
                         ? { 
                             ...action.payload,
-                            exportStatus: action.payload.exportStatus || card.exportStatus 
+                            exportStatus: action.payload.exportStatus || card.exportStatus,
+                            linguisticInfo: action.payload.linguisticInfo || card.linguisticInfo
                         }
                         : card
                 );
@@ -123,7 +129,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             } else {
                 newState.storedCards = [...state.storedCards, {
                     ...action.payload,
-                    exportStatus: action.payload.exportStatus || 'not_exported'
+                    exportStatus: action.payload.exportStatus || 'not_exported',
+                    linguisticInfo: action.payload.linguisticInfo || ""
                 }];
                 console.log('Added new card with ID:', action.payload.id);
             }
@@ -161,6 +168,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             return { ...state, front: action.payload };
         case SET_CURRENT_CARD_ID:
             return { ...state, currentCardId: action.payload };
+        case SET_LINGUISTIC_INFO:
+            return { ...state, linguisticInfo: action.payload };
         default:
             return state;
     }
