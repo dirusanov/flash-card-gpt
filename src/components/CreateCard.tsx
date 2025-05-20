@@ -35,7 +35,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     
     // Helper function to update source language in Redux
     const updateSourceLanguage = useCallback((language: string) => {
+        // Use direct action object instead of the action creator to fix type issues
         dispatch({ type: 'SET_SOURCE_LANGUAGE', payload: language });
+        // Also save to localStorage
+        localStorage.setItem('source_language', language);
     }, [dispatch]);
     
     const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo } = useSelector((state: RootState) => state.cards);
@@ -96,20 +99,37 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         [modelProvider, openAiKey, groqApiKey]
     );
     
-    // Derive isSaved from both currentCardId AND storage check
+    // Track which card IDs have been explicitly saved by the user
+    const [explicitlySavedIds, setExplicitlySavedIds] = useState<string[]>([]);
+    
+    // Derive isSaved from multiple checks and explicit user actions
     const isSaved = useMemo(() => {
-        console.log('Calculating isSaved:', { currentCardId, explicitlySaved });
+        console.log('Calculating isSaved:', { 
+            currentCardId, 
+            explicitlySaved,
+            isMultipleCards,
+            currentCardIndex,
+            createdCardsLength: createdCards.length,
+            explicitlySavedIds
+        });
         
-        // Only consider a card saved if it has been explicitly saved by the user in this session
+        // For multiple cards scenario - ONLY consider saved if user explicitly saved it
+        if (isMultipleCards && createdCards.length > 0) {
+            const currentCard = createdCards[currentCardIndex];
+            if (!currentCard) return false;
+            
+            // Only consider saved if it's in our explicitly saved list
+            return explicitlySavedIds.includes(currentCard.id);
+        }
+        
+        // For single card - only consider a card saved if it has been explicitly saved by the user
         if (currentCardId && explicitlySaved) {
             return true;
         }
         
-        // No longer automatically marking cards as saved just because text matches something in storage
-        // This was causing the "Saved to Collection" message to appear prematurely
-        
+        // Never automatically mark cards as saved just because they exist in storage
         return false;
-    }, [currentCardId, explicitlySaved]);
+    }, [currentCardId, explicitlySaved, isMultipleCards, currentCardIndex, createdCards, explicitlySavedIds]);
 
     // Add more detailed logging to debug the issue
     console.log('Card state details:', { 
@@ -368,11 +388,145 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     };
 
+    // Save All function for multiple cards
+    const handleSaveAllCards = async () => {
+        showError(null);
+        try {
+            setLoadingAccept(true);
+            
+            let successCount = 0;
+            let errorCount = 0;
+            
+            // Keep track of saved card IDs to update our explicit save tracking
+            const newExplicitlySavedIds: string[] = [...explicitlySavedIds];
+            
+            // Save each card in the createdCards array
+            for (let i = 0; i < createdCards.length; i++) {
+                const card = createdCards[i];
+                try {
+                    console.log('Saving card from multi-card set:', card.id);
+                    
+                    // Check if this card already exists in storage
+                    const existingCardIndex = storedCards.findIndex(
+                        (storedCard) => storedCard.id === card.id || 
+                                      (storedCard.text === card.text && storedCard.mode === card.mode)
+                    );
+                    
+                    if (existingCardIndex === -1) {
+                        // Card is not saved yet
+                        dispatch(saveCardToStorage(card));
+                        
+                        // Add to our explicitly saved IDs list if not already there
+                        if (!newExplicitlySavedIds.includes(card.id)) {
+                            newExplicitlySavedIds.push(card.id);
+                        }
+                        
+                        successCount++;
+                    } else {
+                        console.log('Card already saved, updating:', card.id);
+                        // Update existing card
+                        dispatch(updateStoredCard(card));
+                        
+                        // Add to our explicitly saved IDs list if not already there
+                        if (!newExplicitlySavedIds.includes(card.id)) {
+                            newExplicitlySavedIds.push(card.id);
+                        }
+                        
+                        successCount++;
+                    }
+                } catch (cardError) {
+                    console.error('Error saving individual card:', cardError);
+                    errorCount++;
+                }
+            }
+            
+            // Update our tracking of explicitly saved cards
+            setExplicitlySavedIds(newExplicitlySavedIds);
+            
+            // Ensure the current card is marked as explicitly saved
+            setExplicitlySaved(true);
+            localStorage.setItem('explicitly_saved', 'true');
+            
+            // Also update the currentCardId to match current card
+            const currentCard = createdCards[currentCardIndex];
+            if (currentCard && currentCard.id) {
+                dispatch(setCurrentCardId(currentCard.id));
+                localStorage.setItem('current_card_id', currentCard.id);
+            }
+            
+            // Show success message
+            if (errorCount === 0) {
+                showError(`All ${successCount} cards saved successfully!`, 'success');
+            } else {
+                showError(`Saved ${successCount} cards, ${errorCount} failed.`, 'warning');
+            }
+            
+            // Update UI
+            setIsEdited(false);
+            setIsNewSubmission(false);
+            
+            // Force Redux to refresh stored cards
+            dispatch(loadStoredCards());
+            
+        } catch (error) {
+            console.error('Error in save all cards operation:', error);
+            showError('Error saving cards. Please try again.');
+        } finally {
+            setLoadingAccept(false);
+        }
+    };
+    
     const handleAccept = async () => {
         showError(null);
         try {
             setLoadingAccept(true);
             
+            // Handle saving for multiple cards mode or single card mode
+            if (isMultipleCards && createdCards.length > 0) {
+                // If in multiple cards mode, save the current card
+                const currentCard = createdCards[currentCardIndex];
+                if (!currentCard) {
+                    showError('Card data not found');
+                    return;
+                }
+                
+                console.log('Saving current card from multi-card set:', currentCard.id);
+                
+                // Check if this card already exists in storage
+                const existingCardIndex = storedCards.findIndex(
+                    (storedCard) => storedCard.id === currentCard.id || 
+                                   (storedCard.text === currentCard.text && storedCard.mode === currentCard.mode)
+                );
+                
+                if (existingCardIndex === -1) {
+                    // Card is not saved yet
+                    dispatch(saveCardToStorage(currentCard));
+                } else {
+                    // Update existing card
+                    dispatch(updateStoredCard(currentCard));
+                }
+                
+                // Add to explicitly saved IDs
+                setExplicitlySavedIds(prev => {
+                    if (prev.includes(currentCard.id)) {
+                        return prev;
+                    }
+                    return [...prev, currentCard.id];
+                });
+                
+                // Force reload stored cards
+                dispatch(loadStoredCards());
+                
+                // Update UI state
+                setExplicitlySaved(true);
+                localStorage.setItem('explicitly_saved', 'true');
+                setIsEdited(false);
+                showError('Card saved successfully!', 'success');
+                
+                return; // Exit early for multi-card save
+            }
+            
+            // Single card saving flow
             const cardId = currentCardId || Date.now().toString();
             
             // Debug the required fields
@@ -487,8 +641,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setIsEdited(false);
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
-        setExplicitlySaved(false); // Reset explicit save
-        localStorage.removeItem('explicitly_saved'); // Also remove from localStorage
+        
+        // Reset all saved state tracking
+        setExplicitlySaved(false);
+        setExplicitlySavedIds([]);
+        localStorage.removeItem('explicitly_saved');
         
         // Сбрасываем историю карточек
         setCreatedCards([]);
@@ -1394,55 +1551,97 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     
                     {/* Добавляем навигацию для множественных карточек */}
                     {isMultipleCards && (
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            gap: '8px',
-                            marginBottom: '12px'
-                        }}>
-                            <button
-                                onClick={prevCard}
-                                disabled={currentCardIndex === 0}
-                                style={{
-                                    padding: '8px 16px',
-                                    backgroundColor: currentCardIndex === 0 ? '#F3F4F6' : '#EFF6FF',
-                                    color: currentCardIndex === 0 ? '#9CA3AF' : '#2563EB',
-                                    border: `1px solid ${currentCardIndex === 0 ? '#E5E7EB' : '#BFDBFE'}`,
-                                    borderRadius: '6px',
-                                    fontSize: '14px',
-                                    fontWeight: 500,
-                                    cursor: currentCardIndex === 0 ? 'not-allowed' : 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    flex: 1
-                                }}
-                            >
-                                ← Prev
-                            </button>
+                        <>
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                gap: '8px',
+                                marginBottom: '12px'
+                            }}>
+                                <button
+                                    onClick={prevCard}
+                                    disabled={currentCardIndex === 0}
+                                    style={{
+                                        padding: '8px 16px',
+                                        backgroundColor: currentCardIndex === 0 ? '#F3F4F6' : '#EFF6FF',
+                                        color: currentCardIndex === 0 ? '#9CA3AF' : '#2563EB',
+                                        border: `1px solid ${currentCardIndex === 0 ? '#E5E7EB' : '#BFDBFE'}`,
+                                        borderRadius: '6px',
+                                        fontSize: '14px',
+                                        fontWeight: 500,
+                                        cursor: currentCardIndex === 0 ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        flex: 1
+                                    }}
+                                >
+                                    ← Prev
+                                </button>
+                                
+                                <button
+                                    onClick={nextCard}
+                                    disabled={currentCardIndex === createdCards.length - 1}
+                                    style={{
+                                        padding: '8px 16px',
+                                        backgroundColor: currentCardIndex === createdCards.length - 1 ? '#F3F4F6' : '#EFF6FF',
+                                        color: currentCardIndex === createdCards.length - 1 ? '#9CA3AF' : '#2563EB',
+                                        border: `1px solid ${currentCardIndex === createdCards.length - 1 ? '#E5E7EB' : '#BFDBFE'}`,
+                                        borderRadius: '6px',
+                                        fontSize: '14px',
+                                        fontWeight: 500,
+                                        cursor: currentCardIndex === createdCards.length - 1 ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        flex: 1,
+                                        justifyContent: 'flex-end'
+                                    }}
+                                >
+                                    Next →
+                                </button>
+                            </div>
                             
+                            {/* Save All button */}
                             <button
-                                onClick={nextCard}
-                                disabled={currentCardIndex === createdCards.length - 1}
+                                onClick={handleSaveAllCards}
                                 style={{
-                                    padding: '8px 16px',
-                                    backgroundColor: currentCardIndex === createdCards.length - 1 ? '#F3F4F6' : '#EFF6FF',
-                                    color: currentCardIndex === createdCards.length - 1 ? '#9CA3AF' : '#2563EB',
-                                    border: `1px solid ${currentCardIndex === createdCards.length - 1 ? '#E5E7EB' : '#BFDBFE'}`,
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    backgroundColor: '#10B981',
+                                    color: 'white',
+                                    border: 'none',
                                     borderRadius: '6px',
                                     fontSize: '14px',
                                     fontWeight: 500,
-                                    cursor: currentCardIndex === createdCards.length - 1 ? 'not-allowed' : 'pointer',
+                                    cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
+                                    justifyContent: 'center',
                                     gap: '8px',
-                                    flex: 1,
-                                    justifyContent: 'flex-end'
+                                    marginBottom: '12px',
+                                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                                 }}
+                                disabled={loadingAccept}
                             >
-                                Next →
+                                {loadingAccept ? (
+                                    <Loader type="dots" size="small" inline color="#ffffff" text="Saving" />
+                                ) : (
+                                    <>
+                                        <svg 
+                                            xmlns="http://www.w3.org/2000/svg" 
+                                            width="16" 
+                                            height="16" 
+                                            fill="currentColor" 
+                                            viewBox="0 0 16 16"
+                                        >
+                                            <path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z"/>
+                                        </svg>
+                                        Save All Cards ({createdCards.length})
+                                    </>
+                                )}
                             </button>
-                        </div>
+                        </>
                     )}
                     
                     <ResultDisplay
@@ -1648,6 +1847,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 // Сброс статуса явного сохранения карточек
                 setExplicitlySaved(false);
+                setExplicitlySavedIds([]);  // Clear explicitly saved IDs
                 localStorage.removeItem('explicitly_saved');
                 
                 // Показываем результат
@@ -2605,12 +2805,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
     
     // Добавим состояние для изучаемого языка (язык исходного текста)
-    const [sourceLanguage, setSourceLanguage] = useState<string>('');
-    const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
+    const [sourceLanguage, setSourceLanguage] = useState<string>(() => {
+        // Load from localStorage on initialization
+        return localStorage.getItem('source_language') || '';
+    });
+    const [detectedLanguage, setDetectedLanguage] = useState<string | null>(() => {
+        // Load detected language from localStorage
+        return localStorage.getItem('detected_language') || null;
+    });
     const [isDetectingLanguage, setIsDetectingLanguage] = useState(false);
     const [showSourceLanguageSelector, setShowSourceLanguageSelector] = useState(false);
     const [sourceLanguageSearch, setSourceLanguageSearch] = useState('');
-    const [isAutoDetectLanguage, setIsAutoDetectLanguage] = useState(true);
+    const [isAutoDetectLanguage, setIsAutoDetectLanguage] = useState(() => {
+        // Default to true unless explicitly set to false in localStorage
+        return localStorage.getItem('auto_detect_language') !== 'false';
+    });
 
     // Фильтрация языков для изучаемого языка
     const filteredSourceLanguages = useMemo(() => {
@@ -2668,6 +2877,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Проверяем, является ли результат действительным языковым кодом
                 if (detectedCode && allLanguages.some(lang => lang.code === detectedCode)) {
                     setDetectedLanguage(detectedCode);
+                    localStorage.setItem('detected_language', detectedCode);
                     console.log("Language detected:", detectedCode);
                     // Сбрасываем флаг нажатия кнопки, так как язык определен
                     setCreateCardClicked(false);
@@ -2769,18 +2979,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Обработчик переключения между автоопределением и ручным выбором
     const toggleAutoDetect = () => {
-        setIsAutoDetectLanguage(!isAutoDetectLanguage);
+        const newAutoDetectValue = !isAutoDetectLanguage;
+        setIsAutoDetectLanguage(newAutoDetectValue);
+        // Save to localStorage
+        localStorage.setItem('auto_detect_language', newAutoDetectValue ? 'true' : 'false');
+        
         if (isAutoDetectLanguage) {
-            // Если выключаем автоопределение, устанавливаем изучаемый язык 
-            // на текущий определенный (если он есть)
+            // If turning off auto-detection, set source language to detected language (if available)
             if (detectedLanguage) {
                 updateSourceLanguage(detectedLanguage);
             }
         } else {
-            // Если включаем автоопределение, сбрасываем ручной выбор
+            // If turning on auto-detection, clear manual source language
             updateSourceLanguage('');
             if (text) {
-                // И заново определяем язык текста
+                // And re-detect language of text
                 detectLanguage(text);
             }
         }
@@ -3222,6 +3435,34 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setIsEdited(true);
         }
     };
+
+    // Add this to the component mount effect to ensure source language is properly initialized
+    useEffect(() => {
+        // Get source language and auto-detect preference from localStorage
+        const savedSourceLanguage = localStorage.getItem('source_language');
+        const savedDetectedLanguage = localStorage.getItem('detected_language');
+        const savedAutoDetect = localStorage.getItem('auto_detect_language');
+        
+        console.log('Initializing language settings from localStorage:', {
+            savedSourceLanguage,
+            savedDetectedLanguage,
+            savedAutoDetect
+        });
+        
+        // Update Redux store with saved source language
+        if (savedSourceLanguage) {
+            updateSourceLanguage(savedSourceLanguage);
+        } else if (savedDetectedLanguage && (savedAutoDetect !== 'false')) {
+            // If auto-detect is enabled and we have a previously detected language
+            updateSourceLanguage(savedDetectedLanguage);
+        }
+        
+        // Set auto-detect preference
+        if (savedAutoDetect === 'false') {
+            setIsAutoDetectLanguage(false);
+        }
+        
+    }, [updateSourceLanguage]);
 
     return (
         <div style={{
