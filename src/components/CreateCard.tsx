@@ -102,6 +102,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Track which card IDs have been explicitly saved by the user
     const [explicitlySavedIds, setExplicitlySavedIds] = useState<string[]>([]);
     
+    // Helper function to check if a specific card is saved
+    const isCardExplicitlySaved = useCallback((cardId: string | null) => {
+        if (!cardId) return false;
+        return explicitlySavedIds.includes(cardId);
+    }, [explicitlySavedIds]);
+    
     // Derive isSaved from multiple checks and explicit user actions
     const isSaved = useMemo(() => {
         console.log('Calculating isSaved:', { 
@@ -119,7 +125,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (!currentCard) return false;
             
             // Only consider saved if it's in our explicitly saved list
-            return explicitlySavedIds.includes(currentCard.id);
+            return isCardExplicitlySaved(currentCard.id);
         }
         
         // For single card - only consider a card saved if it has been explicitly saved by the user
@@ -129,7 +135,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         
         // Never automatically mark cards as saved just because they exist in storage
         return false;
-    }, [currentCardId, explicitlySaved, isMultipleCards, currentCardIndex, createdCards, explicitlySavedIds]);
+    }, [currentCardId, explicitlySaved, isMultipleCards, currentCardIndex, createdCards, isCardExplicitlySaved]);
 
     // Add more detailed logging to debug the issue
     console.log('Card state details:', { 
@@ -389,142 +395,179 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     // Save All function for multiple cards
-    const handleSaveAllCards = async () => {
-        showError(null);
-        try {
-            setLoadingAccept(true);
+const handleSaveAllCards = async () => {
+    showError(null);
+    try {
+        setLoadingAccept(true);
+        
+        // Перед сохранением всех карточек, сохраняем текущее состояние текущей карточки
+        saveCurrentCardState();
+        
+        let successCount = 0;
+        let errorCount = 0;
+        let savedCards = 0;
+        let updatedCards = 0;
+        
+        // Keep track of saved card IDs to update our explicit save tracking
+        const newExplicitlySavedIds: string[] = [...explicitlySavedIds];
+        
+        console.log('Starting to save cards. Total cards:', createdCards.length, 'Already saved:', explicitlySavedIds.length);
+        
+        // Save each card in the createdCards array
+        for (let i = 0; i < createdCards.length; i++) {
+            const card = createdCards[i];
             
-            let successCount = 0;
-            let errorCount = 0;
-            
-            // Keep track of saved card IDs to update our explicit save tracking
-            const newExplicitlySavedIds: string[] = [...explicitlySavedIds];
-            
-            // Save each card in the createdCards array
-            for (let i = 0; i < createdCards.length; i++) {
-                const card = createdCards[i];
-                try {
-                    console.log('Saving card from multi-card set:', card.id);
-                    
-                    // Check if this card already exists in storage
-                    const existingCardIndex = storedCards.findIndex(
-                        (storedCard) => storedCard.id === card.id || 
-                                      (storedCard.text === card.text && storedCard.mode === card.mode)
-                    );
-                    
-                    if (existingCardIndex === -1) {
-                        // Card is not saved yet
-                        dispatch(saveCardToStorage(card));
-                        
-                        // Add to our explicitly saved IDs list if not already there
-                        if (!newExplicitlySavedIds.includes(card.id)) {
-                            newExplicitlySavedIds.push(card.id);
-                        }
-                        
-                        successCount++;
-                    } else {
-                        console.log('Card already saved, updating:', card.id);
-                        // Update existing card
-                        dispatch(updateStoredCard(card));
-                        
-                        // Add to our explicitly saved IDs list if not already there
-                        if (!newExplicitlySavedIds.includes(card.id)) {
-                            newExplicitlySavedIds.push(card.id);
-                        }
-                        
-                        successCount++;
-                    }
-                } catch (cardError) {
-                    console.error('Error saving individual card:', cardError);
-                    errorCount++;
-                }
+            // Skip cards that are already in our explicitly saved list to avoid double saving
+            if (explicitlySavedIds.includes(card.id)) {
+                console.log(`Card #${i} (${card.id}) already explicitly saved, skipping`);
+                successCount++;
+                continue;
             }
             
-            // Update our tracking of explicitly saved cards
-            setExplicitlySavedIds(newExplicitlySavedIds);
-            
-            // Ensure the current card is marked as explicitly saved
-            setExplicitlySaved(true);
-            localStorage.setItem('explicitly_saved', 'true');
-            
-            // Also update the currentCardId to match current card
-            const currentCard = createdCards[currentCardIndex];
-            if (currentCard && currentCard.id) {
-                dispatch(setCurrentCardId(currentCard.id));
-                localStorage.setItem('current_card_id', currentCard.id);
-            }
-            
-            // Show success message
-            if (errorCount === 0) {
-                showError(`All ${successCount} cards saved successfully!`, 'success');
-            } else {
-                showError(`Saved ${successCount} cards, ${errorCount} failed.`, 'warning');
-            }
-            
-            // Update UI
-            setIsEdited(false);
-            setIsNewSubmission(false);
-            
-            // Force Redux to refresh stored cards
-            dispatch(loadStoredCards());
-            
-        } catch (error) {
-            console.error('Error in save all cards operation:', error);
-            showError('Error saving cards. Please try again.');
-        } finally {
-            setLoadingAccept(false);
-        }
-    };
-    
-    const handleAccept = async () => {
-        showError(null);
-        try {
-            setLoadingAccept(true);
-            
-            // Handle saving for multiple cards mode or single card mode
-            if (isMultipleCards && createdCards.length > 0) {
-                // If in multiple cards mode, save the current card
-                const currentCard = createdCards[currentCardIndex];
-                if (!currentCard) {
-                    showError('Card data not found');
-                    return;
-                }
-                
-                console.log('Saving current card from multi-card set:', currentCard.id);
+            try {
+                console.log(`Saving card #${i} (${card.id}) from multi-card set`);
                 
                 // Check if this card already exists in storage
                 const existingCardIndex = storedCards.findIndex(
-                    (storedCard) => storedCard.id === currentCard.id || 
-                                   (storedCard.text === currentCard.text && storedCard.mode === currentCard.mode)
+                    (storedCard) => storedCard.id === card.id || 
+                                  (storedCard.text === card.text && storedCard.mode === card.mode)
                 );
                 
                 if (existingCardIndex === -1) {
                     // Card is not saved yet
-                    dispatch(saveCardToStorage(currentCard));
+                    dispatch(saveCardToStorage(card));
+                    savedCards++;
+                    
+                    // Add to our explicitly saved IDs list
+                    newExplicitlySavedIds.push(card.id);
+                    console.log(`Card #${i} (${card.id}) saved as new`);
+                    
+                    successCount++;
                 } else {
+                    console.log(`Card #${i} (${card.id}) already in storage, updating`);
                     // Update existing card
-                    dispatch(updateStoredCard(currentCard));
+                    dispatch(updateStoredCard(card));
+                    updatedCards++;
+                    
+                    // Add to our explicitly saved IDs list
+                    newExplicitlySavedIds.push(card.id);
+                    
+                    successCount++;
                 }
-                
-                // Add to explicitly saved IDs
-                setExplicitlySavedIds(prev => {
-                    if (prev.includes(currentCard.id)) {
-                        return prev;
-                    }
-                    return [...prev, currentCard.id];
-                });
-                
-                // Force reload stored cards
-                dispatch(loadStoredCards());
-                
-                // Update UI state
-                setExplicitlySaved(true);
-                localStorage.setItem('explicitly_saved', 'true');
-                setIsEdited(false);
-                showError('Card saved successfully!', 'success');
-                
-                return; // Exit early for multi-card save
+            } catch (cardError) {
+                console.error(`Error saving card #${i} (${card.id}):`, cardError);
+                errorCount++;
             }
+        }
+        
+        console.log('Save all complete. Saved:', savedCards, 'Updated:', updatedCards, 'Errors:', errorCount);
+        
+        // Update our tracking of explicitly saved cards
+        setExplicitlySavedIds(newExplicitlySavedIds);
+        
+        // Ensure the current card is marked as explicitly saved
+        setExplicitlySaved(true);
+        localStorage.setItem('explicitly_saved', 'true');
+        
+        // Also update the currentCardId to match current card
+        const currentCard = createdCards[currentCardIndex];
+        if (currentCard && currentCard.id) {
+            dispatch(setCurrentCardId(currentCard.id));
+            localStorage.setItem('current_card_id', currentCard.id);
+        }
+        
+        // Show detailed success message
+        if (errorCount === 0) {
+            const successMessage = 
+                savedCards > 0 && updatedCards > 0 
+                    ? `Saved ${savedCards} new cards and updated ${updatedCards} existing cards.`
+                    : savedCards > 0 
+                        ? `Saved ${savedCards} cards successfully!` 
+                        : updatedCards > 0 
+                            ? `Updated ${updatedCards} cards successfully!`
+                            : `All ${successCount} cards are now saved!`;
+            
+            showError(successMessage, 'success');
+        } else {
+            showError(`Saved ${successCount} cards, ${errorCount} failed.`, 'warning');
+        }
+        
+        // Update UI
+        setIsEdited(false);
+        setIsNewSubmission(false);
+        
+        // Force Redux to refresh stored cards
+        dispatch(loadStoredCards());
+        
+    } catch (error) {
+        console.error('Error in save all cards operation:', error);
+        showError('Error saving cards. Please try again.');
+    } finally {
+        setLoadingAccept(false);
+    }
+};
+    
+    const handleAccept = async () => {
+    showError(null);
+    try {
+        setLoadingAccept(true);
+        
+        // Handle saving for multiple cards mode or single card mode
+        if (isMultipleCards && createdCards.length > 0) {
+            // Сначала сохраняем текущее состояние карточки в массив
+            saveCurrentCardState();
+            
+            // Получаем обновленную текущую карточку после сохранения состояния
+            const currentCard = createdCards[currentCardIndex];
+            if (!currentCard) {
+                showError('Card data not found');
+                return;
+            }
+            
+            console.log('Saving current card from multi-card set:', currentCard.id);
+            
+            // Check if this card already exists in storage
+            const existingCardIndex = storedCards.findIndex(
+                (storedCard) => storedCard.id === currentCard.id || 
+                               (storedCard.text === currentCard.text && storedCard.mode === currentCard.mode)
+            );
+            
+            if (existingCardIndex === -1) {
+                // Card is not saved yet - сохраняем ТОЛЬКО текущую карточку
+                dispatch(saveCardToStorage(currentCard));
+                console.log(`Saved new card: ${currentCard.id}`);
+            } else {
+                // Update existing card - обновляем ТОЛЬКО текущую карточку
+                dispatch(updateStoredCard(currentCard));
+                console.log(`Updated existing card: ${currentCard.id}`);
+            }
+            
+            // IMPORTANT: Only mark the CURRENT card as explicitly saved
+            // This ensures only the current card shows "Saved to Collection"
+            setExplicitlySavedIds(prev => {
+                if (prev.includes(currentCard.id)) {
+                    return prev;
+                }
+                const newIds = [...prev, currentCard.id];
+                console.log('Updated explicitly saved IDs:', newIds);
+                return newIds;
+            });
+            
+            // Force reload stored cards
+            dispatch(loadStoredCards());
+            
+            // Set current card's ID for reference
+            dispatch(setCurrentCardId(currentCard.id));
+            localStorage.setItem('current_card_id', currentCard.id);
+            
+            // Update UI state for the current card only
+            setExplicitlySaved(true);
+            localStorage.setItem('explicitly_saved', 'true');
+            setIsEdited(false);
+            showError('Card saved successfully!', 'success');
+            
+            return; // Exit early for multi-card save
+        }
             
             // Single card saving flow
             const cardId = currentCardId || Date.now().toString();
@@ -568,9 +611,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 console.log('Saving card to storage:', cardData);
                 
+                // Сохранение карточки происходит только по явному действию пользователя (кнопка "Accept")
                 if (currentCardId) {
+                    console.log('Updating existing card by user action:', cardId);
                     dispatch(updateStoredCard(cardData));
                 } else {
+                    console.log('Saving new card by user action:', cardId);
                     dispatch(saveCardToStorage(cardData));
                     dispatch(setCurrentCardId(cardId));
                 }
@@ -605,9 +651,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 console.log('Saving general topic card to storage:', cardData);
                 
+                // Сохранение происходит только по явному действию пользователя (нажатие кнопки)
                 if (currentCardId) {
+                    console.log('Updating existing general topic card by user action:', cardId);
                     dispatch(updateStoredCard(cardData));
                 } else {
+                    console.log('Saving new general topic card by user action:', cardId);
                     dispatch(saveCardToStorage(cardData));
                     dispatch(setCurrentCardId(cardId));
                 }
@@ -642,20 +691,27 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
         
+        console.log('Creating new card, clearing all state');
+        
         // Reset all saved state tracking
         setExplicitlySaved(false);
         setExplicitlySavedIds([]);
         localStorage.removeItem('explicitly_saved');
+        localStorage.removeItem('current_card_id');
         
         // Сбрасываем историю карточек
         setCreatedCards([]);
         setIsMultipleCards(false);
+        setCurrentCardIndex(0);
         
+        // Очищаем все поля Redux
         dispatch(setText(''));
         dispatch(setTranslation(''));
         dispatch(setExamples([]));
         dispatch(setImage(null));
         dispatch(setImageUrl(null));
+        dispatch(setFront(''));
+        dispatch(setBack(null));
         dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
         setOriginalSelectedText('');
     };
@@ -995,6 +1051,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             // Ensure this is treated as a brand new card
             dispatch(setCurrentCardId(null));
+            
+            // Важно: очищаем статус сохранения для новой карточки
+            setExplicitlySaved(false);
+            setExplicitlySavedIds([]);
+            localStorage.removeItem('explicitly_saved');
+            localStorage.removeItem('current_card_id');
+            console.log('Created new single card - reset all saved statuses');
             
             // Show modal if we have at least some data
             if (completedOperations.translation || completedOperations.examples || completedOperations.flashcard) {
@@ -1353,8 +1416,19 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Function to handle modal close
     const handleCloseModal = () => {
+        console.log('Modal close handler. Card saved status:', isSaved, 'isEdited:', isEdited);
+        
+        // Если карточки созданы с помощью множественного выделения, просто закрываем модальное окно
+        // без дополнительных действий, чтобы предотвратить автоматическое сохранение
+        if (isMultipleCards) {
+            console.log('Closing modal for multiple cards without automatic saving');
+            setShowModal(false);
+            return;
+        }
+        
         // If the card is not saved but has content, offer to save it
-        if (showResult && !isSaved && !isEdited && translation) {
+        // Только для режима одной карточки и только если есть содержимое
+        if (showResult && !isSaved && !isEdited && translation && !isMultipleCards) {
             const shouldSave = window.confirm('Would you like to save this card to your collection?');
             if (shouldSave) {
                 handleAccept();
@@ -1555,6 +1629,42 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     {isMultipleCards && (
                         <>
                             <div style={{
+                                marginBottom: '8px',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center'
+                            }}>
+                                <div style={{
+                                    fontSize: '13px',
+                                    color: '#4B5563',
+                                    backgroundColor: '#F9FAFB',
+                                    padding: '4px 10px',
+                                    borderRadius: '16px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                }}>
+                                    Card {currentCardIndex + 1} of {createdCards.length}
+                                    {createdCards[currentCardIndex] && isCardExplicitlySaved(createdCards[currentCardIndex].id) && (
+                                        <span style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '3px',
+                                            backgroundColor: '#ECFDF5',
+                                            color: '#10B981',
+                                            padding: '2px 6px',
+                                            borderRadius: '10px',
+                                            fontSize: '11px',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            <FaCheck size={8} />
+                                            SAVED
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        
+                            <div style={{
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 gap: '8px',
@@ -1579,6 +1689,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     }}
                                 >
                                     ← Prev
+                                    {currentCardIndex > 0 && createdCards[currentCardIndex - 1] && (
+                                        isCardExplicitlySaved(createdCards[currentCardIndex - 1].id) ? (
+                                            <span style={{
+                                                width: '6px',
+                                                height: '6px',
+                                                borderRadius: '50%',
+                                                backgroundColor: '#10B981',
+                                                marginLeft: 'auto'
+                                            }}></span>
+                                        ) : null
+                                    )}
                                 </button>
                                 
                                 <button
@@ -1600,6 +1721,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         justifyContent: 'flex-end'
                                     }}
                                 >
+                                    {currentCardIndex < createdCards.length - 1 && createdCards[currentCardIndex + 1] && (
+                                        isCardExplicitlySaved(createdCards[currentCardIndex + 1].id) ? (
+                                            <span style={{
+                                                width: '6px',
+                                                height: '6px',
+                                                borderRadius: '50%',
+                                                backgroundColor: '#10B981',
+                                                marginRight: 'auto'
+                                            }}></span>
+                                        ) : null
+                                    )}
                                     Next →
                                 </button>
                             </div>
@@ -1639,7 +1771,22 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         >
                                             <path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z"/>
                                         </svg>
-                                        Save All Cards ({createdCards.length})
+                                        {explicitlySavedIds.length > 0 ? (
+                                            <>
+                                                Save {createdCards.length - explicitlySavedIds.length} Remaining Cards
+                                                <span style={{
+                                                    fontSize: '12px',
+                                                    backgroundColor: 'rgba(255,255,255,0.25)',
+                                                    borderRadius: '4px',
+                                                    padding: '1px 6px',
+                                                    marginLeft: '4px'
+                                                }}>
+                                                    {explicitlySavedIds.length} saved
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <>Save All Cards ({createdCards.length})</>
+                                        )}
                                     </>
                                 )}
                             </button>
@@ -1801,9 +1948,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         exportStatus: 'not_exported' as const
                     };
                     
-                    // Сохраняем карточку и добавляем в список
-                    dispatch(saveCardToStorage(cardData));
-                    newCards.push(cardData);
+                                    // НЕ сохраняем карточку в хранилище здесь, а только добавляем в список для отображения
+                // dispatch(saveCardToStorage(cardData)); - УДАЛЕНО, чтобы предотвратить автоматическое сохранение
+                console.log(`Created card ${cardData.id} but NOT saving to storage yet`);
+                newCards.push(cardData);
                     
                 } catch (error) {
                     console.error(`Error creating card for "${option}":`, error);
@@ -1852,14 +2000,22 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 setExplicitlySaved(false);
                 setExplicitlySavedIds([]);  // Clear explicitly saved IDs
                 localStorage.removeItem('explicitly_saved');
+                console.log('Reset saved status for new multiple cards');
                 
-                // Показываем результат
-                setShowResult(true);
-                setShowModal(true);
-                showError(`Created ${newCards.length} cards!`, "success");
-            } else {
-                showError("Failed to create cards. Please try again.", "error");
-            }
+                    // Важное обновление: очищаем список сохраненных ID перед показом новых карточек
+    setExplicitlySavedIds([]);
+    localStorage.removeItem('explicitly_saved');
+    setExplicitlySaved(false);
+    
+    // Показываем результат
+    setShowResult(true);
+    setShowModal(true);
+    showError(`Created ${newCards.length} cards!`, "success");
+    
+    console.log('Created new cards, none saved yet. Card IDs:', newCards.map(card => card.id));
+} else {
+    showError("Failed to create cards. Please try again.", "error");
+}
             
         } catch (error) {
             console.error('Error processing selected options:', error);
@@ -1880,45 +2036,79 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const nextCard = () => {
         if (createdCards.length <= 1 || currentCardIndex >= createdCards.length - 1) return;
         
+        // Важно: сохраняем измененные данные текущей карточки перед переходом к следующей
+        saveCurrentCardState();
+        
         const nextIndex = currentCardIndex + 1;
         setCurrentCardIndex(nextIndex);
         
         // Загружаем данные следующей карточки
         const card = createdCards[nextIndex];
         if (card) {
-            // Проверяем каждое поле перед установкой
-            if (typeof card.text === 'string') {
-                dispatch(setText(card.text));
-            }
-            
-            // Translation может быть null, но не undefined
-            dispatch(setTranslation(card.translation === undefined ? null : card.translation));
-            
-            // Examples всегда должен быть массивом
-            dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
-            
-            // Image может быть null, но не undefined
-            dispatch(setImage(card.image === undefined ? null : card.image));
-            
-            // ImageUrl может быть null, но не undefined
-            dispatch(setImageUrl(card.imageUrl === undefined ? null : card.imageUrl));
-            
-            // Front должен быть строкой
-            if (typeof card.front === 'string') {
-                dispatch(setFront(card.front));
-            }
-            
-            // Back может быть null, но не undefined
-            dispatch(setBack(card.back === undefined ? null : card.back));
-            
-            // LinguisticInfo может быть строкой или undefined
-            dispatch(setLinguisticInfo(card.linguisticInfo || ''));
+            loadCardData(card);
         }
+    };
+    
+    // Функция для сохранения текущего состояния карточки в массиве createdCards
+    const saveCurrentCardState = () => {
+        if (!createdCards[currentCardIndex]) return;
+        
+        // Создаем обновленную копию текущей карточки с актуальными данными из Redux
+        const updatedCard = {
+            ...createdCards[currentCardIndex],
+            text,
+            translation,
+            examples,
+            image,
+            imageUrl,
+            front,
+            back: back || null,
+            linguisticInfo: linguisticInfo || ''
+        };
+        
+        // Обновляем массив карточек, заменяя текущую карточку на обновленную
+        const updatedCards = [...createdCards];
+        updatedCards[currentCardIndex] = updatedCard;
+        setCreatedCards(updatedCards);
+    };
+    
+    // Функция для загрузки данных карточки в Redux
+    const loadCardData = (card: StoredCard) => {
+        // Проверяем каждое поле перед установкой
+        if (typeof card.text === 'string') {
+            dispatch(setText(card.text));
+        }
+        
+        // Translation может быть null, но не undefined
+        dispatch(setTranslation(card.translation === undefined ? null : card.translation));
+        
+        // Examples всегда должен быть массивом
+        dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
+        
+        // Image может быть null, но не undefined
+        dispatch(setImage(card.image === undefined ? null : card.image));
+        
+        // ImageUrl может быть null, но не undefined
+        dispatch(setImageUrl(card.imageUrl === undefined ? null : card.imageUrl));
+        
+        // Front должен быть строкой
+        if (typeof card.front === 'string') {
+            dispatch(setFront(card.front));
+        }
+        
+        // Back может быть null, но не undefined
+        dispatch(setBack(card.back === undefined ? null : card.back));
+        
+        // LinguisticInfo может быть строкой или undefined
+        dispatch(setLinguisticInfo(card.linguisticInfo || ''));
     };
     
     // Функция для перехода к предыдущей карточке
     const prevCard = () => {
         if (createdCards.length <= 1 || currentCardIndex <= 0) return;
+        
+        // Сохраняем текущее состояние карточки перед переключением
+        saveCurrentCardState();
         
         const prevIndex = currentCardIndex - 1;
         setCurrentCardIndex(prevIndex);
@@ -1926,33 +2116,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Загружаем данные предыдущей карточки
         const card = createdCards[prevIndex];
         if (card) {
-            // Проверяем каждое поле перед установкой
-            if (typeof card.text === 'string') {
-                dispatch(setText(card.text));
-            }
-            
-            // Translation может быть null, но не undefined
-            dispatch(setTranslation(card.translation === undefined ? null : card.translation));
-            
-            // Examples всегда должен быть массивом
-            dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
-            
-            // Image может быть null, но не undefined
-            dispatch(setImage(card.image === undefined ? null : card.image));
-            
-            // ImageUrl может быть null, но не undefined
-            dispatch(setImageUrl(card.imageUrl === undefined ? null : card.imageUrl));
-            
-            // Front должен быть строкой
-            if (typeof card.front === 'string') {
-                dispatch(setFront(card.front));
-            }
-            
-            // Back может быть null, но не undefined
-            dispatch(setBack(card.back === undefined ? null : card.back));
-            
-            // LinguisticInfo может быть строкой или undefined
-            dispatch(setLinguisticInfo(card.linguisticInfo || ''));
+            loadCardData(card);
         }
     };
     
