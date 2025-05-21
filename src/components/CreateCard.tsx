@@ -724,7 +724,10 @@ const handleSaveAllCards = async () => {
         const handleMouseUp = () => {
             const selectedText = window.getSelection()?.toString().trim();
             if (selectedText && selectedText.length > 0) {
-                // Вместо прямой установки текста, анализируем его и предлагаем варианты
+                // Сначала очищаем предыдущие выбранные опции и список опций
+                setSelectedOptionsMap({});
+                setSelectedTextOptions([]);
+                // Затем анализируем новый текст и предлагаем варианты
                 analyzeSelectedText(selectedText);
             }
         };
@@ -2177,6 +2180,10 @@ const handleSaveAllCards = async () => {
             return;
         }
         
+        // Сначала очищаем ранее выбранные опции
+        setSelectedOptionsMap({});
+        setSelectedTextOptions([]);
+        
         // If text is a single word or very short phrase (less than 20 chars)
         // use it directly without showing options
         if (selectedText.length < 20 && !selectedText.includes('.') && !selectedText.includes('\n')) {
@@ -2375,7 +2382,11 @@ const handleSaveAllCards = async () => {
                 zIndex: 1000,
                 backdropFilter: 'blur(2px)',
                 padding: '16px'
-            }} onClick={() => setShowTextOptionsModal(false)}>
+            }} onClick={() => {
+                // Очищаем выбранные опции при закрытии модального окна
+                setSelectedOptionsMap({});
+                setShowTextOptionsModal(false);
+            }}>
                 <div style={{
                     backgroundColor: '#ffffff',
                     borderRadius: '12px',
@@ -2412,7 +2423,12 @@ const handleSaveAllCards = async () => {
                             Select Terms for Cards
                         </h3>
                         <button 
-                            onClick={() => setShowTextOptionsModal(false)}
+                            onClick={() => {
+                                // Очищаем выбранные опции и сам список опций
+                                setSelectedOptionsMap({});
+                                setSelectedTextOptions([]);
+                                setShowTextOptionsModal(false);
+                            }}
                             style={{
                                 background: 'none',
                                 border: 'none',
@@ -2604,29 +2620,33 @@ const handleSaveAllCards = async () => {
                         gap: '8px',
                         marginTop: '12px'
                     }}>
-                        <button
-                            onClick={() => setShowTextOptionsModal(false)}
-                            style={{
-                                flex: '1',
-                                padding: '10px 12px',
-                                backgroundColor: '#F9FAFB',
-                                color: '#4B5563',
-                                border: '1px solid #E5E7EB',
-                                borderRadius: '6px',
-                                fontSize: '14px',
-                                fontWeight: 500,
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease'
-                            }}
-                            onMouseOver={(e) => {
-                                e.currentTarget.style.backgroundColor = '#F3F4F6';
-                            }}
-                            onMouseOut={(e) => {
-                                e.currentTarget.style.backgroundColor = '#F9FAFB';
-                            }}
-                        >
-                            Cancel
-                        </button>
+                                        <button
+                    onClick={() => {
+                        // При отмене очищаем выбранные опции
+                        setSelectedOptionsMap({});
+                        setShowTextOptionsModal(false);
+                    }}
+                    style={{
+                        flex: '1',
+                        padding: '10px 12px',
+                        backgroundColor: '#F9FAFB',
+                        color: '#4B5563',
+                        border: '1px solid #E5E7EB',
+                        borderRadius: '6px',
+                        fontSize: '14px',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseOver={(e) => {
+                        e.currentTarget.style.backgroundColor = '#F3F4F6';
+                    }}
+                    onMouseOut={(e) => {
+                        e.currentTarget.style.backgroundColor = '#F9FAFB';
+                    }}
+                >
+                    Cancel
+                </button>
                         
                         <button
                             onClick={createCardsFromSelectedOptions}
