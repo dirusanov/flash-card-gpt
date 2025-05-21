@@ -1,6 +1,7 @@
 import { formatErrorMessage } from './errorFormatting';
 import { ModelProvider } from '../store/reducers/settings';
 import { OpenAI } from 'openai';
+import type { ChatCompletionMessageParam } from 'openai/resources';
 
 /**
  * Интерфейс для работы с AI-провайдерами
@@ -34,6 +35,20 @@ export interface AIProviderInterface {
   
   // Метод для извлечения ключевых терминов из текста
   extractKeyTerms: (text: string) => Promise<string[]>;
+  
+  // Method to get grammar/linguistic information for a word or phrase
+  getLinguisticInfo?: (
+    apiKey: string,
+    text: string,
+    sourceLanguage: string,
+    userLanguage?: string
+  ) => Promise<string>;
+  
+  // Method to create chat completion - needed for grammar reference
+  createChatCompletion?: (
+    apiKey: string,
+    messages: Array<{role: string, content: string}>
+  ) => Promise<{content: string} | null>;
 }
 
 /**
@@ -399,7 +414,7 @@ export class OpenAIProvider extends BaseAIProvider {
         size: "1024x1024",
       });
       
-      return response.data[0]?.url || null;
+      return response.data?.[0]?.url || null;
     } catch (error) {
       console.error('Error generating image with OpenAI:', error);
       throw error;
@@ -437,6 +452,34 @@ export class OpenAIProvider extends BaseAIProvider {
     } catch (error) {
       console.error("Error extracting key terms with OpenAI:", error);
       return [];
+    }
+  }
+  
+  // Added createChatCompletion implementation
+  public async createChatCompletion(
+    apiKey: string, 
+    messages: Array<{role: string, content: string}>
+  ): Promise<{content: string} | null> {
+    try {
+      const formattedMessages: ChatCompletionMessageParam[] = messages.map(msg => ({
+        role: msg.role as 'user' | 'system' | 'assistant',
+        content: msg.content
+      }));
+      
+      const response = await this.openai.chat.completions.create({
+        model: this.modelName,
+        messages: formattedMessages,
+      });
+      
+      const content = response.choices[0]?.message?.content?.trim() || '';
+      if (!content) {
+        return null;
+      }
+      
+      return { content };
+    } catch (error) {
+      console.error('Error in OpenAI chat completion:', error);
+      throw error;
     }
   }
 }
@@ -524,6 +567,48 @@ export class GroqProvider extends BaseAIProvider {
     } catch (error) {
       console.error("Error extracting key terms with Groq:", error);
       return [];
+    }
+  }
+  
+  // Added createChatCompletion implementation for Groq
+  public async createChatCompletion(
+    apiKey: string,
+    messages: Array<{role: string, content: string}>
+  ): Promise<{content: string} | null> {
+    try {
+      if (!this.apiKey) {
+        throw new Error("Groq API key is missing. Please check your settings.");
+      }
+      
+      const response = await fetch(`${this.apiBaseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          model: this.modelName,
+          messages: messages,
+          max_tokens: 1000
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(formatErrorMessage("Groq API Error", response.status, errorData));
+      }
+      
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content?.trim() ?? '';
+      
+      if (!content) {
+        return null;
+      }
+      
+      return { content };
+    } catch (error) {
+      console.error('Error in Groq chat completion:', error);
+      throw error;
     }
   }
 }

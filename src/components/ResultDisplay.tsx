@@ -627,26 +627,57 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                             fontSize: '14px',
                                             color: '#1F2937',
                                             lineHeight: '1.5',
-                                            fontWeight: 400
+                                            fontWeight: 400,
+                                            padding: '10px 12px',
+                                            backgroundColor: '#F9FAFB',
+                                            borderRadius: '8px',
+                                            border: '1px solid #E5E7EB',
+                                            boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.05)'
                                         }}
+                                        className="grammar-reference"
                                         dangerouslySetInnerHTML={{ __html: linguisticInfo || '' }}
                                     />
+                                    <style>
+                                        {`
+                                        .grammar-reference svg {
+                                            margin-right: 6px;
+                                            color: #2563EB;
+                                            vertical-align: middle;
+                                        }
+                                        .grammar-reference strong {
+                                            color: #4B5563;
+                                            font-weight: 600;
+                                        }
+                                        .grammar-reference .grammar-tag {
+                                            display: inline-block;
+                                            background-color: #EFF6FF;
+                                            border: 1px solid #BFDBFE;
+                                            border-radius: 4px;
+                                            padding: 1px 6px;
+                                            margin: 0 4px;
+                                            font-size: 12px;
+                                            color: #1D4ED8;
+                                        }
+                                        `}
+                                    </style>
                                     {isEditMode && (
                                         <button
                                             onClick={() => setLinguisticInfoEditable(true)}
                                             style={{
                                                 position: 'absolute',
-                                                top: '0',
-                                                right: '0',
-                                                background: 'none',
-                                                border: 'none',
+                                                top: '8px',
+                                                right: '8px',
+                                                background: 'rgba(255, 255, 255, 0.8)',
+                                                border: '1px solid #E5E7EB',
                                                 color: '#3B82F6',
-                                                fontSize: '13px',
+                                                fontSize: '12px',
                                                 padding: '4px 8px',
                                                 cursor: 'pointer',
                                                 display: 'flex',
                                                 alignItems: 'center',
-                                                gap: '4px'
+                                                gap: '4px',
+                                                borderRadius: '4px',
+                                                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                                             }}
                                         >
                                             <FaEdit size={12} />

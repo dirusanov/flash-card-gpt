@@ -56,6 +56,11 @@ export interface AIService {
   ) => Promise<string | null>;
   
   extractKeyTerms: (apiKey: string, text: string) => Promise<string[]>;
+
+  createChatCompletion: (
+    apiKey: string,
+    messages: Array<{role: string, content: string}>
+  ) => Promise<{content: string} | null>;
 }
 
 // Адаптер для совместимости со старым кодом
@@ -114,6 +119,18 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
     extractKeyTerms: async (apiKey: string, text: string): Promise<string[]> => {
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.extractKeyTerms(text);
+    },
+
+    createChatCompletion: async (
+      apiKey: string,
+      messages: Array<{role: string, content: string}>
+    ): Promise<{content: string} | null> => {
+      const aiProvider = createAIProvider(provider, apiKey);
+      if (aiProvider.createChatCompletion) {
+        return aiProvider.createChatCompletion(apiKey, messages);
+      }
+      console.error("createChatCompletion not implemented in the provider");
+      return null;
     }
   };
 };
@@ -252,9 +269,10 @@ export async function createLinguisticInfo(
     aiService: any,
     apiKey: string,
     text: string,
-    sourceLanguage: string
+    sourceLanguage: string,
+    userLanguage: string = 'ru' // Добавляем параметр языка пользователя
 ): Promise<string> {
-    console.log(`Creating linguistic info for word: "${text}", language: "${sourceLanguage}"`);
+    console.log(`Creating linguistic info for word: "${text}", language: "${sourceLanguage}", user language: "${userLanguage}"`);
     
     try {
         // Проверим наличие API ключа
@@ -272,13 +290,13 @@ export async function createLinguisticInfo(
         // Проверим, имеет ли сервис AI метод для получения лингвистической информации
         if (aiService.getLinguisticInfo) {
             console.log("Using direct getLinguisticInfo method from AI service");
-            return await aiService.getLinguisticInfo(apiKey, text, sourceLanguage);
+            return await aiService.getLinguisticInfo(apiKey, text, sourceLanguage, userLanguage);
         } else {
             // Реализация по умолчанию через общий API сервис
             console.log("Using standard completion API for linguistic info");
             
             // Формируем запрос с учетом особенностей языка
-            const prompt = createLinguisticPrompt(text, sourceLanguage);
+            const prompt = createLinguisticPrompt(text, sourceLanguage, userLanguage);
             console.log("Generated prompt for linguistic info:", prompt.substring(0, 100) + "...");
             
             // Проверим наличие метода createChatCompletion
@@ -318,103 +336,126 @@ export async function createLinguisticInfo(
 }
 
 // Вспомогательная функция для создания промпта с учетом особенностей языка
-function createLinguisticPrompt(text: string, sourceLanguage: string): string {
+function createLinguisticPrompt(text: string, sourceLanguage: string, userLanguage: string = 'ru'): string {
     // Базовый промпт
-    let basePrompt = `You are a linguistic expert specializing in providing concise linguistic information. 
-Create a short, useful linguistic description for the word or phrase.
-The output should be formatted as HTML with minimal styling (use <span>, <strong>, and simple classes).
-Keep the description short and focused on the most important linguistic features.
+    let basePrompt = `You are a linguistic expert specializing in providing concise grammatical information.
+Create a very short grammar reference card for the word or phrase.
+The output should be formatted as clean, visually appealing HTML with minimal styling using appropriate Font Awesome icons.
+Keep the description extremely concise - MAXIMUM 4 LINES total.
+Include ONLY the essential grammatical features (like part of speech, gender, tense, etc.).
+Do NOT include examples, usage notes, or definitions.
+Use semantic HTML formatting with emphasis on visual structure:
+- Use <div> elements with small margins between sections
+- Use <i class="fa fa-xxx"></i> icons before important points (choose the most relevant icons)
+- Use <strong> for important terms
+- Use <span style="color:#4B5563;font-style:italic"> for secondary information
+- Format should be clean, modern, and easy to scan visually
+
+IMPORTANT: If the word is in an inflected form, ALWAYS include the base/dictionary form.
+
+Use these icons appropriately:
+- <i class="fa fa-book"></i> for part of speech/word class
+- <i class="fa fa-font"></i> for base form
+- <i class="fa fa-venus-mars"></i> for gender
+- <i class="fa fa-clock"></i> for tense/aspect
+- <i class="fa fa-exchange-alt"></i> for declension/conjugation
+- <i class="fa fa-exclamation-circle"></i> for irregular forms
+- <i class="fa fa-info-circle"></i> for general information
+
+VERY IMPORTANT: Respond in the "${userLanguage}" language (the language of the user), not in the source language.
 `;
 
-    // Добавляем специфичные для языка инструкции
+    // Добавляем специфичные для языка инструкции анализа слова
     switch (sourceLanguage) {
         case 'ru': // Русский
-            basePrompt += `For Russian words, include:
-- Part of speech (часть речи)
-- Gender for nouns (род)
-- Declension pattern or case information (склонение)
-- Aspect for verbs (вид глагола)
-- Conjugation for verbs when applicable (спряжение)`;
+            basePrompt += `Analyze Russian words for:
+- Part of speech with gender for nouns
+- Base/dictionary form if word is inflected
+- Declension or case information for nouns
+- Aspect and tense for verbs
+- But output in ${userLanguage} language`;
             break;
             
         case 'en': // Английский
-            basePrompt += `For English words, include:
+            basePrompt += `Analyze English words for:
 - Part of speech
+- Base/dictionary form if word is inflected
 - Irregular forms if applicable
-- Phrasal verb variations if applicable
-- Common usage patterns
-- British/American differences if notable`;
+- Tense for verbs
+- But output in ${userLanguage} language`;
             break;
             
         case 'de': // Немецкий
-            basePrompt += `For German words, include:
-- Part of speech
-- Gender for nouns (with article)
-- Declension pattern
-- Plural form for nouns
-- Strong/weak/mixed verb forms if applicable`;
+            basePrompt += `Analyze German words for:
+- Part of speech with gender for nouns (with article)
+- Base/dictionary form if word is inflected
+- Declension or plural form
+- Strong/weak/mixed form for verbs
+- But output in ${userLanguage} language`;
             break;
             
         case 'fr': // Французский
-            basePrompt += `For French words, include:
-- Part of speech
-- Gender for nouns (with article)
-- Conjugation pattern for verbs
-- Irregular forms if applicable
-- Pronunciation notes if tricky`;
+            basePrompt += `Analyze French words for:
+- Part of speech with gender for nouns
+- Base/dictionary form if word is inflected
+- Conjugation information for verbs
+- Irregular forms if notable
+- But output in ${userLanguage} language`;
             break;
             
         case 'es': // Испанский
-            basePrompt += `For Spanish words, include:
-- Part of speech (e.g., adverb, preposition, noun, verb)
-- Gender for nouns with definite article (el/la)
-- For prepositions: common usage patterns and examples
-- For adverbs: usage context and common combinations
-- For verbs: conjugation pattern, tense forms (present, past, future)
-- For adjectives: gender inflection pattern
-- Include any special regional usage if applicable
-- Note any common expressions or phrases that use this word`;
+            basePrompt += `Analyze Spanish words for:
+- Part of speech with gender for nouns
+- Base/dictionary form if word is inflected
+- Conjugation pattern for verbs
+- Irregular forms if applicable
+- But output in ${userLanguage} language`;
             break;
             
         case 'it': // Итальянский
-            basePrompt += `For Italian words, include:
-- Part of speech
-- Gender for nouns (with article)
-- Conjugation for verbs (regular/irregular)
-- Plural forms for nouns`;
+            basePrompt += `Analyze Italian words for:
+- Part of speech with gender for nouns
+- Base/dictionary form if word is inflected
+- Conjugation for verbs
+- Plural forms for nouns if irregular
+- But output in ${userLanguage} language`;
             break;
             
         case 'ja': // Японский
-            basePrompt += `For Japanese words, include:
-- Word type (名詞, 動詞, 形容詞, etc.)
-- Verb group for verbs
-- Kanji and reading (if applicable)
-- Formal/informal usage notes
-- Conjugation pattern for verbs`;
+            basePrompt += `Analyze Japanese words for:
+- Word type (名詞, 動詞, etc.)
+- Base/dictionary form if word is inflected
+- Verb group or conjugation pattern if applicable
+- Formal/informal usage
+- But output in ${userLanguage} language`;
             break;
             
         case 'zh': // Китайский
-            basePrompt += `For Chinese words, include:
-- Word type (noun, verb, etc.)
-- Measure word if a noun
-- Character composition notes
-- Common compounds
-- Usage context`;
+            basePrompt += `Analyze Chinese words for:
+- Word type with measure word if a noun
+- Base/dictionary form if applicable
+- Character composition
+- But output in ${userLanguage} language`;
             break;
             
         default:
-            basePrompt += `Include:
+            basePrompt += `Analyze words for:
 - Part of speech
-- Gender if applicable
-- Conjugation/declension if applicable
-- Common forms or variations
-- Usage notes`;
+- Base/dictionary form if word is inflected
+- Gender/case/form if applicable
+- Tense for verbs if applicable
+- But output in ${userLanguage} language`;
     }
     
     basePrompt += `
-The output should be structured but concise (max 100 words).
-Focus on information a language learner would find most useful.
-Use clean, minimal HTML with no unnecessary styling.`;
+IMPORTANT:
+1. The output MUST be in the "${userLanguage}" language
+2. Must be extremely concise - maximum 4 lines total
+3. Focus ONLY on grammatical features
+4. No examples, usage notes, or definitions
+5. The HTML must be semantically correct and visually appealing
+6. Use appropriate Font Awesome icons from the list above
+7. ALWAYS include base/dictionary form if the word is not in its basic form`;
     
     return basePrompt;
 } 

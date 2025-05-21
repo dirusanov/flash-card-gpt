@@ -922,7 +922,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Определяем язык источника: автоопределенный или выбранный вручную
                 const wordLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
                 
-                console.log(`Generating linguistic info using source language: ${wordLanguage || 'unknown'} for text: "${text.substring(0, 20)}..."`);
+                console.log(`Generating linguistic info using source language: ${wordLanguage || 'unknown'} for text: "${text.substring(0, 20)}...", user language: ${translateToLanguage}`);
                 
                 // Если есть язык источника - используем его
                 if (wordLanguage) {
@@ -930,24 +930,26 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         aiService,
                         apiKey,
                         text,
-                        wordLanguage
+                        wordLanguage,
+                        translateToLanguage // Передаем язык пользователя
                     );
                     
                     if (linguisticInfo) {
-                        console.log(`Successfully generated linguistic info for ${wordLanguage} language`);
+                        console.log(`Successfully generated linguistic info for ${wordLanguage} language in user language ${translateToLanguage}`);
                         dispatch(setLinguisticInfo(linguisticInfo));
                         completedOperations.linguisticInfo = true;
                     } else {
                         console.warn(`Empty linguistic info generated for ${wordLanguage} language`);
                     }
                 } else {
-                    // Используем язык перевода как запасной вариант
-                    console.warn(`No source language detected. Using target language (${translateToLanguage}) as fallback`);
+                    // Используем язык перевода как запасной вариант для источника
+                    console.warn(`No source language detected. Using target language (${translateToLanguage}) as fallback for source`);
                     const linguisticInfo = await createLinguisticInfo(
                         aiService,
                         apiKey,
                         text,
-                        translateToLanguage
+                        translateToLanguage, // В качестве исходного языка используем язык перевода
+                        translateToLanguage  // Для интерфейса тоже используем язык перевода
                     );
                     
                     if (linguisticInfo) {
@@ -1759,7 +1761,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             aiService,
                             apiKey,
                             option,
-                            textLanguage
+                            textLanguage,
+                            translateToLanguage // Передаем язык пользователя
                         );
                         
                         if (linguisticInfo) {
