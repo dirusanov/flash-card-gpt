@@ -149,6 +149,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             if (!state.currentCardId) {
                 newState.image = null;
                 newState.imageUrl = null;
+                newState.linguisticInfo = "";
             }
             break;
         case SET_TRANSLATION:

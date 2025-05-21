@@ -803,6 +803,7 @@ const handleSaveAllCards = async () => {
                         if (savedCard.imageUrl) dispatch(setImageUrl(savedCard.imageUrl));
                         if (savedCard.front) dispatch(setFront(savedCard.front));
                         if (savedCard.back) dispatch(setBack(savedCard.back));
+                        if (savedCard.linguisticInfo) dispatch(setLinguisticInfo(savedCard.linguisticInfo));
                         setOriginalSelectedText(savedCard.text);
                         
                         setShowResult(true);
@@ -873,6 +874,7 @@ const handleSaveAllCards = async () => {
         // Clear previous image data before generating a new card
         dispatch(setImage(null));
         dispatch(setImageUrl(null));
+        dispatch(setLinguisticInfo(""));
         
         setLoadingGetResult(true);
         setOriginalSelectedText(text);
@@ -1846,16 +1848,17 @@ const handleSaveAllCards = async () => {
             
             // Создаем карточки для каждого выбранного варианта
             for (const option of selectedOptions) {
-                // Установка текста для текущей карточки
-                dispatch(setText(option));
-                setOriginalSelectedText(option);
-                
-                // Очистим предыдущие данные
+                // Очистим предыдущие данные перед созданием новой карточки
+                dispatch(setText(''));
                 dispatch(setTranslation(''));
                 dispatch(setExamples([]));
                 dispatch(setImage(null));
                 dispatch(setImageUrl(null));
-                dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
+                dispatch(setLinguisticInfo('')); // Важно: очищаем лингвистическое описание
+                
+                // Установка текста для текущей карточки (после очистки)
+                dispatch(setText(option));
+                setOriginalSelectedText(option);
                 
                 // Сброс статуса явного сохранения для предотвращения ложного отображения "Saved to Collection"
                 setExplicitlySaved(false);
@@ -1901,31 +1904,39 @@ const handleSaveAllCards = async () => {
                         dispatch(setFront(flashcard.front));
                     }
                     
-                    // 3.5 Создаем лингвистическое описание
+                    // 3.5 Создаем лингвистическое описание конкретно для этого слова/фразы
                     const textLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+                    let generatedLinguisticInfo = "";
+                    
                     if (textLanguage) {
                         const linguisticInfo = await createLinguisticInfo(
                             aiService,
                             apiKey,
-                            option,
+                            option, // Используем текущую опцию, а не глобальный текст
                             textLanguage,
                             translateToLanguage // Передаем язык пользователя
                         );
                         
                         if (linguisticInfo) {
+                            generatedLinguisticInfo = linguisticInfo;
                             dispatch(setLinguisticInfo(linguisticInfo));
                         }
                     }
                     
                     // 4. Генерируем изображение, если нужно
+                    let currentImageUrl = null;
+                    let currentImage = null;
+                    
                     if (shouldGenerateImage && modelProvider === ModelProvider.OpenAI) {
                         const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions);
                         const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
                         
                         if (imageUrl) {
+                            currentImageUrl = imageUrl;
                             dispatch(setImageUrl(imageUrl));
                         }
                         if (imageBase64) {
+                            currentImage = imageBase64;
                             dispatch(setImage(imageBase64));
                         }
                     }
@@ -1939,19 +1950,19 @@ const handleSaveAllCards = async () => {
                         text: option,
                         translation: translation.translated || '',
                         examples: examplesResult.map(example => [example.original, example.translated]) as [string, string | null][],
-                        linguisticInfo: linguisticInfo || '', // Добавляем лингвистическое описание
+                        linguisticInfo: generatedLinguisticInfo, // Используем локальную переменную
                         front: flashcard.front || '',
                         back: translation.translated || '',
-                        image: shouldGenerateImage ? image : null,
-                        imageUrl: shouldGenerateImage ? imageUrl : null,
+                        image: currentImage, // Используем локальную переменную
+                        imageUrl: currentImageUrl, // Используем локальную переменную
                         createdAt: new Date(),
                         exportStatus: 'not_exported' as const
                     };
                     
-                                    // НЕ сохраняем карточку в хранилище здесь, а только добавляем в список для отображения
-                // dispatch(saveCardToStorage(cardData)); - УДАЛЕНО, чтобы предотвратить автоматическое сохранение
-                console.log(`Created card ${cardData.id} but NOT saving to storage yet`);
-                newCards.push(cardData);
+                    // НЕ сохраняем карточку в хранилище здесь, а только добавляем в список для отображения
+                    // dispatch(saveCardToStorage(cardData)); - УДАЛЕНО, чтобы предотвратить автоматическое сохранение
+                    console.log(`Created card ${cardData.id} but NOT saving to storage yet`);
+                    newCards.push(cardData);
                     
                 } catch (error) {
                     console.error(`Error creating card for "${option}":`, error);
@@ -2040,18 +2051,28 @@ const handleSaveAllCards = async () => {
         saveCurrentCardState();
         
         const nextIndex = currentCardIndex + 1;
-        setCurrentCardIndex(nextIndex);
+        console.log(`Moving from card ${currentCardIndex} to card ${nextIndex}`);
         
         // Загружаем данные следующей карточки
         const card = createdCards[nextIndex];
         if (card) {
+            console.log(`Loading next card data: ${card.id}, text: ${card.text}, linguistic info: ${card.linguisticInfo ? 'yes' : 'no'}`);
             loadCardData(card);
+            // Обновляем индекс карточки после загрузки данных
+            setCurrentCardIndex(nextIndex);
         }
     };
     
     // Функция для сохранения текущего состояния карточки в массиве createdCards
     const saveCurrentCardState = () => {
         if (!createdCards[currentCardIndex]) return;
+        
+        // Логируем состояние перед сохранением для отладки
+        console.log('Saving current card state:', { 
+            index: currentCardIndex, 
+            text, 
+            linguisticInfo: linguisticInfo ? linguisticInfo.substring(0, 30) + '...' : 'empty'
+        });
         
         // Создаем обновленную копию текущей карточки с актуальными данными из Redux
         const updatedCard = {
@@ -2070,10 +2091,30 @@ const handleSaveAllCards = async () => {
         const updatedCards = [...createdCards];
         updatedCards[currentCardIndex] = updatedCard;
         setCreatedCards(updatedCards);
+        
+        console.log('Updated card saved:', updatedCard.id);
     };
     
     // Функция для загрузки данных карточки в Redux
     const loadCardData = (card: StoredCard) => {
+        console.log('Loading card data for card:', { 
+            id: card.id, 
+            text: card.text,
+            hasLinguisticInfo: Boolean(card.linguisticInfo)
+        });
+        
+        // Сначала очищаем все данные
+        dispatch(setText(''));
+        dispatch(setTranslation(null));
+        dispatch(setExamples([]));
+        dispatch(setImage(null));
+        dispatch(setImageUrl(null));
+        dispatch(setFront(''));
+        dispatch(setBack(null));
+        dispatch(setLinguisticInfo(''));
+        
+        // Затем загружаем данные из карточки
+        
         // Проверяем каждое поле перед установкой
         if (typeof card.text === 'string') {
             dispatch(setText(card.text));
@@ -2100,7 +2141,13 @@ const handleSaveAllCards = async () => {
         dispatch(setBack(card.back === undefined ? null : card.back));
         
         // LinguisticInfo может быть строкой или undefined
-        dispatch(setLinguisticInfo(card.linguisticInfo || ''));
+        if (card.linguisticInfo) {
+            console.log('Setting linguistic info:', card.linguisticInfo.substring(0, 30) + '...');
+            dispatch(setLinguisticInfo(card.linguisticInfo));
+        } else {
+            console.log('No linguistic info found for this card');
+            dispatch(setLinguisticInfo(''));
+        }
     };
     
     // Функция для перехода к предыдущей карточке
@@ -2111,12 +2158,15 @@ const handleSaveAllCards = async () => {
         saveCurrentCardState();
         
         const prevIndex = currentCardIndex - 1;
-        setCurrentCardIndex(prevIndex);
+        console.log(`Moving from card ${currentCardIndex} to card ${prevIndex}`);
         
         // Загружаем данные предыдущей карточки
         const card = createdCards[prevIndex];
         if (card) {
+            console.log(`Loading previous card data: ${card.id}, text: ${card.text}, linguistic info: ${card.linguisticInfo ? 'yes' : 'no'}`);
             loadCardData(card);
+            // Обновляем индекс карточки после загрузки данных
+            setCurrentCardIndex(prevIndex);
         }
     };
     
@@ -3598,8 +3648,8 @@ const handleSaveAllCards = async () => {
     // Handler для обновления лингвистической информации
     const handleLinguisticInfoUpdate = (newInfo: string) => {
         dispatch(setLinguisticInfo(newInfo));
+        setIsEdited(true);
         if (isSaved) {
-            setIsEdited(true);
         }
     };
 
