@@ -36,7 +36,8 @@ export interface AIService {
     word: string,
     translateToLanguage: string,
     translate?: boolean,
-    customPrompt?: string
+    customPrompt?: string,
+    sourceLanguage?: string
   ) => Promise<Array<[string, string | null]>>;
   
   getDescriptionImage: (
@@ -85,10 +86,11 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       word: string,
       translateToLanguage: string,
       translate: boolean = false,
-      customPrompt: string = ''
+      customPrompt: string = '',
+      sourceLanguage?: string
     ): Promise<Array<[string, string | null]>> => {
       const aiProvider = createAIProvider(provider, apiKey);
-      return aiProvider.getExamples(word, translateToLanguage, translate, customPrompt);
+      return aiProvider.getExamples(word, translateToLanguage, translate, customPrompt, sourceLanguage);
     },
     
     getDescriptionImage: async (
@@ -205,7 +207,7 @@ export const createExamples = async (
   translateToLanguage: string,
   translate: boolean = false,
   customPrompt?: string,
-  textLanguage?: string
+  sourceLanguage?: string
 ): Promise<ExampleItem[]> => {
   try {
     if (!apiKey) {
@@ -217,7 +219,8 @@ export const createExamples = async (
       word,
       translateToLanguage,
       translate,
-      customPrompt
+      customPrompt,
+      sourceLanguage
     );
     
     return examples.map(([original, translated]) => ({

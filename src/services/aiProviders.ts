@@ -17,7 +17,8 @@ export interface AIProviderInterface {
     word: string,
     translateToLanguage: string,
     translate?: boolean,
-    customPrompt?: string
+    customPrompt?: string,
+    sourceLanguage?: string
   ) => Promise<Array<[string, string | null]>>;
   
   getDescriptionImage: (
@@ -106,14 +107,20 @@ Output ONLY the direct translation, without any additional text, explanations, q
 Do not include any examples or sentences. Just return the translation of the word in a single line.
 Do not include definitions, examples, notes, or part of speech information. Only provide the translated word or phrase.`,
       
-      examples: (word: string) => 
-        `Give me exactly three example sentences using the word '${word}' in English.
-Each sentence should show natural usage of '${word}'.
+      examples: (word: string, sourceLanguage?: string) => {
+        // Если sourceLanguage указан, используем его, иначе позволяем модели определить
+        const languageInstruction = sourceLanguage 
+          ? `Give me exactly three example sentences using the word '${word}' in the language with code "${sourceLanguage}".`
+          : `Give me exactly three example sentences using the word '${word}' in its original language.`;
+        
+        return `${languageInstruction}
+Each sentence should show natural usage of '${word}' in that language.
 Format your response as follows:
 1. [First example sentence here]
-2. [Second example sentence here]
+2. [Second example sentence here] 
 3. [Third example sentence here]
-Do not include definitions, explanations, or translations, ONLY the numbered example sentences as shown above.`,
+Do not include definitions, explanations, or translations, ONLY the numbered example sentences as shown above.`;
+      },
       
       imageDescription: (word: string) => 
         `Create a short visual description of the word/concept "${word}" for image generation.
@@ -210,10 +217,11 @@ Keep the description under 50 words and make sure it is purely descriptive witho
     word: string,
     translateToLanguage: string,
     translate: boolean = false,
-    customPrompt: string = ''
+    customPrompt: string = '',
+    sourceLanguage?: string
   ): Promise<Array<[string, string | null]>> {
     try {
-      const basePrompt = this.getPrompts().examples(word);
+      const basePrompt = this.getPrompts().examples(word, sourceLanguage);
       const finalPrompt = customPrompt 
         ? `${basePrompt} ${customPrompt.replace(/\{word\}/g, word)}` 
         : basePrompt;

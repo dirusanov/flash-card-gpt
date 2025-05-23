@@ -8,7 +8,7 @@ import {setDeckId} from "../store/actions/decks";
 import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo} from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
-import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setSourceLanguage } from "../store/actions/settings";
+import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
 import {Modes} from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import { OpenAI } from 'openai';
@@ -258,13 +258,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const handleNewExamples = async () => {
         setLoadingNewExamples(true);
         try {
+            // Определяем исходный язык
+            const textLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+            
             const newExamplesResult = await createExamples(
                 aiService,
                 apiKey,
                 text,
                 translateToLanguage,
                 true,
-                aiInstructions
+                aiInstructions,
+                textLanguage || undefined // Передаем исходный язык
             );
             
             if (newExamplesResult && newExamplesResult.length > 0) {
@@ -899,7 +903,7 @@ const handleSaveAllCards = async () => {
             }
             
             // Определяем язык исходного текста для API запросов
-            const textLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+            const sourceLanguageForSubmit = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
             
             // Track which operations completed successfully to give better error messages
             let completedOperations = {
@@ -918,7 +922,7 @@ const handleSaveAllCards = async () => {
                     text, 
                     translateToLanguage,
                     aiInstructions,
-                    textLanguage || undefined // Передаем информацию о языке исходного текста или undefined
+                    sourceLanguageForSubmit || undefined // Передаем информацию о языке исходного текста или undefined
                 );
                 
                 if (translation.translated) {
@@ -939,7 +943,7 @@ const handleSaveAllCards = async () => {
                     translateToLanguage, 
                     true, 
                     aiInstructions,
-                    textLanguage || undefined // Преобразуем string | null в string | undefined
+                    sourceLanguageForSubmit || undefined // Преобразуем string | null в string | undefined
                 );
                 
                 if (examplesResult && examplesResult.length > 0) {
@@ -1884,6 +1888,7 @@ const handleSaveAllCards = async () => {
                     
                     
                     // 2. Получаем примеры
+                    const sourceLanguageForExamples = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
                     const examplesResult = await createExamples(
                         aiService, 
                         apiKey, 
@@ -1891,7 +1896,7 @@ const handleSaveAllCards = async () => {
                         translateToLanguage, 
                         true, 
                         aiInstructions,
-                        undefined // Передаем undefined как седьмой параметр
+                        sourceLanguageForExamples || undefined // Передаем исходный язык
                     );
                     
                     if (examplesResult && examplesResult.length > 0) {
@@ -1908,15 +1913,15 @@ const handleSaveAllCards = async () => {
                     }
                     
                     // 3.5 Создаем лингвистическое описание конкретно для этого слова/фразы
-                    const textLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+                    const sourceLanguageForLinguistic = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
                     let generatedLinguisticInfo = "";
                     
-                    if (textLanguage) {
+                    if (sourceLanguageForLinguistic) {
                         const linguisticInfo = await createLinguisticInfo(
                             aiService,
                             apiKey,
                             option, // Используем текущую опцию, а не глобальный текст
-                            textLanguage,
+                            sourceLanguageForLinguistic,
                             translateToLanguage // Передаем язык пользователя
                         );
                         

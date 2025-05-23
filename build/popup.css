@@ -692,6 +692,10 @@ video {
   border-width: 1px;
 }
 
+.uppercase {
+  text-transform: uppercase;
+}
+
 .italic {
   font-style: italic;
 }

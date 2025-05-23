@@ -560,8 +560,22 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>Examples:</p>
                             {card.examples.slice(0, 1).map(([example, translation], index) => (
                                 <div key={index} style={{ fontSize: '12px', marginBottom: '2px' }}>
-                                    <p style={{ color: '#111827', marginBottom: '2px' }}>{example}</p>
-                                    {translation && <p style={{ color: '#6B7280', fontStyle: 'italic' }}>{translation}</p>}
+                                    <p style={{ 
+                                        color: '#111827', 
+                                        marginBottom: '2px',
+                                        lineHeight: '1.4',
+                                        wordWrap: 'break-word',
+                                        overflow: 'visible',
+                                        whiteSpace: 'normal'
+                                    }}>{example}</p>
+                                    {translation && <p style={{ 
+                                        color: '#6B7280', 
+                                        fontStyle: 'italic',
+                                        lineHeight: '1.4',
+                                        wordWrap: 'break-word',
+                                        overflow: 'visible',
+                                        whiteSpace: 'normal'
+                                    }}>{translation}</p>}
                                 </div>
                             ))}
                             {card.examples.length > 1 && (
@@ -1472,19 +1486,29 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                             >
                                                 <FaTimes size={12} />
                                             </button>
-                                            <input
-                                                type="text"
+                                            <textarea
                                                 value={example[0] || ''}
                                                 onChange={(e) => handleExampleChange(index, true, e.target.value)}
                                                 placeholder="Example"
-                                                style={formStyles.input}
+                                                style={{
+                                                    ...formStyles.input,
+                                                    minHeight: '60px',
+                                                    resize: 'vertical',
+                                                    fontFamily: 'inherit',
+                                                    lineHeight: '1.4'
+                                                }}
                                             />
-                                            <input
-                                                type="text"
+                                            <textarea
                                                 value={example[1] || ''}
                                                 onChange={(e) => handleExampleChange(index, false, e.target.value)}
                                                 placeholder="Translation (optional)"
-                                                style={formStyles.input}
+                                                style={{
+                                                    ...formStyles.input,
+                                                    minHeight: '60px',
+                                                    resize: 'vertical',
+                                                    fontFamily: 'inherit',
+                                                    lineHeight: '1.4'
+                                                }}
                                             />
                                         </div>
                                     ))

@@ -681,15 +681,20 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         <ul style={{
                             listStyle: 'none',
                             padding: 0,
-                            margin: 0
+                            margin: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px'
                         }}>
                             {examples.map(([example, translatedExample], index) => (
                                 <li key={index} style={{
-                                    marginBottom: '8px',
-                                    padding: '10px',
+                                    padding: '12px',
                                     backgroundColor: isEditMode ? '#F9FAFB' : '#F9FAFB',
                                     borderRadius: '6px',
                                     position: 'relative',
+                                    minHeight: 'auto',
+                                    wordWrap: 'break-word',
+                                    overflow: 'visible',
                                     ...(isEditMode ? {
                                         border: '1px dashed #CBD5E1',
                                         boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
@@ -736,8 +741,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     {isEditMode ? (
                                         <>
                                             <div style={{ marginBottom: '8px' }}>
-                                                <input
-                                                    type="text"
+                                                <textarea
                                                     value={example}
                                                     onChange={(e) => handleExampleEdit(index, true, e.target.value)}
                                                     style={{
@@ -748,15 +752,18 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                                         fontSize: '13px',
                                                         color: '#111827',
                                                         fontWeight: '500',
-                                                        backgroundColor: '#ffffff'
+                                                        backgroundColor: '#ffffff',
+                                                        minHeight: '40px',
+                                                        resize: 'vertical',
+                                                        fontFamily: 'inherit',
+                                                        lineHeight: '1.4'
                                                     }}
                                                     placeholder="Example sentence"
                                                 />
                                             </div>
                                             
                                             <div>
-                                                <input
-                                                    type="text"
+                                                <textarea
                                                     value={translatedExample || ''}
                                                     onChange={(e) => handleExampleEdit(index, false, e.target.value)}
                                                     style={{
@@ -767,7 +774,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                                         fontSize: '13px',
                                                         color: '#6B7280',
                                                         fontStyle: 'italic',
-                                                        backgroundColor: '#ffffff'
+                                                        backgroundColor: '#ffffff',
+                                                        minHeight: '40px',
+                                                        resize: 'vertical',
+                                                        fontFamily: 'inherit',
+                                                        lineHeight: '1.4'
                                                     }}
                                                     placeholder="Translation (optional)"
                                                 />
@@ -779,7 +790,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                                 fontWeight: '500',
                                                 color: '#111827',
                                                 fontSize: '13px',
-                                                marginBottom: translatedExample ? '6px' : 0
+                                                marginBottom: translatedExample ? '6px' : 0,
+                                                lineHeight: '1.4',
+                                                wordWrap: 'break-word',
+                                                overflow: 'visible',
+                                                whiteSpace: 'normal'
                                             }}>
                                                 {example}
                                             </div>
@@ -787,7 +802,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                                 <div style={{ 
                                                     color: '#6B7280',
                                                     fontSize: '13px',
-                                                    fontStyle: 'italic'
+                                                    fontStyle: 'italic',
+                                                    lineHeight: '1.4',
+                                                    wordWrap: 'break-word',
+                                                    overflow: 'visible',
+                                                    whiteSpace: 'normal'
                                                 }}>
                                                     {translatedExample}
                                                 </div>
