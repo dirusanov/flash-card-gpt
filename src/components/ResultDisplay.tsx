@@ -562,7 +562,6 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                console.log('Grammar section toggle button clicked');
                                 setExpandedLinguistics(!expandedLinguistics);
                             }}
                             style={{

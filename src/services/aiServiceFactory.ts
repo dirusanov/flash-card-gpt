@@ -345,12 +345,13 @@ DO NOT analyze any translation - ONLY analyze the ORIGINAL SOURCE TERM.
 
 FORMAT REQUIREMENTS:
 1. FOCUS ONLY on grammatical information about "${text}" in "${sourceLanguage}" language
-2. Maximum 4-5 short grammatical points
+2. Maximum 4-6 short grammatical points
 3. Keep each point to 5-8 words maximum
 4. Use color-coded tags for grammatical features
 
 USE EMOJI SYMBOLS FOR CATEGORIES:
 📚 For part of speech (noun, verb, adjective, etc.)
+🏠 For root/base form (ONLY if current word is NOT in its base form)
 ⚥ For gender (masculine, feminine, neuter)
 🕒 For tense/aspect (past, present, future, perfect, etc.)
 📋 For form/number (singular, plural, etc.)
@@ -363,29 +364,54 @@ HTML STRUCTURE FOR EACH POINT:
   <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Noun</span>
 </div>
 
+CRITICAL: ROOT FORM LOGIC
+- 🏠 Include root/base form ONLY if "${text}" is NOT already in its dictionary/base form
+- If "${text}" is already the base form (infinitive, nominative singular, etc.), do NOT include root form
+- If "${text}" is conjugated/declined (like "running" vs "run", "books" vs "book"), then show base form
+
 INCLUDE AT LEAST:
 1. Part of speech (📚) ALWAYS
-2. Gender (⚥) for nouns if applicable
-3. Tense (🕒) for verbs if applicable
-4. Only the MOST important grammar points - no extra information
+2. Root form (🏠) ONLY if current word is not in base form
+3. Gender (⚥) for nouns if applicable
+4. Tense (🕒) for verbs if applicable
+5. Only the MOST important grammar points - no extra information
 
-EXAMPLE OUTPUT FOR A VERB:
+EXAMPLE OUTPUT FOR A CONJUGATED VERB "running":
 <div class="grammar-item">
   <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Verb</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-tense">🕒</span> <strong>Tense:</strong> <span class="grammar-tag tag-tense">Present</span>
+  <span class="icon-root">🏠</span> <strong>Base form:</strong> <span class="grammar-tag tag-root">run</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-conjugation">✏️</span> <strong>Conjugation:</strong> <span class="grammar-tag tag-form">Regular -er</span>
+  <span class="icon-tense">🕒</span> <strong>Form:</strong> <span class="grammar-tag tag-tense">Present participle</span>
 </div>
 
-EXAMPLE OUTPUT FOR A NOUN:
+EXAMPLE OUTPUT FOR A BASE VERB "run":
+<div class="grammar-item">
+  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Verb</span>
+</div>
+<div class="grammar-item">
+  <span class="icon-tense">🕒</span> <strong>Form:</strong> <span class="grammar-tag tag-tense">Infinitive</span>
+</div>
+
+EXAMPLE OUTPUT FOR PLURAL NOUN "books":
 <div class="grammar-item">
   <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Noun</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-gender">⚥</span> <strong>Gender:</strong> <span class="grammar-tag tag-gender">Feminine</span>
+  <span class="icon-root">🏠</span> <strong>Base form:</strong> <span class="grammar-tag tag-root">book</span>
+</div>
+<div class="grammar-item">
+  <span class="icon-form">📋</span> <strong>Number:</strong> <span class="grammar-tag tag-form">Plural</span>
+</div>
+
+EXAMPLE OUTPUT FOR SINGULAR NOUN "book":
+<div class="grammar-item">
+  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Noun</span>
+</div>
+<div class="grammar-item">
+  <span class="icon-gender">⚥</span> <strong>Gender:</strong> <span class="grammar-tag tag-gender">Neuter</span>
 </div>
 
 REMEMBER:
@@ -394,7 +420,9 @@ REMEMBER:
 - Keep it very concise and focused
 - Response must be in ${userLanguage} language
 - Use only the emoji symbols provided above, not FontAwesome icons
-- Always include at least the part of speech`;
+- Always include at least the part of speech
+- Include base form (🏠) ONLY when the current word is NOT in its base form
+- Never duplicate information (if word is "run", don't show "Base form: run")`;
 
     return basePrompt;
 } 

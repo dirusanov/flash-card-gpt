@@ -145,17 +145,12 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             newState.storedCards = state.storedCards.filter(card => card.id !== action.payload);
             break;
         case SET_TEXT:
-            console.log('SET_TEXT reducer called with:', action.payload ? `"${action.payload.substring(0, 50)}..."` : 'EMPTY STRING');
-            console.log('Current state.currentCardId:', state.currentCardId);
             newState.text = action.payload;
             if (!state.currentCardId) {
-                console.log('🚨 Would clear linguisticInfo, but keeping it for now to prevent disappearing');
                 newState.image = null;
                 newState.imageUrl = null;
                 // Commented out to prevent linguisticInfo from disappearing
                 // newState.linguisticInfo = "";
-            } else {
-                console.log('✅ Keeping linguisticInfo because currentCardId exists:', state.currentCardId);
             }
             break;
         case SET_TRANSLATION:
@@ -176,9 +171,6 @@ const cardsReducer = (state = initialState, action: any): CardState => {
         case SET_CURRENT_CARD_ID:
             return { ...state, currentCardId: action.payload };
         case SET_LINGUISTIC_INFO:
-            console.log('SET_LINGUISTIC_INFO reducer called');
-            console.log('Previous linguisticInfo:', state.linguisticInfo ? `"${state.linguisticInfo.substring(0, 50)}..."` : 'EMPTY');
-            console.log('New linguisticInfo:', action.payload ? `"${action.payload.substring(0, 50)}..."` : 'EMPTY');
             return { ...state, linguisticInfo: action.payload };
         default:
             return state;

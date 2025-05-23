@@ -30,6 +30,7 @@
 
 /* Unicode emoji icon styling */
 .grammar-item span.icon-pos,
+.grammar-item span.icon-root,
 .grammar-item span.icon-gender,
 .grammar-item span.icon-tense,
 .grammar-item span.icon-form,
@@ -70,6 +71,7 @@
 
 /* Color-coded tags for different types */
 .tag-pos { background-color: #EFF6FF; color: #2563EB; border-color: #BFDBFE; }
+.tag-root { background-color: #F0FDF4; color: #16A34A; border-color: #BBF7D0; }
 .tag-gender { background-color: #F5F3FF; color: #7C3AED; border-color: #DDD6FE; }
 .tag-tense { background-color: #FEF3C7; color: #D97706; border-color: #FDE68A; }
 .tag-irregular { background-color: #FEE2E2; color: #DC2626; border-color: #FECACA; }

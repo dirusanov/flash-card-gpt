@@ -15,12 +15,8 @@ const GrammarCard: React.FC<GrammarCardProps> = ({
 }) => {
   // Функция для предотвращения всплытия клика
   const handleCardClick = (e: React.MouseEvent) => {
-    console.log('GrammarCard clicked - preventing event propagation');
     e.stopPropagation(); // Предотвращает всплытие события клика
   };
-
-  // Дополнительная отладочная информация
-  console.log('GrammarCard rendered with content length:', content?.length || 0);
 
   return (
     <div 
@@ -32,7 +28,6 @@ const GrammarCard: React.FC<GrammarCardProps> = ({
         className="grammar-card grammar-reference"
         dangerouslySetInnerHTML={{ __html: content || '' }}
         onClick={(e) => {
-          console.log('Grammar content clicked - stopping propagation');
           e.stopPropagation();
         }}
       />
@@ -40,7 +35,6 @@ const GrammarCard: React.FC<GrammarCardProps> = ({
       {isEditable && onEditClick && (
         <button
           onClick={(e) => {
-            console.log('Grammar edit button clicked');
             e.stopPropagation(); // Предотвращаем всплытие для кнопки
             onEditClick(); // Вызываем переданный обработчик
           }}
