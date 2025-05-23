@@ -133,7 +133,7 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       }
       console.error("createChatCompletion not implemented in the provider");
       return null;
-    }
+    },
   };
 };
 
@@ -269,165 +269,240 @@ export const createFlashcard = async (
 
 // Создаем функцию для получения лингвистического описания
 export async function createLinguisticInfo(
-    aiService: any,
+    aiService: AIService,
     apiKey: string,
     text: string,
     sourceLanguage: string,
     userLanguage: string = 'ru' // Добавляем параметр языка пользователя
-): Promise<string> {
-    console.log(`Creating linguistic info for word: "${text}", language: "${sourceLanguage}", user language: "${userLanguage}"`);
-    
+): Promise<string | null> {
     try {
-        // Проверим наличие API ключа
-        if (!apiKey) {
-            console.error("API key is missing for linguistic info generation");
-            return "";
+        console.log(`Creating linguistic info for "${text}" in ${sourceLanguage}, interface: ${userLanguage}`);
+        
+        const prompt = createLinguisticPrompt(text, sourceLanguage, userLanguage);
+        
+        // Используем createChatCompletion вместо sendRequest
+        const completion = await aiService.createChatCompletion(apiKey, [
+            {
+                role: "user",
+                content: prompt
+            }
+        ]);
+        
+        if (!completion || !completion.content) {
+            return null;
         }
         
-        // Проверим наличие aiService
-        if (!aiService) {
-            console.error("AI service is missing for linguistic info generation");
-            return "";
+        // Простая очистка HTML тегов, если нужно
+        let cleanedResponse = completion.content;
+        if (cleanedResponse.includes('<')) {
+            // Базовая очистка HTML, если есть теги
+            cleanedResponse = cleanedResponse;
         }
         
-        // Проверим, имеет ли сервис AI метод для получения лингвистической информации
-        if (aiService.getLinguisticInfo) {
-            console.log("Using direct getLinguisticInfo method from AI service");
-            return await aiService.getLinguisticInfo(apiKey, text, sourceLanguage, userLanguage);
-        } else {
-            // Реализация по умолчанию через общий API сервис
-            console.log("Using standard completion API for linguistic info");
-            
-            // Формируем запрос с учетом особенностей языка
-            const prompt = createLinguisticPrompt(text, sourceLanguage, userLanguage);
-            console.log("Generated prompt for linguistic info:", prompt.substring(0, 100) + "...");
-            
-            // Проверим наличие метода createChatCompletion
-            if (!aiService.createChatCompletion) {
-                console.error("createChatCompletion method not available in AI service");
-                return "";
-            }
-            
-            // Отправляем запрос к API
-            const completion = await aiService.createChatCompletion(apiKey, [
-                {
-                    role: "system",
-                    content: prompt
-                },
-                {
-                    role: "user",
-                    content: `Provide linguistic information for: "${text}"`
-                }
-            ]);
-            
-            // Проверяем ответ
-            if (!completion || !completion.content) {
-                console.error("Linguistic info API returned empty response");
-                return "";
-            }
-            
-            console.log("Received linguistic info from API:", completion.content.substring(0, 100) + "...");
-            
-            // Возвращаем результат
-            return completion.content || "";
-        }
+        console.log('Generated linguistic info length:', cleanedResponse?.length || 0);
+        return cleanedResponse;
     } catch (error) {
-        console.error("Error creating linguistic info:", error);
-        // Возвращаем HTML с сообщением об ошибке для отладки
-        return "<p style='color: #b91c1c;'>Failed to generate linguistic information. Please try again.</p>";
+        console.error('Error creating linguistic info:', error);
+        return null;
     }
 }
 
 // Вспомогательная функция для создания промпта с учетом особенностей языка
 function createLinguisticPrompt(text: string, sourceLanguage: string, userLanguage: string = 'ru'): string {
-    // Базовый промпт
-    let basePrompt = `You are a professional linguist creating concise grammar references for language learners.
+    // Определяем язык интерфейса
+    const getLanguageInstructions = (lang: string) => {
+        switch (lang) {
+            case 'ru':
+                return {
+                    name: 'RUSSIAN',
+                    terms: 'Глагол, Существительное, Прилагательное, Наречие',
+                    gender: 'Мужской, Женский, Средний',
+                    number: 'Единственное число, Множественное число',
+                    tense: 'Настоящее время, Прошедшее время, Будущее время',
+                    case: 'Именительный, Родительный, Дательный, Винительный, Творительный, Предложный',
+                    person: '1-е лицо, 2-е лицо, 3-е лицо',
+                    labels: {
+                        partOfSpeech: 'Часть речи',
+                        baseForm: 'Основная форма',
+                        gender: 'Род',
+                        number: 'Число',
+                        case: 'Падеж',
+                        tense: 'Время/Вид',
+                        person: 'Лицо/Число'
+                    },
+                    forbidden: 'Verb, Noun, Adjective, Present, Past, Masculine, Feminine, Singular, Plural'
+                };
+            case 'es':
+                return {
+                    name: 'SPANISH',
+                    terms: 'Verbo, Sustantivo, Adjetivo, Adverbio',
+                    gender: 'Masculino, Femenino, Neutro',
+                    number: 'Singular, Plural',
+                    tense: 'Presente, Pasado, Futuro',
+                    case: 'Nominativo, Genitivo, Dativo, Acusativo',
+                    person: '1ª persona, 2ª persona, 3ª persona',
+                    labels: {
+                        partOfSpeech: 'Categoría gramatical',
+                        baseForm: 'Forma base',
+                        gender: 'Género',
+                        number: 'Número',
+                        case: 'Caso',
+                        tense: 'Tiempo/Aspecto',
+                        person: 'Persona/Número'
+                    },
+                    forbidden: 'Verb, Noun, Adjective, Present, Past, Masculine, Feminine, Singular, Plural'
+                };
+            case 'fr':
+                return {
+                    name: 'FRENCH',
+                    terms: 'Verbe, Nom, Adjectif, Adverbe',
+                    gender: 'Masculin, Féminin, Neutre',
+                    number: 'Singulier, Pluriel',
+                    tense: 'Présent, Passé, Futur',
+                    case: 'Nominatif, Génitif, Datif, Accusatif',
+                    person: '1ère personne, 2ème personne, 3ème personne',
+                    labels: {
+                        partOfSpeech: 'Catégorie grammaticale',
+                        baseForm: 'Forme de base',
+                        gender: 'Genre',
+                        number: 'Nombre',
+                        case: 'Cas',
+                        tense: 'Temps/Aspect',
+                        person: 'Personne/Nombre'
+                    },
+                    forbidden: 'Verb, Noun, Adjective, Present, Past, Masculine, Feminine, Singular, Plural'
+                };
+            case 'de':
+                return {
+                    name: 'GERMAN',
+                    terms: 'Verb, Substantiv, Adjektiv, Adverb',
+                    gender: 'Maskulin, Feminin, Neutrum',
+                    number: 'Singular, Plural',
+                    tense: 'Präsens, Präteritum, Futur',
+                    case: 'Nominativ, Genitiv, Dativ, Akkusativ',
+                    person: '1. Person, 2. Person, 3. Person',
+                    labels: {
+                        partOfSpeech: 'Wortart',
+                        baseForm: 'Grundform',
+                        gender: 'Geschlecht',
+                        number: 'Numerus',
+                        case: 'Kasus',
+                        tense: 'Tempus/Aspekt',
+                        person: 'Person/Numerus'
+                    },
+                    forbidden: 'English terms like Verb, Noun, Present, Past, Masculine, Feminine'
+                };
+            case 'it':
+                return {
+                    name: 'ITALIAN',
+                    terms: 'Verbo, Sostantivo, Aggettivo, Avverbio',
+                    gender: 'Maschile, Femminile, Neutro',
+                    number: 'Singolare, Plurale',
+                    tense: 'Presente, Passato, Futuro',
+                    case: 'Nominativo, Genitivo, Dativo, Accusativo',
+                    person: '1ª persona, 2ª persona, 3ª persona',
+                    labels: {
+                        partOfSpeech: 'Categoria grammaticale',
+                        baseForm: 'Forma base',
+                        gender: 'Genere',
+                        number: 'Numero',
+                        case: 'Caso',
+                        tense: 'Tempo/Aspetto',
+                        person: 'Persona/Numero'
+                    },
+                    forbidden: 'Verb, Noun, Adjective, Present, Past, Masculine, Feminine, Singular, Plural'
+                };
+            default:
+                return {
+                    name: 'ENGLISH',
+                    terms: 'Verb, Noun, Adjective, Adverb',
+                    gender: 'Masculine, Feminine, Neuter',
+                    number: 'Singular, Plural',
+                    tense: 'Present, Past, Future',
+                    case: 'Nominative, Genitive, Dative, Accusative',
+                    person: '1st person, 2nd person, 3rd person',
+                    labels: {
+                        partOfSpeech: 'Part of speech',
+                        baseForm: 'Base form',
+                        gender: 'Gender',
+                        number: 'Number',
+                        case: 'Case',
+                        tense: 'Tense/Aspect',
+                        person: 'Person/Number'
+                    },
+                    forbidden: 'Russian, Spanish, French, German terms'
+                };
+        }
+    };
+    
+    const langConfig = getLanguageInstructions(userLanguage);
+    
+    const basePrompt = `You are a professional linguist creating grammar references for language learners.
 
-IMPORTANT: ONLY analyze the SOURCE TERM "${text}" in "${sourceLanguage}" language.
-DO NOT analyze any translation - ONLY analyze the ORIGINAL SOURCE TERM.
+⚠️ CRITICAL LANGUAGE REQUIREMENTS ⚠️
+1. ONLY analyze the SOURCE TERM "${text}" in "${sourceLanguage}" language
+2. DO NOT analyze any translation - ONLY the ORIGINAL TERM
+3. ALL interface labels and grammatical terms MUST be in ${langConfig.name} ONLY
+4. Base forms of words should be in the source language "${sourceLanguage}"
+5. NEVER mix languages - use ONLY ${langConfig.name} throughout
 
-FORMAT REQUIREMENTS:
-1. FOCUS ONLY on grammatical information about "${text}" in "${sourceLanguage}" language
-2. Maximum 4-6 short grammatical points
-3. Keep each point to 5-8 words maximum
-4. Use color-coded tags for grammatical features
-5. ALL GRAMMATICAL TERMS MUST BE IN RUSSIAN LANGUAGE
+${langConfig.name} LANGUAGE REQUIREMENTS:
+- Use ONLY ${langConfig.name} grammatical terms: ${langConfig.terms}
+- Use ONLY ${langConfig.name} gender terms: ${langConfig.gender}
+- Use ONLY ${langConfig.name} number terms: ${langConfig.number}
+- Use ONLY ${langConfig.name} tense terms: ${langConfig.tense}
+- Use ONLY ${langConfig.name} case terms: ${langConfig.case}
+- Use ONLY ${langConfig.name} person terms: ${langConfig.person}
+
+FORBIDDEN TERMS:
+❌ Never use: ${langConfig.forbidden}
+✅ Always use: ${langConfig.terms}
 
 USE EMOJI SYMBOLS FOR CATEGORIES:
-📚 For part of speech (существительное, глагол, прилагательное, etc.)
+📚 For part of speech
 🏠 For root/base form (ONLY if current word is NOT in its base form)
-⚥ For gender (мужской, женский, средний)
-🕒 For tense/aspect (прошедшее, настоящее, будущее, совершенный, etc.)
-📋 For form/number (единственное, множественное, etc.)
-✏️ For conjugation patterns
-⚠️ For irregular forms or special cases
-🔊 For pronunciation notes (only if very important)
+⚥ For gender
+📋 For number/form
+🎯 For case
+🕒 For tense/aspect
+👤 For person
+🎭 For mood
+🔄 For voice
+📐 For degree
+⚠️ For irregular forms
 
-HTML STRUCTURE FOR EACH POINT:
+HTML STRUCTURE:
 <div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Существительное</span>
-</div>
-
-CRITICAL: ROOT FORM LOGIC
-- 🏠 Include root/base form ONLY if "${text}" is NOT already in its dictionary/base form
-- If "${text}" is already the base form (infinitive, nominative singular, etc.), do NOT include root form
-- If "${text}" is conjugated/declined (like "running" vs "run", "books" vs "book"), then show base form
-
-INCLUDE AT LEAST:
-1. Part of speech (📚) ALWAYS - use Russian terms: существительное, глагол, прилагательное, наречие, предлог, местоимение, etc.
-2. Root form (🏠) ONLY if current word is not in base form
-3. Gender (⚥) for nouns if applicable - use Russian terms: мужской, женский, средний
-4. Tense (🕒) for verbs if applicable - use Russian terms: настоящее время, прошедшее время, причастие, etc.
-5. Only the MOST important grammar points - no extra information
-
-EXAMPLE OUTPUT FOR A CONJUGATED VERB "running":
-<div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Глагол</span>
-</div>
-<div class="grammar-item">
-  <span class="icon-root">🏠</span> <strong>Основная форма:</strong> <span class="grammar-tag tag-root">run</span>
-</div>
-<div class="grammar-item">
-  <span class="icon-tense">🕒</span> <strong>Форма:</strong> <span class="grammar-tag tag-tense">Причастие настоящего времени</span>
+  <span class="icon-pos">📚</span> <strong>${langConfig.labels.partOfSpeech}:</strong> <span class="grammar-tag tag-pos">[${langConfig.name} term]</span>
 </div>
 
-EXAMPLE OUTPUT FOR A BASE VERB "run":
+EXAMPLE CORRECT OUTPUT (${langConfig.name} interface):
 <div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Глагол</span>
+  <span class="icon-pos">📚</span> <strong>${langConfig.labels.partOfSpeech}:</strong> <span class="grammar-tag tag-pos">${langConfig.terms.split(',')[0].trim()}</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-tense">🕒</span> <strong>Форма:</strong> <span class="grammar-tag tag-tense">Инфинитив</span>
-</div>
-
-EXAMPLE OUTPUT FOR PLURAL NOUN "books":
-<div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Существительное</span>
+  <span class="icon-root">🏠</span> <strong>${langConfig.labels.baseForm}:</strong> <span class="grammar-tag tag-root">[word in source language]</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-root">🏠</span> <strong>Основная форма:</strong> <span class="grammar-tag tag-root">book</span>
-</div>
-<div class="grammar-item">
-  <span class="icon-form">📋</span> <strong>Число:</strong> <span class="grammar-tag tag-form">Множественное</span>
+  <span class="icon-gender">⚥</span> <strong>${langConfig.labels.gender}:</strong> <span class="grammar-tag tag-gender">${langConfig.gender.split(',')[0].trim()}</span>
 </div>
 
-EXAMPLE OUTPUT FOR SINGULAR NOUN "book":
-<div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Существительное</span>
-</div>
-<div class="grammar-item">
-  <span class="icon-gender">⚥</span> <strong>Род:</strong> <span class="grammar-tag tag-gender">Средний</span>
-</div>
+EXAMPLE WRONG OUTPUT (DO NOT DO THIS):
+❌ <strong>Part of speech:</strong> <span>Noun</span>
+❌ <strong>Gender:</strong> <span>Feminine</span>
+❌ <strong>Case:</strong> <span>Nominative</span>
+❌ <strong>Number/Form:</strong> <span>Singular</span>
 
-REMEMBER:
-- Analysis MUST be for the SOURCE WORD "${text}" in ${sourceLanguage} only
-- Do NOT analyze the translation
-- Keep it very concise and focused
-- ALL RESPONSES must be in Russian language, including all grammatical terms
-- Use only the emoji symbols provided above, not FontAwesome icons
-- Always include at least the part of speech in Russian (существительное, глагол, прилагательное, наречие, предлог, местоимение, etc.)
-- Include base form (🏠) ONLY when the current word is NOT in its base form
-- Never duplicate information (if word is "run", don't show "Основная форма: run")
-- All field labels must be in Russian: "Часть речи", "Основная форма", "Род", "Число", "Время", "Форма"`;
+MANDATORY REQUIREMENTS:
+1. Maximum 4-6 grammar points
+2. Each tag content: maximum 3-4 words
+3. Include comprehensive grammatical information
+4. Use ONLY ${langConfig.name} language throughout
+5. Be thorough but concise
+6. Include base form ONLY if current word is NOT in its base form
+7. ALL labels and terms must be in ${langConfig.name} consistently
+
+CRITICAL: Your response must be 100% in ${langConfig.name} for all grammatical terms and labels. No mixing of languages allowed.`;
 
     return basePrompt;
 } 
