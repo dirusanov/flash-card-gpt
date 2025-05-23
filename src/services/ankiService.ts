@@ -20,6 +20,7 @@ export interface CardLangLearning {
     translation: string;
     examples: Array<[string, string | null]>;
     image_base64: string | null;
+    linguisticInfo?: string;
 }
 
 export interface CardGeneral {
@@ -56,10 +57,58 @@ function format_back_lang_learning(card: CardLangLearning): string {
         }
     }
 
+    // Format linguistic information with beautiful styling
+    let linguisticHtml = '';
+    if (card.linguisticInfo && card.linguisticInfo.trim()) {
+        // Parse the linguistic info and format it nicely
+        const linguisticText = card.linguisticInfo.trim();
+        
+        // Split by lines and format each section
+        const lines = linguisticText.split('\n').filter(line => line.trim());
+        let formattedLinguistic = '';
+        
+        lines.forEach(line => {
+            const trimmedLine = line.trim();
+            
+            // Check if this is a header line (starts with capital letter and ends with colon)
+            if (trimmedLine.match(/^[А-ЯЁA-Z][^:]*:$/)) {
+                formattedLinguistic += `<div style="color: #2563EB; font-weight: bold; margin-top: 12px; margin-bottom: 4px;">${trimmedLine}</div>`;
+            }
+            // Check if this is a bullet point or list item
+            else if (trimmedLine.startsWith('•') || trimmedLine.startsWith('-') || trimmedLine.startsWith('*')) {
+                const content = trimmedLine.replace(/^[•\-*]\s*/, '');
+                formattedLinguistic += `<div style="margin-left: 16px; margin-bottom: 2px; color: #374151;">• ${content}</div>`;
+            }
+            // Check if this contains label-value pairs (like "Part of speech: Noun")
+            else if (trimmedLine.includes(':') && !trimmedLine.endsWith(':')) {
+                const [label, ...valueParts] = trimmedLine.split(':');
+                const value = valueParts.join(':').trim();
+                formattedLinguistic += `<div style="margin-bottom: 4px;"><span style="color: #6B7280; font-weight: 500;">${label.trim()}:</span> <span style="color: #111827;">${value}</span></div>`;
+            }
+            // Regular text
+            else if (trimmedLine) {
+                formattedLinguistic += `<div style="margin-bottom: 6px; color: #374151; line-height: 1.4;">${trimmedLine}</div>`;
+            }
+        });
+        
+        if (formattedLinguistic) {
+            linguisticHtml = `
+                <div style="margin-top: 20px; padding: 12px; background-color: #F8FAFC; border-left: 4px solid #2563EB; border-radius: 0 6px 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="color: #1E40AF; font-weight: bold; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center;">
+                        <span style="margin-right: 6px;">📚</span>
+                        Grammar & Linguistics
+                    </div>
+                    ${formattedLinguistic}
+                </div>
+            `;
+        }
+    }
+
     return `
         <b>${card.translation}</b>
         <br><br>${formatted_examples}<br><br>
         ${imageHtml}
+        ${linguisticHtml}
     `;
 }
 
