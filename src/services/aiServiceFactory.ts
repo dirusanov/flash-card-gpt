@@ -351,20 +351,21 @@ FORMAT REQUIREMENTS:
 2. Maximum 4-6 short grammatical points
 3. Keep each point to 5-8 words maximum
 4. Use color-coded tags for grammatical features
+5. ALL GRAMMATICAL TERMS MUST BE IN RUSSIAN LANGUAGE
 
 USE EMOJI SYMBOLS FOR CATEGORIES:
-📚 For part of speech (noun, verb, adjective, etc.)
+📚 For part of speech (существительное, глагол, прилагательное, etc.)
 🏠 For root/base form (ONLY if current word is NOT in its base form)
-⚥ For gender (masculine, feminine, neuter)
-🕒 For tense/aspect (past, present, future, perfect, etc.)
-📋 For form/number (singular, plural, etc.)
+⚥ For gender (мужской, женский, средний)
+🕒 For tense/aspect (прошедшее, настоящее, будущее, совершенный, etc.)
+📋 For form/number (единственное, множественное, etc.)
 ✏️ For conjugation patterns
 ⚠️ For irregular forms or special cases
 🔊 For pronunciation notes (only if very important)
 
 HTML STRUCTURE FOR EACH POINT:
 <div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Noun</span>
+  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Существительное</span>
 </div>
 
 CRITICAL: ROOT FORM LOGIC
@@ -373,59 +374,60 @@ CRITICAL: ROOT FORM LOGIC
 - If "${text}" is conjugated/declined (like "running" vs "run", "books" vs "book"), then show base form
 
 INCLUDE AT LEAST:
-1. Part of speech (📚) ALWAYS
+1. Part of speech (📚) ALWAYS - use Russian terms: существительное, глагол, прилагательное, наречие, предлог, местоимение, etc.
 2. Root form (🏠) ONLY if current word is not in base form
-3. Gender (⚥) for nouns if applicable
-4. Tense (🕒) for verbs if applicable
+3. Gender (⚥) for nouns if applicable - use Russian terms: мужской, женский, средний
+4. Tense (🕒) for verbs if applicable - use Russian terms: настоящее время, прошедшее время, причастие, etc.
 5. Only the MOST important grammar points - no extra information
 
 EXAMPLE OUTPUT FOR A CONJUGATED VERB "running":
 <div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Verb</span>
+  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Глагол</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-root">🏠</span> <strong>Base form:</strong> <span class="grammar-tag tag-root">run</span>
+  <span class="icon-root">🏠</span> <strong>Основная форма:</strong> <span class="grammar-tag tag-root">run</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-tense">🕒</span> <strong>Form:</strong> <span class="grammar-tag tag-tense">Present participle</span>
+  <span class="icon-tense">🕒</span> <strong>Форма:</strong> <span class="grammar-tag tag-tense">Причастие настоящего времени</span>
 </div>
 
 EXAMPLE OUTPUT FOR A BASE VERB "run":
 <div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Verb</span>
+  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Глагол</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-tense">🕒</span> <strong>Form:</strong> <span class="grammar-tag tag-tense">Infinitive</span>
+  <span class="icon-tense">🕒</span> <strong>Форма:</strong> <span class="grammar-tag tag-tense">Инфинитив</span>
 </div>
 
 EXAMPLE OUTPUT FOR PLURAL NOUN "books":
 <div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Noun</span>
+  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Существительное</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-root">🏠</span> <strong>Base form:</strong> <span class="grammar-tag tag-root">book</span>
+  <span class="icon-root">🏠</span> <strong>Основная форма:</strong> <span class="grammar-tag tag-root">book</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-form">📋</span> <strong>Number:</strong> <span class="grammar-tag tag-form">Plural</span>
+  <span class="icon-form">📋</span> <strong>Число:</strong> <span class="grammar-tag tag-form">Множественное</span>
 </div>
 
 EXAMPLE OUTPUT FOR SINGULAR NOUN "book":
 <div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Noun</span>
+  <span class="icon-pos">📚</span> <strong>Часть речи:</strong> <span class="grammar-tag tag-pos">Существительное</span>
 </div>
 <div class="grammar-item">
-  <span class="icon-gender">⚥</span> <strong>Gender:</strong> <span class="grammar-tag tag-gender">Neuter</span>
+  <span class="icon-gender">⚥</span> <strong>Род:</strong> <span class="grammar-tag tag-gender">Средний</span>
 </div>
 
 REMEMBER:
 - Analysis MUST be for the SOURCE WORD "${text}" in ${sourceLanguage} only
 - Do NOT analyze the translation
 - Keep it very concise and focused
-- Response must be in ${userLanguage} language
+- ALL RESPONSES must be in Russian language, including all grammatical terms
 - Use only the emoji symbols provided above, not FontAwesome icons
-- Always include at least the part of speech
+- Always include at least the part of speech in Russian (существительное, глагол, прилагательное, наречие, предлог, местоимение, etc.)
 - Include base form (🏠) ONLY when the current word is NOT in its base form
-- Never duplicate information (if word is "run", don't show "Base form: run")`;
+- Never duplicate information (if word is "run", don't show "Основная форма: run")
+- All field labels must be in Russian: "Часть речи", "Основная форма", "Род", "Число", "Время", "Форма"`;
 
     return basePrompt;
 } 

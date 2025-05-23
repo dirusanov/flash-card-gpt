@@ -367,11 +367,11 @@ Keep the description under 50 words and make sure it is purely descriptive witho
     text: string
   ): Promise<string | null> {
     try {
-      // Use a simpler approach for Anki front
+      // Use a simpler approach for Anki front - without part of speech
       const prompt = `For the word or phrase "${text}", provide ONLY the word itself and its pronunciation in IPA format.
-Format as: word (part of speech) /pronunciation/
-For example: "run (verb) /rʌn/"
-Your response should contain ONLY this formatted text, WITHOUT any additional information.`;
+Format as: word /pronunciation/
+For example: "run /rʌn/" or "beautiful /ˈbjuːtɪfəl/"
+Your response should contain ONLY this formatted text, WITHOUT any additional information like part of speech.`;
       
       const response = await this.sendRequest(prompt);
       
@@ -388,6 +388,7 @@ Your response should contain ONLY this formatted text, WITHOUT any additional in
         .replace(/^["']|["']$/g, '')       // Удаляем кавычки
         .replace(/^front:[\s:]*/i, '')     // Удаляем "Front:" если есть
         .replace(/^word:[\s:]*/i, '')      // Удаляем "Word:" если есть
+        .replace(/\s*\([^)]*\)/g, '')      // Удаляем любые части речи в скобках
         .trim();
       
       console.log('Front card response:', cleanedResponse);
