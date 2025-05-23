@@ -338,124 +338,63 @@ export async function createLinguisticInfo(
 // Вспомогательная функция для создания промпта с учетом особенностей языка
 function createLinguisticPrompt(text: string, sourceLanguage: string, userLanguage: string = 'ru'): string {
     // Базовый промпт
-    let basePrompt = `You are a linguistic expert specializing in providing concise grammatical information.
-Create a very short grammar reference card for the word or phrase.
-The output should be formatted as clean, visually appealing HTML with minimal styling using appropriate Font Awesome icons.
-Keep the description extremely concise - MAXIMUM 4 LINES total.
-Include ONLY the essential grammatical features (like part of speech, gender, tense, etc.).
-Do NOT include examples, usage notes, or definitions.
-Use semantic HTML formatting with emphasis on visual structure:
-- Use <div> elements with small margins between sections
-- Use <i class="fa fa-xxx"></i> icons before important points (choose the most relevant icons)
-- Use <strong> for important terms
-- Use <span style="color:#4B5563;font-style:italic"> for secondary information
-- Format should be clean, modern, and easy to scan visually
+    let basePrompt = `You are a professional linguist creating concise grammar references for language learners.
 
-IMPORTANT: If the word is in an inflected form, ALWAYS include the base/dictionary form.
+IMPORTANT: ONLY analyze the SOURCE TERM "${text}" in "${sourceLanguage}" language.
+DO NOT analyze any translation - ONLY analyze the ORIGINAL SOURCE TERM.
 
-Use these icons appropriately:
-- <i class="fa fa-book"></i> for part of speech/word class
-- <i class="fa fa-font"></i> for base form
-- <i class="fa fa-venus-mars"></i> for gender
-- <i class="fa fa-clock"></i> for tense/aspect
-- <i class="fa fa-exchange-alt"></i> for declension/conjugation
-- <i class="fa fa-exclamation-circle"></i> for irregular forms
-- <i class="fa fa-info-circle"></i> for general information
+FORMAT REQUIREMENTS:
+1. FOCUS ONLY on grammatical information about "${text}" in "${sourceLanguage}" language
+2. Maximum 4-5 short grammatical points
+3. Keep each point to 5-8 words maximum
+4. Use color-coded tags for grammatical features
 
-VERY IMPORTANT: Respond in the "${userLanguage}" language (the language of the user), not in the source language.
-`;
+USE EMOJI SYMBOLS FOR CATEGORIES:
+📚 For part of speech (noun, verb, adjective, etc.)
+⚥ For gender (masculine, feminine, neuter)
+🕒 For tense/aspect (past, present, future, perfect, etc.)
+📋 For form/number (singular, plural, etc.)
+✏️ For conjugation patterns
+⚠️ For irregular forms or special cases
+🔊 For pronunciation notes (only if very important)
 
-    // Добавляем специфичные для языка инструкции анализа слова
-    switch (sourceLanguage) {
-        case 'ru': // Русский
-            basePrompt += `Analyze Russian words for:
-- Part of speech with gender for nouns
-- Base/dictionary form if word is inflected
-- Declension or case information for nouns
-- Aspect and tense for verbs
-- But output in ${userLanguage} language`;
-            break;
-            
-        case 'en': // Английский
-            basePrompt += `Analyze English words for:
-- Part of speech
-- Base/dictionary form if word is inflected
-- Irregular forms if applicable
-- Tense for verbs
-- But output in ${userLanguage} language`;
-            break;
-            
-        case 'de': // Немецкий
-            basePrompt += `Analyze German words for:
-- Part of speech with gender for nouns (with article)
-- Base/dictionary form if word is inflected
-- Declension or plural form
-- Strong/weak/mixed form for verbs
-- But output in ${userLanguage} language`;
-            break;
-            
-        case 'fr': // Французский
-            basePrompt += `Analyze French words for:
-- Part of speech with gender for nouns
-- Base/dictionary form if word is inflected
-- Conjugation information for verbs
-- Irregular forms if notable
-- But output in ${userLanguage} language`;
-            break;
-            
-        case 'es': // Испанский
-            basePrompt += `Analyze Spanish words for:
-- Part of speech with gender for nouns
-- Base/dictionary form if word is inflected
-- Conjugation pattern for verbs
-- Irregular forms if applicable
-- But output in ${userLanguage} language`;
-            break;
-            
-        case 'it': // Итальянский
-            basePrompt += `Analyze Italian words for:
-- Part of speech with gender for nouns
-- Base/dictionary form if word is inflected
-- Conjugation for verbs
-- Plural forms for nouns if irregular
-- But output in ${userLanguage} language`;
-            break;
-            
-        case 'ja': // Японский
-            basePrompt += `Analyze Japanese words for:
-- Word type (名詞, 動詞, etc.)
-- Base/dictionary form if word is inflected
-- Verb group or conjugation pattern if applicable
-- Formal/informal usage
-- But output in ${userLanguage} language`;
-            break;
-            
-        case 'zh': // Китайский
-            basePrompt += `Analyze Chinese words for:
-- Word type with measure word if a noun
-- Base/dictionary form if applicable
-- Character composition
-- But output in ${userLanguage} language`;
-            break;
-            
-        default:
-            basePrompt += `Analyze words for:
-- Part of speech
-- Base/dictionary form if word is inflected
-- Gender/case/form if applicable
-- Tense for verbs if applicable
-- But output in ${userLanguage} language`;
-    }
-    
-    basePrompt += `
-IMPORTANT:
-1. The output MUST be in the "${userLanguage}" language
-2. Must be extremely concise - maximum 4 lines total
-3. Focus ONLY on grammatical features
-4. No examples, usage notes, or definitions
-5. The HTML must be semantically correct and visually appealing
-6. Use appropriate Font Awesome icons from the list above
-7. ALWAYS include base/dictionary form if the word is not in its basic form`;
-    
+HTML STRUCTURE FOR EACH POINT:
+<div class="grammar-item">
+  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Noun</span>
+</div>
+
+INCLUDE AT LEAST:
+1. Part of speech (📚) ALWAYS
+2. Gender (⚥) for nouns if applicable
+3. Tense (🕒) for verbs if applicable
+4. Only the MOST important grammar points - no extra information
+
+EXAMPLE OUTPUT FOR A VERB:
+<div class="grammar-item">
+  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Verb</span>
+</div>
+<div class="grammar-item">
+  <span class="icon-tense">🕒</span> <strong>Tense:</strong> <span class="grammar-tag tag-tense">Present</span>
+</div>
+<div class="grammar-item">
+  <span class="icon-conjugation">✏️</span> <strong>Conjugation:</strong> <span class="grammar-tag tag-form">Regular -er</span>
+</div>
+
+EXAMPLE OUTPUT FOR A NOUN:
+<div class="grammar-item">
+  <span class="icon-pos">📚</span> <strong>Part of speech:</strong> <span class="grammar-tag tag-pos">Noun</span>
+</div>
+<div class="grammar-item">
+  <span class="icon-gender">⚥</span> <strong>Gender:</strong> <span class="grammar-tag tag-gender">Feminine</span>
+</div>
+
+REMEMBER:
+- Analysis MUST be for the SOURCE WORD "${text}" in ${sourceLanguage} only
+- Do NOT analyze the translation
+- Keep it very concise and focused
+- Response must be in ${userLanguage} language
+- Use only the emoji symbols provided above, not FontAwesome icons
+- Always include at least the part of speech`;
+
     return basePrompt;
 } 

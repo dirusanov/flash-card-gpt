@@ -1,0 +1,140 @@
+/* Modern Grammar Card Styles for Language Learning App */
+
+/* Main grammar card container */
+.grammar-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background-color: #FFFFFF;
+  border-radius: 8px;
+  padding: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+/* Individual grammar items */
+.grammar-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #F9FAFB;
+  border-radius: 6px;
+  border-left: 3px solid #2563EB;
+  margin-bottom: 6px;
+  transition: all 0.2s ease;
+}
+
+.grammar-item:hover {
+  background-color: #F3F4F6;
+  transform: translateX(2px);
+}
+
+/* Unicode emoji icon styling */
+.grammar-item span.icon-pos,
+.grammar-item span.icon-gender,
+.grammar-item span.icon-tense,
+.grammar-item span.icon-form,
+.grammar-item span.icon-conjugation,
+.grammar-item span.icon-irregular,
+.grammar-item span.icon-pronunciation {
+  margin-right: 8px;
+  min-width: 24px;
+  text-align: center;
+  font-size: 16px;
+  display: inline-block;
+}
+
+/* Property label styling */
+.grammar-label {
+  font-weight: 600;
+  color: #4B5563;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+/* Value styling */
+.grammar-value {
+  color: #1F2937;
+  flex: 1;
+}
+
+/* Tag styling */
+.grammar-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  margin: 0 4px;
+  border: 1px solid transparent;
+}
+
+/* Color-coded tags for different types */
+.tag-pos { background-color: #EFF6FF; color: #2563EB; border-color: #BFDBFE; }
+.tag-gender { background-color: #F5F3FF; color: #7C3AED; border-color: #DDD6FE; }
+.tag-tense { background-color: #FEF3C7; color: #D97706; border-color: #FDE68A; }
+.tag-irregular { background-color: #FEE2E2; color: #DC2626; border-color: #FECACA; }
+.tag-form { background-color: #ECFDF5; color: #059669; border-color: #A7F3D0; }
+
+/* Note styling */
+.grammar-note {
+  font-size: 12px;
+  color: #6B7280;
+  font-style: italic;
+  margin-top: 4px;
+  padding-left: 24px;
+}
+
+/* Grammar reference container */
+.grammar-reference {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1F2937;
+}
+
+.grammar-reference div {
+  margin-bottom: 6px;
+}
+
+/* Override icon styling in grammar reference */
+.grammar-reference span[class^="icon-"] {
+  margin-right: 8px;
+  width: 24px;
+  text-align: center;
+  display: inline-block;
+  font-size: 16px;
+}
+
+/* Strong elements in grammar reference */
+.grammar-reference strong {
+  color: #4B5563;
+  font-weight: 600;
+}
+
+/* Normal text in grammar reference */
+.grammar-reference span {
+  color: #1F2937;
+}
+
+/* Values in grammar reference */
+.grammar-reference .value {
+  color: #1F2937;
+  font-weight: 500;
+}
+
+/* Irregular form highlighting */
+.irregular-form {
+  color: #DC2626;
+  font-weight: 500;
+}
+
+/* Base form styling */
+.base-form {
+  color: #059669;
+  font-weight: 500;
+}
+
+/* Container for the grammar card */
+.grammar-card-container {
+  margin-bottom: 12px;
+  position: relative;
+} 

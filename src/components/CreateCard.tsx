@@ -3668,8 +3668,8 @@ const handleSaveAllCards = async () => {
     // Handler для обновления лингвистической информации
     const handleLinguisticInfoUpdate = (newInfo: string) => {
         dispatch(setLinguisticInfo(newInfo));
-        setIsEdited(true);
         if (isSaved) {
+            setIsEdited(true);
         }
     };
 

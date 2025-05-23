@@ -68,10 +68,15 @@ export const deleteStoredCard = (cardId: string) => ({
     payload: cardId,
 });
 
-export const setText = (text: string) => ({
-    type: SET_TEXT,
-    payload: text,
-});
+export const setText = (text: string) => {
+    console.log('setText action called with:', text ? `"${text.substring(0, 50)}..."` : 'EMPTY STRING');
+    console.trace('Call stack for setText');
+    
+    return {
+        type: SET_TEXT,
+        payload: text,
+    };
+};
 
 export const setExamples = (examples: Array<[string, string | null]>) => ({
     type: SET_EXAMPLES,
@@ -121,7 +126,12 @@ export const setCurrentCardId = (id: string | null) => ({
     payload: id,
 });
 
-export const setLinguisticInfo = (linguisticInfo: string) => ({
-    type: SET_LINGUISTIC_INFO,
-    payload: linguisticInfo,
-});
+export const setLinguisticInfo = (linguisticInfo: string) => {
+    console.log('setLinguisticInfo action called with:', linguisticInfo ? `"${linguisticInfo.substring(0, 50)}..."` : 'EMPTY STRING');
+    console.trace('Call stack for setLinguisticInfo');
+    
+    return {
+        type: SET_LINGUISTIC_INFO,
+        payload: linguisticInfo,
+    };
+};
