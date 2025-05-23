@@ -104,8 +104,10 @@ export abstract class BaseAIProvider implements AIProviderInterface {
       translate: (text: string, language: string) => 
         `Translate the following text to ${language}: "${text}". 
 Output ONLY the direct translation, without any additional text, explanations, quotes, examples, or formatting.
-Do not include any examples or sentences. Just return the translation of the word in a single line.
-Do not include definitions, examples, notes, or part of speech information. Only provide the translated word or phrase.`,
+Provide the most common and appropriate translation. Only include multiple meanings if the word has distinctly different translations that are equally common.
+If multiple translations are needed, separate them with commas (e.g., "перевод1, перевод2, перевод3").
+Do not include definitions, examples, notes, or part of speech information in English like (noun), (verb), (adjective), etc.
+Only provide the clean translated word or phrase without any parenthetical information.`,
       
       examples: (word: string, sourceLanguage?: string) => {
         // Если sourceLanguage указан, используем его, иначе позволяем модели определить
@@ -168,6 +170,12 @@ Keep the description under 50 words and make sure it is purely descriptive witho
           .replace(/\s*\(adjective\)[\s\S]*$/i, '') // Удаляем "(adjective)" и все после
           .replace(/\s*\(noun\)[\s\S]*$/i, '')   // Удаляем "(noun)" и все после
           .replace(/\s*\(verb\)[\s\S]*$/i, '')   // Удаляем "(verb)" и все после
+          .replace(/\s*\(adverb\)[\s\S]*$/i, '') // Удаляем "(adverb)" и все после
+          .replace(/\s*\(preposition\)[\s\S]*$/i, '') // Удаляем "(preposition)" и все после
+          .replace(/\s*\(pronoun\)[\s\S]*$/i, '') // Удаляем "(pronoun)" и все после
+          .replace(/\s*\(conjunction\)[\s\S]*$/i, '') // Удаляем "(conjunction)" и все после
+          .replace(/\s*\(interjection\)[\s\S]*$/i, '') // Удаляем "(interjection)" и все после
+          .replace(/\s*\([^)]*\)[\s\S]*$/i, '')  // Удаляем любые другие части речи в скобках
           .replace(/^the word[\s\S]*translated as[\s:]*/i, '') // Удаляем "The word X translated as:"
           .replace(/^словосочетание[\s\S]*переводится как[\s:]*/i, '') // Удаляем русский эквивалент
           .replace(/^слово[\s\S]*переводится как[\s:]*/i, '') // Удаляем русский эквивалент
@@ -178,17 +186,28 @@ Keep the description under 50 words and make sure it is purely descriptive witho
           .split('\n')[0]                        // Берем только первую строку
           .trim();
         
-        // Если перевод содержит слишком много слов, возможно это не просто перевод
-        // а полное предложение с примером - в этом случае берем первые несколько слов
-        const MAX_TRANSLATION_WORDS = 5; // Максимум слов в переводе
+        // Разрешаем больше слов в переводе для фраз и составных слов
+        const MAX_TRANSLATION_WORDS = 8; // Увеличиваем максимум слов в переводе
         const words = cleanedTranslation.split(/\s+/);
-        if (words.length > MAX_TRANSLATION_WORDS) {
-          // Если исходный текст - короткая фраза, то разрешаем больше слов в переводе
+        
+        // Проверяем, есть ли в переводе запятые (несколько значений)
+        const hasMultipleTranslations = cleanedTranslation.includes(',');
+        
+        if (hasMultipleTranslations) {
+          // Если есть запятые, это несколько переводов - ограничиваем до 3 переводов
+          const translations = cleanedTranslation.split(',')
+            .map(t => t.trim())
+            .filter(t => t.length > 0)
+            .slice(0, 3); // Максимум 3 перевода
+          
+          cleanedTranslation = translations.join(', ');
+        } else if (words.length > MAX_TRANSLATION_WORDS) {
+          // Если это один перевод, но слишком много слов
           const originalWords = text.split(/\s+/).length;
-          if (originalWords <= 3 || words.length <= originalWords + 2) {
-            // Это нормально, короткая фраза
+          if (originalWords <= 5 || words.length <= originalWords * 2) {
+            // Это нормально, фраза может требовать развернутого перевода
           } else {
-            // Слишком много слов, вероятно это предложение - берем только первые несколько слов
+            // Слишком много слов, вероятно это предложение - берем только разумное количество слов
             console.log('Translation too long, trimming:', cleanedTranslation);
             cleanedTranslation = words.slice(0, MAX_TRANSLATION_WORDS).join(' ');
           }
