@@ -19,7 +19,7 @@ import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, 
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
-import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo} from '../services/aiServiceFactory';
+import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo} from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
 
 
@@ -983,43 +983,62 @@ const handleSaveAllCards = async () => {
             }
             
             try {
-                // 3.5 Создание лингвистической информации 
+                // 3.5 Создание лингвистической информации с итеративной валидацией
                 // Определяем язык источника: автоопределенный или выбранный вручную
                 const wordLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
                 
-                console.log(`Generating linguistic info using source language: ${wordLanguage || 'unknown'} for text: "${text.substring(0, 20)}...", user language: ${translateToLanguage}`);
+                console.log(`Creating validated linguistic info using source language: ${wordLanguage || 'unknown'} for text: "${text.substring(0, 20)}...", user language: ${translateToLanguage}`);
                 
                 // Если есть язык источника - используем его
                 if (wordLanguage) {
-                    const linguisticInfo = await createLinguisticInfo(
+                    const result = await createValidatedLinguisticInfo(
                         aiService,
                         apiKey,
                         text,
                         wordLanguage,
-                        translateToLanguage // Передаем язык пользователя
+                        translateToLanguage,
+                        5 // максимум 5 попыток
                     );
                     
-                    if (linguisticInfo) {
-                        console.log(`Successfully generated linguistic info for ${wordLanguage} language in user language ${translateToLanguage}`);
-                        dispatch(setLinguisticInfo(linguisticInfo));
+                    if (result.linguisticInfo) {
+                        dispatch(setLinguisticInfo(result.linguisticInfo));
                         completedOperations.linguisticInfo = true;
+                        
+                        // Показываем уведомления пользователю
+                        if (result.wasValidated) {
+                            if (result.attempts > 1) {
+                                showError(`✅ Grammar reference validated and corrected (${result.attempts} attempts)`, 'success');
+                            } else {
+                                console.log('Grammar reference validated successfully on first attempt');
+                            }
+                        } else {
+                            showError(`⚠️ Grammar reference may contain inaccuracies (${result.attempts} attempts)`, 'warning');
+                        }
                     } else {
-                        console.warn(`Empty linguistic info generated for ${wordLanguage} language`);
+                        console.warn(`Failed to generate linguistic info after ${result.attempts} attempts`);
+                        showError('Failed to generate grammar reference', 'warning');
                     }
                 } else {
                     // Используем язык перевода как запасной вариант для источника
                     console.warn(`No source language detected. Using target language (${translateToLanguage}) as fallback for source`);
-                    const linguisticInfo = await createLinguisticInfo(
+                    const result = await createValidatedLinguisticInfo(
                         aiService,
                         apiKey,
                         text,
                         translateToLanguage, // В качестве исходного языка используем язык перевода
-                        translateToLanguage  // Для интерфейса тоже используем язык перевода
+                        translateToLanguage, // Для интерфейса тоже используем язык перевода
+                        3 // меньше попыток для fallback
                     );
                     
-                    if (linguisticInfo) {
-                        dispatch(setLinguisticInfo(linguisticInfo));
+                    if (result.linguisticInfo) {
+                        dispatch(setLinguisticInfo(result.linguisticInfo));
                         completedOperations.linguisticInfo = true;
+                        
+                        if (result.wasValidated && result.attempts > 1) {
+                            showError(`✅ Grammar reference corrected (fallback mode)`, 'success');
+                        } else if (!result.wasValidated) {
+                            showError('⚠️ Grammar reference may contain inaccuracies (fallback mode)', 'warning');
+                        }
                     }
                 }
             } catch (linguisticError) {
@@ -1217,11 +1236,34 @@ const handleSaveAllCards = async () => {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '8px'
+                        gap: '8px',
+                        marginBottom: '8px'
                     }}
                 >
                     <FaCode size={14} />
                     Save Instructions
+                </button>
+                
+                {/* Кнопка для тестирования валидации */}
+                <button
+                    onClick={testLinguisticValidation}
+                    style={{
+                        backgroundColor: '#10B981',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '8px 16px',
+                        fontSize: '14px',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px'
+                    }}
+                >
+                    🧪 Test Grammar Validation
                 </button>
             </div>
         );
@@ -1912,22 +1954,31 @@ const handleSaveAllCards = async () => {
                         dispatch(setFront(flashcard.front));
                     }
                     
-                    // 3.5 Создаем лингвистическое описание конкретно для этого слова/фразы
+                    // 3.5 Создаем лингвистическое описание конкретно для этого слова/фразы с итеративной валидацией
                     const sourceLanguageForLinguistic = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
                     let generatedLinguisticInfo = "";
                     
                     if (sourceLanguageForLinguistic) {
-                        const linguisticInfo = await createLinguisticInfo(
+                        const result = await createValidatedLinguisticInfo(
                             aiService,
                             apiKey,
                             option, // Используем текущую опцию, а не глобальный текст
                             sourceLanguageForLinguistic,
-                            translateToLanguage // Передаем язык пользователя
+                            translateToLanguage,
+                            3 // меньше попыток для множественных карточек
                         );
                         
-                        if (linguisticInfo) {
-                            generatedLinguisticInfo = linguisticInfo;
-                            dispatch(setLinguisticInfo(linguisticInfo));
+                        if (result.linguisticInfo) {
+                            generatedLinguisticInfo = result.linguisticInfo;
+                            dispatch(setLinguisticInfo(result.linguisticInfo));
+                            
+                            if (result.wasValidated && result.attempts > 1) {
+                                console.log(`Corrected linguistic info for "${option}" after ${result.attempts} attempts`);
+                            } else if (!result.wasValidated) {
+                                console.warn(`Linguistic info for "${option}" may contain inaccuracies`);
+                            }
+                        } else {
+                            console.warn(`Failed to generate linguistic info for "${option}"`);
                         }
                     }
                     
@@ -3668,6 +3719,53 @@ const handleSaveAllCards = async () => {
                 </div>
             </div>
         );
+    };
+
+    // Тестовая функция для проверки новой итеративной валидации
+    const testLinguisticValidation = async () => {
+        if (!apiKey) {
+            showError('API key is required for testing', 'error');
+            return;
+        }
+        
+        // Тест с проблемным словом "млекопитающими"
+        const testText = "млекопитающими";
+        
+        console.log('Testing new iterative validation system...');
+        showError('Testing iterative validation system...', 'info');
+        
+        try {
+            const result = await createValidatedLinguisticInfo(
+                aiService,
+                apiKey,
+                testText,
+                'ru', // source language
+                'ru', // user language
+                3 // максимум 3 попытки для теста
+            );
+            
+            console.log('Test result:', result);
+            
+            if (result.linguisticInfo) {
+                if (result.wasValidated) {
+                    if (result.attempts > 1) {
+                        showError(`✅ Test passed: Grammar reference created and validated after ${result.attempts} attempts`, 'success');
+                    } else {
+                        showError(`✅ Test passed: Grammar reference validated on first attempt`, 'success');
+                    }
+                } else {
+                    showError(`⚠️ Test completed: Grammar reference created but validation failed after ${result.attempts} attempts`, 'warning');
+                }
+                
+                // Показываем созданную справку в консоли для проверки
+                console.log('Generated linguistic info:', result.linguisticInfo);
+            } else {
+                showError(`❌ Test failed: Could not generate grammar reference after ${result.attempts} attempts`, 'error');
+            }
+        } catch (error) {
+            console.error('Test error:', error);
+            showError('❌ Test failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+        }
     };
 
     // Handler для обновления лингвистической информации

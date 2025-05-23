@@ -22,6 +22,13 @@ export interface LinguisticInfo {
     info: string;
 }
 
+// Определяем интерфейс для результата валидации
+export interface ValidationResult {
+    isValid: boolean;
+    errors: string[];
+    corrections?: string[];
+}
+
 // Интерфейс для сервисов AI (обертка вокруг провайдеров)
 export interface AIService {
   translateText: (
@@ -505,4 +512,317 @@ MANDATORY REQUIREMENTS:
 CRITICAL: Your response must be 100% in ${langConfig.name} for all grammatical terms and labels. No mixing of languages allowed.`;
 
     return basePrompt;
+}
+
+// Функция для создания универсального промпта валидации
+function createValidationPrompt(text: string, linguisticInfo: string, sourceLanguage: string, userLanguage: string): string {
+    return `You are an expert linguist specializing in grammar validation. Your task is to verify the grammatical accuracy of a linguistic reference.
+
+ANALYSIS TARGET:
+- Word/Phrase: "${text}"
+- Source Language: ${sourceLanguage}
+- Interface Language: ${userLanguage}
+
+LINGUISTIC REFERENCE TO VALIDATE:
+${linguisticInfo}
+
+VALIDATION INSTRUCTIONS:
+1. **Analyze the source word "${text}" in ${sourceLanguage} language ONLY**
+2. **DO NOT analyze translations** - focus only on the original word
+3. **Check grammatical consistency** according to ${sourceLanguage} language rules
+4. **Verify logical compatibility** of grammatical characteristics
+
+SPECIFIC CHECKS FOR ${sourceLanguage.toUpperCase()} LANGUAGE:
+• **Part of Speech**: Verify the word classification is correct
+• **Gender**: Check if gender is appropriate (singular forms only for most languages)
+• **Number**: Ensure number is correctly identified
+• **Case**: Validate case forms match the language's case system
+• **Tense/Aspect**: For verbs, check tense and aspect accuracy
+• **Degree**: Comparison degrees should only apply to adjectives/adverbs, NOT nouns
+• **Morphological Features**: Verify all features are linguistically valid
+
+COMMON ERRORS TO DETECT:
+❌ Gender specified for plural forms (where not applicable)
+❌ Comparison degrees assigned to nouns
+❌ Incorrect case systems for the language
+❌ Wrong tense/aspect combinations
+❌ Analysis of translation instead of source word
+❌ Inconsistent grammatical categories
+
+RESPONSE FORMAT:
+VALIDATION: [VALID/INVALID]
+
+ERRORS:
+[List specific errors found, or "None"]
+
+CORRECTIONS:
+[Suggest specific corrections, or "None"]
+
+Be thorough and precise. Focus on grammatical accuracy for ${sourceLanguage} language rules.`;
+}
+
+// Функция для валидации лингвистической информации
+export async function validateLinguisticInfo(
+    aiService: AIService,
+    apiKey: string,
+    text: string,
+    linguisticInfo: string,
+    sourceLanguage: string,
+    userLanguage: string = 'ru'
+): Promise<ValidationResult> {
+    try {
+        console.log(`Validating linguistic info for "${text}" in ${sourceLanguage}`);
+        
+        const validationPrompt = createValidationPrompt(text, linguisticInfo, sourceLanguage, userLanguage);
+        
+        const completion = await aiService.createChatCompletion(apiKey, [
+            {
+                role: "user",
+                content: validationPrompt
+            }
+        ]);
+        
+        if (!completion || !completion.content) {
+            return {
+                isValid: false,
+                errors: ['Failed to validate linguistic information']
+            };
+        }
+        
+        // Парсим ответ валидатора
+        const response = completion.content.trim();
+        console.log('Validation response:', response);
+        
+        // Ищем маркеры валидации
+        const isValid = response.includes('VALIDATION: VALID') || response.includes('✅ VALID');
+        const errorSection = response.match(/ERRORS?:([\s\S]*?)(?:CORRECTIONS?:|$)/);
+        const correctionSection = response.match(/CORRECTIONS?:([\s\S]*?)$/);
+        
+        const errors: string[] = [];
+        const corrections: string[] = [];
+        
+        if (errorSection && errorSection[1]) {
+            const errorText = errorSection[1].trim();
+            if (errorText && errorText !== 'None' && errorText !== 'Нет') {
+                errors.push(...errorText.split('\n').filter(line => line.trim()).map(line => line.replace(/^[•\-*]\s*/, '').trim()));
+            }
+        }
+        
+        if (correctionSection && correctionSection[1]) {
+            const correctionText = correctionSection[1].trim();
+            if (correctionText && correctionText !== 'None' && correctionText !== 'Нет') {
+                corrections.push(...correctionText.split('\n').filter(line => line.trim()).map(line => line.replace(/^[•\-*]\s*/, '').trim()));
+            }
+        }
+        
+        return {
+            isValid,
+            errors,
+            corrections: corrections.length > 0 ? corrections : undefined
+        };
+        
+    } catch (error) {
+        console.error('Error validating linguistic info:', error);
+        return {
+            isValid: false,
+            errors: ['Validation service unavailable']
+        };
+    }
+}
+
+// Функция для исправления лингвистической информации на основе валидации
+export async function correctLinguisticInfo(
+    aiService: AIService,
+    apiKey: string,
+    text: string,
+    originalLinguisticInfo: string,
+    validationErrors: string[],
+    corrections: string[],
+    sourceLanguage: string,
+    userLanguage: string = 'ru'
+): Promise<string | null> {
+    try {
+        console.log(`Correcting linguistic info for "${text}" based on validation errors`);
+        
+        const correctionPrompt = createCorrectionPrompt(
+            text, 
+            originalLinguisticInfo, 
+            validationErrors, 
+            corrections, 
+            sourceLanguage, 
+            userLanguage
+        );
+        
+        const completion = await aiService.createChatCompletion(apiKey, [
+            {
+                role: "user",
+                content: correctionPrompt
+            }
+        ]);
+        
+        if (!completion || !completion.content) {
+            return null;
+        }
+        
+        return completion.content.trim();
+        
+    } catch (error) {
+        console.error('Error correcting linguistic info:', error);
+        return null;
+    }
+}
+
+// Функция для создания промпта исправления
+function createCorrectionPrompt(
+    text: string,
+    originalInfo: string, 
+    errors: string[], 
+    corrections: string[], 
+    sourceLanguage: string, 
+    userLanguage: string
+): string {
+    const errorList = errors.map(error => `• ${error}`).join('\n');
+    const correctionList = corrections.map(correction => `• ${correction}`).join('\n');
+    
+    return `Ты эксперт-лингвист. Исправь грамматическую справку на основе найденных ошибок.
+
+СЛОВО ДЛЯ АНАЛИЗА: "${text}" (язык: ${sourceLanguage})
+
+ИСХОДНАЯ СПРАВКА:
+${originalInfo}
+
+НАЙДЕННЫЕ ОШИБКИ:
+${errorList}
+
+РЕКОМЕНДАЦИИ ПО ИСПРАВЛЕНИЮ:
+${correctionList}
+
+ЗАДАЧА: Создай исправленную версию грамматической справки, устранив все указанные ошибки.
+
+ТРЕБОВАНИЯ:
+1. Сохрани исходное HTML-форматирование
+2. Исправь только грамматические ошибки
+3. Убери неприменимые характеристики (например, род для мн.ч., степени сравнения для существительных)
+4. Все термины должны быть на языке "${userLanguage}"
+5. Анализируй только исходное слово "${text}", не его перевод
+
+Выведи ТОЛЬКО исправленную справку без дополнительных комментариев:`;
+}
+
+// Итеративная функция для создания и валидации лингвистической информации
+export async function createValidatedLinguisticInfo(
+    aiService: AIService,
+    apiKey: string,
+    text: string,
+    sourceLanguage: string,
+    userLanguage: string = 'ru',
+    maxAttempts: number = 5
+): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number}> {
+    let attempts = 0;
+    let currentLinguisticInfo: string | null = null;
+    
+    console.log(`Starting iterative creation of linguistic info for "${text}" (max ${maxAttempts} attempts)`);
+    
+    while (attempts < maxAttempts) {
+        attempts++;
+        console.log(`Attempt ${attempts}/${maxAttempts}`);
+        
+        try {
+            // 1. Создаем лингвистическую информацию
+            if (!currentLinguisticInfo) {
+                currentLinguisticInfo = await createLinguisticInfo(
+                    aiService,
+                    apiKey,
+                    text,
+                    sourceLanguage,
+                    userLanguage
+                );
+                
+                if (!currentLinguisticInfo) {
+                    console.log(`Failed to generate linguistic info on attempt ${attempts}`);
+                    continue;
+                }
+            }
+            
+            // 2. Валидируем созданную информацию
+            const validation = await validateLinguisticInfo(
+                aiService,
+                apiKey,
+                text,
+                currentLinguisticInfo,
+                sourceLanguage,
+                userLanguage
+            );
+            
+            // 3. Если валидация прошла успешно - возвращаем результат
+            if (validation.isValid) {
+                console.log(`Validation passed on attempt ${attempts}`);
+                return {
+                    linguisticInfo: currentLinguisticInfo,
+                    wasValidated: true,
+                    attempts
+                };
+            }
+            
+            // 4. Если есть ошибки и рекомендации - пытаемся исправить
+            if (validation.errors.length > 0) {
+                console.log(`Validation failed on attempt ${attempts}:`, validation.errors);
+                
+                if (validation.corrections && validation.corrections.length > 0 && attempts < maxAttempts) {
+                    console.log(`Attempting correction on attempt ${attempts}...`);
+                    
+                    const correctedInfo = await correctLinguisticInfo(
+                        aiService,
+                        apiKey,
+                        text,
+                        currentLinguisticInfo,
+                        validation.errors,
+                        validation.corrections,
+                        sourceLanguage,
+                        userLanguage
+                    );
+                    
+                    if (correctedInfo) {
+                        currentLinguisticInfo = correctedInfo;
+                        console.log(`Correction completed on attempt ${attempts}`);
+                        // Продолжаем цикл для повторной валидации
+                        continue;
+                    } else {
+                        console.log(`Correction failed on attempt ${attempts}`);
+                    }
+                } else {
+                    console.log(`No corrections available or max attempts reached`);
+                }
+            }
+            
+            // Если это последняя попытка, возвращаем что есть
+            if (attempts >= maxAttempts) {
+                console.log(`Max attempts reached (${maxAttempts}), returning current result`);
+                return {
+                    linguisticInfo: currentLinguisticInfo,
+                    wasValidated: false,
+                    attempts
+                };
+            }
+            
+        } catch (error) {
+            console.error(`Error on attempt ${attempts}:`, error);
+            
+            // Если это последняя попытка, возвращаем null
+            if (attempts >= maxAttempts) {
+                return {
+                    linguisticInfo: null,
+                    wasValidated: false,
+                    attempts
+                };
+            }
+        }
+    }
+    
+    // Fallback (не должно достигаться)
+    return {
+        linguisticInfo: currentLinguisticInfo,
+        wasValidated: false,
+        attempts
+    };
 } 
