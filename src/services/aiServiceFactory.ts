@@ -22,6 +22,12 @@ export interface LinguisticInfo {
     info: string;
 }
 
+// Определяем интерфейс для транскрипции
+export interface TranscriptionResult {
+    userLanguageTranscription: string | null; // Транскрипция на языке пользователя
+    ipaTranscription: string | null; // Транскрипция в IPA
+}
+
 // Определяем интерфейс для результата валидации
 export interface ValidationResult {
     isValid: boolean;
@@ -69,6 +75,13 @@ export interface AIService {
     apiKey: string,
     messages: Array<{role: string, content: string}>
   ) => Promise<{content: string} | null>;
+
+  createTranscription: (
+    apiKey: string,
+    text: string,
+    sourceLanguage: string,
+    userLanguage: string
+  ) => Promise<TranscriptionResult | null>;
 }
 
 // Адаптер для совместимости со старым кодом
@@ -140,6 +153,16 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       }
       console.error("createChatCompletion not implemented in the provider");
       return null;
+    },
+
+    createTranscription: async (
+      apiKey: string,
+      text: string,
+      sourceLanguage: string,
+      userLanguage: string
+    ): Promise<TranscriptionResult | null> => {
+      const aiProvider = createAIProvider(provider, apiKey);
+      return aiProvider.createTranscription(text, sourceLanguage, userLanguage);
     },
   };
 };
@@ -271,6 +294,42 @@ export const createFlashcard = async (
     throw error instanceof Error 
       ? error 
       : new Error("Failed to create flashcard. Please check your API key and settings.");
+  }
+};
+
+/**
+ * Функция для создания транскрипции слова, которая работает одинаково для всех провайдеров
+ */
+export const createTranscription = async (
+  service: AIService,
+  apiKey: string,
+  text: string,
+  sourceLanguage: string,
+  userLanguage: string = 'ru'
+): Promise<TranscriptionResult> => {
+  try {
+    if (!apiKey) {
+      throw new Error("API key is missing. Please check your settings.");
+    }
+
+    const transcription = await service.createTranscription(
+      apiKey,
+      text,
+      sourceLanguage,
+      userLanguage
+    );
+    
+    if (!transcription) {
+      throw new Error("Failed to generate transcription. Please try again or check your API key.");
+    }
+    
+    return transcription;
+  } catch (error) {
+    console.error('Error in unified transcription creation:', error);
+    // Throw error to be handled by the UI
+    throw error instanceof Error 
+      ? error 
+      : new Error("Failed to create transcription. Please check your API key and settings.");
   }
 };
 

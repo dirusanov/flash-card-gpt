@@ -5,7 +5,7 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import {RootState} from "../store";
 import {setDeckId} from "../store/actions/decks";
-import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo} from "../store/actions/cards";
+import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription} from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
@@ -19,7 +19,7 @@ import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, 
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
-import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo} from '../services/aiServiceFactory';
+import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo, createTranscription} from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
 
 
@@ -41,7 +41,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
     
-    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo } = useSelector((state: RootState) => state.cards);
+    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription } = useSelector((state: RootState) => state.cards);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
@@ -717,6 +717,7 @@ const handleSaveAllCards = async () => {
         dispatch(setFront(''));
         dispatch(setBack(null));
         dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
+        dispatch(setTranscription('')); // Очищаем транскрипцию
         setOriginalSelectedText('');
     };
 
@@ -811,6 +812,7 @@ const handleSaveAllCards = async () => {
                         if (savedCard.front) dispatch(setFront(savedCard.front));
                         if (savedCard.back) dispatch(setBack(savedCard.back));
                         if (savedCard.linguisticInfo) dispatch(setLinguisticInfo(savedCard.linguisticInfo));
+                        if (savedCard.transcription) dispatch(setTranscription(savedCard.transcription));
                         setOriginalSelectedText(savedCard.text);
                         
                         setShowResult(true);
@@ -882,6 +884,7 @@ const handleSaveAllCards = async () => {
         dispatch(setImage(null));
         dispatch(setImageUrl(null));
         dispatch(setLinguisticInfo(""));
+        dispatch(setTranscription(''));
         
         setLoadingGetResult(true);
         setOriginalSelectedText(text);
@@ -1047,6 +1050,52 @@ const handleSaveAllCards = async () => {
                 if (completedOperations.translation) {
                     console.log(`Linguistic info generation failed: ${linguisticError instanceof Error ? linguisticError.message : "Unknown error"}. Continuing with available data.`);
                 }
+            }
+            
+            // 3.7 Создание транскрипции
+            try {
+                const sourceLanguageForTranscription = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+                
+                if (sourceLanguageForTranscription) {
+                    console.log(`Creating transcription using source language: ${sourceLanguageForTranscription}, user language: ${translateToLanguage}`);
+                    
+                    const transcriptionResult = await createTranscription(
+                        aiService,
+                        apiKey,
+                        text,
+                        sourceLanguageForTranscription,
+                        translateToLanguage
+                    );
+                    
+                    if (transcriptionResult) {
+                        // Получаем название языка пользователя через AI
+                        const languageName = await getLanguageName(translateToLanguage);
+                        
+                        // Создаем красивую HTML-разметку для транскрипции
+                        const transcriptionHtml = [
+                            transcriptionResult.userLanguageTranscription && 
+                                `<div class="transcription-item user-lang">
+                                    <span class="transcription-label">${languageName}:</span>
+                                    <span class="transcription-text">${transcriptionResult.userLanguageTranscription}</span>
+                                </div>`,
+                            transcriptionResult.ipaTranscription && 
+                                `<div class="transcription-item ipa">
+                                    <span class="transcription-label">IPA:</span>
+                                    <span class="transcription-text">${transcriptionResult.ipaTranscription}</span>
+                                </div>`
+                        ].filter(Boolean).join('\n');
+                        
+                        if (transcriptionHtml) {
+                            dispatch(setTranscription(transcriptionHtml));
+                            console.log('Transcription created successfully');
+                        }
+                    }
+                } else {
+                    console.warn('No source language available for transcription');
+                }
+            } catch (transcriptionError) {
+                console.error('Transcription generation failed:', transcriptionError);
+                // Transcription is not critical - continue with the card creation
             }
             
             // 4. Generate image if needed and supported
@@ -1422,6 +1471,7 @@ const handleSaveAllCards = async () => {
         dispatch(setFront(''));
         dispatch(setBack(null));
         dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
+        dispatch(setTranscription('')); // Очищаем транскрипцию
         setOriginalSelectedText('');
     };
 
@@ -1851,7 +1901,8 @@ const handleSaveAllCards = async () => {
                         examples={examples}
                         imageUrl={imageUrl}
                         image={image}
-                        linguisticInfo={linguisticInfo} // Передаем лингвистическое описание
+                        linguisticInfo={linguisticInfo}
+                        transcription={transcription}
                         onNewImage={handleNewImage}
                         onNewExamples={handleNewExamples}
                         onAccept={handleAccept}
@@ -1865,7 +1916,7 @@ const handleSaveAllCards = async () => {
                         isEdited={isEdited}
                         setTranslation={handleTranslationUpdate}
                         setExamples={handleExamplesUpdate}
-                        setLinguisticInfo={handleLinguisticInfoUpdate} // Передаем функцию обновления лингвистического описания
+                        setLinguisticInfo={handleLinguisticInfoUpdate}
                     />
                 </div>
             </div>
@@ -1982,6 +2033,54 @@ const handleSaveAllCards = async () => {
                         }
                     }
                     
+                    // 3.7 Создание транскрипции для этой опции
+                    let generatedTranscription = "";
+                    try {
+                        const sourceLanguageForTranscription = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+                        
+                        if (sourceLanguageForTranscription) {
+                            console.log(`Creating transcription for "${option}" using source language: ${sourceLanguageForTranscription}, user language: ${translateToLanguage}`);
+                            
+                            const transcriptionResult = await createTranscription(
+                                aiService,
+                                apiKey,
+                                option, // Используем текущую опцию
+                                sourceLanguageForTranscription,
+                                translateToLanguage
+                            );
+                            
+                            if (transcriptionResult) {
+                                // Получаем название языка пользователя через AI
+                                const languageName = await getLanguageName(translateToLanguage);
+                                
+                                // Создаем красивую HTML-разметку для транскрипции
+                                const transcriptionHtml = [
+                                    transcriptionResult.userLanguageTranscription && 
+                                        `<div class="transcription-item user-lang">
+                                            <span class="transcription-label">${languageName}:</span>
+                                            <span class="transcription-text">${transcriptionResult.userLanguageTranscription}</span>
+                                        </div>`,
+                                    transcriptionResult.ipaTranscription && 
+                                        `<div class="transcription-item ipa">
+                                            <span class="transcription-label">IPA:</span>
+                                            <span class="transcription-text">${transcriptionResult.ipaTranscription}</span>
+                                        </div>`
+                                ].filter(Boolean).join('\n');
+                                
+                                if (transcriptionHtml) {
+                                    generatedTranscription = transcriptionHtml;
+                                    dispatch(setTranscription(transcriptionHtml));
+                                    console.log(`Transcription created successfully for "${option}"`);
+                                }
+                            }
+                        } else {
+                            console.warn(`No source language available for transcription of "${option}"`);
+                        }
+                    } catch (transcriptionError) {
+                        console.error(`Transcription generation failed for "${option}":`, transcriptionError);
+                        // Transcription is not critical - continue with the card creation
+                    }
+                    
                     // 4. Генерируем изображение, если нужно
                     let currentImageUrl = null;
                     let currentImage = null;
@@ -2010,6 +2109,7 @@ const handleSaveAllCards = async () => {
                         translation: translation.translated || '',
                         examples: examplesResult.map(example => [example.original, example.translated]) as [string, string | null][],
                         linguisticInfo: generatedLinguisticInfo, // Используем локальную переменную
+                        transcription: generatedTranscription, // Добавляем транскрипцию
                         front: flashcard.front || '',
                         back: translation.translated || '',
                         image: currentImage, // Используем локальную переменную
@@ -2064,6 +2164,13 @@ const handleSaveAllCards = async () => {
                     
                     // LinguisticInfo может быть строкой или undefined
                     dispatch(setLinguisticInfo(currentCard.linguisticInfo || ''));
+                    
+                    // Transcription может быть строкой или undefined
+                    if (currentCard.transcription) {
+                        dispatch(setTranscription(currentCard.transcription));
+                    } else {
+                        dispatch(setTranscription(''));
+                    }
                 }
                 
                 // Сброс статуса явного сохранения карточек
@@ -2143,7 +2250,8 @@ const handleSaveAllCards = async () => {
             imageUrl,
             front,
             back: back || null,
-            linguisticInfo: linguisticInfo || ''
+            linguisticInfo: linguisticInfo || '',
+            transcription: transcription || ''
         };
         
         // Обновляем массив карточек, заменяя текущую карточку на обновленную
@@ -2171,6 +2279,7 @@ const handleSaveAllCards = async () => {
         dispatch(setFront(''));
         dispatch(setBack(null));
         dispatch(setLinguisticInfo(''));
+        dispatch(setTranscription(''));
         
         // Затем загружаем данные из карточки
         
@@ -2206,6 +2315,15 @@ const handleSaveAllCards = async () => {
         } else {
             console.log('No linguistic info found for this card');
             dispatch(setLinguisticInfo(''));
+        }
+        
+        // Transcription может быть строкой или undefined
+        if (card.transcription) {
+            console.log('Setting transcription:', card.transcription.substring(0, 30) + '...');
+            dispatch(setTranscription(card.transcription));
+        } else {
+            console.log('No transcription found for this card');
+            dispatch(setTranscription(''));
         }
     };
     
@@ -3803,6 +3921,56 @@ const handleSaveAllCards = async () => {
         }
         
     }, [updateSourceLanguage]);
+
+    // AI-powered функция для получения названия языка
+    const getLanguageNameFromAI = useCallback(async (languageCode: string): Promise<string> => {
+        try {
+            if (!apiKey) {
+                return languageCode.toUpperCase(); // Fallback if no API key
+            }
+
+            const prompt = `Return only the native name of the language with ISO 639-1 code "${languageCode}".
+Examples: 
+- "en" -> "English"
+- "ru" -> "Русский" 
+- "es" -> "Español"
+- "fr" -> "Français"
+- "de" -> "Deutsch"
+- "zh" -> "中文"
+- "ja" -> "日本語"
+- "ar" -> "العربية"
+
+Respond with ONLY the native language name, no additional text.`;
+
+            const response = await aiService.createChatCompletion(apiKey, [
+                { role: "user", content: prompt }
+            ]);
+
+            if (response && response.content) {
+                const languageName = response.content.trim();
+                // Cache the result in localStorage to avoid repeated API calls
+                localStorage.setItem(`language_name_${languageCode}`, languageName);
+                return languageName;
+            }
+            
+            return languageCode.toUpperCase(); // Fallback
+        } catch (error) {
+            console.error('Error getting language name from AI:', error);
+            return languageCode.toUpperCase(); // Fallback
+        }
+    }, [apiKey, aiService]);
+
+    // Функция с кешированием для получения названия языка
+    const getLanguageName = useCallback(async (languageCode: string): Promise<string> => {
+        // Сначала проверяем кеш
+        const cached = localStorage.getItem(`language_name_${languageCode}`);
+        if (cached) {
+            return cached;
+        }
+        
+        // Если нет в кеше, запрашиваем у AI
+        return await getLanguageNameFromAI(languageCode);
+    }, [getLanguageNameFromAI]);
 
     return (
         <div style={{

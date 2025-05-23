@@ -2,6 +2,7 @@ import { formatErrorMessage } from './errorFormatting';
 import { ModelProvider } from '../store/reducers/settings';
 import { OpenAI } from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources';
+import { TranscriptionResult } from './aiServiceFactory';
 
 /**
  * Интерфейс для работы с AI-провайдерами
@@ -50,6 +51,13 @@ export interface AIProviderInterface {
     apiKey: string,
     messages: Array<{role: string, content: string}>
   ) => Promise<{content: string} | null>;
+
+  // Method to create transcription in user language and IPA
+  createTranscription: (
+    text: string,
+    sourceLanguage: string,
+    userLanguage: string
+  ) => Promise<TranscriptionResult | null>;
 }
 
 /**
@@ -367,11 +375,53 @@ Keep the description under 50 words and make sure it is purely descriptive witho
     text: string
   ): Promise<string | null> {
     try {
-      // Use a simpler approach for Anki front - without part of speech
-      const prompt = `For the word or phrase "${text}", provide ONLY the word itself and its pronunciation in IPA format.
-Format as: word /pronunciation/
-For example: "run /rʌn/" or "beautiful /ˈbjuːtɪfəl/"
-Your response should contain ONLY this formatted text, WITHOUT any additional information like part of speech.`;
+      // Теперь возвращаем только само слово, произношение будет в отдельном блоке транскрипции
+      const prompt = `For the word or phrase "${text}", provide ONLY the word itself without any pronunciation or additional formatting.
+Just return the clean word/phrase as it should appear on the front of an Anki card.
+For example: if input is "hello", return "hello"
+If input is "beautiful", return "beautiful"
+Your response should contain ONLY the word/phrase, no pronunciation, no IPA, no additional text.`;
+      
+      const response = await this.sendRequest(prompt);
+      
+      if (!response) {
+        return text; // Fallback to original text
+      }
+      
+      // Очищаем ответ
+      let cleanedResponse = this.extractPlainText(response) || response;
+      
+      // Удаляем любые дополнительные элементы
+      cleanedResponse = cleanedResponse
+        .split('\n')[0]
+        .replace(/^["']|["']$/g, '')       // Удаляем кавычки
+        .replace(/\/.*?\//g, '')           // Удаляем произношение в слешах
+        .replace(/\[.*?\]/g, '')           // Удаляем IPA в скобках
+        .replace(/\(.*?\)/g, '')           // Удаляем любые скобки
+        .replace(/^front:[\s:]*/i, '')     // Удаляем "Front:" если есть
+        .replace(/^word:[\s:]*/i, '')      // Удаляем "Word:" если есть
+        .trim();
+      
+      console.log('Front card response:', cleanedResponse);
+      
+      return cleanedResponse || text; // Fallback to original text if empty
+    } catch (error) {
+      console.error('Error generating Anki front:', error);
+      return text; // Fallback to original text
+    }
+  }
+
+  /**
+   * Создание транскрипции слова на языке пользователя и в IPA
+   */
+  public async createTranscription(
+    text: string,
+    sourceLanguage: string,
+    userLanguage: string
+  ): Promise<TranscriptionResult | null> {
+    try {
+      // Создаем промпт для получения транскрипций
+      const prompt = this.createTranscriptionPrompt(text, sourceLanguage, userLanguage);
       
       const response = await this.sendRequest(prompt);
       
@@ -379,25 +429,70 @@ Your response should contain ONLY this formatted text, WITHOUT any additional in
         return null;
       }
       
-      // Очищаем ответ от лишнего
-      let cleanedResponse = this.extractPlainText(response) || response;
-      
-      // Извлекаем только первую строку с форматированием слова и произношения
-      cleanedResponse = cleanedResponse
-        .split('\n')[0]
-        .replace(/^["']|["']$/g, '')       // Удаляем кавычки
-        .replace(/^front:[\s:]*/i, '')     // Удаляем "Front:" если есть
-        .replace(/^word:[\s:]*/i, '')      // Удаляем "Word:" если есть
-        .replace(/\s*\([^)]*\)/g, '')      // Удаляем любые части речи в скобках
-        .trim();
-      
-      console.log('Front card response:', cleanedResponse);
-      
-      return cleanedResponse;
+      // Парсим ответ для извлечения транскрипций
+      return this.parseTranscriptionResponse(response);
     } catch (error) {
-      console.error('Error generating Anki front:', error);
-      throw error;
+      console.error('Error creating transcription:', error);
+      return null;
     }
+  }
+
+  /**
+   * Создание промпта для транскрипции
+   */
+  protected createTranscriptionPrompt(text: string, sourceLanguage: string, userLanguage: string): string {
+    return `Create transcriptions for the word/phrase "${text}" (in ${sourceLanguage}):
+
+1. User language transcription: Show how to pronounce this word using ${userLanguage} phonetics/script
+2. IPA transcription: International Phonetic Alphabet notation
+
+IMPORTANT:
+- For user language: Write how "${text}" sounds using ${userLanguage} pronunciation system
+- For IPA: Use proper IPA symbols [ˈ ˌ ə ɪ ɛ æ ɑ ɔ ʊ ʌ θ ð ʃ ʒ ʧ ʤ ŋ etc.]
+- Format exactly as shown below:
+
+USER_LANG: [how the word sounds in ${userLanguage}]
+IPA: [ˈaɪ.pi.eɪ notation]
+
+Example for Russian "короткая" with Spanish user language:
+USER_LANG: korotkaya
+IPA: [kəˈrotkəjə]
+
+Provide ONLY the two lines as shown above, no additional text.`;
+  }
+
+  /**
+   * Парсинг ответа для извлечения транскрипций
+   */
+  protected parseTranscriptionResponse(response: string): TranscriptionResult {
+    const cleanResponse = this.extractPlainText(response) || response;
+    
+    let userLanguageTranscription: string | null = null;
+    let ipaTranscription: string | null = null;
+
+    // Извлекаем транскрипцию на языке пользователя
+    const userLangMatch = cleanResponse.match(/USER_LANG:\s*(.+)/i);
+    if (userLangMatch) {
+      userLanguageTranscription = userLangMatch[1].trim();
+    }
+
+    // Извлекаем IPA транскрипцию
+    const ipaMatch = cleanResponse.match(/IPA:\s*(.+)/i);
+    if (ipaMatch) {
+      ipaTranscription = ipaMatch[1].trim()
+        .replace(/^\[|\]$/g, '') // Удаляем квадратные скобки
+        .replace(/^\/|\/$/g, ''); // Удаляем прямые скобки
+      
+      // Добавляем квадратные скобки если их нет
+      if (ipaTranscription && !ipaTranscription.startsWith('[')) {
+        ipaTranscription = `[${ipaTranscription}]`;
+      }
+    }
+
+    return {
+      userLanguageTranscription,
+      ipaTranscription
+    };
   }
 }
 

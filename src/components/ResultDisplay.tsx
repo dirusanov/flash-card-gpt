@@ -4,6 +4,7 @@ import { FaLanguage, FaGraduationCap, FaBookOpen, FaQuoteRight, FaTags } from 'r
 import { Modes } from "../constants";
 import Loader from './Loader';
 import '../styles/grammarStyles.css';
+import '../styles/transcriptionStyles.css';
 import GrammarCard from './grammar/GrammarCard';
 
 interface ResultDisplayProps {
@@ -13,6 +14,7 @@ interface ResultDisplayProps {
     imageUrl: string | null;
     image: string | null;
     linguisticInfo?: string;
+    transcription: string | null;
     onNewImage: () => void;
     onNewExamples: () => void;
     onAccept: () => void;
@@ -38,6 +40,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             imageUrl,
             image,
             linguisticInfo,
+            transcription,
             onNewImage, 
             onNewExamples, 
             onAccept,
@@ -400,6 +403,29 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             borderRadius: '8px'
                         }}>{front}</h3>
                     )}
+                </div>
+            )}
+            
+            {/* Транскрипция - отображается между словом и переводом */}
+            {transcription && (
+                <div style={{
+                    marginBottom: '12px',
+                    textAlign: 'center',
+                    padding: '8px 12px',
+                    backgroundColor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '6px'
+                }}>
+                    <div 
+                        style={{
+                            fontSize: '14px',
+                            lineHeight: '1.6',
+                            color: '#475569'
+                        }}
+                        dangerouslySetInnerHTML={{
+                            __html: transcription
+                        }}
+                    />
                 </div>
             )}
             

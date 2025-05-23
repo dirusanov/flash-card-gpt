@@ -15,6 +15,7 @@ import {
     UPDATE_STORED_CARD,
     SET_CURRENT_CARD_ID,
     SET_LINGUISTIC_INFO,
+    SET_TRANSCRIPTION,
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
 import { Modes } from '../../constants';
@@ -34,6 +35,7 @@ export interface StoredCard {
     createdAt: Date;
     exportStatus: ExportStatus;
     linguisticInfo?: string;
+    transcription?: string;
 }
 
 const initialState: CardState = {
@@ -49,7 +51,8 @@ const initialState: CardState = {
         back: null,
         front: "",
         currentCardId: null,
-        linguisticInfo: ""
+        linguisticInfo: "",
+        transcription: ""
     },
 };
 
@@ -66,6 +69,7 @@ export interface CardState {
     front: string;
     currentCardId: string | null;
     linguisticInfo: string;
+    transcription: string;
 }
 
 const cardsReducer = (state = initialState, action: any): CardState => {
@@ -83,7 +87,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 image: action.payload.image !== undefined ? action.payload.image : null,
                 imageUrl: action.payload.imageUrl !== undefined ? action.payload.imageUrl : null,
                 exportStatus: action.payload.exportStatus || 'not_exported',
-                linguisticInfo: action.payload.linguisticInfo || ""
+                linguisticInfo: action.payload.linguisticInfo || "",
+                transcription: action.payload.transcription || ""
             };
             
             const existingCard = state.storedCards.find(card => card.text === newCard.text);
@@ -121,7 +126,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                         ? { 
                             ...action.payload,
                             exportStatus: action.payload.exportStatus || card.exportStatus,
-                            linguisticInfo: action.payload.linguisticInfo || card.linguisticInfo
+                            linguisticInfo: action.payload.linguisticInfo || card.linguisticInfo,
+                            transcription: action.payload.transcription || card.transcription
                         }
                         : card
                 );
@@ -130,7 +136,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 newState.storedCards = [...state.storedCards, {
                     ...action.payload,
                     exportStatus: action.payload.exportStatus || 'not_exported',
-                    linguisticInfo: action.payload.linguisticInfo || ""
+                    linguisticInfo: action.payload.linguisticInfo || "",
+                    transcription: action.payload.transcription || ""
                 }];
                 console.log('Added new card with ID:', action.payload.id);
             }
@@ -172,6 +179,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             return { ...state, currentCardId: action.payload };
         case SET_LINGUISTIC_INFO:
             return { ...state, linguisticInfo: action.payload };
+        case SET_TRANSCRIPTION:
+            return { ...state, transcription: action.payload };
         default:
             return state;
     }

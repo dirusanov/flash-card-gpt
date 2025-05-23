@@ -1,0 +1,30 @@
+.transcription-item {
+    margin: 4px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.transcription-label {
+    font-weight: 600;
+    font-size: 12px;
+    color: #64748B;
+    min-width: 40px;
+}
+
+.transcription-text {
+    font-family: "Times New Roman", serif;
+    font-size: 14px;
+    color: #334155;
+    font-weight: 500;
+}
+
+.transcription-item.ipa .transcription-text {
+    font-family: "Doulos SIL", "Charis SIL", "Times New Roman", serif;
+    color: #0F172A;
+}
+
+.transcription-item.user-lang .transcription-text {
+    font-weight: 600;
+} 

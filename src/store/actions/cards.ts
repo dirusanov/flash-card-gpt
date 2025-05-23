@@ -19,6 +19,7 @@ export const UPDATE_CARD_EXPORT_STATUS = 'UPDATE_CARD_EXPORT_STATUS';
 export const UPDATE_STORED_CARD = 'UPDATE_STORED_CARD';
 export const SET_CURRENT_CARD_ID = 'SET_CURRENT_CARD_ID';
 export const SET_LINGUISTIC_INFO = 'SET_LINGUISTIC_INFO';
+export const SET_TRANSCRIPTION = 'SET_TRANSCRIPTION';
 
 export const saveAnkiCards = (
         mode: Modes, 
@@ -129,3 +130,8 @@ export const setLinguisticInfo = (linguisticInfo: string) => {
         payload: linguisticInfo,
     };
 };
+
+export const setTranscription = (transcription: string) => ({
+    type: SET_TRANSCRIPTION,
+    payload: transcription,
+});
