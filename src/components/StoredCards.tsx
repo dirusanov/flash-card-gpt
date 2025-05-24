@@ -105,6 +105,22 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     ).length;
                     
                     console.log('Card stats: total=', storedCards.length, 'not_exported=', notExported, 'exported=', exported);
+                    
+                    // Debug image data in cards
+                    storedCards.forEach((card, index) => {
+                        if (card.image || card.imageUrl) {
+                            console.log(`Card ${index} (${card.id}) has images:`, {
+                                hasImage: !!card.image,
+                                hasImageUrl: !!card.imageUrl,
+                                imageType: typeof card.image,
+                                imageUrlType: typeof card.imageUrl,
+                                imageLength: card.image?.length,
+                                imageUrlLength: card.imageUrl?.length,
+                                imageStart: card.image?.substring(0, 30),
+                                imageUrlStart: card.imageUrl?.substring(0, 30)
+                            });
+                        }
+                    });
                 }
             }, 500);
             
@@ -326,19 +342,57 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         }
                     }
                     
-                    langLearningCards.push({
+                    const ankiCard = {
                         text: card.text,
                         translation: card.translation,
                         examples: card.examples || [],
                         image_base64: processedImageBase64,
                         linguisticInfo: card.linguisticInfo
+                    };
+                    
+                    console.log(`Adding language learning card to Anki export:`, {
+                        cardId: card.id,
+                        text: card.text,
+                        hasImage: !!processedImageBase64,
+                        imageLength: processedImageBase64?.length,
+                        imagePreview: processedImageBase64?.substring(0, 30)
                     });
+                    
+                    langLearningCards.push(ankiCard);
                 } else if (card.mode === Modes.GeneralTopic && card.front && card.back) {
-                    generalTopicCards.push({
+                    // Process image data for GeneralTopic cards too
+                    let processedImageBase64 = null;
+                    if (card.image) {
+                        // Extract the base64 part if it has a data URI prefix
+                        if (card.image.startsWith('data:')) {
+                            const base64Prefix = 'base64,';
+                            const prefixIndex = card.image.indexOf(base64Prefix);
+                            if (prefixIndex !== -1) {
+                                processedImageBase64 = card.image.substring(prefixIndex + base64Prefix.length);
+                            } else {
+                                processedImageBase64 = card.image;
+                            }
+                        } else {
+                            processedImageBase64 = card.image;
+                        }
+                    }
+
+                    const generalCard = {
                         front: card.front,
                         back: card.back,
-                        text: card.text
+                        text: card.text,
+                        image_base64: processedImageBase64
+                    };
+                    
+                    console.log(`Adding general topic card to Anki export:`, {
+                        cardId: card.id,
+                        text: card.text,
+                        hasImage: !!processedImageBase64,
+                        imageLength: processedImageBase64?.length,
+                        imagePreview: processedImageBase64?.substring(0, 30)
                     });
+                    
+                    generalTopicCards.push(generalCard);
                 }
             });
 
@@ -409,6 +463,19 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         let exportContent = "#separator:tab\n#html:true\n";
         
         selectedCardsData.forEach((card, index) => {
+            console.log(`Processing card ${index} for file export:`, {
+                id: card.id,
+                mode: card.mode,
+                hasImage: !!card.image,
+                hasImageUrl: !!card.imageUrl,
+                imageType: typeof card.image,
+                imageUrlType: typeof card.imageUrl,
+                imageLength: card.image?.length,
+                imageUrlLength: card.imageUrl?.length,
+                imagePreview: card.image?.substring(0, 50),
+                imageUrlPreview: card.imageUrl?.substring(0, 50)
+            });
+            
             if (card.mode === Modes.LanguageLearning) {
                 // Front is just the word/phrase
                 const front = card.text.trim();
@@ -636,6 +703,21 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 src={(card.imageUrl || card.image || '') as string} 
                                 alt="" 
                                 style={{ maxWidth: '100%', maxHeight: '80px', borderRadius: '4px' }} 
+                                onError={(e) => {
+                                    console.error('Image failed to load for card:', card.id, 'image data:', {
+                                        hasImage: !!card.image,
+                                        hasImageUrl: !!card.imageUrl,
+                                        imageLength: card.image?.length,
+                                        imageUrlLength: card.imageUrl?.length,
+                                        imagePreview: card.image?.substring(0, 50),
+                                        imageUrlPreview: card.imageUrl?.substring(0, 50)
+                                    });
+                                    // Hide the image element if it fails to load
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                                onLoad={() => {
+                                    console.log('Image loaded successfully for card:', card.id);
+                                }}
                             />
                         </div>
                     )}
@@ -1923,6 +2005,81 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     };
 
     // Diagnostic function to check storage size and fix quota issues
+    const diagnoseImageIssues = () => {
+        console.log('=== IMAGE DIAGNOSIS START ===');
+        
+        // Load cards from localStorage directly
+        const rawData = localStorage.getItem('anki_stored_cards');
+        if (!rawData) {
+            console.log('No cards found in localStorage');
+            return;
+        }
+        
+        try {
+            const savedCards = JSON.parse(rawData);
+            console.log('Total cards in localStorage:', savedCards.length);
+            
+            const cardsWithImages = savedCards.filter((card: StoredCard) => card.image || card.imageUrl);
+            console.log('Cards with images in localStorage:', cardsWithImages.length);
+            
+            cardsWithImages.forEach((card: StoredCard, index: number) => {
+                console.log(`\nCard ${index + 1} (${card.id}):`);
+                console.log('- Text:', card.text);
+                console.log('- Mode:', card.mode);
+                console.log('- Has image?', !!card.image);
+                console.log('- Has imageUrl?', !!card.imageUrl);
+                
+                if (card.image) {
+                    console.log('- Image type:', typeof card.image);
+                    console.log('- Image length:', card.image.length);
+                    console.log('- Image starts with data:?', card.image.startsWith('data:'));
+                    console.log('- Image preview:', card.image.substring(0, 100));
+                }
+                
+                if (card.imageUrl) {
+                    console.log('- ImageUrl type:', typeof card.imageUrl);
+                    console.log('- ImageUrl length:', card.imageUrl.length);
+                    console.log('- ImageUrl preview:', card.imageUrl.substring(0, 100));
+                }
+            });
+            
+            // Test Redux state
+            console.log('\n=== REDUX STATE CHECK ===');
+            console.log('Current storedCards length:', storedCards.length);
+            const reduxCardsWithImages = storedCards.filter(card => card.image || card.imageUrl);
+            console.log('Redux cards with images:', reduxCardsWithImages.length);
+            
+            reduxCardsWithImages.forEach((card, index) => {
+                console.log(`Redux card ${index + 1} (${card.id}):`, {
+                    text: card.text,
+                    hasImage: !!card.image,
+                    hasImageUrl: !!card.imageUrl,
+                    imageLength: card.image?.length,
+                    imageUrlLength: card.imageUrl?.length
+                });
+            });
+            
+            // Test image display
+            console.log('\n=== IMAGE DISPLAY TEST ===');
+            cardsWithImages.forEach((card: StoredCard) => {
+                const imageToDisplay = card.imageUrl || card.image;
+                if (imageToDisplay) {
+                    console.log(`Card ${card.id} display test:`, {
+                        imageSource: imageToDisplay.substring(0, 100),
+                        isValidDataUri: imageToDisplay.startsWith('data:'),
+                        isUrl: imageToDisplay.startsWith('http'),
+                        canBeDisplayed: !!(imageToDisplay && (imageToDisplay.startsWith('data:') || imageToDisplay.startsWith('http')))
+                    });
+                }
+            });
+            
+        } catch (error) {
+            console.error('Error parsing localStorage cards:', error);
+        }
+        
+        console.log('=== IMAGE DIAGNOSIS END ===');
+    };
+
     const diagnosisAndRepair = () => {
         try {
             // First check what's in localStorage
@@ -2088,7 +2245,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     : 'Select All'}
                             </label>
                         </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                             <button
                                 onClick={handleSaveToAnki}
                                 disabled={isLoading || selectedCards.length === 0 || !useAnkiConnect || !deckId || editingCardId !== null}
@@ -2131,6 +2288,25 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             >
                                 <FaDownload size={12} />
                                 <span>Export</span>
+                            </button>
+                            <button
+                                onClick={diagnoseImageIssues}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#8B5CF6',
+                                    color: '#ffffff',
+                                    fontSize: '13px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                }}
+                                title="Debug image issues"
+                            >
+                                🖼️
+                                <span>Debug</span>
                             </button>
                         </div>
                     </div>

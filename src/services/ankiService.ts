@@ -27,6 +27,7 @@ export interface CardGeneral {
     text: string;
     front: string;
     back: string;
+    image_base64?: string | null;
 }
 
 function format_back_lang_learning(card: CardLangLearning): string {
@@ -112,15 +113,39 @@ function format_back_lang_learning(card: CardLangLearning): string {
     `;
 }
 
-function format_back_general(back: string): string {
+function format_back_general(back: string, image_base64?: string | null): string {
     const points = back.replace("Key points:", "").trim().split("-");
     const htmlPoints = points.map(point => `<li>${point.trim()}</li>`).join("");
+
+    let imageHtml = '';
+    if (image_base64) {
+        let imageData = image_base64;
+        
+        // Extract the actual base64 data if it has a prefix
+        if (imageData.startsWith('data:')) {
+            const base64Prefix = 'base64,';
+            const prefixIndex = imageData.indexOf(base64Prefix);
+            if (prefixIndex !== -1) {
+                // Extract just the base64 part without the prefix
+                const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
+                // Anki format requires the proper data URI format for HTML
+                imageHtml = `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+            } else {
+                // Fallback if prefix structure is unexpected
+                imageHtml = `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+            }
+        } else {
+            // If it's already just base64 data, use it directly with proper prefix
+            imageHtml = `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+        }
+    }
 
     return `
         <b>Key points:</b>
         <ul>
             ${htmlPoints}
         </ul>
+        ${imageHtml}
     `;
 }
 
@@ -158,9 +183,10 @@ export const createAnkiCards = async (
                     Back: format_back_lang_learning(card as CardLangLearning),
                 };
             } else if (mode === Modes.GeneralTopic && 'back' in card) {
+                const generalCard = card as CardGeneral;
                 fields = {
-                    Front: card.front,
-                    Back: format_back_general(card.back),
+                    Front: generalCard.front,
+                    Back: format_back_general(generalCard.back, generalCard.image_base64),
                 };
             }
             return {

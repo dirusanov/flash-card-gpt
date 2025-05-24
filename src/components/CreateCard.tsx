@@ -400,6 +400,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Save All function for multiple cards
 const handleSaveAllCards = async () => {
+    console.log('*** HANDLE SAVE ALL CARDS: Starting ***');
+    console.log('Current Redux state at save all cards time:', {
+        text,
+        translation,
+        image,
+        imageUrl,
+        hasImage: !!image,
+        hasImageUrl: !!imageUrl,
+        imageType: typeof image,
+        imageUrlType: typeof imageUrl,
+        shouldGenerateImage,
+        mode,
+        createdCardsCount: createdCards.length
+    });
+    
     showError(null);
     try {
         setLoadingAccept(true);
@@ -512,6 +527,22 @@ const handleSaveAllCards = async () => {
 };
     
     const handleAccept = async () => {
+    console.log('*** HANDLE ACCEPT: Starting to save card ***');
+    console.log('Current Redux state at save time:', {
+        text,
+        translation,
+        image,
+        imageUrl,
+        hasImage: !!image,
+        hasImageUrl: !!imageUrl,
+        imageType: typeof image,
+        imageUrlType: typeof imageUrl,
+        imageLength: image?.length,
+        imageUrlLength: imageUrl?.length,
+        shouldGenerateImage,
+        mode
+    });
+    
     showError(null);
     try {
         setLoadingAccept(true);
@@ -605,15 +636,31 @@ const handleSaveAllCards = async () => {
                     translation,
                     examples,
                     linguisticInfo, // Добавляем лингвистическое описание
-                    // Only include image and imageUrl if they are explicitly defined for this card
-                    // This prevents picking up values from the global Redux state
-                    image: shouldGenerateImage ? image : null,
-                    imageUrl: shouldGenerateImage ? imageUrl : null,
+                    transcription: transcription || '',
+                    // Include image and imageUrl if they exist, regardless of shouldGenerateImage setting
+                    // This ensures existing images are preserved when saving cards
+                    image: image,
+                    imageUrl: imageUrl,
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
                 
-                console.log('Saving card to storage:', cardData);
+                console.log('*** CREATECARD: Preparing to save card to storage ***');
+                console.log('Card data being sent to Redux:', {
+                    id: cardData.id,
+                    text: cardData.text,
+                    mode: cardData.mode,
+                    hasImage: !!cardData.image,
+                    hasImageUrl: !!cardData.imageUrl,
+                    imageType: typeof cardData.image,
+                    imageUrlType: typeof cardData.imageUrl,
+                    imageLength: cardData.image?.length,
+                    imageUrlLength: cardData.imageUrl?.length,
+                    imageActualValue: cardData.image,
+                    imageUrlActualValue: cardData.imageUrl,
+                    imagePreview: cardData.image?.substring(0, 50),
+                    imageUrlPreview: cardData.imageUrl?.substring(0, 50)
+                });
                 
                 // Сохранение карточки происходит только по явному действию пользователя (кнопка "Accept")
                 if (currentCardId) {
@@ -645,10 +692,10 @@ const handleSaveAllCards = async () => {
                     back: translation || front,
                     text: cardText,
                     linguisticInfo, // Добавляем лингвистическое описание
-                    // Explicitly set image and imageUrl to null for general topic cards
-                    // to prevent them from using global state values
-                    image: null,
-                    imageUrl: null,
+                    transcription: transcription || '',
+                    // Include image and imageUrl if they exist (general topic cards can have images too)
+                    image: image,
+                    imageUrl: imageUrl,
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
@@ -1107,9 +1154,11 @@ const handleSaveAllCards = async () => {
                         const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
                         
                         if (imageUrl) {
+                            console.log('*** HANDLE SUBMIT: Setting imageUrl in Redux:', imageUrl.substring(0, 50));
                             dispatch(setImageUrl(imageUrl));
                         }
                         if (imageBase64) {
+                            console.log('*** HANDLE SUBMIT: Setting image (base64) in Redux:', imageBase64.substring(0, 50));
                             dispatch(setImage(imageBase64));
                         }
                         completedOperations.image = true;
@@ -2120,7 +2169,12 @@ const handleSaveAllCards = async () => {
                     
                     // НЕ сохраняем карточку в хранилище здесь, а только добавляем в список для отображения
                     // dispatch(saveCardToStorage(cardData)); - УДАЛЕНО, чтобы предотвратить автоматическое сохранение
-                    console.log(`Created card ${cardData.id} but NOT saving to storage yet`);
+                    console.log(`Created card ${cardData.id} but NOT saving to storage yet. Image info:`, {
+                        hasImage: !!cardData.image,
+                        hasImageUrl: !!cardData.imageUrl,
+                        imageLength: cardData.image?.length,
+                        imageUrlLength: cardData.imageUrl?.length
+                    });
                     newCards.push(cardData);
                     
                 } catch (error) {

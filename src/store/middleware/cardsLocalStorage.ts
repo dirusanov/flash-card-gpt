@@ -58,6 +58,20 @@ export const loadCardsFromStorage = (): StoredCard[] => {
                     createdAt: new Date(card.createdAt)
                 }));
                 
+                // Check images in loaded cards
+                const loadedCardsWithImages = cardsWithDates.filter(card => card.image || card.imageUrl);
+                console.log('Loaded cards with images:', loadedCardsWithImages.length);
+                loadedCardsWithImages.forEach(card => {
+                    console.log(`Loaded card ${card.id} image data:`, {
+                        hasImage: !!card.image,
+                        hasImageUrl: !!card.imageUrl,
+                        imageLength: card.image?.length,
+                        imageUrlLength: card.imageUrl?.length,
+                        imagePreview: card.image?.substring(0, 50),
+                        imageUrlPreview: card.imageUrl?.substring(0, 50)
+                    });
+                });
+                
                 return cardsWithDates;
             } catch (parseError) {
                 console.error('JSON parse error:', parseError);
@@ -84,6 +98,20 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
     try {
         console.log('Saving cards to localStorage:', cards);
         console.log('Total cards count:', cards.length);
+        
+        // Check images in cards being saved
+        const cardsWithImages = cards.filter(card => card.image || card.imageUrl);
+        console.log('Cards with images:', cardsWithImages.length);
+        cardsWithImages.forEach(card => {
+            console.log(`Card ${card.id} image data:`, {
+                hasImage: !!card.image,
+                hasImageUrl: !!card.imageUrl,
+                imageLength: card.image?.length,
+                imageUrlLength: card.imageUrl?.length,
+                imagePreview: card.image?.substring(0, 50),
+                imageUrlPreview: card.imageUrl?.substring(0, 50)
+            });
+        });
         
         // Save to localStorage - ensure we're not trying to save circular structures
         const serializedCards = JSON.stringify(cards, (key, value) => {

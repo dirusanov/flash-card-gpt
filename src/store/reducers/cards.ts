@@ -80,6 +80,19 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             newState.savedCards = [...state.savedCards, ...action.payload];
             break;
         case SAVE_CARD_TO_STORAGE:
+            console.log('*** REDUCER: SAVE_CARD_TO_STORAGE action received ***');
+            console.log('Action payload raw:', action.payload);
+            console.log('Action payload image data:', {
+                hasImage: !!action.payload.image,
+                hasImageUrl: !!action.payload.imageUrl,
+                imageType: typeof action.payload.image,
+                imageUrlType: typeof action.payload.imageUrl,
+                imageValue: action.payload.image,
+                imageUrlValue: action.payload.imageUrl,
+                imageUndefinedCheck: action.payload.image !== undefined,
+                imageUrlUndefinedCheck: action.payload.imageUrl !== undefined
+            });
+            
             const newCard: StoredCard = {
                 ...(action.payload.id ? 
                     action.payload : 
@@ -90,6 +103,20 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 linguisticInfo: action.payload.linguisticInfo || "",
                 transcription: action.payload.transcription || ""
             };
+            
+            console.log('REDUCER: Final card object created:', {
+                cardId: newCard.id,
+                hasImage: !!newCard.image,
+                hasImageUrl: !!newCard.imageUrl,
+                imageType: typeof newCard.image,
+                imageUrlType: typeof newCard.imageUrl,
+                imageLength: newCard.image?.length,
+                imageUrlLength: newCard.imageUrl?.length,
+                imageActualValue: newCard.image,
+                imageUrlActualValue: newCard.imageUrl,
+                imagePreview: newCard.image?.substring(0, 50),
+                imageUrlPreview: newCard.imageUrl?.substring(0, 50)
+            });
             
             const existingCard = state.storedCards.find(card => card.text === newCard.text);
             
@@ -113,6 +140,19 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             );
             break;
         case UPDATE_STORED_CARD:
+            console.log('*** REDUCER: UPDATE_STORED_CARD action received ***');
+            console.log('Update payload image info:', {
+                cardId: action.payload.id,
+                hasImage: !!action.payload.image,
+                hasImageUrl: !!action.payload.imageUrl,
+                imageType: typeof action.payload.image,
+                imageUrlType: typeof action.payload.imageUrl,
+                imageValue: action.payload.image,
+                imageUrlValue: action.payload.imageUrl,
+                imageLength: action.payload.image?.length,
+                imageUrlLength: action.payload.imageUrl?.length
+            });
+            
             if (!action.payload.id) {
                 console.error('Cannot update card without ID');
                 return state;
@@ -131,15 +171,16 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                         }
                         : card
                 );
-                console.log('Updated card with ID:', action.payload.id);
+                console.log('UPDATE_STORED_CARD: Updated existing card with ID:', action.payload.id, 'image:', !!action.payload.image);
             } else {
-                newState.storedCards = [...state.storedCards, {
+                const newCardToAdd = {
                     ...action.payload,
                     exportStatus: action.payload.exportStatus || 'not_exported',
                     linguisticInfo: action.payload.linguisticInfo || "",
                     transcription: action.payload.transcription || ""
-                }];
-                console.log('Added new card with ID:', action.payload.id);
+                };
+                newState.storedCards = [...state.storedCards, newCardToAdd];
+                console.log('UPDATE_STORED_CARD: Added new card with ID:', action.payload.id, 'image:', !!newCardToAdd.image);
             }
             break;
         case LOAD_STORED_CARDS:

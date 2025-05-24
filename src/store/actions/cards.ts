@@ -50,10 +50,26 @@ export const saveCardToStorage = (
         imageUrl?: string | null;
         createdAt: Date;
     }
-) => ({
-    type: SAVE_CARD_TO_STORAGE,
-    payload: card,
-});
+) => {
+    console.log('*** ACTION: saveCardToStorage called with card data ***');
+    console.log('Action payload image info:', {
+        hasImage: !!card.image,
+        hasImageUrl: !!card.imageUrl,
+        imageType: typeof card.image,
+        imageUrlType: typeof card.imageUrl,
+        imageLength: card.image?.length,
+        imageUrlLength: card.imageUrl?.length,
+        imageValue: card.image,
+        imageUrlValue: card.imageUrl,
+        imagePreview: card.image?.substring(0, 50),
+        imageUrlPreview: card.imageUrl?.substring(0, 50)
+    });
+    
+    return {
+        type: SAVE_CARD_TO_STORAGE,
+        payload: card,
+    };
+};
 
 export const loadStoredCards = () => ({
     type: LOAD_STORED_CARDS,
@@ -114,10 +130,27 @@ export const updateCardExportStatus = (cardId: string, status: ExportStatus) => 
     }
 });
 
-export const updateStoredCard = (updatedCard: StoredCard) => ({
-    type: UPDATE_STORED_CARD,
-    payload: updatedCard,
-});
+export const updateStoredCard = (updatedCard: StoredCard) => {
+    console.log('*** ACTION: updateStoredCard called ***');
+    console.log('Updated card image info:', {
+        cardId: updatedCard.id,
+        hasImage: !!updatedCard.image,
+        hasImageUrl: !!updatedCard.imageUrl,
+        imageType: typeof updatedCard.image,
+        imageUrlType: typeof updatedCard.imageUrl,
+        imageLength: updatedCard.image?.length,
+        imageUrlLength: updatedCard.imageUrl?.length,
+        imageValue: updatedCard.image,
+        imageUrlValue: updatedCard.imageUrl,
+        imagePreview: updatedCard.image?.substring(0, 50),
+        imageUrlPreview: updatedCard.imageUrl?.substring(0, 50)
+    });
+    
+    return {
+        type: UPDATE_STORED_CARD,
+        payload: updatedCard,
+    };
+};
 
 export const setCurrentCardId = (id: string | null) => ({
     type: SET_CURRENT_CARD_ID,
