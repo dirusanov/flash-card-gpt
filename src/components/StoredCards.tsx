@@ -701,8 +701,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         <div style={{ marginTop: '8px', textAlign: 'center' }}>
                             <img 
                                 src={(card.imageUrl || card.image || '') as string} 
-                                alt="" 
-                                style={{ maxWidth: '100%', maxHeight: '80px', borderRadius: '4px' }} 
+                                alt="Card image" 
+                                style={{ 
+                                    maxWidth: '100%', 
+                                    maxHeight: '80px', 
+                                    borderRadius: '4px',
+                                    border: '1px solid #E5E7EB',
+                                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                                }} 
                                 onError={(e) => {
                                     console.error('Image failed to load for card:', card.id, 'image data:', {
                                         hasImage: !!card.image,
@@ -710,13 +716,38 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                         imageLength: card.image?.length,
                                         imageUrlLength: card.imageUrl?.length,
                                         imagePreview: card.image?.substring(0, 50),
-                                        imageUrlPreview: card.imageUrl?.substring(0, 50)
+                                        imageUrlPreview: card.imageUrl?.substring(0, 50),
+                                        imageSrc: (card.imageUrl || card.image || '').substring(0, 100)
                                     });
-                                    // Hide the image element if it fails to load
-                                    (e.target as HTMLImageElement).style.display = 'none';
+                                    
+                                    // Replace broken image with placeholder
+                                    const target = e.target as HTMLImageElement;
+                                    target.style.display = 'none';
+                                    
+                                    // Create a placeholder div
+                                    const placeholder = document.createElement('div');
+                                    placeholder.style.cssText = `
+                                        width: 100%;
+                                        height: 60px;
+                                        background-color: #F3F4F6;
+                                        border: 1px dashed #D1D5DB;
+                                        border-radius: 4px;
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                        color: #6B7280;
+                                        font-size: 12px;
+                                    `;
+                                    placeholder.textContent = '🖼️ Image unavailable';
+                                    
+                                    // Insert placeholder after the failed image
+                                    target.parentNode?.insertBefore(placeholder, target.nextSibling);
                                 }}
                                 onLoad={() => {
-                                    console.log('Image loaded successfully for card:', card.id);
+                                    console.log('✅ Image loaded successfully for card:', card.id, 'Size:', {
+                                        imageLength: card.image?.length,
+                                        imageUrlLength: card.imageUrl?.length
+                                    });
                                 }}
                             />
                         </div>
@@ -893,6 +924,19 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             <span style={{ fontSize: '11px', color: '#9CA3AF', marginLeft: '8px' }}>
                                 {formatDate(card.createdAt)}
                             </span>
+                            {(card.image || card.imageUrl) && (
+                                <span style={{ 
+                                    fontSize: '11px', 
+                                    color: '#10B981', 
+                                    marginLeft: '8px',
+                                    backgroundColor: '#ECFDF5',
+                                    padding: '1px 4px',
+                                    borderRadius: '3px',
+                                    fontWeight: 'bold'
+                                }}>
+                                    📸 IMG
+                                </span>
+                            )}
                             {renderCardStatus(card.exportStatus)}
                         </div>
                     </div>
@@ -2004,6 +2048,70 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
     };
 
+    // Function to fix storage quota issues by optimizing cards
+    const fixStorageQuotaIssues = () => {
+        console.log('=== STORAGE QUOTA FIX START ===');
+        
+        try {
+            const rawData = localStorage.getItem('anki_stored_cards');
+            if (!rawData) {
+                showError('No cards found in localStorage.', 'error');
+                return;
+            }
+            
+            const sizeInBytes = new Blob([rawData]).size;
+            const sizeInMB = sizeInBytes / (1024 * 1024);
+            
+            console.log(`Current storage size: ${sizeInMB.toFixed(2)}MB`);
+            
+            if (sizeInMB < 4) {
+                showError(`Storage is healthy (${sizeInMB.toFixed(2)}MB). No optimization needed.`, 'success');
+                return;
+            }
+            
+            // Ask user if they want to optimize
+            const shouldOptimize = window.confirm(
+                `Your storage is using ${sizeInMB.toFixed(2)}MB. This may cause issues with saving new cards.\n\n` +
+                'Would you like to optimize storage while preserving images? This will:\n' +
+                '• Keep your newest cards with images\n' +
+                '• Remove only the oldest cards if needed\n' +
+                '• NOT remove images from preserved cards\n\n' +
+                'Click OK to optimize, or Cancel to keep current state.'
+            );
+            
+            if (!shouldOptimize) {
+                return;
+            }
+            
+            // Parse current cards
+            const currentCards = JSON.parse(rawData);
+            
+            // Apply smart optimization
+            const optimizedCards = currentCards
+                .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) // Sort newest first
+                .slice(0, Math.floor(currentCards.length * 0.8)); // Keep 80% of newest cards
+            
+            // Save optimized cards
+            dispatch({ type: 'SET_STORED_CARDS', payload: optimizedCards });
+            
+            const newSize = new Blob([JSON.stringify(optimizedCards)]).size / (1024 * 1024);
+            
+            showError(
+                `Optimization complete! Reduced from ${sizeInMB.toFixed(2)}MB to ${newSize.toFixed(2)}MB. ` +
+                `Kept ${optimizedCards.length} of ${currentCards.length} newest cards with images preserved.`,
+                'success'
+            );
+            
+            console.log(`Storage optimization complete: ${currentCards.length} → ${optimizedCards.length} cards`);
+            
+        } catch (error) {
+            console.error('Error fixing storage quota:', error);
+            showError('Failed to optimize storage. Please try again.', 'error');
+        }
+        
+        console.log('=== STORAGE QUOTA FIX END ===');
+    };
+
     // Diagnostic function to check storage size and fix quota issues
     const diagnoseImageIssues = () => {
         console.log('=== IMAGE DIAGNOSIS START ===');
@@ -2303,10 +2411,29 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     alignItems: 'center',
                                     gap: '4px'
                                 }}
-                                title="Debug image issues"
+                                title="Debug storage and image issues"
                             >
-                                🖼️
+                                🔍
                                 <span>Debug</span>
+                            </button>
+                            <button
+                                onClick={fixStorageQuotaIssues}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#F59E0B',
+                                    color: '#ffffff',
+                                    fontSize: '13px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                }}
+                                title="Optimize storage to preserve images"
+                            >
+                                🛠️
+                                <span>Optimize</span>
                             </button>
                         </div>
                     </div>

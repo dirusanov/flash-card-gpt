@@ -737,12 +737,18 @@ const handleSaveAllCards = async () => {
     
     // Add a function to create a new card after saving
     const handleCreateNew = () => {
+        // If user has an image, ask if they want to keep it for the new card
+        const hasImage = image || imageUrl;
+        const shouldKeepImage = hasImage ? 
+            window.confirm('You have an image in the current card. Do you want to keep it for the new card?') : 
+            false;
+            
         setShowResult(false);
         setIsEdited(false);
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
         
-        console.log('Creating new card, clearing all state');
+        console.log('Creating new card, clearing all state, keeping image:', shouldKeepImage);
         
         // Reset all saved state tracking
         setExplicitlySaved(false);
@@ -759,8 +765,13 @@ const handleSaveAllCards = async () => {
         dispatch(setText(''));
         dispatch(setTranslation(''));
         dispatch(setExamples([]));
-        dispatch(setImage(null));
-        dispatch(setImageUrl(null));
+        
+        // Clear images only if user doesn't want to keep them
+        if (!shouldKeepImage) {
+            dispatch(setImage(null));
+            dispatch(setImageUrl(null));
+        }
+        
         dispatch(setFront(''));
         dispatch(setBack(null));
         dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
@@ -927,11 +938,14 @@ const handleSaveAllCards = async () => {
         // Очищаем флаг текущей карточки
         dispatch(setCurrentCardId(null));
         
-        // Clear previous image data before generating a new card
-        dispatch(setImage(null));
-        dispatch(setImageUrl(null));
+        // CHANGED: Don't automatically clear image data when creating new cards
+        // This was causing images to disappear when users wanted to keep them
+        // Only clear linguistic info and transcription as they are text-specific
         dispatch(setLinguisticInfo(""));
         dispatch(setTranscription(''));
+        
+        // Images will be preserved unless user explicitly changes them
+        // This allows users to create multiple cards with the same image
         
         setLoadingGetResult(true);
         setOriginalSelectedText(text);

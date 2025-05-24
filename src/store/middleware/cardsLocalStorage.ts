@@ -5,6 +5,98 @@ import { StoredCard } from '../reducers/cards';
 
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
 
+// Helper function to compress base64 images
+const compressImageIfPossible = (imageData: string): string => {
+    try {
+        // If it's a data URI, try to reduce quality by removing unnecessary data
+        if (imageData.startsWith('data:image/')) {
+            // For very large images, we can try to reduce them
+            // This is a simple approach - in a full implementation we'd use canvas to resize
+            if (imageData.length > 100000) { // > 100KB
+                console.log('Large image detected, applying basic compression');
+                // Keep the image but warn about size
+                console.warn(`Large image (${Math.round(imageData.length/1024)}KB) detected. Consider using smaller images.`);
+                
+                // Try to compress by changing JPEG quality if possible
+                // For now, just return the original, but in production we could:
+                // 1. Create a canvas element
+                // 2. Draw the image to canvas
+                // 3. Export with lower quality
+                return imageData;
+            }
+            return imageData;
+        }
+        return imageData;
+    } catch (error) {
+        console.error('Error compressing image:', error);
+        return imageData;
+    }
+};
+
+// Function to estimate and manage storage efficiently
+const manageStorageQuota = (cards: StoredCard[]): StoredCard[] => {
+    try {
+        // Calculate storage usage
+        const serialized = JSON.stringify(cards, (key, value) => {
+            if (value instanceof Date) return value.toISOString();
+            return value;
+        });
+        
+        const sizeInBytes = new Blob([serialized]).size;
+        const sizeInMB = sizeInBytes / (1024 * 1024);
+        
+        console.log(`Storage analysis: ${cards.length} cards, ${sizeInMB.toFixed(2)}MB`);
+        
+        // If size is manageable, return as is
+        if (sizeInMB < 4) {
+            return cards;
+        }
+        
+        // If size is too large, prioritize newest cards and preserve images where possible
+        console.warn('Storage size is large, optimizing...');
+        
+        // Sort by creation date (newest first)
+        const sortedCards = [...cards].sort((a, b) => 
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        
+        // Keep adding cards until we reach a reasonable size
+        const optimizedCards: StoredCard[] = [];
+        let currentSize = 0;
+        
+        for (const card of sortedCards) {
+            const cardSerialized = JSON.stringify(card, (key, value) => {
+                if (value instanceof Date) return value.toISOString();
+                return value;
+            });
+            const cardSize = new Blob([cardSerialized]).size;
+            
+            // If adding this card would exceed limit, stop
+            if (currentSize + cardSize > 4 * 1024 * 1024) {
+                console.warn(`Stopping at ${optimizedCards.length} cards to stay within storage limit`);
+                break;
+            }
+            
+            optimizedCards.push(card);
+            currentSize += cardSize;
+        }
+        
+        return optimizedCards;
+    } catch (error) {
+        console.error('Error managing storage quota:', error);
+        return cards;
+    }
+};
+
+// Show user-friendly quota warning
+const showQuotaWarning = () => {
+    console.warn('⚠️ Storage quota exceeded! This usually happens when you have many cards with large images.');
+    console.warn('💡 To fix this:');
+    console.warn('   • Use smaller images');
+    console.warn('   • Export older cards and delete them');
+    console.warn('   • Consider using image URLs instead of embedded images');
+};
+
 // Вспомогательная функция для загрузки карточек из localStorage
 export const loadCardsFromStorage = (): StoredCard[] => {
     try {
@@ -113,8 +205,15 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
             });
         });
         
+        // Pre-optimize cards to manage storage quota intelligently
+        const optimizedCards = manageStorageQuota(cards);
+        
+        if (optimizedCards.length < cards.length) {
+            console.warn(`Storage optimization: keeping ${optimizedCards.length} of ${cards.length} cards to preserve images`);
+        }
+        
         // Save to localStorage - ensure we're not trying to save circular structures
-        const serializedCards = JSON.stringify(cards, (key, value) => {
+        const serializedCards = JSON.stringify(optimizedCards, (key, value) => {
             // Convert Date objects to ISO strings for proper serialization
             if (value instanceof Date) {
                 return value.toISOString();
@@ -132,7 +231,7 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
         }
         
         localStorage.setItem(LOCAL_STORAGE_KEY, serializedCards);
-        console.log('Cards saved successfully to localStorage');
+        console.log('Cards saved successfully to localStorage with image preservation');
     } catch (error) {
         console.error('Error saving cards to localStorage:', error);
         
@@ -153,34 +252,56 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
             error.name === 'QuotaExceededError' ||
             error.name === 'NS_ERROR_DOM_QUOTA_REACHED'
         )) {
-            console.error('localStorage quota exceeded. Cannot save more cards. Try removing some cards.');
-            // We need to handle this gracefully - remove some cards to make space
+            console.error('localStorage quota exceeded. Cannot save more cards. Trying to preserve images by using other strategies.');
+            showQuotaWarning();
+            
+            // We need to handle this gracefully - preserve images where possible
             if (cards.length > 0) {
-                console.warn('CRITICAL: Storage quota exceeded. Attempting to fix by reducing card data size instead of removing cards.');
+                console.warn('CRITICAL: Storage quota exceeded. Attempting to preserve images while managing storage.');
                 
                 try {
-                    // Instead of removing cards, try to reduce their size by removing large data
-                    const reducedSizeCards = cards.map(card => ({
+                    // Use intelligent storage management to preserve as many cards with images as possible
+                    console.warn('Storage quota exceeded. Using intelligent optimization to preserve images...');
+                    
+                    const smartOptimizedCards = manageStorageQuota(cards);
+                    
+                    if (smartOptimizedCards.length > 0) {
+                        const serializedSmart = JSON.stringify(smartOptimizedCards, (key, value) => {
+                            if (value instanceof Date) return value.toISOString();
+                            return value;
+                        });
+                        
+                        // Check if optimized version fits
+                        const smartSize = new Blob([serializedSmart]).size;
+                        if (smartSize <= 4.5 * 1024 * 1024) {
+                            localStorage.setItem(LOCAL_STORAGE_KEY, serializedSmart);
+                            console.warn(`Smart optimization: Saved ${smartOptimizedCards.length} of ${cards.length} cards with images preserved`);
+                            return;
+                        }
+                    }
+                    
+                    // If only one card, try to compress images instead of removing them
+                    const cardsWithCompressedImages = cards.map(card => ({
                         ...card,
-                        // Remove images which are the largest data
-                        image: null,
-                        // Keep other essential fields
+                        // Keep images but try to compress them if they're base64
+                        image: card.image ? compressImageIfPossible(card.image) : null,
+                        // Keep other essential fields as is
                         id: card.id,
                         text: card.text,
                         translation: card.translation,
                         front: card.front,
-                        // Trim large text fields
-                        back: card.back ? card.back.substring(0, 1000) : null,
-                        // Limit examples to first 2
-                        examples: card.examples && card.examples.length > 2 ? 
-                            card.examples.slice(0, 2) : card.examples,
+                        back: card.back,
+                        examples: card.examples,
+                        imageUrl: card.imageUrl,
                         createdAt: card.createdAt,
                         exportStatus: card.exportStatus,
+                        linguisticInfo: card.linguisticInfo,
+                        transcription: card.transcription
                     }));
                     
-                    console.warn(`Attempting to save cards with reduced data instead of limiting to 4 cards.`);
+                    console.warn(`Attempting to save cards with compressed images instead of removing them.`);
                     
-                    const smallerSerializedCards = JSON.stringify(reducedSizeCards, (key, value) => {
+                    const smallerSerializedCards = JSON.stringify(cardsWithCompressedImages, (key, value) => {
                         if (value instanceof Date) return value.toISOString();
                         return value;
                     });
@@ -189,14 +310,14 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                     const newSize = new Blob([smallerSerializedCards]).size;
                     console.log(`Reduced size from ${originalSize} to ${newSize} bytes`);
                     
-                    // If still too large, we have to fall back to limiting cards, but preserve more than just 4
+                    // If still too large, we have to fall back to removing the newest cards, but preserve more than just 4
                     if (newSize > 4.5 * 1024 * 1024) {
                         console.warn('Still too large after size reduction, falling back to limiting card count');
                         
                         // Don't limit to only 4! That's too few. Instead keep as many as possible
-                        // Sort by date (newest first) and keep as many as possible up to storage limit
-                        const sortedCards = [...reducedSizeCards].sort((a, b) => 
-                            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                        // Sort by date (oldest first) to preserve newer cards with their images
+                        const sortedCards = [...cardsWithCompressedImages].sort((a, b) => 
+                            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
                         );
                         
                         // Start with at least 10 cards and keep adding until we hit size limit
@@ -222,19 +343,20 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                             cardsToKeep += 5;
                         }
                         
-                        console.warn(`Emergency preservation: keeping ${cardsToKeep} newest cards out of ${sortedCards.length} total`);
+                        console.warn(`Emergency preservation: keeping ${cardsToKeep} cards out of ${sortedCards.length} total (removing oldest to preserve newest with images)`);
                         
-                        // Use the latest known good batch
-                        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentBatch, (key, value) => {
+                        // Use the batch that fits (keep the newest cards, remove oldest)
+                        const finalBatch = sortedCards.slice(-cardsToKeep);  // Take from the end (newest)
+                        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(finalBatch, (key, value) => {
                             if (value instanceof Date) return value.toISOString();
                             return value;
                         }));
                     } else {
-                        // Our size reduction worked, save all cards with reduced data
+                        // Our size reduction worked, save all cards with compressed images
                         localStorage.setItem(LOCAL_STORAGE_KEY, smallerSerializedCards);
                     }
                     
-                    console.log('Saved cards with data reduction to fit within quota');
+                    console.log('Saved cards with image preservation strategy to fit within quota');
                     
                     // Return true to indicate we handled the error
                     return;

@@ -194,12 +194,13 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             break;
         case SET_TEXT:
             newState.text = action.payload;
-            if (!state.currentCardId) {
-                newState.image = null;
-                newState.imageUrl = null;
-                // Commented out to prevent linguisticInfo from disappearing
-                // newState.linguisticInfo = "";
-            }
+            // REMOVED: Automatic image clearing when text changes
+            // This was causing images to disappear when creating new cards
+            // Now images are preserved until explicitly cleared or replaced
+            // if (!state.currentCardId) {
+            //     newState.image = null;
+            //     newState.imageUrl = null;
+            // }
             break;
         case SET_TRANSLATION:
             newState.translation = action.payload;
@@ -208,9 +209,21 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             newState.examples = action.payload;
             break;
         case SET_IMAGE:
+            console.log('*** REDUCER: SET_IMAGE called with:', {
+                hasPayload: !!action.payload,
+                payloadType: typeof action.payload,
+                payloadLength: action.payload?.length,
+                payloadPreview: action.payload?.substring(0, 50)
+            });
             newState.image = action.payload;
             break;
         case SET_IMAGE_URL:
+            console.log('*** REDUCER: SET_IMAGE_URL called with:', {
+                hasPayload: !!action.payload,
+                payloadType: typeof action.payload,
+                payloadLength: action.payload?.length,
+                payloadPreview: action.payload?.substring(0, 50)
+            });
             return { ...state, imageUrl: action.payload };
         case SET_BACK:
             return { ...state, back: action.payload };
