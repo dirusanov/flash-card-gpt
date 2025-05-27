@@ -473,7 +473,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 imageLength: card.image?.length,
                 imageUrlLength: card.imageUrl?.length,
                 imagePreview: card.image?.substring(0, 50),
-                imageUrlPreview: card.imageUrl?.substring(0, 50)
+                imageUrlPreview: card.imageUrl?.substring(0, 50),
+                hasLinguisticInfo: !!card.linguisticInfo
             });
             
             if (card.mode === Modes.LanguageLearning) {
@@ -582,26 +583,32 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     });
                     
                     if (formattedLinguistic) {
-                        back += `
-                            <div style="margin-top: 20px; padding: 12px; background-color: #F8FAFC; border-left: 4px solid #2563EB; border-radius: 0 6px 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                                <div style="color: #1E40AF; font-weight: bold; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center;">
-                                    <span style="margin-right: 6px;">📚</span>
-                                    Grammar & Linguistics
-                                </div>
-                                ${formattedLinguistic}
-                            </div>
-                        `;
+                        back += `<div style="margin-top: 20px; padding: 12px; background-color: #F8FAFC; border-left: 4px solid #2563EB; border-radius: 0 6px 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);"><div style="color: #1E40AF; font-weight: bold; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 6px;">📚</span>Grammar & Linguistics</div>${formattedLinguistic}</div>`;
                     }
                 }
                 
-                // Export the formatted card - remove the outer quotes which cause trailing quote issue
-                exportContent += `${front}\t${back}\n`;
+                // Clean the front and back content to avoid tab/newline issues
+                const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
+                const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
+                
+                // Export the formatted card with proper escaping
+                exportContent += `${cleanFront}\t${cleanBack}\n`;
+                
+                console.log(`Exported card ${index}:`, {
+                    front: cleanFront.substring(0, 50),
+                    backLength: cleanBack.length,
+                    hasLinguisticInfo: cleanBack.includes('Grammar & Linguistics')
+                });
             }
             else if (card.mode === Modes.GeneralTopic) {
                 const front = (card.front || '').trim();
                 const back = (card.back || '').trim();
                 
-                exportContent += `${front}\t${back}\n`;
+                // Clean the content to avoid tab/newline issues
+                const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
+                const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
+                
+                exportContent += `${cleanFront}\t${cleanBack}\n`;
             }
         });
 
@@ -615,6 +622,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+
+        // Log export summary for debugging
+        const totalCards = selectedCardsData.length;
+        const cardsWithLinguistics = selectedCardsData.filter(card => card.linguisticInfo && card.linguisticInfo.trim()).length;
+        console.log(`Export complete: ${totalCards} cards exported, ${cardsWithLinguistics} with grammar information`);
+        
+        // Show success message
+        showError(`Successfully exported ${totalCards} cards${cardsWithLinguistics > 0 ? ` (${cardsWithLinguistics} with grammar info)` : ''}!`, 'success');
 
         // Update export status for selected cards
         selectedCards.forEach(cardId => {
