@@ -380,16 +380,20 @@ function App() {
           overflow: 'auto'
         }}>
           {renderMainContent()}
+          
+          {/* Toast notifications - fixed positioning поверх всего контента */}
           <div style={{
-            position: 'absolute',
-            top: '8px',
-            left: '0',
-            right: '0',
-            width: '100%',
-            zIndex: 60,
-            padding: '0 16px'
+            position: 'fixed',
+            top: '16px',
+            right: '16px',
+            zIndex: 9999,
+            maxWidth: '300px',
+            width: 'auto',
+            pointerEvents: 'none' // пропускаем клики через контейнер
           }}>
-            {renderErrorNotification()}
+            <div style={{ pointerEvents: 'auto' }}> {/* восстанавливаем клики для самих уведомлений */}
+              {renderErrorNotification()}
+            </div>
           </div>
         </header>
       </div>

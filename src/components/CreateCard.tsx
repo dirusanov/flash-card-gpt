@@ -1067,16 +1067,18 @@ const handleSaveAllCards = async () => {
                         dispatch(setLinguisticInfo(result.linguisticInfo));
                         completedOperations.linguisticInfo = true;
                         
-                        // Показываем уведомления пользователю
-                        if (result.wasValidated) {
-                            if (result.attempts > 1) {
-                                showError(`✅ Grammar reference validated and corrected (${result.attempts} attempts)`, 'success');
+                        // Показываем уведомления пользователю с небольшой задержкой
+                        setTimeout(() => {
+                            if (result.wasValidated) {
+                                if (result.attempts > 1) {
+                                    showError(`Grammar reference validated and corrected (${result.attempts} attempts)`, 'success');
+                                } else {
+                                    showError('Grammar reference created successfully', 'success');
+                                }
                             } else {
-                                console.log('Grammar reference validated successfully on first attempt');
+                                showError(`Grammar reference may contain inaccuracies (${result.attempts} attempts)`, 'warning');
                             }
-                        } else {
-                            showError(`⚠️ Grammar reference may contain inaccuracies (${result.attempts} attempts)`, 'warning');
-                        }
+                        }, 1000);
                     } else {
                         console.warn(`Failed to generate linguistic info after ${result.attempts} attempts`);
                         showError('Failed to generate grammar reference', 'warning');
@@ -1221,13 +1223,13 @@ const handleSaveAllCards = async () => {
     const handleSaveAISettings = () => {
         dispatch(setAIInstructions(localAIInstructions));
         setShowAISettings(false);
-        showError('AI settings saved successfully!', 'success');
+        showError('AI settings saved successfully', 'success');
     };
 
     const handleSaveImageSettings = () => {
         dispatch(setImageInstructions(localImageInstructions));
         setShowImageSettings(false);
-        showError('Image instructions saved successfully!', 'success');
+        showError('Image instructions saved successfully', 'success');
     };
     
     // Render AI Settings Panel
@@ -1702,10 +1704,7 @@ const handleSaveAllCards = async () => {
                         </button>
                     </div>
                     
-                    {/* Add error notification in modal */}
-                    <div style={{ marginBottom: '12px' }}>
-                        {renderErrorNotification()}
-                    </div>
+                    {/* Error notifications now appear as toast in top-right corner */}
                     
                     <div style={{
                         width: '100%',
@@ -4304,12 +4303,7 @@ Respond with ONLY the native language name, no additional text.`;
                                 </div> : 'Create Card'}
                         </button>
                     </form>
-                    <div style={{
-                        width: '100%',
-                        margin: '4px 0 0 0'
-                    }}>
-                        {renderErrorNotification()}
-                    </div>
+                    {/* Error notifications now appear as toast notifications */}
                 </div>
             </div>
             

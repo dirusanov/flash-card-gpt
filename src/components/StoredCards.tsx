@@ -2335,7 +2335,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 </div>
             </div>
 
-            {renderErrorNotification()}
+            {/* Error notifications now appear as toast in top-right corner */}
 
             {storedCards.length > 0 ? (
                 <>
