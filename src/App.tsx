@@ -87,11 +87,35 @@ function App() {
   };
 
   const renderMainContent = () => {
+    // Динамические отступы в зависимости от наличия New Card кнопки
+    const topPadding = currentPage !== 'createCard' ? '46px' : '12px'; // компактные отступы
+    const bottomPadding = '58px'; // компактнее для bottom navigation
+
     switch(currentPage) {
       case 'settings':
-        return <Settings onBackClick={() => handlePageChange('createCard')} popup={false} />;
+        return (
+          <div style={{ 
+            width: '100%', 
+            height: '100%',
+            paddingTop: topPadding,
+            paddingBottom: bottomPadding,
+            overflow: 'auto'
+          }}>
+            <Settings onBackClick={() => handlePageChange('createCard')} popup={false} />
+          </div>
+        );
       case 'storedCards':
-        return <StoredCards onBackClick={() => handlePageChange('createCard')} />;
+        return (
+          <div style={{ 
+            width: '100%', 
+            height: '100%',
+            paddingTop: topPadding,
+            paddingBottom: bottomPadding,
+            overflow: 'auto'
+          }}>
+            <StoredCards onBackClick={() => handlePageChange('createCard')} />
+          </div>
+        );
       case 'createCard':
       default:
         return (
@@ -103,7 +127,8 @@ function App() {
             overflow: 'auto',
             height: '100%',
             position: 'relative',
-            marginTop: '20px'
+            paddingTop: topPadding,
+            paddingBottom: bottomPadding
           }}>
             <CreateCard />
           </div>
@@ -112,158 +137,212 @@ function App() {
   };
 
   const renderHeaderButtons = () => {
+    // Считаем несохраненные карточки для бейджа
+    const unsavedCardsCount = storedCards.filter(card => 
+      card.exportStatus === 'not_exported'
+    ).length;
+
     return (
-      <div className="header-buttons" style={{
-        position: 'absolute',
-        top: '10px',
-        left: '12px',
-        right: '12px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '6px',
-        zIndex: 100
-      }}>
-        {currentPage !== 'createCard' && (
-          <button
-            onClick={() => handlePageChange('createCard')}
-            className="header-button"
-            style={{
-              backgroundColor: '#2563EB',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '15px',
-              padding: '6px 0',
-              color: '#FFFFFF',
-              borderRadius: '6px',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flex: 1.2,
-              height: '34px',
-              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.backgroundColor = '#1D4ED8';
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.backgroundColor = '#2563EB';
-            }}
-            title="Create a new card"
-          >
-            <FaPlus style={{ marginRight: '4px' }} size={12} />
-            <span style={{ fontSize: '13px', fontWeight: 500 }}>New Card</span>
-          </button>
-        )}
-        
-        <button
-          onClick={() => handlePageChange('storedCards')}
-          className="header-button"
-          style={{
-            backgroundColor: currentPage === 'storedCards' ? '#e5e7eb' : '#f3f4f6',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: '15px',
-            padding: '6px 0',
-            color: '#4B5563',
-            borderRadius: '6px',
-            transition: 'all 0.2s ease',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flex: 1,
-            height: '34px',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-          }}
-          onMouseOver={(e) => {
-            if (currentPage !== 'storedCards') {
-              e.currentTarget.style.backgroundColor = '#e5e7eb';
-            }
-            e.currentTarget.style.color = '#111827';
-          }}
-          onMouseOut={(e) => {
-            if (currentPage !== 'storedCards') {
-              e.currentTarget.style.backgroundColor = '#f3f4f6';
-            }
-            e.currentTarget.style.color = '#4B5563';
-          }}
-          title="View Saved Cards"
-        >
-          <FaList style={{ marginRight: '4px' }} size={14} />
-          <span style={{ fontSize: '13px', fontWeight: 500 }}>Cards</span>
-        </button>
-        
-        <button
-          onClick={() => handlePageChange('settings')}
-          className="header-button"
-          style={{
-            backgroundColor: currentPage === 'settings' ? '#e5e7eb' : '#f3f4f6',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: '15px',
-            padding: '6px 0',
-            color: '#4B5563',
-            borderRadius: '6px',
-            transition: 'all 0.2s ease',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flex: 1,
-            height: '34px',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-          }}
-          onMouseOver={(e) => {
-            if (currentPage !== 'settings') {
-              e.currentTarget.style.backgroundColor = '#e5e7eb';
-            }
-            e.currentTarget.style.color = '#111827';
-          }}
-          onMouseOut={(e) => {
-            if (currentPage !== 'settings') {
-              e.currentTarget.style.backgroundColor = '#f3f4f6';
-            }
-            e.currentTarget.style.color = '#4B5563';
-          }}
-          title="Settings"
-        >
-          <FaCog style={{ marginRight: '4px' }} size={14} />
-          <span style={{ fontSize: '13px', fontWeight: 500 }}>Settings</span>
-        </button>
-        
+      <>
+        {/* Close button - всегда сверху справа */}
         <button
           onClick={handleCloseExtension}
-          className="header-button"
+          className="close-button"
           style={{
-            backgroundColor: '#f3f4f6',
+            position: 'absolute',
+            top: '6px',
+            right: '12px',
+            backgroundColor: 'transparent',
             border: 'none',
             cursor: 'pointer',
-            fontSize: '15px',
-            padding: '6px 0',
-            color: '#EF4444',
-            borderRadius: '6px',
+            padding: '6px',
+            color: '#6B7280',
+            borderRadius: '5px',
             transition: 'all 0.2s ease',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            flex: 1,
-            height: '34px',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+            width: '28px',
+            height: '28px',
+            zIndex: 200
           }}
           onMouseOver={(e) => {
-            e.currentTarget.style.backgroundColor = '#e5e7eb';
-            e.currentTarget.style.color = '#B91C1C';
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.backgroundColor = '#f3f4f6';
+            e.currentTarget.style.backgroundColor = '#F3F4F6';
             e.currentTarget.style.color = '#EF4444';
           }}
-          title="Close"
+          onMouseOut={(e) => {
+            e.currentTarget.style.backgroundColor = 'transparent';
+            e.currentTarget.style.color = '#6B7280';
+          }}
+          title="Close extension"
         >
-          <FaTimes style={{ marginRight: '4px' }} size={14} />
-          <span style={{ fontSize: '13px', fontWeight: 500 }}>Close</span>
+          <FaTimes size={14} />
         </button>
-      </div>
+
+        {/* New Card button - показывается только когда нужен */}
+        {currentPage !== 'createCard' && (
+          <div style={{
+            position: 'absolute',
+            top: '6px',
+            left: '12px',
+            right: '50px', // отступ для close кнопки
+            zIndex: 100
+          }}>
+            <button
+              onClick={() => handlePageChange('createCard')}
+              className="new-card-button"
+              style={{
+                backgroundColor: '#2563EB',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px 14px',
+                color: '#FFFFFF',
+                borderRadius: '7px',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '100%',
+                height: '32px',
+                boxShadow: '0 1px 3px rgba(37, 99, 235, 0.2)',
+                fontSize: '13px',
+                fontWeight: 600
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.backgroundColor = '#1D4ED8';
+                e.currentTarget.style.transform = 'translateY(-0.5px)';
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(37, 99, 235, 0.25)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.backgroundColor = '#2563EB';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(37, 99, 235, 0.2)';
+              }}
+              title="Create a new card"
+            >
+              <FaPlus style={{ marginRight: '5px' }} size={13} />
+              New Card
+            </button>
+          </div>
+        )}
+
+        {/* Bottom navigation - Cards и Settings */}
+        <div style={{
+          position: 'absolute',
+          bottom: '8px',
+          left: '12px',
+          right: '12px',
+          display: 'flex',
+          gap: '6px',
+          zIndex: 100
+        }}>
+          <button
+            onClick={() => handlePageChange('storedCards')}
+            className="nav-button"
+            style={{
+              backgroundColor: currentPage === 'storedCards' ? '#EFF6FF' : '#F9FAFB',
+              border: `1px solid ${currentPage === 'storedCards' ? '#BFDBFE' : '#E5E7EB'}`,
+              cursor: 'pointer',
+              padding: '10px 14px',
+              color: currentPage === 'storedCards' ? '#2563EB' : '#6B7280',
+              borderRadius: '10px',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flex: 1,
+              gap: '3px',
+              fontSize: '11px',
+              fontWeight: currentPage === 'storedCards' ? 600 : 500,
+              boxShadow: currentPage === 'storedCards' ? '0 2px 4px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+              position: 'relative'
+            }}
+            onMouseOver={(e) => {
+              if (currentPage !== 'storedCards') {
+                e.currentTarget.style.backgroundColor = '#F3F4F6';
+                e.currentTarget.style.borderColor = '#D1D5DB';
+                e.currentTarget.style.color = '#374151';
+              }
+            }}
+            onMouseOut={(e) => {
+              if (currentPage !== 'storedCards') {
+                e.currentTarget.style.backgroundColor = '#F9FAFB';
+                e.currentTarget.style.borderColor = '#E5E7EB';
+                e.currentTarget.style.color = '#6B7280';
+              }
+            }}
+            title="View your saved cards"
+          >
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <FaList size={16} />
+              {unsavedCardsCount > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: '-6px',
+                  right: '-8px',
+                  backgroundColor: '#EF4444',
+                  color: 'white',
+                  borderRadius: '10px',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  padding: '2px 6px',
+                  minWidth: '16px',
+                  height: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                }}>
+                  {unsavedCardsCount > 99 ? '99+' : unsavedCardsCount}
+                </span>
+              )}
+            </div>
+            <span>Cards</span>
+          </button>
+          
+          <button
+            onClick={() => handlePageChange('settings')}
+            className="nav-button"
+            style={{
+              backgroundColor: currentPage === 'settings' ? '#EFF6FF' : '#F9FAFB',
+              border: `1px solid ${currentPage === 'settings' ? '#BFDBFE' : '#E5E7EB'}`,
+              cursor: 'pointer',
+              padding: '10px 14px',
+              color: currentPage === 'settings' ? '#2563EB' : '#6B7280',
+              borderRadius: '10px',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flex: 1,
+              gap: '3px',
+              fontSize: '11px',
+              fontWeight: currentPage === 'settings' ? 600 : 500,
+              boxShadow: currentPage === 'settings' ? '0 2px 4px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseOver={(e) => {
+              if (currentPage !== 'settings') {
+                e.currentTarget.style.backgroundColor = '#F3F4F6';
+                e.currentTarget.style.borderColor = '#D1D5DB';
+                e.currentTarget.style.color = '#374151';
+              }
+            }}
+            onMouseOut={(e) => {
+              if (currentPage !== 'settings') {
+                e.currentTarget.style.backgroundColor = '#F9FAFB';
+                e.currentTarget.style.borderColor = '#E5E7EB';
+                e.currentTarget.style.color = '#6B7280';
+              }
+            }}
+            title="App settings and API configuration"
+          >
+            <FaCog size={16} />
+            <span>Settings</span>
+          </button>
+        </div>
+      </>
     );
   };
 
@@ -296,8 +375,8 @@ function App() {
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: '#ffffff',
-          marginTop: '34px',
-          height: 'calc(100% - 34px)',
+          marginTop: '0px',
+          height: '100%',
           overflow: 'auto'
         }}>
           {renderMainContent()}

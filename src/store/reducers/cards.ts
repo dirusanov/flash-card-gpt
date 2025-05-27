@@ -194,13 +194,14 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             break;
         case SET_TEXT:
             newState.text = action.payload;
-            // REMOVED: Automatic image clearing when text changes
-            // This was causing images to disappear when creating new cards
-            // Now images are preserved until explicitly cleared or replaced
-            // if (!state.currentCardId) {
-            //     newState.image = null;
-            //     newState.imageUrl = null;
-            // }
+            // SPECIAL CASE: If text is being completely cleared (empty string), 
+            // also clear images to prevent them from appearing on the next card
+            if (action.payload === '' || action.payload.trim() === '') {
+                console.log('Text cleared completely, also clearing images');
+                newState.image = null;
+                newState.imageUrl = null;
+            }
+            // Otherwise, preserve images for text changes (editing existing cards)
             break;
         case SET_TRANSLATION:
             newState.translation = action.payload;

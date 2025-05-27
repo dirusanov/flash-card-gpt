@@ -737,18 +737,14 @@ const handleSaveAllCards = async () => {
     
     // Add a function to create a new card after saving
     const handleCreateNew = () => {
-        // If user has an image, ask if they want to keep it for the new card
-        const hasImage = image || imageUrl;
-        const shouldKeepImage = hasImage ? 
-            window.confirm('You have an image in the current card. Do you want to keep it for the new card?') : 
-            false;
-            
+        // Always clear all data when creating a new card to prevent confusion
+        // This ensures a clean slate for each new card
         setShowResult(false);
         setIsEdited(false);
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
         
-        console.log('Creating new card, clearing all state, keeping image:', shouldKeepImage);
+        console.log('Creating new card, clearing all state completely');
         
         // Reset all saved state tracking
         setExplicitlySaved(false);
@@ -761,17 +757,12 @@ const handleSaveAllCards = async () => {
         setIsMultipleCards(false);
         setCurrentCardIndex(0);
         
-        // Очищаем все поля Redux
+        // Очищаем все поля Redux полностью
         dispatch(setText(''));
         dispatch(setTranslation(''));
         dispatch(setExamples([]));
-        
-        // Clear images only if user doesn't want to keep them
-        if (!shouldKeepImage) {
-            dispatch(setImage(null));
-            dispatch(setImageUrl(null));
-        }
-        
+        dispatch(setImage(null));
+        dispatch(setImageUrl(null));
         dispatch(setFront(''));
         dispatch(setBack(null));
         dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
@@ -938,14 +929,22 @@ const handleSaveAllCards = async () => {
         // Очищаем флаг текущей карточки
         dispatch(setCurrentCardId(null));
         
-        // CHANGED: Don't automatically clear image data when creating new cards
-        // This was causing images to disappear when users wanted to keep them
+        // FIXED: Clear image data if image generation is disabled or if this is a new text
+        // This prevents images from previous cards appearing on new cards
+        if (!shouldGenerateImage) {
+            console.log('Image generation is disabled, clearing existing images');
+            dispatch(setImage(null));
+            dispatch(setImageUrl(null));
+        } else if (originalSelectedText !== text) {
+            // If the text has changed significantly from the original, clear old images
+            console.log('Text has changed, clearing existing images for new generation');
+            dispatch(setImage(null));
+            dispatch(setImageUrl(null));
+        }
+        
         // Only clear linguistic info and transcription as they are text-specific
         dispatch(setLinguisticInfo(""));
         dispatch(setTranscription(''));
-        
-        // Images will be preserved unless user explicitly changes them
-        // This allows users to create multiple cards with the same image
         
         setLoadingGetResult(true);
         setOriginalSelectedText(text);
@@ -1514,18 +1513,21 @@ const handleSaveAllCards = async () => {
 
     // Add a way to cancel the current card and reset to fresh state
     const handleCancel = () => {
+        console.log('Canceling current card, clearing all state');
         setShowResult(false);
         setIsEdited(false);
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
         setExplicitlySaved(false); // Reset explicit save
         localStorage.removeItem('explicitly_saved'); // Also remove from localStorage
+        localStorage.removeItem('current_card_id'); // Clear current card ID too
         
         // Сбрасываем историю карточек
         setCreatedCards([]);
         setIsMultipleCards(false);
+        setCurrentCardIndex(0);
         
-        // Reset all form fields
+        // Reset all form fields completely
         dispatch(setText(''));
         dispatch(setTranslation(''));
         dispatch(setExamples([]));
@@ -1597,14 +1599,32 @@ const handleSaveAllCards = async () => {
             if (shouldSave) {
                 handleAccept();
             } else {
-                // If user decides not to save, clear image data
+                // If user decides not to save, clear ALL data including images
+                console.log('User chose not to save, clearing all card data');
+                dispatch(setText(''));
+                dispatch(setTranslation(''));
+                dispatch(setExamples([]));
                 dispatch(setImage(null));
                 dispatch(setImageUrl(null));
+                dispatch(setFront(''));
+                dispatch(setBack(null));
+                dispatch(setLinguisticInfo(''));
+                dispatch(setTranscription(''));
+                setShowResult(false);
             }
         } else if (!isSaved) {
-            // If not saved, clear image data when closing
+            // If not saved, clear ALL data including images when closing
+            console.log('Card not saved, clearing all data');
+            dispatch(setText(''));
+            dispatch(setTranslation(''));
+            dispatch(setExamples([]));
             dispatch(setImage(null));
             dispatch(setImageUrl(null));
+            dispatch(setFront(''));
+            dispatch(setBack(null));
+            dispatch(setLinguisticInfo(''));
+            dispatch(setTranscription(''));
+            setShowResult(false);
         }
         setShowModal(false);
     };
