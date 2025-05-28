@@ -1068,17 +1068,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         completedOperations.linguisticInfo = true;
 
                         // Показываем уведомления пользователю с небольшой задержкой
-                        setTimeout(() => {
-                            if (result.wasValidated) {
-                                if (result.attempts > 1) {
-                                    showError(`Grammar reference validated and corrected (${result.attempts} attempts)`, 'success');
-                                } else {
-                                    showError('Grammar reference created successfully', 'success');
-                                }
-                            } else {
-                                showError(`Grammar reference may contain inaccuracies (${result.attempts} attempts)`, 'warning');
-                            }
-                        }, 1000);
+                        // setTimeout(() => {
+                        //     if (result.wasValidated) {
+                        //         if (result.attempts > 1) {
+                        //             showError(`Grammar reference validated and corrected (${result.attempts} attempts)`, 'success');
+                        //         } else {
+                        //             showError('Grammar reference created successfully', 'success');
+                        //         }
+                        //     } else {
+                        //         showError(`Grammar reference may contain inaccuracies (${result.attempts} attempts)`, 'warning');
+                        //     }
+                        // }, 1000);
                     } else {
                         console.warn(`Failed to generate linguistic info after ${result.attempts} attempts`);
                         showError('Failed to generate grammar reference', 'warning');
