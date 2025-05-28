@@ -7,6 +7,7 @@ import {settingsReducer} from "./reducers/settings";
 import currentPageReducer from "./reducers/page";
 import ankiReducer from './reducers/anki';
 import sidebarReducer from './reducers/sidebar';
+import notificationsReducer from './reducers/notifications';
 import cardsLocalStorageMiddleware from './middleware/cardsLocalStorage';
 
 const rootReducer = combineReducers({
@@ -16,6 +17,7 @@ const rootReducer = combineReducers({
     currentPage: currentPageReducer,
     anki: ankiReducer,
     sidebar: sidebarReducer,
+    notifications: notificationsReducer,
 });
 
 export type RootState = ReturnType<typeof rootReducer>;

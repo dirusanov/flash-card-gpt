@@ -13,11 +13,17 @@ const useErrorNotification = () => {
   
   // Show error notification
   const showError = (message: string | null, errorType: ErrorType = 'error') => {
+    console.log('showError called:', { message, errorType, visible, isAnimating });
+    
     if (message) {
       setError(message);
       setType(errorType);
       setVisible(true);
-      setIsAnimating(true);
+      
+      // Небольшая задержка для плавной анимации
+      setTimeout(() => {
+        setIsAnimating(true);
+      }, 50);
       
       // Auto-hide successful and info messages after 4 seconds
       if (errorType === 'success' || errorType === 'info') {
@@ -76,6 +82,8 @@ const useErrorNotification = () => {
   
   // Render the notification component
   const renderErrorNotification = () => {
+    console.log('renderErrorNotification called:', { visible, error, isAnimating, type });
+    
     if (!visible || !error) return null;
     
     const getIconAndColor = () => {
@@ -118,22 +126,21 @@ const useErrorNotification = () => {
     return (
       <div 
         style={{
-          transform: isAnimating ? 'translateX(0) scale(1)' : 'translateX(100%) scale(0.95)',
+          transform: isAnimating ? 'translateX(0)' : 'translateX(100%)',
           opacity: isAnimating ? 1 : 0,
-          transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+          transition: 'all 0.3s ease-out',
           backgroundColor: bgColor,
           border: `1px solid ${borderColor}`,
           borderRadius: '12px',
           padding: '16px',
           minWidth: '280px',
           maxWidth: '320px',
-          boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15), 0 4px 6px rgba(0, 0, 0, 0.05)',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
           position: 'relative',
           display: 'flex',
           alignItems: 'flex-start',
           gap: '12px',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
+          marginBottom: '8px'
         }}
         role="alert"
         aria-live="polite"
@@ -209,18 +216,12 @@ const useErrorNotification = () => {
             <div style={{
               height: '100%',
               backgroundColor: borderColor,
-              animation: `toast-progress ${type === 'warning' ? '6s' : '4s'} linear`,
+              width: '100%',
+              transition: `width ${type === 'warning' ? '6s' : '4s'} linear`,
               transformOrigin: 'left'
             }} />
           </div>
         )}
-        
-        <style>{`
-          @keyframes toast-progress {
-            from { transform: scaleX(1); }
-            to { transform: scaleX(0); }
-          }
-        `}</style>
       </div>
     );
   };

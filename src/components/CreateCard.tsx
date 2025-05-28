@@ -1,15 +1,15 @@
-import React, {useEffect, useState, useMemo, useCallback} from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
-import {RootState} from "../store";
-import {setDeckId} from "../store/actions/decks";
-import {saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription} from "../store/actions/cards";
+import { RootState } from "../store";
+import { setDeckId } from "../store/actions/decks";
+import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription } from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
-import {generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText} from "../services/openaiApi";
+import { generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText } from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
-import {Modes} from "../constants";
+import { Modes } from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
@@ -19,7 +19,7 @@ import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, 
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
-import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo, createTranscription} from '../services/aiServiceFactory';
+import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo, createTranscription } from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
 
 
@@ -32,7 +32,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const deckId = useSelector((state: RootState) => state.deck.deckId);
 
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
-    
+
     // Helper function to update source language in Redux
     const updateSourceLanguage = useCallback((language: string) => {
         // Use direct action object instead of the action creator to fix type issues
@@ -40,7 +40,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Also save to localStorage
         localStorage.setItem('source_language', language);
     }, [dispatch]);
-    
+
     const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription } = useSelector((state: RootState) => state.cards);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
@@ -78,71 +78,71 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [selectedTextOptions, setSelectedTextOptions] = useState<string[]>([]);
     const [showTextOptionsModal, setShowTextOptionsModal] = useState(false);
     const [textAnalysisLoader, setTextAnalysisLoader] = useState(false);
-    const [selectedOptionsMap, setSelectedOptionsMap] = useState<{[key: string]: boolean}>({});
+    const [selectedOptionsMap, setSelectedOptionsMap] = useState<{ [key: string]: boolean }>({});
     const [createdCards, setCreatedCards] = useState<StoredCard[]>([]);
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
     const [isMultipleCards, setIsMultipleCards] = useState(false);
-    
+
     // Selector для получения всех сохраненных карточек
     const storedCards = useSelector((state: RootState) => state.cards.storedCards);
-    
+
     // Get the appropriate AI service based on the selected provider
     const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
-    
+
     // Get the appropriate API key based on the selected provider
-    const apiKey = useMemo(() => 
+    const apiKey = useMemo(() =>
         getApiKeyForProvider(
-            modelProvider as ModelProvider, 
-            openAiKey, 
+            modelProvider as ModelProvider,
+            openAiKey,
             groqApiKey
-        ), 
+        ),
         [modelProvider, openAiKey, groqApiKey]
     );
-    
+
     // Track which card IDs have been explicitly saved by the user
     const [explicitlySavedIds, setExplicitlySavedIds] = useState<string[]>([]);
-    
+
     // Helper function to check if a specific card is saved
     const isCardExplicitlySaved = useCallback((cardId: string | null) => {
         if (!cardId) return false;
         return explicitlySavedIds.includes(cardId);
     }, [explicitlySavedIds]);
-    
+
     // Derive isSaved from multiple checks and explicit user actions
     const isSaved = useMemo(() => {
-        console.log('Calculating isSaved:', { 
-            currentCardId, 
+        console.log('Calculating isSaved:', {
+            currentCardId,
             explicitlySaved,
             isMultipleCards,
             currentCardIndex,
             createdCardsLength: createdCards.length,
             explicitlySavedIds
         });
-        
+
         // For multiple cards scenario - ONLY consider saved if user explicitly saved it
         if (isMultipleCards && createdCards.length > 0) {
             const currentCard = createdCards[currentCardIndex];
             if (!currentCard) return false;
-            
+
             // Only consider saved if it's in our explicitly saved list
             return isCardExplicitlySaved(currentCard.id);
         }
-        
+
         // For single card - only consider a card saved if it has been explicitly saved by the user
         if (currentCardId && explicitlySaved) {
             return true;
         }
-        
+
         // Never automatically mark cards as saved just because they exist in storage
         return false;
     }, [currentCardId, explicitlySaved, isMultipleCards, currentCardIndex, createdCards, isCardExplicitlySaved]);
 
     // Add more detailed logging to debug the issue
-    console.log('Card state details:', { 
-        isNewSubmission, 
+    console.log('Card state details:', {
+        isNewSubmission,
         explicitlySaved,
-        isSaved, 
-        currentCardId, 
+        isSaved,
+        currentCardId,
         text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
         localStorage_explicitly_saved: localStorage.getItem('explicitly_saved')
     });
@@ -173,31 +173,31 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (!textToCheck || textToCheck.trim() === '') {
             return;
         }
-        
+
         // Load cards directly from storage to ensure we have the latest data
         const storedCards = loadCardsFromStorage();
         const exactMatch = storedCards.find((card: StoredCard) => card.text === textToCheck);
-        
+
         if (exactMatch) {
             console.log('Found existing card with matching text:', exactMatch?.text || textToCheck, 'ID:', exactMatch.id);
             console.log('Setting currentCardId but NOT setting explicitlySaved');
-            
+
             // Only set the ID for reference, but DON'T mark as explicitly saved
             // This ensures "Saved to Collection" only appears after user explicitly saves
             dispatch(setCurrentCardId(exactMatch.id));
-            
+
             // IMPORTANT: We do NOT set explicitlySaved to true here, as that would cause
             // the "Saved to Collection" message to appear prematurely
             return true;
         }
-        
+
         return false;
     }, [dispatch]);
-    
+
     // Update the handle text change to check for existing cards
     const handleTextChange = (newText: string) => {
         dispatch(setText(newText));
-        
+
         // If the card is already marked as saved, check if it's being edited
         if (isSaved) {
             setIsEdited(true);
@@ -227,12 +227,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setLoadingNewImage(true);
         try {
             const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
-            
+
             // Use different image generation based on provider
             if (modelProvider === ModelProvider.OpenAI) {
                 // Use existing OpenAI implementation
                 const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
-                
+
                 if (imageUrl) {
                     dispatch(setImageUrl(imageUrl));
                 }
@@ -249,7 +249,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         } finally {
             setLoadingNewImage(false);
         }
-        
+
         if (isSaved) {
             setIsEdited(true);
         }
@@ -260,7 +260,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         try {
             // Определяем исходный язык
             const textLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
-            
+
             const newExamplesResult = await createExamples(
                 aiService,
                 apiKey,
@@ -270,10 +270,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 aiInstructions,
                 textLanguage || undefined // Передаем исходный язык
             );
-            
+
             if (newExamplesResult && newExamplesResult.length > 0) {
                 // Преобразуем в старый формат для совместимости с существующим кодом
-                const formattedExamples = newExamplesResult.map(example => 
+                const formattedExamples = newExamplesResult.map(example =>
                     [example.original, example.translated] as [string, string | null]
                 );
                 dispatch(setExamples(formattedExamples));
@@ -284,7 +284,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         } finally {
             setLoadingNewExamples(false);
         }
-        
+
         if (isSaved) {
             setIsEdited(true);
         }
@@ -294,37 +294,37 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (!customInstruction.trim() || isProcessingCustomInstruction) {
             return;
         }
-        
+
         setIsProcessingCustomInstruction(true);
-        
+
         try {
             // Apply different actions based on content analysis
-            if (customInstruction.toLowerCase().includes('image') || 
+            if (customInstruction.toLowerCase().includes('image') ||
                 customInstruction.toLowerCase().includes('picture') ||
                 customInstruction.toLowerCase().includes('изображени') ||
                 customInstruction.toLowerCase().includes('картин')) {
-                
+
                 // Generate new image based on instructions
                 const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
                 const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, customInstruction);
-                
+
                 if (imageUrl) {
                     dispatch(setImageUrl(imageUrl));
                 }
                 if (imageBase64) {
                     dispatch(setImage(imageBase64));
                 }
-            } else if (customInstruction.toLowerCase().includes('example') || 
-                customInstruction.toLowerCase().includes('sentence') || 
-                customInstruction.toLowerCase().includes('пример') || 
+            } else if (customInstruction.toLowerCase().includes('example') ||
+                customInstruction.toLowerCase().includes('sentence') ||
+                customInstruction.toLowerCase().includes('пример') ||
                 customInstruction.toLowerCase().includes('предложение')) {
-                
+
                 // Generate new examples based on instructions
                 const newExamples = await getExamples(openAiKey, text, translateToLanguage, true, customInstruction);
                 dispatch(setExamples(newExamples));
-            } else if (customInstruction.toLowerCase().includes('translat') || 
-                      customInstruction.toLowerCase().includes('перевод')) {
-                
+            } else if (customInstruction.toLowerCase().includes('translat') ||
+                customInstruction.toLowerCase().includes('перевод')) {
+
                 // Update translation based on instructions
                 const translatedText = await translateText(openAiKey, text, translateToLanguage, customInstruction);
                 dispatch(setTranslation(translatedText));
@@ -334,11 +334,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // This should ensure instructions are always applied
                 const translatedText = await translateText(openAiKey, text, translateToLanguage, customInstruction);
                 const newExamples = await getExamples(openAiKey, text, translateToLanguage, true, customInstruction);
-                
+
                 if (shouldGenerateImage) {
                     const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
                     const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, customInstruction);
-                    
+
                     if (imageUrl) {
                         dispatch(setImageUrl(imageUrl));
                     }
@@ -346,14 +346,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         dispatch(setImage(imageBase64));
                     }
                 }
-                
+
                 dispatch(setTranslation(translatedText));
                 dispatch(setExamples(newExamples));
             }
-            
+
             // Clear the instruction after applying
             setCustomInstruction('');
-            
+
             // No notification, the loader UI is enough feedback
         } catch (error) {
             console.error('Error applying custom instructions:', error);
@@ -380,14 +380,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const handleImageToggle = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const isChecked = e.target.checked;
-        
+
         // Don't allow toggling on if image generation is not available
         if (isChecked && !isImageGenerationAvailable()) {
             return;
         }
-        
+
         dispatch(setShouldGenerateImage(isChecked));
-        
+
         // If toggling on, try to generate an image
         if (isChecked && text) {
             try {
@@ -399,214 +399,214 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     // Save All function for multiple cards
-const handleSaveAllCards = async () => {
-    console.log('*** HANDLE SAVE ALL CARDS: Starting ***');
-    console.log('Current Redux state at save all cards time:', {
-        text,
-        translation,
-        image,
-        imageUrl,
-        hasImage: !!image,
-        hasImageUrl: !!imageUrl,
-        imageType: typeof image,
-        imageUrlType: typeof imageUrl,
-        shouldGenerateImage,
-        mode,
-        createdCardsCount: createdCards.length
-    });
-    
-    showError(null);
-    try {
-        setLoadingAccept(true);
-        
-        // Перед сохранением всех карточек, сохраняем текущее состояние текущей карточки
-        saveCurrentCardState();
-        
-        let successCount = 0;
-        let errorCount = 0;
-        let savedCards = 0;
-        let updatedCards = 0;
-        
-        // Keep track of saved card IDs to update our explicit save tracking
-        const newExplicitlySavedIds: string[] = [...explicitlySavedIds];
-        
-        console.log('Starting to save cards. Total cards:', createdCards.length, 'Already saved:', explicitlySavedIds.length);
-        
-        // Save each card in the createdCards array
-        for (let i = 0; i < createdCards.length; i++) {
-            const card = createdCards[i];
-            
-            // Skip cards that are already in our explicitly saved list to avoid double saving
-            if (explicitlySavedIds.includes(card.id)) {
-                console.log(`Card #${i} (${card.id}) already explicitly saved, skipping`);
-                successCount++;
-                continue;
-            }
-            
-            try {
-                console.log(`Saving card #${i} (${card.id}) from multi-card set`);
-                
-                // Check if this card already exists in storage
-                const existingCardIndex = storedCards.findIndex(
-                    (storedCard) => storedCard.id === card.id || 
-                                  (storedCard.text === card.text && storedCard.mode === card.mode)
-                );
-                
-                if (existingCardIndex === -1) {
-                    // Card is not saved yet
-                    dispatch(saveCardToStorage(card));
-                    savedCards++;
-                    
-                    // Add to our explicitly saved IDs list
-                    newExplicitlySavedIds.push(card.id);
-                    console.log(`Card #${i} (${card.id}) saved as new`);
-                    
-                    successCount++;
-                } else {
-                    console.log(`Card #${i} (${card.id}) already in storage, updating`);
-                    // Update existing card
-                    dispatch(updateStoredCard(card));
-                    updatedCards++;
-                    
-                    // Add to our explicitly saved IDs list
-                    newExplicitlySavedIds.push(card.id);
-                    
-                    successCount++;
-                }
-            } catch (cardError) {
-                console.error(`Error saving card #${i} (${card.id}):`, cardError);
-                errorCount++;
-            }
-        }
-        
-        console.log('Save all complete. Saved:', savedCards, 'Updated:', updatedCards, 'Errors:', errorCount);
-        
-        // Update our tracking of explicitly saved cards
-        setExplicitlySavedIds(newExplicitlySavedIds);
-        
-        // Ensure the current card is marked as explicitly saved
-        setExplicitlySaved(true);
-        localStorage.setItem('explicitly_saved', 'true');
-        
-        // Also update the currentCardId to match current card
-        const currentCard = createdCards[currentCardIndex];
-        if (currentCard && currentCard.id) {
-            dispatch(setCurrentCardId(currentCard.id));
-            localStorage.setItem('current_card_id', currentCard.id);
-        }
-        
-        // Show detailed success message
-        if (errorCount === 0) {
-            const successMessage = 
-                savedCards > 0 && updatedCards > 0 
-                    ? `Saved ${savedCards} new cards and updated ${updatedCards} existing cards.`
-                    : savedCards > 0 
-                        ? `Saved ${savedCards} cards successfully!` 
-                        : updatedCards > 0 
-                            ? `Updated ${updatedCards} cards successfully!`
-                            : `All ${successCount} cards are now saved!`;
-            
-            showError(successMessage, 'success');
-        } else {
-            showError(`Saved ${successCount} cards, ${errorCount} failed.`, 'warning');
-        }
-        
-        // Update UI
-        setIsEdited(false);
-        setIsNewSubmission(false);
-        
-        // Force Redux to refresh stored cards
-        dispatch(loadStoredCards());
-        
-    } catch (error) {
-        console.error('Error in save all cards operation:', error);
-        showError('Error saving cards. Please try again.');
-    } finally {
-        setLoadingAccept(false);
-    }
-};
-    
-    const handleAccept = async () => {
-    console.log('*** HANDLE ACCEPT: Starting to save card ***');
-    console.log('Current Redux state at save time:', {
-        text,
-        translation,
-        image,
-        imageUrl,
-        hasImage: !!image,
-        hasImageUrl: !!imageUrl,
-        imageType: typeof image,
-        imageUrlType: typeof imageUrl,
-        imageLength: image?.length,
-        imageUrlLength: imageUrl?.length,
-        shouldGenerateImage,
-        mode
-    });
-    
-    showError(null);
-    try {
-        setLoadingAccept(true);
-        
-        // Handle saving for multiple cards mode or single card mode
-        if (isMultipleCards && createdCards.length > 0) {
-            // Сначала сохраняем текущее состояние карточки в массив
+    const handleSaveAllCards = async () => {
+        console.log('*** HANDLE SAVE ALL CARDS: Starting ***');
+        console.log('Current Redux state at save all cards time:', {
+            text,
+            translation,
+            image,
+            imageUrl,
+            hasImage: !!image,
+            hasImageUrl: !!imageUrl,
+            imageType: typeof image,
+            imageUrlType: typeof imageUrl,
+            shouldGenerateImage,
+            mode,
+            createdCardsCount: createdCards.length
+        });
+
+        showError(null);
+        try {
+            setLoadingAccept(true);
+
+            // Перед сохранением всех карточек, сохраняем текущее состояние текущей карточки
             saveCurrentCardState();
-            
-            // Получаем обновленную текущую карточку после сохранения состояния
-            const currentCard = createdCards[currentCardIndex];
-            if (!currentCard) {
-                showError('Card data not found');
-                return;
-            }
-            
-            console.log('Saving current card from multi-card set:', currentCard.id);
-            
-            // Check if this card already exists in storage
-            const existingCardIndex = storedCards.findIndex(
-                (storedCard) => storedCard.id === currentCard.id || 
-                               (storedCard.text === currentCard.text && storedCard.mode === currentCard.mode)
-            );
-            
-            if (existingCardIndex === -1) {
-                // Card is not saved yet - сохраняем ТОЛЬКО текущую карточку
-                dispatch(saveCardToStorage(currentCard));
-                console.log(`Saved new card: ${currentCard.id}`);
-            } else {
-                // Update existing card - обновляем ТОЛЬКО текущую карточку
-                dispatch(updateStoredCard(currentCard));
-                console.log(`Updated existing card: ${currentCard.id}`);
-            }
-            
-            // IMPORTANT: Only mark the CURRENT card as explicitly saved
-            // This ensures only the current card shows "Saved to Collection"
-            setExplicitlySavedIds(prev => {
-                if (prev.includes(currentCard.id)) {
-                    return prev;
+
+            let successCount = 0;
+            let errorCount = 0;
+            let savedCards = 0;
+            let updatedCards = 0;
+
+            // Keep track of saved card IDs to update our explicit save tracking
+            const newExplicitlySavedIds: string[] = [...explicitlySavedIds];
+
+            console.log('Starting to save cards. Total cards:', createdCards.length, 'Already saved:', explicitlySavedIds.length);
+
+            // Save each card in the createdCards array
+            for (let i = 0; i < createdCards.length; i++) {
+                const card = createdCards[i];
+
+                // Skip cards that are already in our explicitly saved list to avoid double saving
+                if (explicitlySavedIds.includes(card.id)) {
+                    console.log(`Card #${i} (${card.id}) already explicitly saved, skipping`);
+                    successCount++;
+                    continue;
                 }
-                const newIds = [...prev, currentCard.id];
-                console.log('Updated explicitly saved IDs:', newIds);
-                return newIds;
-            });
-            
-            // Force reload stored cards
-            dispatch(loadStoredCards());
-            
-            // Set current card's ID for reference
-            dispatch(setCurrentCardId(currentCard.id));
-            localStorage.setItem('current_card_id', currentCard.id);
-            
-            // Update UI state for the current card only
+
+                try {
+                    console.log(`Saving card #${i} (${card.id}) from multi-card set`);
+
+                    // Check if this card already exists in storage
+                    const existingCardIndex = storedCards.findIndex(
+                        (storedCard) => storedCard.id === card.id ||
+                            (storedCard.text === card.text && storedCard.mode === card.mode)
+                    );
+
+                    if (existingCardIndex === -1) {
+                        // Card is not saved yet
+                        dispatch(saveCardToStorage(card));
+                        savedCards++;
+
+                        // Add to our explicitly saved IDs list
+                        newExplicitlySavedIds.push(card.id);
+                        console.log(`Card #${i} (${card.id}) saved as new`);
+
+                        successCount++;
+                    } else {
+                        console.log(`Card #${i} (${card.id}) already in storage, updating`);
+                        // Update existing card
+                        dispatch(updateStoredCard(card));
+                        updatedCards++;
+
+                        // Add to our explicitly saved IDs list
+                        newExplicitlySavedIds.push(card.id);
+
+                        successCount++;
+                    }
+                } catch (cardError) {
+                    console.error(`Error saving card #${i} (${card.id}):`, cardError);
+                    errorCount++;
+                }
+            }
+
+            console.log('Save all complete. Saved:', savedCards, 'Updated:', updatedCards, 'Errors:', errorCount);
+
+            // Update our tracking of explicitly saved cards
+            setExplicitlySavedIds(newExplicitlySavedIds);
+
+            // Ensure the current card is marked as explicitly saved
             setExplicitlySaved(true);
             localStorage.setItem('explicitly_saved', 'true');
+
+            // Also update the currentCardId to match current card
+            const currentCard = createdCards[currentCardIndex];
+            if (currentCard && currentCard.id) {
+                dispatch(setCurrentCardId(currentCard.id));
+                localStorage.setItem('current_card_id', currentCard.id);
+            }
+
+            // Show detailed success message
+            if (errorCount === 0) {
+                const successMessage =
+                    savedCards > 0 && updatedCards > 0
+                        ? `Saved ${savedCards} new cards and updated ${updatedCards} existing cards.`
+                        : savedCards > 0
+                            ? `Saved ${savedCards} cards successfully!`
+                            : updatedCards > 0
+                                ? `Updated ${updatedCards} cards successfully!`
+                                : `All ${successCount} cards are now saved!`;
+
+                showError(successMessage, 'success');
+            } else {
+                showError(`Saved ${successCount} cards, ${errorCount} failed.`, 'warning');
+            }
+
+            // Update UI
             setIsEdited(false);
-            showError('Card saved successfully!', 'success');
-            
-            return; // Exit early for multi-card save
+            setIsNewSubmission(false);
+
+            // Force Redux to refresh stored cards
+            dispatch(loadStoredCards());
+
+        } catch (error) {
+            console.error('Error in save all cards operation:', error);
+            showError('Error saving cards. Please try again.');
+        } finally {
+            setLoadingAccept(false);
         }
-            
+    };
+
+    const handleAccept = async () => {
+        console.log('*** HANDLE ACCEPT: Starting to save card ***');
+        console.log('Current Redux state at save time:', {
+            text,
+            translation,
+            image,
+            imageUrl,
+            hasImage: !!image,
+            hasImageUrl: !!imageUrl,
+            imageType: typeof image,
+            imageUrlType: typeof imageUrl,
+            imageLength: image?.length,
+            imageUrlLength: imageUrl?.length,
+            shouldGenerateImage,
+            mode
+        });
+
+        showError(null);
+        try {
+            setLoadingAccept(true);
+
+            // Handle saving for multiple cards mode or single card mode
+            if (isMultipleCards && createdCards.length > 0) {
+                // Сначала сохраняем текущее состояние карточки в массив
+                saveCurrentCardState();
+
+                // Получаем обновленную текущую карточку после сохранения состояния
+                const currentCard = createdCards[currentCardIndex];
+                if (!currentCard) {
+                    showError('Card data not found');
+                    return;
+                }
+
+                console.log('Saving current card from multi-card set:', currentCard.id);
+
+                // Check if this card already exists in storage
+                const existingCardIndex = storedCards.findIndex(
+                    (storedCard) => storedCard.id === currentCard.id ||
+                        (storedCard.text === currentCard.text && storedCard.mode === currentCard.mode)
+                );
+
+                if (existingCardIndex === -1) {
+                    // Card is not saved yet - сохраняем ТОЛЬКО текущую карточку
+                    dispatch(saveCardToStorage(currentCard));
+                    console.log(`Saved new card: ${currentCard.id}`);
+                } else {
+                    // Update existing card - обновляем ТОЛЬКО текущую карточку
+                    dispatch(updateStoredCard(currentCard));
+                    console.log(`Updated existing card: ${currentCard.id}`);
+                }
+
+                // IMPORTANT: Only mark the CURRENT card as explicitly saved
+                // This ensures only the current card shows "Saved to Collection"
+                setExplicitlySavedIds(prev => {
+                    if (prev.includes(currentCard.id)) {
+                        return prev;
+                    }
+                    const newIds = [...prev, currentCard.id];
+                    console.log('Updated explicitly saved IDs:', newIds);
+                    return newIds;
+                });
+
+                // Force reload stored cards
+                dispatch(loadStoredCards());
+
+                // Set current card's ID for reference
+                dispatch(setCurrentCardId(currentCard.id));
+                localStorage.setItem('current_card_id', currentCard.id);
+
+                // Update UI state for the current card only
+                setExplicitlySaved(true);
+                localStorage.setItem('explicitly_saved', 'true');
+                setIsEdited(false);
+                showError('Card saved successfully!', 'success');
+
+                return; // Exit early for multi-card save
+            }
+
             // Single card saving flow
             const cardId = currentCardId || Date.now().toString();
-            
+
             // Debug the required fields
             console.log('Saving card with data:', {
                 originalSelectedText,
@@ -617,7 +617,7 @@ const handleSaveAllCards = async () => {
                 currentCardId,
                 linguisticInfo: linguisticInfo ? 'present' : 'absent'
             });
-            
+
             if (mode === Modes.LanguageLearning) {
                 // Allow saving if we have at least a text to save
                 if (!text && !originalSelectedText) {
@@ -625,10 +625,10 @@ const handleSaveAllCards = async () => {
                     showError('Please enter or select some text for your card before saving.');
                     return;
                 }
-                
+
                 // Use text as fallback if originalSelectedText is missing
                 const cardText = originalSelectedText || text;
-                
+
                 const cardData = {
                     id: cardId,
                     mode,
@@ -644,7 +644,7 @@ const handleSaveAllCards = async () => {
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
-                
+
                 console.log('*** CREATECARD: Preparing to save card to storage ***');
                 console.log('Card data being sent to Redux:', {
                     id: cardData.id,
@@ -661,7 +661,7 @@ const handleSaveAllCards = async () => {
                     imagePreview: cardData.image?.substring(0, 50),
                     imageUrlPreview: cardData.imageUrl?.substring(0, 50)
                 });
-                
+
                 // Сохранение карточки происходит только по явному действию пользователя (кнопка "Accept")
                 if (currentCardId) {
                     console.log('Updating existing card by user action:', cardId);
@@ -671,7 +671,7 @@ const handleSaveAllCards = async () => {
                     dispatch(saveCardToStorage(cardData));
                     dispatch(setCurrentCardId(cardId));
                 }
-                
+
             } else if (mode === Modes.GeneralTopic) {
                 // Для GeneralTopic будем использовать front вместо back
                 if (!front) {
@@ -679,10 +679,10 @@ const handleSaveAllCards = async () => {
                     showError('Please generate card content before saving.');
                     return;
                 }
-                
+
                 // Use text as fallback if originalSelectedText is missing
                 const cardText = originalSelectedText || text || '';
-                
+
                 const cardData = {
                     id: cardId,
                     mode,
@@ -699,9 +699,9 @@ const handleSaveAllCards = async () => {
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
-                
+
                 console.log('Saving general topic card to storage:', cardData);
-                
+
                 // Сохранение происходит только по явному действию пользователя (нажатие кнопки)
                 if (currentCardId) {
                     console.log('Updating existing general topic card by user action:', cardId);
@@ -712,21 +712,21 @@ const handleSaveAllCards = async () => {
                     dispatch(setCurrentCardId(cardId));
                 }
             }
-            
+
             // Important: When the user explicitly saves the card, mark it as explicitly saved
             // and store this state in localStorage
             setExplicitlySaved(true);
             localStorage.setItem('explicitly_saved', 'true');
-            
+
             if (isEdited) {
                 showError('Card updated successfully!', 'success');
             } else {
                 showError('Card saved successfully!', 'success');
             }
-            
+
             setIsEdited(false);
             setIsNewSubmission(false); // Reset the new submission flag after explicitly saving
-            
+
         } catch (error) {
             console.error('Error saving card:', error);
             showError('Error saving card. Please try again.');
@@ -734,7 +734,7 @@ const handleSaveAllCards = async () => {
             setLoadingAccept(false);
         }
     };
-    
+
     // Add a function to create a new card after saving
     const handleCreateNew = () => {
         // Always clear all data when creating a new card to prevent confusion
@@ -743,20 +743,20 @@ const handleSaveAllCards = async () => {
         setIsEdited(false);
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
-        
+
         console.log('Creating new card, clearing all state completely');
-        
+
         // Reset all saved state tracking
         setExplicitlySaved(false);
         setExplicitlySavedIds([]);
         localStorage.removeItem('explicitly_saved');
         localStorage.removeItem('current_card_id');
-        
+
         // Сбрасываем историю карточек
         setCreatedCards([]);
         setIsMultipleCards(false);
         setCurrentCardIndex(0);
-        
+
         // Очищаем все поля Redux полностью
         dispatch(setText(''));
         dispatch(setTranslation(''));
@@ -785,14 +785,14 @@ const handleSaveAllCards = async () => {
                 analyzeSelectedText(selectedText);
             }
         };
-    
+
         document.addEventListener('mouseup', handleMouseUp);
-    
+
         return () => {
             document.removeEventListener('mouseup', handleMouseUp);
         };
     }, [dispatch, apiKey]);
-    
+
     useEffect(() => {
         // Пока по дефолту ставим LanguageLearning
         dispatch(setMode(Modes.LanguageLearning))
@@ -802,7 +802,7 @@ const handleSaveAllCards = async () => {
         } else {
             setShowResult(false);
         }
-        
+
         // Load stored cards from localStorage on initial load
         dispatch(loadStoredCards());
     }, [dispatch]);
@@ -812,36 +812,36 @@ const handleSaveAllCards = async () => {
         // Only run once on component mount
         const checkSavedCardsOnMount = async () => {
             console.log('Running saved cards check on mount');
-            
+
             // First, ensure stored cards are loaded from localStorage
             dispatch(loadStoredCards());
-            
+
             // Wait a brief moment to ensure cards are loaded
             setTimeout(() => {
                 const savedCards = loadCardsFromStorage();
                 console.log('Loaded cards from storage:', savedCards.length);
-                
+
                 // Get currentCardId from localStorage
                 const savedCardId = localStorage.getItem('current_card_id');
                 const explicitlySavedFlag = localStorage.getItem('explicitly_saved');
-                
-                console.log('localStorage values on mount:', { 
-                    savedCardId, 
+
+                console.log('localStorage values on mount:', {
+                    savedCardId,
                     explicitlySavedFlag,
                     cardCount: savedCards.length
                 });
-                
+
                 if (savedCardId) {
                     console.log('Found current card ID in localStorage:', savedCardId);
                     // Find the card by ID
                     const savedCard = savedCards.find((card: StoredCard) => card.id === savedCardId);
-                    
+
                     if (savedCard) {
                         console.log('Restoring card from storage:', savedCard);
                         // If card is found by ID, update the state
                         setIsEdited(false);
                         setIsNewSubmission(false);
-                        
+
                         // Set explicitlySaved based on localStorage flag
                         if (explicitlySavedFlag === 'true') {
                             console.log('Setting explicitlySaved to TRUE based on localStorage flag');
@@ -850,7 +850,7 @@ const handleSaveAllCards = async () => {
                             console.log('Setting explicitlySaved to FALSE based on localStorage flag');
                             setExplicitlySaved(false);
                         }
-                        
+
                         // Restore card data
                         dispatch(setCurrentCardId(savedCardId));
                         dispatch(setText(savedCard.text));
@@ -863,7 +863,7 @@ const handleSaveAllCards = async () => {
                         if (savedCard.linguisticInfo) dispatch(setLinguisticInfo(savedCard.linguisticInfo));
                         if (savedCard.transcription) dispatch(setTranscription(savedCard.transcription));
                         setOriginalSelectedText(savedCard.text);
-                        
+
                         setShowResult(true);
                     } else {
                         console.log('Card ID from localStorage not found in storage, resetting');
@@ -881,54 +881,54 @@ const handleSaveAllCards = async () => {
                 }
             }, 200); // Increased timeout to ensure cards are loaded
         };
-        
+
         checkSavedCardsOnMount();
         // This effect should only run once on mount, so empty dependency array
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
-        
+
     // Проверка при загрузке или изменении текста, была ли карточка уже сохранена
     useEffect(() => {
         // Skip this check entirely for new submissions or if text is empty
         if (!text || isNewSubmission || text.trim() === '') {
             return;
         }
-        
+
         // Check if this is a new card being created (don't interfere with the creation flow)
         if (showResult && !currentCardId) {
             console.log('New card being created, skipping automatic saved detection');
             return;
         }
-        
+
         // If we're actively typing in a new card (not yet saved), make sure it's not marked as saved
         if (!currentCardId) {
             console.log('Actively typing new card text - ensuring not marked as saved');
             setExplicitlySaved(false);
             localStorage.removeItem('explicitly_saved');
         }
-        
+
         // Check if the card already exists in storage
         checkExistingCard(text);
-        
+
     }, [text, currentCardId, isNewSubmission, showResult, checkExistingCard]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!text.trim()) return;
-        
+
         // Установить флаг, что кнопка Create Card была нажата
         setCreateCardClicked(true);
-        
+
         // IMPORTANT: Explicitly clear saved state when creating a new card
         setExplicitlySaved(false);
         localStorage.removeItem('explicitly_saved');
-        
+
         // Сбрасываем предыдущие сохраненные карточки
         setCreatedCards([]);
         setIsMultipleCards(false);
-        
+
         // Очищаем флаг текущей карточки
         dispatch(setCurrentCardId(null));
-        
+
         // FIXED: Clear image data if image generation is disabled or if this is a new text
         // This prevents images from previous cards appearing on new cards
         if (!shouldGenerateImage) {
@@ -941,17 +941,17 @@ const handleSaveAllCards = async () => {
             dispatch(setImage(null));
             dispatch(setImageUrl(null));
         }
-        
+
         // Only clear linguistic info and transcription as they are text-specific
         dispatch(setLinguisticInfo(""));
         dispatch(setTranscription(''));
-        
+
         setLoadingGetResult(true);
         setOriginalSelectedText(text);
-        
+
         // Clear any previous errors
         showError(null);
-        
+
         try {
             // Debug logging
             console.log("=== DEBUG INFO ===");
@@ -960,14 +960,14 @@ const handleSaveAllCards = async () => {
             console.log("Model Name (if Groq):", modelProvider === ModelProvider.Groq ? groqModelName : 'N/A');
             console.log("AI Service:", Object.keys(aiService));
             console.log("Source Language:", isAutoDetectLanguage ? detectedLanguage : sourceLanguage);
-            
+
             if (!apiKey) {
                 throw new Error(`API key for ${modelProvider} is missing. Please go to settings and add your API key.`);
             }
-            
+
             // Определяем язык исходного текста для API запросов
             const sourceLanguageForSubmit = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
-            
+
             // Track which operations completed successfully to give better error messages
             let completedOperations = {
                 translation: false,
@@ -976,18 +976,18 @@ const handleSaveAllCards = async () => {
                 image: false,
                 linguisticInfo: false
             };
-            
+
             try {
                 // 1. Get translation
                 const translation = await createTranslation(
-                    aiService, 
-                    apiKey, 
-                    text, 
+                    aiService,
+                    apiKey,
+                    text,
                     translateToLanguage,
                     aiInstructions,
                     sourceLanguageForSubmit || undefined // Передаем информацию о языке исходного текста или undefined
                 );
-                
+
                 if (translation.translated) {
                     dispatch(setTranslation(translation.translated));
                     completedOperations.translation = true;
@@ -996,22 +996,22 @@ const handleSaveAllCards = async () => {
                 console.error('Translation failed:', translationError);
                 throw new Error(`Translation failed: ${translationError instanceof Error ? translationError.message : "Unknown error"}`);
             }
-            
+
             try {
                 // 2. Get examples
                 const examplesResult = await createExamples(
-                    aiService, 
-                    apiKey, 
-                    text, 
-                    translateToLanguage, 
-                    true, 
+                    aiService,
+                    apiKey,
+                    text,
+                    translateToLanguage,
+                    true,
                     aiInstructions,
                     sourceLanguageForSubmit || undefined // Преобразуем string | null в string | undefined
                 );
-                
+
                 if (examplesResult && examplesResult.length > 0) {
                     // Convert to old format for compatibility with existing code
-                    const formattedExamples = examplesResult.map(example => 
+                    const formattedExamples = examplesResult.map(example =>
                         [example.original, example.translated] as [string, string | null]
                     );
                     dispatch(setExamples(formattedExamples));
@@ -1026,11 +1026,11 @@ const handleSaveAllCards = async () => {
                     throw new Error(`Examples generation failed: ${examplesError instanceof Error ? examplesError.message : "Unknown error"}`);
                 }
             }
-            
+
             try {
                 // 3. Create flashcard
                 const flashcard = await createFlashcard(aiService, apiKey, text);
-                
+
                 if (flashcard.front) {
                     dispatch(setFront(flashcard.front));
                     completedOperations.flashcard = true;
@@ -1044,14 +1044,14 @@ const handleSaveAllCards = async () => {
                     throw new Error(`Flashcard creation failed: ${flashcardError instanceof Error ? flashcardError.message : "Unknown error"}`);
                 }
             }
-            
+
             try {
                 // 3.5 Создание лингвистической информации с итеративной валидацией
                 // Определяем язык источника: автоопределенный или выбранный вручную
                 const wordLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
-                
+
                 console.log(`Creating validated linguistic info using source language: ${wordLanguage || 'unknown'} for text: "${text.substring(0, 20)}...", user language: ${translateToLanguage}`);
-                
+
                 // Если есть язык источника - используем его
                 if (wordLanguage) {
                     const result = await createValidatedLinguisticInfo(
@@ -1062,11 +1062,11 @@ const handleSaveAllCards = async () => {
                         translateToLanguage,
                         5 // максимум 5 попыток
                     );
-                    
+
                     if (result.linguisticInfo) {
                         dispatch(setLinguisticInfo(result.linguisticInfo));
                         completedOperations.linguisticInfo = true;
-                        
+
                         // Показываем уведомления пользователю с небольшой задержкой
                         setTimeout(() => {
                             if (result.wasValidated) {
@@ -1094,11 +1094,11 @@ const handleSaveAllCards = async () => {
                         translateToLanguage, // Для интерфейса тоже используем язык перевода
                         3 // меньше попыток для fallback
                     );
-                    
+
                     if (result.linguisticInfo) {
                         dispatch(setLinguisticInfo(result.linguisticInfo));
                         completedOperations.linguisticInfo = true;
-                        
+
                         if (result.wasValidated && result.attempts > 1) {
                             showError(`✅ Grammar reference corrected (fallback mode)`, 'success');
                         } else if (!result.wasValidated) {
@@ -1113,14 +1113,14 @@ const handleSaveAllCards = async () => {
                     console.log(`Linguistic info generation failed: ${linguisticError instanceof Error ? linguisticError.message : "Unknown error"}. Continuing with available data.`);
                 }
             }
-            
+
             // 3.7 Создание транскрипции
             try {
                 const sourceLanguageForTranscription = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
-                
+
                 if (sourceLanguageForTranscription) {
                     console.log(`Creating transcription using source language: ${sourceLanguageForTranscription}, user language: ${translateToLanguage}`);
-                    
+
                     const transcriptionResult = await createTranscription(
                         aiService,
                         apiKey,
@@ -1128,25 +1128,25 @@ const handleSaveAllCards = async () => {
                         sourceLanguageForTranscription,
                         translateToLanguage
                     );
-                    
+
                     if (transcriptionResult) {
                         // Получаем название языка пользователя через AI
                         const languageName = await getLanguageName(translateToLanguage);
-                        
+
                         // Создаем красивую HTML-разметку для транскрипции
                         const transcriptionHtml = [
-                            transcriptionResult.userLanguageTranscription && 
-                                `<div class="transcription-item user-lang">
+                            transcriptionResult.userLanguageTranscription &&
+                            `<div class="transcription-item user-lang">
                                     <span class="transcription-label">${languageName}:</span>
                                     <span class="transcription-text">${transcriptionResult.userLanguageTranscription}</span>
                                 </div>`,
-                            transcriptionResult.ipaTranscription && 
-                                `<div class="transcription-item ipa">
+                            transcriptionResult.ipaTranscription &&
+                            `<div class="transcription-item ipa">
                                     <span class="transcription-label">IPA:</span>
                                     <span class="transcription-text">${transcriptionResult.ipaTranscription}</span>
                                 </div>`
                         ].filter(Boolean).join('\n');
-                        
+
                         if (transcriptionHtml) {
                             dispatch(setTranscription(transcriptionHtml));
                             console.log('Transcription created successfully');
@@ -1159,15 +1159,15 @@ const handleSaveAllCards = async () => {
                 console.error('Transcription generation failed:', transcriptionError);
                 // Transcription is not critical - continue with the card creation
             }
-            
+
             // 4. Generate image if needed and supported
             if (shouldGenerateImage) {
                 try {
                     const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
-                    
+
                     if (modelProvider === ModelProvider.OpenAI) {
                         const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
-                        
+
                         if (imageUrl) {
                             console.log('*** HANDLE SUBMIT: Setting imageUrl in Redux:', imageUrl.substring(0, 50));
                             dispatch(setImageUrl(imageUrl));
@@ -1189,17 +1189,17 @@ const handleSaveAllCards = async () => {
                     }
                 }
             }
-            
+
             // Ensure this is treated as a brand new card
             dispatch(setCurrentCardId(null));
-            
+
             // Важно: очищаем статус сохранения для новой карточки
             setExplicitlySaved(false);
             setExplicitlySavedIds([]);
             localStorage.removeItem('explicitly_saved');
             localStorage.removeItem('current_card_id');
             console.log('Created new single card - reset all saved statuses');
-            
+
             // Show modal if we have at least some data
             if (completedOperations.translation || completedOperations.examples || completedOperations.flashcard) {
                 setShowResult(true);
@@ -1210,8 +1210,8 @@ const handleSaveAllCards = async () => {
             }
         } catch (error) {
             console.error('Error processing text:', error);
-            showError(error instanceof Error 
-                ? `${error.message}` 
+            showError(error instanceof Error
+                ? `${error.message}`
                 : "Failed to create card. Please check your API key and try again.");
             setShowResult(false);
             setShowModal(false);
@@ -1231,7 +1231,7 @@ const handleSaveAllCards = async () => {
         setShowImageSettings(false);
         showError('Image instructions saved successfully', 'success');
     };
-    
+
     // Render AI Settings Panel
     const renderAISettings = () => {
         if (!showAISettings) {
@@ -1258,7 +1258,7 @@ const handleSaveAllCards = async () => {
                 </button>
             );
         }
-        
+
         return (
             <div style={{
                 backgroundColor: '#F9FAFB',
@@ -1298,7 +1298,7 @@ const handleSaveAllCards = async () => {
                         Cancel
                     </button>
                 </div>
-                
+
                 <div style={{ marginBottom: '16px' }}>
                     <label style={{
                         display: 'block',
@@ -1333,7 +1333,7 @@ const handleSaveAllCards = async () => {
                         </ul>
                     </div>
                 </div>
-                
+
                 <button
                     onClick={handleSaveAISettings}
                     style={{
@@ -1356,7 +1356,7 @@ const handleSaveAllCards = async () => {
                     <FaCode size={14} />
                     Save Instructions
                 </button>
-                
+
                 {/* Кнопка для тестирования валидации */}
                 <button
                     onClick={testLinguisticValidation}
@@ -1385,7 +1385,7 @@ const handleSaveAllCards = async () => {
     // Render Image Settings Panel
     const renderImageSettings = () => {
         if (!shouldGenerateImage) return null;
-        
+
         if (!showImageSettings) {
             return (
                 <button
@@ -1411,7 +1411,7 @@ const handleSaveAllCards = async () => {
                 </button>
             );
         }
-        
+
         return (
             <div style={{
                 backgroundColor: '#F9FAFB',
@@ -1452,7 +1452,7 @@ const handleSaveAllCards = async () => {
                         Cancel
                     </button>
                 </div>
-                
+
                 <div style={{ marginBottom: '16px' }}>
                     <label style={{
                         display: 'block',
@@ -1487,7 +1487,7 @@ const handleSaveAllCards = async () => {
                         </ul>
                     </div>
                 </div>
-                
+
                 <button
                     onClick={handleSaveImageSettings}
                     style={{
@@ -1523,12 +1523,12 @@ const handleSaveAllCards = async () => {
         setExplicitlySaved(false); // Reset explicit save
         localStorage.removeItem('explicitly_saved'); // Also remove from localStorage
         localStorage.removeItem('current_card_id'); // Clear current card ID too
-        
+
         // Сбрасываем историю карточек
         setCreatedCards([]);
         setIsMultipleCards(false);
         setCurrentCardIndex(0);
-        
+
         // Reset all form fields completely
         dispatch(setText(''));
         dispatch(setTranslation(''));
@@ -1585,7 +1585,7 @@ const handleSaveAllCards = async () => {
     // Function to handle modal close
     const handleCloseModal = () => {
         console.log('Modal close handler. Card saved status:', isSaved, 'isEdited:', isEdited);
-        
+
         // Если карточки созданы с помощью множественного выделения, просто закрываем модальное окно
         // без дополнительных действий, чтобы предотвратить автоматическое сохранение
         if (isMultipleCards) {
@@ -1593,7 +1593,7 @@ const handleSaveAllCards = async () => {
             setShowModal(false);
             return;
         }
-        
+
         // If the card is not saved but has content, offer to save it
         // Только для режима одной карточки и только если есть содержимое
         if (showResult && !isSaved && !isEdited && translation && !isMultipleCards) {
@@ -1634,7 +1634,7 @@ const handleSaveAllCards = async () => {
     // Render the modal
     const renderModal = () => {
         if (!showModal || !showResult) return null;
-        
+
         return (
             <div style={{
                 position: 'fixed',
@@ -1679,11 +1679,11 @@ const handleSaveAllCards = async () => {
                             fontWeight: 600,
                             color: '#111827'
                         }}>
-                            {isMultipleCards 
-                                ? `Card ${currentCardIndex + 1} of ${createdCards.length}` 
+                            {isMultipleCards
+                                ? `Card ${currentCardIndex + 1} of ${createdCards.length}`
                                 : 'Your Card'}
                         </h3>
-                        <button 
+                        <button
                             onClick={handleCloseModal}
                             style={{
                                 background: 'none',
@@ -1703,9 +1703,9 @@ const handleSaveAllCards = async () => {
                             <FaTimes size={16} color="#6B7280" />
                         </button>
                     </div>
-                    
+
                     {/* Error notifications now appear as toast in top-right corner */}
-                    
+
                     <div style={{
                         width: '100%',
                         marginBottom: '12px'
@@ -1807,7 +1807,7 @@ const handleSaveAllCards = async () => {
                             }
                         `}</style>
                     </div>
-                    
+
                     {/* Добавляем навигацию для множественных карточек */}
                     {isMultipleCards && (
                         <>
@@ -1846,7 +1846,7 @@ const handleSaveAllCards = async () => {
                                     )}
                                 </div>
                             </div>
-                        
+
                             <div style={{
                                 display: 'flex',
                                 justifyContent: 'space-between',
@@ -1884,7 +1884,7 @@ const handleSaveAllCards = async () => {
                                         ) : null
                                     )}
                                 </button>
-                                
+
                                 <button
                                     onClick={nextCard}
                                     disabled={currentCardIndex === createdCards.length - 1}
@@ -1918,7 +1918,7 @@ const handleSaveAllCards = async () => {
                                     Next →
                                 </button>
                             </div>
-                            
+
                             {/* Save All button */}
                             <button
                                 onClick={handleSaveAllCards}
@@ -1945,14 +1945,14 @@ const handleSaveAllCards = async () => {
                                     <Loader type="dots" size="small" inline color="#ffffff" text="Saving" />
                                 ) : (
                                     <>
-                                        <svg 
-                                            xmlns="http://www.w3.org/2000/svg" 
-                                            width="16" 
-                                            height="16" 
-                                            fill="currentColor" 
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="16"
+                                            height="16"
+                                            fill="currentColor"
                                             viewBox="0 0 16 16"
                                         >
-                                            <path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z"/>
+                                            <path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
                                         </svg>
                                         {explicitlySavedIds.length > 0 ? (
                                             <>
@@ -1975,7 +1975,7 @@ const handleSaveAllCards = async () => {
                             </button>
                         </>
                     )}
-                    
+
                     <ResultDisplay
                         mode={mode}
                         front={front}
@@ -2012,22 +2012,22 @@ const handleSaveAllCards = async () => {
             [option]: !prev[option]
         }));
     };
-    
+
     // Функция для создания карточек из выбранных опций
     const createCardsFromSelectedOptions = async () => {
         const selectedOptions = Object.keys(selectedOptionsMap).filter(key => selectedOptionsMap[key]);
-        
+
         if (selectedOptions.length === 0) {
             showError("Please select at least one text option", "warning");
             return;
         }
-        
+
         setShowTextOptionsModal(false);
         setLoadingGetResult(true);
-        
+
         try {
             const newCards: StoredCard[] = [];
-            
+
             // Создаем карточки для каждого выбранного варианта
             for (const option of selectedOptions) {
                 // Очистим предыдущие данные перед созданием новой карточки
@@ -2037,60 +2037,60 @@ const handleSaveAllCards = async () => {
                 dispatch(setImage(null));
                 dispatch(setImageUrl(null));
                 dispatch(setLinguisticInfo('')); // Важно: очищаем лингвистическое описание
-                
+
                 // Установка текста для текущей карточки (после очистки)
                 dispatch(setText(option));
                 setOriginalSelectedText(option);
-                
+
                 // Сброс статуса явного сохранения для предотвращения ложного отображения "Saved to Collection"
                 setExplicitlySaved(false);
                 localStorage.removeItem('explicitly_saved');
-                
+
                 try {
                     // 1. Получаем перевод
                     const translation = await createTranslation(
-                        aiService, 
-                        apiKey, 
-                        option, 
-                        translateToLanguage, 
+                        aiService,
+                        apiKey,
+                        option,
+                        translateToLanguage,
                         aiInstructions,
                         undefined // Передаем undefined как шестой параметр
                     );
-                    
+
                     if (translation.translated) {
                         dispatch(setTranslation(translation.translated));
                     }
-                    
-                    
+
+
                     // 2. Получаем примеры
                     const sourceLanguageForExamples = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
                     const examplesResult = await createExamples(
-                        aiService, 
-                        apiKey, 
-                        option, 
-                        translateToLanguage, 
-                        true, 
+                        aiService,
+                        apiKey,
+                        option,
+                        translateToLanguage,
+                        true,
                         aiInstructions,
                         sourceLanguageForExamples || undefined // Передаем исходный язык
                     );
-                    
+
                     if (examplesResult && examplesResult.length > 0) {
-                        const formattedExamples = examplesResult.map(example => 
+                        const formattedExamples = examplesResult.map(example =>
                             [example.original, example.translated] as [string, string | null]
                         );
                         dispatch(setExamples(formattedExamples));
                     }
-                    
+
                     // 3. Создаем переднюю часть карточки
                     const flashcard = await createFlashcard(aiService, apiKey, option);
                     if (flashcard.front) {
                         dispatch(setFront(flashcard.front));
                     }
-                    
+
                     // 3.5 Создаем лингвистическое описание конкретно для этого слова/фразы с итеративной валидацией
                     const sourceLanguageForLinguistic = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
                     let generatedLinguisticInfo = "";
-                    
+
                     if (sourceLanguageForLinguistic) {
                         const result = await createValidatedLinguisticInfo(
                             aiService,
@@ -2100,11 +2100,11 @@ const handleSaveAllCards = async () => {
                             translateToLanguage,
                             3 // меньше попыток для множественных карточек
                         );
-                        
+
                         if (result.linguisticInfo) {
                             generatedLinguisticInfo = result.linguisticInfo;
                             dispatch(setLinguisticInfo(result.linguisticInfo));
-                            
+
                             if (result.wasValidated && result.attempts > 1) {
                                 console.log(`Corrected linguistic info for "${option}" after ${result.attempts} attempts`);
                             } else if (!result.wasValidated) {
@@ -2114,15 +2114,15 @@ const handleSaveAllCards = async () => {
                             console.warn(`Failed to generate linguistic info for "${option}"`);
                         }
                     }
-                    
+
                     // 3.7 Создание транскрипции для этой опции
                     let generatedTranscription = "";
                     try {
                         const sourceLanguageForTranscription = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
-                        
+
                         if (sourceLanguageForTranscription) {
                             console.log(`Creating transcription for "${option}" using source language: ${sourceLanguageForTranscription}, user language: ${translateToLanguage}`);
-                            
+
                             const transcriptionResult = await createTranscription(
                                 aiService,
                                 apiKey,
@@ -2130,25 +2130,25 @@ const handleSaveAllCards = async () => {
                                 sourceLanguageForTranscription,
                                 translateToLanguage
                             );
-                            
+
                             if (transcriptionResult) {
                                 // Получаем название языка пользователя через AI
                                 const languageName = await getLanguageName(translateToLanguage);
-                                
+
                                 // Создаем красивую HTML-разметку для транскрипции
                                 const transcriptionHtml = [
-                                    transcriptionResult.userLanguageTranscription && 
-                                        `<div class="transcription-item user-lang">
+                                    transcriptionResult.userLanguageTranscription &&
+                                    `<div class="transcription-item user-lang">
                                             <span class="transcription-label">${languageName}:</span>
                                             <span class="transcription-text">${transcriptionResult.userLanguageTranscription}</span>
                                         </div>`,
-                                    transcriptionResult.ipaTranscription && 
-                                        `<div class="transcription-item ipa">
+                                    transcriptionResult.ipaTranscription &&
+                                    `<div class="transcription-item ipa">
                                             <span class="transcription-label">IPA:</span>
                                             <span class="transcription-text">${transcriptionResult.ipaTranscription}</span>
                                         </div>`
                                 ].filter(Boolean).join('\n');
-                                
+
                                 if (transcriptionHtml) {
                                     generatedTranscription = transcriptionHtml;
                                     dispatch(setTranscription(transcriptionHtml));
@@ -2162,15 +2162,15 @@ const handleSaveAllCards = async () => {
                         console.error(`Transcription generation failed for "${option}":`, transcriptionError);
                         // Transcription is not critical - continue with the card creation
                     }
-                    
+
                     // 4. Генерируем изображение, если нужно
                     let currentImageUrl = null;
                     let currentImage = null;
-                    
+
                     if (shouldGenerateImage && modelProvider === ModelProvider.OpenAI) {
                         const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions);
                         const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
-                        
+
                         if (imageUrl) {
                             currentImageUrl = imageUrl;
                             dispatch(setImageUrl(imageUrl));
@@ -2180,10 +2180,10 @@ const handleSaveAllCards = async () => {
                             dispatch(setImage(imageBase64));
                         }
                     }
-                    
+
                     // 5. Сохраняем карточку
                     const cardId = Date.now().toString() + '_' + newCards.length;
-                    
+
                     const cardData: StoredCard = {
                         id: cardId,
                         mode,
@@ -2199,7 +2199,7 @@ const handleSaveAllCards = async () => {
                         createdAt: new Date(),
                         exportStatus: 'not_exported' as const
                     };
-                    
+
                     // НЕ сохраняем карточку в хранилище здесь, а только добавляем в список для отображения
                     // dispatch(saveCardToStorage(cardData)); - УДАЛЕНО, чтобы предотвратить автоматическое сохранение
                     console.log(`Created card ${cardData.id} but NOT saving to storage yet. Image info:`, {
@@ -2209,18 +2209,18 @@ const handleSaveAllCards = async () => {
                         imageUrlLength: cardData.imageUrl?.length
                     });
                     newCards.push(cardData);
-                    
+
                 } catch (error) {
                     console.error(`Error creating card for "${option}":`, error);
                     showError(`Failed to create card for "${option.substring(0, 20)}...": ${error instanceof Error ? error.message : "Unknown error"}`, "error");
                 }
             }
-            
+
             if (newCards.length > 0) {
                 setCreatedCards(newCards);
                 setCurrentCardIndex(0);
                 setIsMultipleCards(newCards.length > 1);
-                
+
                 // Устанавливаем текущую карточку в состояние Redux для отображения
                 const currentCard = newCards[0];
                 if (currentCard) {
@@ -2228,30 +2228,30 @@ const handleSaveAllCards = async () => {
                     if (typeof currentCard.text === 'string') {
                         dispatch(setText(currentCard.text));
                     }
-                    
+
                     // Translation может быть null, но не undefined
                     dispatch(setTranslation(currentCard.translation === undefined ? null : currentCard.translation));
-                    
+
                     // Examples всегда должен быть массивом
                     dispatch(setExamples(Array.isArray(currentCard.examples) ? currentCard.examples : []));
-                    
+
                     // Image может быть null, но не undefined
                     dispatch(setImage(currentCard.image === undefined ? null : currentCard.image));
-                    
+
                     // ImageUrl может быть null, но не undefined
                     dispatch(setImageUrl(currentCard.imageUrl === undefined ? null : currentCard.imageUrl));
-                    
+
                     // Front должен быть строкой
                     if (typeof currentCard.front === 'string') {
                         dispatch(setFront(currentCard.front));
                     }
-                    
+
                     // Back может быть null, но не undefined
                     dispatch(setBack(currentCard.back === undefined ? null : currentCard.back));
-                    
+
                     // LinguisticInfo может быть строкой или undefined
                     dispatch(setLinguisticInfo(currentCard.linguisticInfo || ''));
-                    
+
                     // Transcription может быть строкой или undefined
                     if (currentCard.transcription) {
                         dispatch(setTranscription(currentCard.transcription));
@@ -2259,28 +2259,28 @@ const handleSaveAllCards = async () => {
                         dispatch(setTranscription(''));
                     }
                 }
-                
+
                 // Сброс статуса явного сохранения карточек
                 setExplicitlySaved(false);
                 setExplicitlySavedIds([]);  // Clear explicitly saved IDs
                 localStorage.removeItem('explicitly_saved');
                 console.log('Reset saved status for new multiple cards');
-                
-                    // Важное обновление: очищаем список сохраненных ID перед показом новых карточек
-    setExplicitlySavedIds([]);
-    localStorage.removeItem('explicitly_saved');
-    setExplicitlySaved(false);
-    
-    // Показываем результат
-    setShowResult(true);
-    setShowModal(true);
-    showError(`Created ${newCards.length} cards!`, "success");
-    
-    console.log('Created new cards, none saved yet. Card IDs:', newCards.map(card => card.id));
-} else {
-    showError("Failed to create cards. Please try again.", "error");
-}
-            
+
+                // Важное обновление: очищаем список сохраненных ID перед показом новых карточек
+                setExplicitlySavedIds([]);
+                localStorage.removeItem('explicitly_saved');
+                setExplicitlySaved(false);
+
+                // Показываем результат
+                setShowResult(true);
+                setShowModal(true);
+                showError(`Created ${newCards.length} cards!`, "success");
+
+                console.log('Created new cards, none saved yet. Card IDs:', newCards.map(card => card.id));
+            } else {
+                showError("Failed to create cards. Please try again.", "error");
+            }
+
         } catch (error) {
             console.error('Error processing selected options:', error);
             showError(error instanceof Error ? error.message : "Failed to create cards. Please try again.");
@@ -2290,22 +2290,22 @@ const handleSaveAllCards = async () => {
             setSelectedOptionsMap({});
         }
     };
-    
+
     // Обновляем handleTextOptionSelect для поддержки множественного выбора
     const handleTextOptionSelect = (option: string) => {
         toggleOptionSelection(option);
     };
-    
+
     // Функция для перехода к следующей карточке
     const nextCard = () => {
         if (createdCards.length <= 1 || currentCardIndex >= createdCards.length - 1) return;
-        
+
         // Важно: сохраняем измененные данные текущей карточки перед переходом к следующей
         saveCurrentCardState();
-        
+
         const nextIndex = currentCardIndex + 1;
         console.log(`Moving from card ${currentCardIndex} to card ${nextIndex}`);
-        
+
         // Загружаем данные следующей карточки
         const card = createdCards[nextIndex];
         if (card) {
@@ -2315,18 +2315,18 @@ const handleSaveAllCards = async () => {
             setCurrentCardIndex(nextIndex);
         }
     };
-    
+
     // Функция для сохранения текущего состояния карточки в массиве createdCards
     const saveCurrentCardState = () => {
         if (!createdCards[currentCardIndex]) return;
-        
+
         // Логируем состояние перед сохранением для отладки
-        console.log('Saving current card state:', { 
-            index: currentCardIndex, 
-            text, 
+        console.log('Saving current card state:', {
+            index: currentCardIndex,
+            text,
             linguisticInfo: linguisticInfo ? linguisticInfo.substring(0, 30) + '...' : 'empty'
         });
-        
+
         // Создаем обновленную копию текущей карточки с актуальными данными из Redux
         const updatedCard = {
             ...createdCards[currentCardIndex],
@@ -2340,23 +2340,23 @@ const handleSaveAllCards = async () => {
             linguisticInfo: linguisticInfo || '',
             transcription: transcription || ''
         };
-        
+
         // Обновляем массив карточек, заменяя текущую карточку на обновленную
         const updatedCards = [...createdCards];
         updatedCards[currentCardIndex] = updatedCard;
         setCreatedCards(updatedCards);
-        
+
         console.log('Updated card saved:', updatedCard.id);
     };
-    
+
     // Функция для загрузки данных карточки в Redux
     const loadCardData = (card: StoredCard) => {
-        console.log('Loading card data for card:', { 
-            id: card.id, 
+        console.log('Loading card data for card:', {
+            id: card.id,
             text: card.text,
             hasLinguisticInfo: Boolean(card.linguisticInfo)
         });
-        
+
         // Сначала очищаем все данные
         dispatch(setText(''));
         dispatch(setTranslation(null));
@@ -2367,34 +2367,34 @@ const handleSaveAllCards = async () => {
         dispatch(setBack(null));
         dispatch(setLinguisticInfo(''));
         dispatch(setTranscription(''));
-        
+
         // Затем загружаем данные из карточки
-        
+
         // Проверяем каждое поле перед установкой
         if (typeof card.text === 'string') {
             dispatch(setText(card.text));
         }
-        
+
         // Translation может быть null, но не undefined
         dispatch(setTranslation(card.translation === undefined ? null : card.translation));
-        
+
         // Examples всегда должен быть массивом
         dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
-        
+
         // Image может быть null, но не undefined
         dispatch(setImage(card.image === undefined ? null : card.image));
-        
+
         // ImageUrl может быть null, но не undefined
         dispatch(setImageUrl(card.imageUrl === undefined ? null : card.imageUrl));
-        
+
         // Front должен быть строкой
         if (typeof card.front === 'string') {
             dispatch(setFront(card.front));
         }
-        
+
         // Back может быть null, но не undefined
         dispatch(setBack(card.back === undefined ? null : card.back));
-        
+
         // LinguisticInfo может быть строкой или undefined
         if (card.linguisticInfo) {
             console.log('Setting linguistic info:', card.linguisticInfo.substring(0, 30) + '...');
@@ -2403,7 +2403,7 @@ const handleSaveAllCards = async () => {
             console.log('No linguistic info found for this card');
             dispatch(setLinguisticInfo(''));
         }
-        
+
         // Transcription может быть строкой или undefined
         if (card.transcription) {
             console.log('Setting transcription:', card.transcription.substring(0, 30) + '...');
@@ -2413,17 +2413,17 @@ const handleSaveAllCards = async () => {
             dispatch(setTranscription(''));
         }
     };
-    
+
     // Функция для перехода к предыдущей карточке
     const prevCard = () => {
         if (createdCards.length <= 1 || currentCardIndex <= 0) return;
-        
+
         // Сохраняем текущее состояние карточки перед переключением
         saveCurrentCardState();
-        
+
         const prevIndex = currentCardIndex - 1;
         console.log(`Moving from card ${currentCardIndex} to card ${prevIndex}`);
-        
+
         // Загружаем данные предыдущей карточки
         const card = createdCards[prevIndex];
         if (card) {
@@ -2433,18 +2433,18 @@ const handleSaveAllCards = async () => {
             setCurrentCardIndex(prevIndex);
         }
     };
-    
+
     // Анализировать текст и предложить варианты создания карточек
     const analyzeSelectedText = async (selectedText: string) => {
         if (!selectedText || selectedText.length < 3) {
             dispatch(setText(selectedText));
             return;
         }
-        
+
         // Сначала очищаем ранее выбранные опции
         setSelectedOptionsMap({});
         setSelectedTextOptions([]);
-        
+
         // If text is a single word or very short phrase (less than 20 chars)
         // use it directly without showing options
         if (selectedText.length < 20 && !selectedText.includes('.') && !selectedText.includes('\n')) {
@@ -2453,41 +2453,41 @@ const handleSaveAllCards = async () => {
             dispatch(setText(cleanedText));
             return;
         }
-        
+
         setTextAnalysisLoader(true);
-        
+
         try {
             // Extract words more intelligently
             // Use a regex that properly separates words while preserving their form
             // This regex splits by spaces and punctuation but keeps the words intact
             const wordRegex = /[a-zA-Z\u00C0-\u017F]+(?:'[a-zA-Z\u00C0-\u017F]+)*/g;
             const extractedWords = selectedText.match(wordRegex) || [];
-            
+
             // Filter and clean words
             let words = extractedWords
                 .filter(word => word.length > 3)  // Only words longer than 3 chars
                 .filter(word => !['the', 'and', 'that', 'this', 'with', 'from', 'have', 'are', 'for'].includes(word.toLowerCase()))  // Filter common stop words
                 .map(word => word.trim())
                 .filter(Boolean);
-                
+
             // Limit to unique words to prevent duplicates
             words = Array.from(new Set(words));
-            
+
             // Initialize array of options to present to the user
             let options: string[] = [];
             let phrasesExtracted = false;
-            
+
             // For longer texts (>100 chars), rely primarily on AI extraction
             if (selectedText.length > 100 && apiKey) {
                 try {
                     setTextAnalysisLoader(true);
                     // Prioritize AI extraction for longer text
                     const response = await aiService.extractKeyTerms(apiKey, selectedText);
-                    
+
                     if (response && response.length > 0) {
                         // Take up to 7 AI-selected terms for longer texts
                         const aiTerms = response.slice(0, 7);
-                        
+
                         aiTerms.forEach((term: string) => {
                             // Clean each term by removing leading dashes/hyphens
                             const cleanedTerm = term.replace(/^[-–—•\s]+/, '').trim();
@@ -2495,25 +2495,25 @@ const handleSaveAllCards = async () => {
                                 options.push(cleanedTerm);
                             }
                         });
-                        
+
                         phrasesExtracted = true;
                     }
                 } catch (e) {
                     console.error("Failed to extract key terms with AI", e);
                 }
             }
-            
+
             // For medium-length selections, try to extract meaningful phrases
             if (!phrasesExtracted && selectedText.length > 30 && selectedText.length <= 200) {
                 // Split text into sentences
                 const sentences = selectedText.split(/[.!?]+/).filter(s => s.trim().length > 0);
-                
+
                 // For each short sentence or segment, add as potential phrase
                 sentences.forEach(sentence => {
                     const trimmed = sentence.trim();
                     // Only add reasonably sized phrases (2-8 words) and clean them
-                    if (trimmed.length > 10 && trimmed.length < 80 && 
-                        trimmed.split(/\s+/).length >= 2 && 
+                    if (trimmed.length > 10 && trimmed.length < 80 &&
+                        trimmed.split(/\s+/).length >= 2 &&
                         trimmed.split(/\s+/).length <= 8) {
                         // Clean the phrase by removing leading dashes/hyphens
                         const cleanedPhrase = trimmed.replace(/^[-–—•\s]+/, '').trim();
@@ -2521,14 +2521,14 @@ const handleSaveAllCards = async () => {
                     }
                 });
             }
-            
+
             // Add individual important words if we don't have many options yet
             if (options.length < 5) {
                 // Find potentially important words (longer words are often more significant)
                 const importantWords = words
                     .filter(word => word.length > 5)  // Prefer longer words
                     .slice(0, 5);  // Limit to 5 important words
-                    
+
                 importantWords.forEach(word => {
                     // Clean the word by removing leading dashes/hyphens
                     const cleanedWord = word.replace(/^[-–—•\s]+/, '').trim();
@@ -2537,29 +2537,29 @@ const handleSaveAllCards = async () => {
                     }
                 });
             }
-            
+
             // Find potential multi-word terms (2-3 words together)
             if (options.length < 7) {
                 const wordsArray = selectedText.split(/\s+/);
-                
+
                 if (wordsArray.length >= 2) {
                     for (let i = 0; i < wordsArray.length - 1; i++) {
                         // Get potential 2-word phrases
-                        if (wordsArray[i].length > 3 && wordsArray[i+1].length > 3) {
-                            let twoWordPhrase = `${wordsArray[i]} ${wordsArray[i+1]}`.trim();
+                        if (wordsArray[i].length > 3 && wordsArray[i + 1].length > 3) {
+                            let twoWordPhrase = `${wordsArray[i]} ${wordsArray[i + 1]}`.trim();
                             // Clean the phrase by removing leading dashes/hyphens
                             twoWordPhrase = twoWordPhrase.replace(/^[-–—•\s]+/, '').trim();
                             if (twoWordPhrase.length > 7 && !options.includes(twoWordPhrase)) {
                                 options.push(twoWordPhrase);
                             }
                         }
-                        
+
                         // Get potential 3-word phrases
-                        if (i < wordsArray.length - 2 && 
-                            wordsArray[i].length > 2 && 
-                            wordsArray[i+1].length > 2 && 
-                            wordsArray[i+2].length > 2) {
-                            let threeWordPhrase = `${wordsArray[i]} ${wordsArray[i+1]} ${wordsArray[i+2]}`.trim();
+                        if (i < wordsArray.length - 2 &&
+                            wordsArray[i].length > 2 &&
+                            wordsArray[i + 1].length > 2 &&
+                            wordsArray[i + 2].length > 2) {
+                            let threeWordPhrase = `${wordsArray[i]} ${wordsArray[i + 1]} ${wordsArray[i + 2]}`.trim();
                             // Clean the phrase by removing leading dashes/hyphens
                             threeWordPhrase = threeWordPhrase.replace(/^[-–—•\s]+/, '').trim();
                             if (threeWordPhrase.length > 10 && !options.includes(threeWordPhrase)) {
@@ -2569,7 +2569,7 @@ const handleSaveAllCards = async () => {
                     }
                 }
             }
-            
+
             // Also process the original selected text for list items
             // Extract items that might be in list format (starting with dash, bullet, etc)
             const listItemRegex = /(?:^|\n)[-–—•*]\s*(.*?)(?=\n[-–—•*]|\n\n|$)/g;
@@ -2583,13 +2583,13 @@ const handleSaveAllCards = async () => {
                     }
                 }
             }
-            
+
             // Final cleanup and limiting
             options = Array.from(new Set(options))
                 .filter(opt => opt.length > 2)
                 .map(opt => opt.replace(/^[-–—•\s]+/, '').trim()) // One final cleaning pass
                 .slice(0, 8);  // Limit to max 8 options for better UX
-            
+
             // If we have options, show selection modal
             if (options.length > 0) {
                 setSelectedTextOptions(options);
@@ -2621,14 +2621,14 @@ const handleSaveAllCards = async () => {
             setTextAnalysisLoader(false);
         }
     };
-    
+
     // Обновляем renderTextOptionsModal с улучшенным UI/UX
     const renderTextOptionsModal = () => {
         if (!showTextOptionsModal) return null;
-        
+
         // Calculate how many options are selected
         const selectedCount = Object.values(selectedOptionsMap).filter(Boolean).length;
-        
+
         return (
             <div style={{
                 position: 'fixed',
@@ -2683,7 +2683,7 @@ const handleSaveAllCards = async () => {
                             <FaFont size={14} color="#2563EB" />
                             Select Terms for Cards
                         </h3>
-                        <button 
+                        <button
                             onClick={() => {
                                 // Очищаем выбранные опции и сам список опций
                                 setSelectedOptionsMap({});
@@ -2708,7 +2708,7 @@ const handleSaveAllCards = async () => {
                             <FaTimes size={16} color="#6B7280" />
                         </button>
                     </div>
-                    
+
                     <div style={{
                         display: 'flex',
                         justifyContent: 'space-between',
@@ -2723,7 +2723,7 @@ const handleSaveAllCards = async () => {
                         }}>
                             Found {selectedTextOptions.length} key terms
                         </p>
-                        
+
                         {selectedCount > 0 && (
                             <span style={{
                                 fontSize: '13px',
@@ -2737,7 +2737,7 @@ const handleSaveAllCards = async () => {
                             </span>
                         )}
                     </div>
-                    
+
                     {/* Option to select/deselect all */}
                     <div style={{
                         display: 'flex',
@@ -2781,7 +2781,7 @@ const handleSaveAllCards = async () => {
                                 </>
                             )}
                         </button>
-                        
+
                         <span style={{
                             fontSize: '12px',
                             color: '#6B7280',
@@ -2790,7 +2790,7 @@ const handleSaveAllCards = async () => {
                             Tap to select
                         </span>
                     </div>
-                    
+
                     <div style={{
                         display: 'flex',
                         flexDirection: 'column',
@@ -2802,10 +2802,10 @@ const handleSaveAllCards = async () => {
                         listStyle: 'none'
                     }}>
                         {textAnalysisLoader ? (
-                            <div style={{ 
-                                display: 'flex', 
-                                justifyContent: 'center', 
-                                padding: '20px' 
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'center',
+                                padding: '20px'
                             }}>
                                 <Loader type="pulse" size="small" color="#4F46E5" text="Analyzing selected text..." />
                             </div>
@@ -2840,7 +2840,7 @@ const handleSaveAllCards = async () => {
                                         }}
                                         id={`option-${index}`}
                                     />
-                                    <span 
+                                    <span
                                         style={{
                                             fontSize: '14px',
                                             color: '#374151',
@@ -2856,7 +2856,7 @@ const handleSaveAllCards = async () => {
                                         {/* Clean any leading hyphens or dashes that might be in the text */}
                                         {option.replace(/^[-–—•\s]+/, '')}
                                     </span>
-                                    
+
                                     {/* Word length indicator tag */}
                                     <span style={{
                                         position: 'absolute',
@@ -2875,40 +2875,40 @@ const handleSaveAllCards = async () => {
                             ))
                         )}
                     </div>
-                    
+
                     <div style={{
                         display: 'flex',
                         gap: '8px',
                         marginTop: '12px'
                     }}>
-                                        <button
-                    onClick={() => {
-                        // При отмене очищаем выбранные опции
-                        setSelectedOptionsMap({});
-                        setShowTextOptionsModal(false);
-                    }}
-                    style={{
-                        flex: '1',
-                        padding: '10px 12px',
-                        backgroundColor: '#F9FAFB',
-                        color: '#4B5563',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '6px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease'
-                    }}
-                    onMouseOver={(e) => {
-                        e.currentTarget.style.backgroundColor = '#F3F4F6';
-                    }}
-                    onMouseOut={(e) => {
-                        e.currentTarget.style.backgroundColor = '#F9FAFB';
-                    }}
-                >
-                    Cancel
-                </button>
-                        
+                        <button
+                            onClick={() => {
+                                // При отмене очищаем выбранные опции
+                                setSelectedOptionsMap({});
+                                setShowTextOptionsModal(false);
+                            }}
+                            style={{
+                                flex: '1',
+                                padding: '10px 12px',
+                                backgroundColor: '#F9FAFB',
+                                color: '#4B5563',
+                                border: '1px solid #E5E7EB',
+                                borderRadius: '6px',
+                                fontSize: '14px',
+                                fontWeight: 500,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
+                            }}
+                            onMouseOver={(e) => {
+                                e.currentTarget.style.backgroundColor = '#F3F4F6';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = '#F9FAFB';
+                            }}
+                        >
+                            Cancel
+                        </button>
+
                         <button
                             onClick={createCardsFromSelectedOptions}
                             disabled={selectedCount === 0}
@@ -2947,7 +2947,7 @@ const handleSaveAllCards = async () => {
             </div>
         );
     };
-    
+
     // Расширенный список языков с флагами и локализованными названиями
     const allLanguages = [
         { code: 'ru', name: 'Русский', flag: '🇷🇺', englishName: 'Russian' },
@@ -2997,8 +2997,8 @@ const handleSaveAllCards = async () => {
     const filteredLanguages = useMemo(() => {
         if (!languageSearch) return allLanguages;
         const search = languageSearch.toLowerCase();
-        return allLanguages.filter(lang => 
-            lang.name.toLowerCase().includes(search) || 
+        return allLanguages.filter(lang =>
+            lang.name.toLowerCase().includes(search) ||
             lang.englishName.toLowerCase().includes(search) ||
             lang.code.toLowerCase().includes(search)
         );
@@ -3031,9 +3031,9 @@ const handleSaveAllCards = async () => {
                         gap: '6px'
                     }}>
                         Your Language
-                        <span style={{ 
-                            fontSize: '12px', 
-                            color: '#6B7280', 
+                        <span style={{
+                            fontSize: '12px',
+                            color: '#6B7280',
                             fontWeight: 'normal',
                             fontStyle: 'italic'
                         }}>
@@ -3065,7 +3065,7 @@ const handleSaveAllCards = async () => {
                             <span>{currentLanguage.name}</span>
                         </span>
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                            <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+                            <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
                         </svg>
                     </button>
                 </div>
@@ -3133,7 +3133,7 @@ const handleSaveAllCards = async () => {
                                 }}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#6B7280" viewBox="0 0 16 16">
-                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
                                 </svg>
                             </button>
                         </div>
@@ -3159,11 +3159,11 @@ const handleSaveAllCards = async () => {
                                 onFocus={(e) => e.target.style.borderColor = '#2563EB'}
                                 onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
                             />
-                            <svg 
-                                xmlns="http://www.w3.org/2000/svg" 
-                                width="16" 
-                                height="16" 
-                                fill="#9CA3AF" 
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="16"
+                                height="16"
+                                fill="#9CA3AF"
                                 viewBox="0 0 16 16"
                                 style={{
                                     position: 'absolute',
@@ -3172,7 +3172,7 @@ const handleSaveAllCards = async () => {
                                     transform: 'translateY(-50%)'
                                 }}
                             >
-                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
                             </svg>
                             {languageSearch && (
                                 <button
@@ -3194,7 +3194,7 @@ const handleSaveAllCards = async () => {
                                     }}
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="#6B7280" viewBox="0 0 16 16">
-                                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
                                     </svg>
                                 </button>
                             )}
@@ -3252,8 +3252,8 @@ const handleSaveAllCards = async () => {
                                         }
                                     }}
                                 >
-                                    <span style={{ 
-                                        fontSize: '22px', 
+                                    <span style={{
+                                        fontSize: '22px',
                                         marginRight: '12px',
                                         width: '28px',
                                         textAlign: 'center'
@@ -3265,7 +3265,7 @@ const handleSaveAllCards = async () => {
                                         flexDirection: 'column',
                                         alignItems: 'flex-start'
                                     }}>
-                                        <span style={{ 
+                                        <span style={{
                                             color: language.code === translateToLanguage ? '#2563EB' : '#111827',
                                             fontWeight: language.code === translateToLanguage ? '600' : 'normal',
                                             fontSize: '14px'
@@ -3273,8 +3273,8 @@ const handleSaveAllCards = async () => {
                                             {language.name}
                                         </span>
                                         {language.englishName !== language.name && (
-                                            <span style={{ 
-                                                color: '#6B7280', 
+                                            <span style={{
+                                                color: '#6B7280',
                                                 fontSize: '12px'
                                             }}>
                                                 {language.englishName}
@@ -3282,15 +3282,15 @@ const handleSaveAllCards = async () => {
                                         )}
                                     </div>
                                     {language.code === translateToLanguage && (
-                                        <svg 
-                                            xmlns="http://www.w3.org/2000/svg" 
-                                            width="16" 
-                                            height="16" 
-                                            fill="#2563EB" 
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="16"
+                                            height="16"
+                                            fill="#2563EB"
                                             viewBox="0 0 16 16"
                                             style={{ marginLeft: 'auto' }}
                                         >
-                                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
+                                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
                                         </svg>
                                     )}
                                 </button>
@@ -3301,7 +3301,7 @@ const handleSaveAllCards = async () => {
             </div>
         );
     };
-    
+
     // Добавим состояние для изучаемого языка (язык исходного текста)
     const [sourceLanguage, setSourceLanguage] = useState<string>(() => {
         // Load from localStorage on initialization
@@ -3323,8 +3323,8 @@ const handleSaveAllCards = async () => {
     const filteredSourceLanguages = useMemo(() => {
         if (!sourceLanguageSearch) return allLanguages;
         const search = sourceLanguageSearch.toLowerCase();
-        return allLanguages.filter(lang => 
-            lang.name.toLowerCase().includes(search) || 
+        return allLanguages.filter(lang =>
+            lang.name.toLowerCase().includes(search) ||
             lang.englishName.toLowerCase().includes(search) ||
             lang.code.toLowerCase().includes(search)
         );
@@ -3343,14 +3343,14 @@ const handleSaveAllCards = async () => {
 
     // Добавим состояние для отслеживания нажатия кнопки Create Card
     const [createCardClicked, setCreateCardClicked] = useState(false);
-    
+
     // Функция для автоматического определения языка
     const detectLanguage = useCallback(async (text: string) => {
         // Определяем язык, если есть текст
         if (!text || text.trim().length < 2) return;
-        
+
         setIsDetectingLanguage(true);
-        
+
         try {
             // Если у нас есть доступ к API OpenAI, используем его для определения языка
             if (modelProvider === ModelProvider.OpenAI && openAiKey) {
@@ -3369,9 +3369,9 @@ const handleSaveAllCards = async () => {
                     temperature: 0.3,
                     max_tokens: 10
                 });
-                
+
                 const detectedCode = response.choices[0].message.content?.trim().toLowerCase();
-                
+
                 // Проверяем, является ли результат действительным языковым кодом
                 if (detectedCode && allLanguages.some(lang => lang.code === detectedCode)) {
                     setDetectedLanguage(detectedCode);
@@ -3381,7 +3381,7 @@ const handleSaveAllCards = async () => {
                     setCreateCardClicked(false);
                     // Сохраняем в localStorage, что язык был определен
                     localStorage.setItem('language_already_detected', 'true');
-                    
+
                     // Сохраняем определенный язык в Redux
                     updateSourceLanguage(detectedCode);
                 }
@@ -3390,7 +3390,7 @@ const handleSaveAllCards = async () => {
                 // Это упрощенная версия, в реальном приложении можно использовать 
                 // библиотеки вроде franc.js или langdetect
                 const textSample = text.trim().toLowerCase().slice(0, 100);
-                
+
                 // Единый блок определения языка
                 const cyrillicPattern = /[а-яё]/gi;
                 const latinPattern = /[a-z]/gi;
@@ -3398,19 +3398,19 @@ const handleSaveAllCards = async () => {
                 const japanesePattern = /[\u3040-\u309f\u30a0-\u30ff]/gi;
                 const koreanPattern = /[\uac00-\ud7af]/gi;
                 const arabicPattern = /[\u0600-\u06ff]/gi;
-                
+
                 // Паттерны для испанского языка
                 const spanishPattern = /[áéíóúüñ¿¡]/gi;
                 const spanishWords = ['hasta', 'desde', 'como', 'pero', 'porque', 'adonde', 'quien', 'para', 'por'];
-                
+
                 // Проверяем испанские слова
-                const isSpanishWord = spanishWords.some(word => 
+                const isSpanishWord = spanishWords.some(word =>
                     textSample === word || textSample.startsWith(word + ' ') || textSample.includes(' ' + word + ' ')
                 );
-                
+
                 // Определяем язык
                 let detectedLang = '';
-                
+
                 if (cyrillicPattern.test(textSample)) {
                     console.log("Detected Cyrillic script - setting Russian");
                     detectedLang = 'ru';
@@ -3433,13 +3433,13 @@ const handleSaveAllCards = async () => {
                     console.log("Detected Latin script, defaulting to English");
                     detectedLang = 'en';
                 }
-                
+
                 if (detectedLang) {
                     setDetectedLanguage(detectedLang);
-                    
+
                     // Сохраняем определенный язык в Redux
                     updateSourceLanguage(detectedLang);
-                    
+
                     // Сбрасываем флаг нажатия кнопки, так как язык определен
                     setCreateCardClicked(false);
                     // Сохраняем в localStorage, что язык был определен
@@ -3452,25 +3452,25 @@ const handleSaveAllCards = async () => {
             setIsDetectingLanguage(false);
         }
     }, [openai, openAiKey, modelProvider, dispatch, allLanguages, updateSourceLanguage]);
-    
+
     // Обновление определения языка при изменении текста
     useEffect(() => {
         // Проверяем, был ли язык уже определен ранее
         const languageAlreadyDetected = localStorage.getItem('language_already_detected') === 'true';
-        
+
         // Определяем язык только в следующих случаях:
         // 1. Режим автоопределения включен
         // 2. Есть текст для анализа
         // 3. И ЛИБО это первый запуск (язык еще не определен), 
         //    ЛИБО была нажата кнопка Create Card и язык не был определен
-        if (text && text.trim().length > 2 && isAutoDetectLanguage && 
+        if (text && text.trim().length > 2 && isAutoDetectLanguage &&
             ((!languageAlreadyDetected && !detectedLanguage) || createCardClicked)) {
-            
+
             // Используем debounce, чтобы не определять язык при каждом нажатии клавиши
             const timer = setTimeout(() => {
                 detectLanguage(text);
             }, 500);
-            
+
             return () => clearTimeout(timer);
         }
     }, [text, detectLanguage, isAutoDetectLanguage, detectedLanguage, createCardClicked, updateSourceLanguage]);
@@ -3481,7 +3481,7 @@ const handleSaveAllCards = async () => {
         setIsAutoDetectLanguage(newAutoDetectValue);
         // Save to localStorage
         localStorage.setItem('auto_detect_language', newAutoDetectValue ? 'true' : 'false');
-        
+
         if (isAutoDetectLanguage) {
             // If turning off auto-detection, set source language to detected language (if available)
             if (detectedLanguage) {
@@ -3510,8 +3510,8 @@ const handleSaveAllCards = async () => {
                     gap: '8px'
                 }}>
                     <div style={{
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
+                        display: 'flex',
+                        justifyContent: 'space-between',
                         alignItems: 'center',
                         width: '100%'
                     }}>
@@ -3525,19 +3525,19 @@ const handleSaveAllCards = async () => {
                             gap: '6px'
                         }}>
                             <span>Source Language</span>
-                            <span style={{ 
-                                fontSize: '12px', 
-                                color: '#6B7280', 
+                            <span style={{
+                                fontSize: '12px',
+                                color: '#6B7280',
                                 fontWeight: 'normal',
                                 fontStyle: 'italic'
                             }}>
                                 (of your text)
                             </span>
                         </label>
-                        <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '8px' 
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
                         }}>
                             <span style={{
                                 fontSize: '12px',
@@ -3546,7 +3546,7 @@ const handleSaveAllCards = async () => {
                             }}>
                                 Auto
                             </span>
-                            <button 
+                            <button
                                 onClick={toggleAutoDetect}
                                 style={{
                                     width: '36px',
@@ -3573,7 +3573,7 @@ const handleSaveAllCards = async () => {
                             </button>
                         </div>
                     </div>
-                    
+
                     <button
                         onClick={() => setShowSourceLanguageSelector(true)}
                         disabled={isAutoDetectLanguage}
@@ -3604,9 +3604,9 @@ const handleSaveAllCards = async () => {
                                     <span style={{ fontSize: '18px' }}>{currentSourceLanguage.flag}</span>
                                     <span>{currentSourceLanguage.name}</span>
                                     {isAutoDetectLanguage && (
-                                        <span style={{ 
-                                            fontSize: '12px', 
-                                            color: '#10B981', 
+                                        <span style={{
+                                            fontSize: '12px',
+                                            color: '#10B981',
                                             backgroundColor: '#ECFDF5',
                                             padding: '2px 6px',
                                             borderRadius: '4px',
@@ -3628,11 +3628,11 @@ const handleSaveAllCards = async () => {
                         </span>
                         {!isAutoDetectLanguage && (
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+                                <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
                             </svg>
                         )}
                     </button>
-                    
+
                     {/* Язык перевода */}
                     <div style={{
                         display: 'flex',
@@ -3654,8 +3654,8 @@ const handleSaveAllCards = async () => {
                             <FaExchangeAlt size={12} color="#6B7280" />
                             <span style={{ fontSize: '14px' }}>{currentLanguage.flag}</span>
                         </div>
-                        <span style={{ 
-                            fontSize: '12px', 
+                        <span style={{
+                            fontSize: '12px',
                             color: '#4B5563'
                         }}>
                             Translating {currentSourceLanguage ? `from ${currentSourceLanguage.englishName}` : ''} to {currentLanguage.englishName}
@@ -3681,8 +3681,8 @@ const handleSaveAllCards = async () => {
                                 }}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                                    <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-                                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                                    <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" />
+                                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" />
                                 </svg>
                             </button>
                         )}
@@ -3756,7 +3756,7 @@ const handleSaveAllCards = async () => {
                                 }}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#6B7280" viewBox="0 0 16 16">
-                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
                                 </svg>
                             </button>
                         </div>
@@ -3782,11 +3782,11 @@ const handleSaveAllCards = async () => {
                                 onFocus={(e) => e.target.style.borderColor = '#2563EB'}
                                 onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
                             />
-                            <svg 
-                                xmlns="http://www.w3.org/2000/svg" 
-                                width="16" 
-                                height="16" 
-                                fill="#9CA3AF" 
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="16"
+                                height="16"
+                                fill="#9CA3AF"
                                 viewBox="0 0 16 16"
                                 style={{
                                     position: 'absolute',
@@ -3795,7 +3795,7 @@ const handleSaveAllCards = async () => {
                                     transform: 'translateY(-50%)'
                                 }}
                             >
-                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
                             </svg>
                             {sourceLanguageSearch && (
                                 <button
@@ -3817,7 +3817,7 @@ const handleSaveAllCards = async () => {
                                     }}
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="#6B7280" viewBox="0 0 16 16">
-                                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
                                     </svg>
                                 </button>
                             )}
@@ -3876,8 +3876,8 @@ const handleSaveAllCards = async () => {
                                         }
                                     }}
                                 >
-                                    <span style={{ 
-                                        fontSize: '22px', 
+                                    <span style={{
+                                        fontSize: '22px',
                                         marginRight: '12px',
                                         width: '28px',
                                         textAlign: 'center'
@@ -3889,7 +3889,7 @@ const handleSaveAllCards = async () => {
                                         flexDirection: 'column',
                                         alignItems: 'flex-start'
                                     }}>
-                                        <span style={{ 
+                                        <span style={{
                                             color: language.code === sourceLanguage ? '#2563EB' : '#111827',
                                             fontWeight: language.code === sourceLanguage ? '600' : 'normal',
                                             fontSize: '14px'
@@ -3897,8 +3897,8 @@ const handleSaveAllCards = async () => {
                                             {language.name}
                                         </span>
                                         {language.englishName !== language.name && (
-                                            <span style={{ 
-                                                color: '#6B7280', 
+                                            <span style={{
+                                                color: '#6B7280',
                                                 fontSize: '12px'
                                             }}>
                                                 {language.englishName}
@@ -3906,15 +3906,15 @@ const handleSaveAllCards = async () => {
                                         )}
                                     </div>
                                     {language.code === sourceLanguage && (
-                                        <svg 
-                                            xmlns="http://www.w3.org/2000/svg" 
-                                            width="16" 
-                                            height="16" 
-                                            fill="#2563EB" 
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="16"
+                                            height="16"
+                                            fill="#2563EB"
                                             viewBox="0 0 16 16"
                                             style={{ marginLeft: 'auto' }}
                                         >
-                                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
+                                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
                                         </svg>
                                     )}
                                 </button>
@@ -3932,13 +3932,13 @@ const handleSaveAllCards = async () => {
             showError('API key is required for testing', 'error');
             return;
         }
-        
+
         // Тест с проблемным словом "млекопитающими"
         const testText = "млекопитающими";
-        
+
         console.log('Testing new iterative validation system...');
         showError('Testing iterative validation system...', 'info');
-        
+
         try {
             const result = await createValidatedLinguisticInfo(
                 aiService,
@@ -3948,9 +3948,9 @@ const handleSaveAllCards = async () => {
                 'ru', // user language
                 3 // максимум 3 попытки для теста
             );
-            
+
             console.log('Test result:', result);
-            
+
             if (result.linguisticInfo) {
                 if (result.wasValidated) {
                     if (result.attempts > 1) {
@@ -3961,7 +3961,7 @@ const handleSaveAllCards = async () => {
                 } else {
                     showError(`⚠️ Test completed: Grammar reference created but validation failed after ${result.attempts} attempts`, 'warning');
                 }
-                
+
                 // Показываем созданную справку в консоли для проверки
                 console.log('Generated linguistic info:', result.linguisticInfo);
             } else {
@@ -3987,13 +3987,13 @@ const handleSaveAllCards = async () => {
         const savedSourceLanguage = localStorage.getItem('source_language');
         const savedDetectedLanguage = localStorage.getItem('detected_language');
         const savedAutoDetect = localStorage.getItem('auto_detect_language');
-        
+
         console.log('Initializing language settings from localStorage:', {
             savedSourceLanguage,
             savedDetectedLanguage,
             savedAutoDetect
         });
-        
+
         // Update Redux store with saved source language
         if (savedSourceLanguage) {
             updateSourceLanguage(savedSourceLanguage);
@@ -4001,12 +4001,12 @@ const handleSaveAllCards = async () => {
             // If auto-detect is enabled and we have a previously detected language
             updateSourceLanguage(savedDetectedLanguage);
         }
-        
+
         // Set auto-detect preference
         if (savedAutoDetect === 'false') {
             setIsAutoDetectLanguage(false);
         }
-        
+
     }, [updateSourceLanguage]);
 
     // AI-powered функция для получения названия языка
@@ -4039,7 +4039,7 @@ Respond with ONLY the native language name, no additional text.`;
                 localStorage.setItem(`language_name_${languageCode}`, languageName);
                 return languageName;
             }
-            
+
             return languageCode.toUpperCase(); // Fallback
         } catch (error) {
             console.error('Error getting language name from AI:', error);
@@ -4054,7 +4054,7 @@ Respond with ONLY the native language name, no additional text.`;
         if (cached) {
             return cached;
         }
-        
+
         // Если нет в кеше, запрашиваем у AI
         return await getLanguageNameFromAI(languageCode);
     }, [getLanguageNameFromAI]);
@@ -4085,18 +4085,18 @@ Respond with ONLY the native language name, no additional text.`;
                     padding: '0 20px'
                 }}>
                     <Loader type="spinner" size="large" color="#3B82F6" text="Creating your Anki card..." />
-                    <div style={{ 
-                        backgroundColor: '#F3F4F6', 
-                        padding: '10px 16px', 
-                        borderRadius: '8px', 
+                    <div style={{
+                        backgroundColor: '#F3F4F6',
+                        padding: '10px 16px',
+                        borderRadius: '8px',
                         fontSize: '13px',
                         color: '#4B5563',
                         maxWidth: '90%',
                         textAlign: 'center',
                         boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                     }}>
-                        {isMultipleCards 
-                            ? "We're creating multiple cards from your selected options..." 
+                        {isMultipleCards
+                            ? "We're creating multiple cards from your selected options..."
                             : "We're analyzing your text and generating learning materials"}
                     </div>
                 </div>
@@ -4152,10 +4152,10 @@ Respond with ONLY the native language name, no additional text.`;
                         }}>
                             {/* Компонент выбора языка интерфейса/перевода */}
                             {renderLanguageSelector()}
-                            
+
                             {/* Добавляем компонент выбора изучаемого языка */}
                             {renderSourceLanguageSelector()}
-                            
+
                             <div style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -4228,9 +4228,9 @@ Respond with ONLY the native language name, no additional text.`;
                             {shouldGenerateImage && isImageGenerationAvailable() && renderImageSettings()}
                         </div>
                     )}
-                    
+
                     {renderAISettings()}
-                    
+
                     <form onSubmit={handleSubmit} style={{
                         width: '100%',
                         display: 'flex',
@@ -4277,6 +4277,7 @@ Respond with ONLY the native language name, no additional text.`;
                                 onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
                             />
                         </div>
+
                         <button
                             type="submit"
                             disabled={loadingGetResult}
@@ -4297,7 +4298,7 @@ Respond with ONLY the native language name, no additional text.`;
                             onMouseOver={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#1D4ED8')}
                             onMouseOut={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#2563EB')}
                         >
-                            {loadingGetResult ? 
+                            {loadingGetResult ?
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <Loader type="dots" size="small" inline color="#ffffff" text="Creating card" />
                                 </div> : 'Create Card'}
@@ -4306,16 +4307,16 @@ Respond with ONLY the native language name, no additional text.`;
                     {/* Error notifications now appear as toast notifications */}
                 </div>
             </div>
-            
+
             {/* Add the text options modal */}
             {renderTextOptionsModal()}
-            
+
             {/* Add the modal */}
             {renderModal()}
-            
+
             {/* Добавляем модальное окно для выбора изучаемого языка */}
             {showSourceLanguageSelector && renderSourceLanguageSelector()}
-            
+
             {/* Не забываем добавить модальное окно для выбора языка в список отображаемых модальных окон */}
             {showLanguageSelector && renderLanguageSelector()}
         </div>

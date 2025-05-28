@@ -11,7 +11,7 @@ import { fetchDecksSuccess } from './store/actions/decks';
 import { fetchDecks } from './services/ankiService';
 import { setAnkiAvailability } from './store/actions/anki';
 import { toggleSidebar } from './store/actions/sidebar'
-import useErrorNotification from './components/useErrorHandler';
+import GlobalNotifications from './components/GlobalNotifications';
 import { FaList, FaCog, FaTimes, FaPlus } from 'react-icons/fa';
 import { loadStoredCards } from './store/actions/cards';
 import { loadCardsFromStorage } from './store/middleware/cardsLocalStorage';
@@ -23,7 +23,7 @@ function App() {
   const currentPage = useSelector((state: RootState) => state.currentPage);
   const dispatch = useDispatch();
   const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
-  const { showError, renderErrorNotification } = useErrorNotification();
+
   const storedCards = useSelector((state: RootState) => state.cards.storedCards);
 
   useEffect(() => {
@@ -381,9 +381,9 @@ function App() {
         }}>
           {renderMainContent()}
           
-          {/* Toast notifications - fixed positioning поверх всего контента */}
+          {/* Toast notifications - absolute positioning в рамках расширения */}
           <div style={{
-            position: 'fixed',
+            position: 'absolute',
             top: '16px',
             right: '16px',
             zIndex: 9999,
@@ -392,7 +392,7 @@ function App() {
             pointerEvents: 'none' // пропускаем клики через контейнер
           }}>
             <div style={{ pointerEvents: 'auto' }}> {/* восстанавливаем клики для самих уведомлений */}
-              {renderErrorNotification()}
+              <GlobalNotifications />
             </div>
           </div>
         </header>
