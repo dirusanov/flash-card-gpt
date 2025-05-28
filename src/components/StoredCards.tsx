@@ -3,10 +3,10 @@ import { useDispatch, useSelector } from 'react-redux';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from '../store';
-import { loadStoredCards, deleteStoredCard, saveAnkiCards, updateCardExportStatus, updateStoredCard, setImageUrl, setImage } from '../store/actions/cards';
+import { loadStoredCards, deleteStoredCard, saveAnkiCards, updateCardExportStatus, updateStoredCard, setImageUrl, setImage, setText, setTranslation, setExamples, setFront, setBack, setLinguisticInfo, setTranscription } from '../store/actions/cards';
 import { StoredCard, ExportStatus } from '../store/reducers/cards';
 import { Modes } from '../constants';
-import { FaArrowLeft, FaTrash, FaDownload, FaSync, FaEdit, FaCheck, FaTimes, FaImage, FaChevronLeft, FaChevronRight, FaPlus } from 'react-icons/fa';
+import { FaArrowLeft, FaTrash, FaDownload, FaSync, FaEdit, FaCheck, FaTimes, FaImage, FaChevronLeft, FaChevronRight, FaPlus, FaMagic } from 'react-icons/fa';
 import { CardLangLearning, CardGeneral, fetchDecks } from '../services/ankiService';
 import useErrorNotification from './useErrorHandler';
 import { Deck, setDeckId } from '../store/actions/decks';
@@ -14,6 +14,7 @@ import Loader from './Loader';
 import { getDescriptionImage } from "../services/openaiApi";
 import { getImage } from '../apiUtils';
 import { OpenAI } from 'openai';
+import ResultDisplay from './ResultDisplay';
 
 interface StoredCardsProps {
     onBackClick: () => void;
@@ -31,14 +32,24 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
+    
+    // Get current card data from Redux for editing
+    const currentCardData = useSelector((state: RootState) => state.cards);
+    
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingDecks, setLoadingDecks] = useState(false);
     const [activeFilter, setActiveFilter] = useState<CardFilterType>('not_exported');
     const [showDeckSelector, setShowDeckSelector] = useState(false);
-    const [editingCardId, setEditingCardId] = useState<string | null>(null);
-    const [editFormData, setEditFormData] = useState<StoredCard | null>(null);
+    // Modal editing states
+    const [editingCard, setEditingCard] = useState<StoredCard | null>(null);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [isEditingInModal, setIsEditingInModal] = useState(false);
+    const [customInstruction, setCustomInstruction] = useState('');
+    const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
     const [loadingImage, setLoadingImage] = useState(false);
+    const [loadingNewExamples, setLoadingNewExamples] = useState(false);
+    const [loadingAccept, setLoadingAccept] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [totalPages, setTotalPages] = useState(1);
@@ -284,7 +295,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     const handleCardSelect = (cardId: string) => {
         // Don't allow selection changes when a card is being edited
-        if (editingCardId) return;
+        if (editingCard) return;
 
         if (selectedCards.includes(cardId)) {
             setSelectedCards(selectedCards.filter(id => id !== cardId));
@@ -295,7 +306,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     const handleSelectAll = () => {
         // Don't allow selection changes when a card is being edited
-        if (editingCardId) return;
+        if (editingCard) return;
 
         if (selectedCards.length === filteredCards.length) {
             setSelectedCards([]);
@@ -672,7 +683,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     const renderCardContent = (card: StoredCard) => {
         // If card is in edit mode, don't render normal content
-        if (editingCardId === card.id) {
+        if (editingCard === card) {
             return null;
         }
 
@@ -922,7 +933,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     padding: '8px 12px',
-                    borderBottom: editingCardId === card.id ? 'none' : '1px solid #E5E7EB'
+                    borderBottom: editingCard === card ? 'none' : '1px solid #E5E7EB'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
                         <input
@@ -930,7 +941,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             checked={selectedCards.includes(card.id)}
                             onChange={() => handleCardSelect(card.id)}
                             style={{ marginRight: '8px' }}
-                            disabled={editingCardId === card.id}
+                            disabled={editingCard !== null}
                         />
                         <div>
                             <span style={{ fontSize: '12px', color: '#6B7280' }}>
@@ -956,7 +967,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {editingCardId !== card.id && (
+                        {editingCard !== card && (
                             <>
                                 <button
                                     onClick={() => handleStartEditing(card)}
@@ -1000,7 +1011,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         )}
                     </div>
                 </div>
-                {editingCardId === card.id ? renderCardEditForm() : renderCardContent(card)}
+                {renderCardContent(card)}
             </div>
         ));
     };
@@ -1172,60 +1183,71 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Start editing a card
     const handleStartEditing = (card: StoredCard) => {
-        // Create a copy of the card for editing
-        const cardForEdit = { ...card };
-
-        // Make sure the examples array is properly initialized
-        if (card.mode === Modes.LanguageLearning) {
-            cardForEdit.examples = Array.isArray(card.examples) ? [...card.examples] : [];
-
-            // Ensure text and translation fields are not null
-            cardForEdit.text = cardForEdit.text || '';
-            cardForEdit.translation = cardForEdit.translation || '';
-        } else {
-            // For general topic cards, ensure front and back are not null
-            cardForEdit.front = cardForEdit.front || '';
-            cardForEdit.back = cardForEdit.back || '';
-        }
-
-        setEditingCardId(card.id);
-        setEditFormData(cardForEdit);
+        // Load card data into Redux state for editing
+        console.log('Starting to edit card:', card.id);
+        console.log('Card data:', card);
+        console.log('Current Redux state before editing:', currentCardData);
+        
+        // Set the card data in Redux store for editing
+        dispatch(setText(card.text || ''));
+        dispatch(setTranslation(card.translation || ''));
+        dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
+        dispatch(setFront(card.front || ''));
+        dispatch(setBack(card.back || ''));
+        dispatch(setImage(card.image || null));
+        dispatch(setImageUrl(card.imageUrl || null));
+        dispatch(setLinguisticInfo(card.linguisticInfo || ''));
+        dispatch(setTranscription(card.transcription || ''));
+        
+        console.log('Redux actions dispatched, setting modal state...');
+        
+        // Set the editing state
+        setEditingCard(card);
+        setShowEditModal(true);
+        setIsEditingInModal(true);
+        setCustomInstruction('');
+        setIsProcessingCustomInstruction(false);
+        setLoadingImage(false);
+        setLoadingNewExamples(false);
+        setLoadingAccept(false);
+        
+        console.log('Modal state set. showEditModal should be true now.');
     };
 
     // Cancel editing
     const handleCancelEdit = () => {
-        setEditingCardId(null);
-        setEditFormData(null);
+        console.log('Canceling edit, resetting modal state...');
+        setEditingCard(null);
+        setShowEditModal(false);
+        setIsEditingInModal(false);
+        setCustomInstruction('');
+        setIsProcessingCustomInstruction(false);
+        setLoadingImage(false);
+        setLoadingNewExamples(false);
+        setLoadingAccept(false);
+        console.log('Edit canceled, modal should be hidden now.');
     };
 
-    // Save edited card
-    const handleSaveEdit = () => {
-        if (!editFormData) return;
+    // Save edited card from modal
+    const handleSaveEditFromModal = async () => {
+        if (!editingCard) return;
 
         try {
-            // Prepare the updated card data with deep copy to avoid reference issues
-            const updatedCardData = JSON.parse(JSON.stringify(editFormData)) as StoredCard;
+            setLoadingAccept(true);
 
-            console.log('Original editFormData:', editFormData);
-            console.log('Deep copied updatedCardData:', updatedCardData);
-
-            // Make sure we preserve the ID and other required fields
-            updatedCardData.id = editFormData.id;
-            updatedCardData.createdAt = editFormData.createdAt;
-            updatedCardData.exportStatus = editFormData.exportStatus;
-
-            // Clean up any empty examples
-            if (Array.isArray(updatedCardData.examples)) {
-                updatedCardData.examples = updatedCardData.examples
-                    .filter(example => example[0].trim() !== '') // Filter out examples with empty text
-                    .map(([text, translation]) => [
-                        text.trim(),
-                        translation ? translation.trim() : null
-                    ]); // Trim whitespace from all values
-            } else {
-                // Make sure examples is at least an empty array
-                updatedCardData.examples = [];
-            }
+            // Use the currentCardData from component level instead of useSelector inside function
+            const updatedCardData: StoredCard = {
+                ...editingCard,
+                text: currentCardData.text || editingCard.text || '',
+                translation: currentCardData.translation || editingCard.translation || '',
+                examples: Array.isArray(currentCardData.examples) ? currentCardData.examples : (Array.isArray(editingCard.examples) ? editingCard.examples : []),
+                front: currentCardData.front || editingCard.front || '',
+                back: currentCardData.back || editingCard.back || '',
+                image: currentCardData.image || editingCard.image || null,
+                imageUrl: currentCardData.imageUrl || editingCard.imageUrl || null,
+                linguisticInfo: currentCardData.linguisticInfo || editingCard.linguisticInfo || '',
+                transcription: currentCardData.transcription || editingCard.transcription || ''
+            };
 
             // Validate form data
             if (updatedCardData.mode === Modes.LanguageLearning) {
@@ -1234,7 +1256,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     return;
                 }
 
-                // Ensure these fields are properly set
                 updatedCardData.text = updatedCardData.text.trim();
                 updatedCardData.translation = updatedCardData.translation.trim();
             } else {
@@ -1243,7 +1264,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     return;
                 }
 
-                // Ensure these fields are properly set
                 updatedCardData.front = updatedCardData.front.trim();
                 updatedCardData.back = updatedCardData.back?.trim() || null;
             }
@@ -1254,28 +1274,20 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             dispatch(updateStoredCard(updatedCardData));
 
             // Reset the editing state
-            setEditingCardId(null);
-            setEditFormData(null);
+            handleCancelEdit();
 
             showError('Card updated successfully!', 'success');
         } catch (error) {
             console.error('Error saving card:', error);
             showError('Failed to update card. Please try again.');
+        } finally {
+            setLoadingAccept(false);
         }
     };
 
-    // Handle form field changes
-    const handleEditFormChange = (field: keyof StoredCard, value: any) => {
-        if (!editFormData) return;
-        setEditFormData({
-            ...editFormData,
-            [field]: value
-        });
-    };
-
-    // Generate a new image for the card
-    const handleGenerateNewImage = async () => {
-        if (!editFormData || !editFormData.text) return;
+    // Handle new image generation in modal
+    const handleNewImageInModal = async () => {
+        if (!editingCard) return;
 
         try {
             setLoadingImage(true);
@@ -1285,519 +1297,356 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 throw new Error('OpenAI API key is not configured. Please add it in the settings.');
             }
 
-            // We need to add proper error handling and logs to diagnose issues
-            console.log('Starting image generation for text:', editFormData.text);
+            // Use currentCardData from component level instead of useSelector inside function
+            const currentText = currentCardData.text || editingCard.text;
+            
+            console.log('Starting image generation for text:', currentText);
 
             // 1. Get an image description
-            const descriptionImage = await getDescriptionImage(openAiKey, editFormData.text, imageInstructions);
+            const descriptionImage = await getDescriptionImage(openAiKey, currentText, imageInstructions);
             console.log('Description generated:', descriptionImage);
 
             if (!descriptionImage) {
                 throw new Error('Failed to generate image description');
             }
 
-            // 2. Generate an image URL using the OpenAI client
-            // Use direct API calls for better debugging
-            try {
-                console.log('Attempting to generate image...');
+            // 2. Generate image using OpenAI API
+            const finalPrompt = imageInstructions
+                ? `${descriptionImage}. ${imageInstructions}`
+                : descriptionImage;
 
-                // Use OpenAI API for image generation
-                console.log('Using OpenAI for image generation');
+            const response = await fetch('https://api.openai.com/v1/images/generations', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${openAiKey}`
+                },
+                body: JSON.stringify({
+                    prompt: finalPrompt,
+                    n: 1,
+                    size: '512x512',
+                    response_format: 'url'
+                })
+            });
 
-                const finalPrompt = imageInstructions
-                    ? `${descriptionImage}. ${imageInstructions}`
-                    : descriptionImage;
+            const data = await response.json();
+            console.log('OpenAI direct API response:', data);
 
-                // Direct OpenAI API call to get image
-                const response = await fetch('https://api.openai.com/v1/images/generations', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${openAiKey}`
-                    },
-                    body: JSON.stringify({
-                        prompt: finalPrompt,
-                        n: 1,
-                        size: '512x512',
-                        response_format: 'url'
-                    })
-                });
-
-                const data = await response.json();
-                console.log('OpenAI direct API response:', data);
-
-                if (!data.data || !data.data[0] || !data.data[0].url) {
-                    throw new Error('OpenAI did not return an image URL');
-                }
-
-                const imageUrl = data.data[0].url;
-                console.log('Image URL generated:', imageUrl);
-
-                // 3. Send a message to the background script to fetch the image and convert to base64
-                console.log('Sending message to background script to fetch image');
-
-                // Create a promise that resolves when the background script sends a response
-                const imageData = await new Promise((resolve, reject) => {
-                    chrome.runtime.sendMessage(imageUrl, (response) => {
-                        if (chrome.runtime.lastError) {
-                            console.error('Error sending message:', chrome.runtime.lastError);
-                            reject(chrome.runtime.lastError);
-                            return;
-                        }
-
-                        console.log('Response from background script:', response);
-
-                        if (response && response.status && response.data) {
-                            resolve(response.data);
-                        } else {
-                            reject(new Error('Failed to get image data from background script'));
-                        }
-                    });
-                });
-
-                console.log('Image data received from background');
-
-                // Update the form data with the new image
-                // ONLY update the local editFormData, not the global Redux store
-                setEditFormData({
-                    ...editFormData,
-                    imageUrl: imageData as string,
-                    image: imageData as string
-                });
-
-                showError('New image generated successfully!', 'success');
-            } catch (imageError: any) {
-                console.error('Error in image generation:', imageError);
-                throw new Error(`Image generation failed: ${imageError?.message || 'Unknown error'}`);
+            if (!data.data || !data.data[0] || !data.data[0].url) {
+                throw new Error('OpenAI did not return an image URL');
             }
+
+            const imageUrl = data.data[0].url;
+            console.log('Image URL generated:', imageUrl);
+
+            // 3. Fetch the image and convert to base64
+            const imageData = await new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage(imageUrl, (response) => {
+                    if (chrome.runtime.lastError) {
+                        console.error('Error sending message:', chrome.runtime.lastError);
+                        reject(chrome.runtime.lastError);
+                        return;
+                    }
+
+                    console.log('Response from background script:', response);
+
+                    if (response && response.status && response.data) {
+                        resolve(response.data);
+                    } else {
+                        reject(new Error('Failed to get image data from background script'));
+                    }
+                });
+            });
+
+            console.log('Image data received from background');
+
+            // Update Redux state with new image
+            dispatch(setImageUrl(imageData as string));
+            dispatch(setImage(imageData as string));
+
+            showError('New image generated successfully!', 'success');
         } catch (error: any) {
             console.error('Error generating image:', error);
-            // Show a more detailed error message
-            showError(`Failed to generate new image: ${error?.message || 'Unknown error'}`);
+            showError(`Image generation failed: ${error?.message || 'Unknown error'}`);
         } finally {
             setLoadingImage(false);
         }
     };
 
-    // Handle the addition of a new example for language cards
-    const handleAddExample = () => {
-        if (!editFormData || editFormData.mode !== Modes.LanguageLearning) {
-            console.warn('Cannot add example: form data is null or not in language learning mode');
-            return;
-        }
+    // Handle new examples generation in modal
+    const handleNewExamplesInModal = async () => {
+        if (!editingCard) return;
 
         try {
-            // Make sure we have a valid examples array
-            const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
-
-            // Create a new array with the existing examples plus a new empty one
-            const newExamples: [string, string | null][] = [...currentExamples, ['', null]];
-
-            console.log('Adding new example, total examples:', newExamples.length);
-
-            // Update the form data with the new examples array
-            setEditFormData({
-                ...editFormData,
-                examples: newExamples
-            });
-        } catch (error) {
-            console.error('Error adding example:', error);
+            setLoadingNewExamples(true);
+            
+            // Use currentCardData from component level instead of useSelector inside function
+            const currentText = currentCardData.text || editingCard.text;
+            
+            // For now, just show a placeholder - you can implement actual examples generation here
+            showError('Examples generation would be implemented here', 'info');
+            
+        } catch (error: any) {
+            console.error('Error generating examples:', error);
+            showError(`Examples generation failed: ${error?.message || 'Unknown error'}`);
+        } finally {
+            setLoadingNewExamples(false);
         }
     };
 
-    // Handle removal of an example
-    const handleRemoveExample = (index: number) => {
-        if (!editFormData) {
-            console.warn('Cannot remove example: form data is null');
+    // Handle custom instruction application
+    const handleApplyCustomInstruction = async () => {
+        if (!customInstruction.trim() || isProcessingCustomInstruction || !editingCard) {
             return;
         }
 
+        setIsProcessingCustomInstruction(true);
+
         try {
-            // Make sure we have a valid examples array
-            const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
-
-            // Check if the index is valid
-            if (index < 0 || index >= currentExamples.length) {
-                console.warn(`Invalid example index: ${index}, examples length: ${currentExamples.length}`);
-                return;
-            }
-
-            // Create a new array without the example at the specified index
-            const newExamples: [string, string | null][] = [
-                ...currentExamples.slice(0, index),
-                ...currentExamples.slice(index + 1)
-            ];
-
-            console.log(`Removed example at index ${index}, remaining examples:`, newExamples.length);
-
-            // Update the form data with the modified examples
-            setEditFormData({
-                ...editFormData,
-                examples: newExamples
-            });
+            // For now, just show a placeholder - you can implement actual custom instruction processing here
+            showError(`Custom instruction "${customInstruction}" would be applied here`, 'info');
+            
+            // Clear the instruction after applying
+            setCustomInstruction('');
         } catch (error) {
-            console.error('Error removing example:', error);
+            console.error('Error applying custom instructions:', error);
+            showError('Failed to apply custom instructions');
+        } finally {
+            setIsProcessingCustomInstruction(false);
         }
     };
 
-    // Handle changes to an example
-    const handleExampleChange = (index: number, isExample: boolean, value: string) => {
-        if (!editFormData) {
-            console.warn('Cannot change example: form data is null');
-            return;
-        }
-
-        try {
-            // Make sure we have a valid examples array
-            const currentExamples = Array.isArray(editFormData.examples) ? [...editFormData.examples] : [];
-
-            // Create a copy of the examples array
-            const newExamples: [string, string | null][] = [...currentExamples];
-
-            // If the index doesn't exist, add empty examples up to this index
-            while (newExamples.length <= index) {
-                newExamples.push(['', null]);
-            }
-
-            // Update the specific example text or translation
-            if (isExample) {
-                newExamples[index][0] = value;
-                console.log(`Updated example text at index ${index}:`, value.substring(0, 20) + (value.length > 20 ? '...' : ''));
-            } else {
-                newExamples[index][1] = value;
-                console.log(`Updated translation at index ${index}:`, value.substring(0, 20) + (value.length > 20 ? '...' : ''));
-            }
-
-            // Update the form data with the modified examples
-            setEditFormData({
-                ...editFormData,
-                examples: newExamples
-            });
-        } catch (error) {
-            console.error('Error updating example:', error);
+    const handleCustomInstructionKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleApplyCustomInstruction();
         }
     };
 
-    // Render the edit form for a card
-    const renderCardEditForm = () => {
-        if (!editFormData) return null;
+    // Handle translation update from ResultDisplay
+    const handleTranslationUpdate = (newTranslation: string) => {
+        dispatch(setTranslation(newTranslation));
+    };
 
-        const formStyles = {
-            container: {
-                display: 'flex' as const,
-                flexDirection: 'column' as const,
-                gap: '16px',
-                padding: '16px',
-                backgroundColor: '#f8fafc',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                marginBottom: '16px'
-            },
-            header: {
-                display: 'flex' as const,
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '8px'
-            },
-            title: {
-                fontSize: '16px',
-                fontWeight: '600' as const,
-                color: '#334155'
-            },
-            buttonGroup: {
-                display: 'flex' as const,
-                gap: '8px'
-            },
-            button: {
-                padding: '6px 12px',
-                borderRadius: '6px',
-                fontSize: '14px',
-                fontWeight: '500' as const,
-                cursor: 'pointer',
-                display: 'flex' as const,
-                alignItems: 'center',
-                gap: '4px',
-                border: 'none'
-            },
-            cancelButton: {
-                backgroundColor: '#f1f5f9',
-                color: '#64748b',
-                border: '1px solid #cbd5e1'
-            },
-            saveButton: {
-                backgroundColor: '#2563eb',
-                color: '#ffffff'
-            },
-            fieldGroup: {
-                display: 'flex' as const,
-                flexDirection: 'column' as const,
-                gap: '4px'
-            },
-            label: {
-                fontSize: '13px',
-                color: '#475569',
-                fontWeight: '500' as const
-            },
-            input: {
-                padding: '8px 12px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '14px',
-                color: '#334155',
-                backgroundColor: '#ffffff'
-            },
-            textarea: {
-                padding: '8px 12px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '14px',
-                color: '#334155',
-                minHeight: '80px',
-                resize: 'vertical' as const,
-                backgroundColor: '#ffffff'
-            },
-            imageContainer: {
-                display: 'flex' as const,
-                flexDirection: 'column' as const,
-                gap: '8px',
-                alignItems: 'center'
-            },
-            image: {
-                maxWidth: '100%',
-                maxHeight: '200px',
-                borderRadius: '6px'
-            },
-            imageButton: {
-                backgroundColor: '#10b981',
-                color: '#ffffff',
-                border: 'none',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                fontSize: '13px',
-                display: 'flex' as const,
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer'
-            },
-            examplesContainer: {
-                display: 'flex' as const,
-                flexDirection: 'column' as const,
-                gap: '8px'
-            },
-            exampleItem: {
-                display: 'flex' as const,
-                flexDirection: 'column' as const,
-                gap: '4px',
-                backgroundColor: '#f1f5f9',
-                padding: '8px',
-                borderRadius: '6px',
-                position: 'relative' as const
-            },
-            exampleHeader: {
-                display: 'flex' as const,
-                justifyContent: 'space-between'
-            },
-            removeButton: {
-                backgroundColor: 'transparent',
-                border: 'none',
-                color: '#ef4444',
-                cursor: 'pointer',
-                padding: '2px',
-                position: 'absolute' as const,
-                top: '8px',
-                right: '8px'
-            },
-            addButton: {
-                backgroundColor: '#f8fafc',
-                color: '#2563eb',
-                border: '1px dashed #94a3b8',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                fontSize: '13px',
-                display: 'flex' as const,
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                width: '100%',
-                marginTop: '8px'
-            }
-        };
+    // Handle examples update from ResultDisplay
+    const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
+        dispatch(setExamples(newExamples));
+    };
+
+    // Handle linguistic info update from ResultDisplay
+    const handleLinguisticInfoUpdate = (newInfo: string) => {
+        dispatch(setLinguisticInfo(newInfo));
+    };
+
+    // Render the modal for editing cards
+    const renderEditModal = () => {
+        console.log('renderEditModal called. showEditModal:', showEditModal, 'editingCard:', editingCard);
+        
+        if (!showEditModal || !editingCard) {
+            console.log('Modal not showing because showEditModal:', showEditModal, 'editingCard:', !!editingCard);
+            return null;
+        }
+
+        // Use currentCardData from component level instead of useSelector inside function
+        const { text, translation, examples, front, back, image, imageUrl, linguisticInfo, transcription } = currentCardData;
+        
+        console.log('Rendering edit modal with data:', {
+            text: text?.substring(0, 20) + '...',
+            translation: translation?.substring(0, 20) + '...',
+            examplesCount: examples?.length,
+            hasImage: !!image,
+            hasImageUrl: !!imageUrl
+        });
 
         return (
-            <div style={formStyles.container}>
-                <div style={formStyles.header}>
-                    <h3 style={formStyles.title}>Edit Card</h3>
-                    <div style={formStyles.buttonGroup}>
-                        <button onClick={handleCancelEdit} style={{ ...formStyles.button, ...formStyles.cancelButton }}>
-                            <FaTimes size={12} /> Cancel
-                        </button>
-                        <button onClick={handleSaveEdit} style={{ ...formStyles.button, ...formStyles.saveButton }}>
-                            <FaCheck size={12} /> Save
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                backdropFilter: 'blur(2px)',
+                padding: '16px'
+            }} onClick={handleCancelEdit}>
+                <div style={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: '12px',
+                    maxWidth: '340px',
+                    width: '100%',
+                    maxHeight: '90vh',
+                    overflowY: 'auto',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                    position: 'relative',
+                    padding: '16px'
+                }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{
+                        position: 'sticky',
+                        top: 0,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        borderBottom: '1px solid #E5E7EB',
+                        paddingBottom: '12px',
+                        marginBottom: '16px',
+                        backgroundColor: '#ffffff',
+                        zIndex: 2
+                    }}>
+                        <h3 style={{
+                            margin: 0,
+                            fontSize: '16px',
+                            fontWeight: 600,
+                            color: '#111827'
+                        }}>
+                            Edit Card
+                        </h3>
+                        <button
+                            onClick={handleCancelEdit}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '8px',
+                                borderRadius: '50%',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.2s'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
+                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            aria-label="Close"
+                        >
+                            <FaTimes size={16} color="#6B7280" />
                         </button>
                     </div>
-                </div>
 
-                {editFormData.mode === Modes.LanguageLearning ? (
-                    <>
-                        <div style={formStyles.fieldGroup}>
-                            <label style={formStyles.label}>Text</label>
+                    {/* Custom instruction input */}
+                    <div style={{
+                        width: '100%',
+                        marginBottom: '12px'
+                    }}>
+                        <div style={{
+                            position: 'relative',
+                            width: '100%',
+                        }}>
                             <input
                                 type="text"
-                                value={editFormData.text || ''}
-                                onChange={(e) => handleEditFormChange('text', e.target.value)}
-                                style={formStyles.input}
+                                value={customInstruction}
+                                onChange={(e) => setCustomInstruction(e.target.value)}
+                                onKeyDown={handleCustomInstructionKeyDown}
+                                placeholder="Enter custom instructions for this card (e.g., 'regenerate examples', 'change image style')"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    paddingRight: '44px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #E5E7EB',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    backgroundColor: isProcessingCustomInstruction ? '#F9FAFB' : '#FFFFFF',
+                                    transition: 'all 0.2s ease',
+                                    boxShadow: isProcessingCustomInstruction ? 'inset 0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
+                                }}
+                                disabled={isProcessingCustomInstruction}
                             />
-                        </div>
-
-                        <div style={formStyles.fieldGroup}>
-                            <label style={formStyles.label}>Translation</label>
-                            <input
-                                type="text"
-                                value={editFormData.translation || ''}
-                                onChange={(e) => handleEditFormChange('translation', e.target.value)}
-                                style={formStyles.input}
-                            />
-                        </div>
-
-                        <div style={formStyles.fieldGroup}>
-                            <label style={formStyles.label}>Examples</label>
-                            <div style={formStyles.examplesContainer}>
-                                {Array.isArray(editFormData.examples) && editFormData.examples.length > 0 ? (
-                                    editFormData.examples.map((example, index) => (
-                                        <div key={index} style={formStyles.exampleItem}>
-                                            <button
-                                                onClick={() => handleRemoveExample(index)}
-                                                style={formStyles.removeButton}
-                                                type="button"
-                                            >
-                                                <FaTimes size={12} />
-                                            </button>
-                                            <textarea
-                                                value={example[0] || ''}
-                                                onChange={(e) => handleExampleChange(index, true, e.target.value)}
-                                                placeholder="Example"
-                                                style={{
-                                                    ...formStyles.input,
-                                                    minHeight: '60px',
-                                                    resize: 'vertical',
-                                                    fontFamily: 'inherit',
-                                                    lineHeight: '1.4'
-                                                }}
-                                            />
-                                            <textarea
-                                                value={example[1] || ''}
-                                                onChange={(e) => handleExampleChange(index, false, e.target.value)}
-                                                placeholder="Translation (optional)"
-                                                style={{
-                                                    ...formStyles.input,
-                                                    minHeight: '60px',
-                                                    resize: 'vertical',
-                                                    fontFamily: 'inherit',
-                                                    lineHeight: '1.4'
-                                                }}
-                                            />
-                                        </div>
-                                    ))
-                                ) : (
-                                    <div style={{
-                                        padding: '12px',
-                                        textAlign: 'center',
-                                        color: '#64748b',
-                                        fontSize: '14px',
-                                        backgroundColor: '#f1f5f9',
-                                        borderRadius: '6px',
-                                        marginBottom: '8px'
-                                    }}>
-                                        No examples added yet
-                                    </div>
-                                )}
+                            {isProcessingCustomInstruction ? (
+                                <div style={{
+                                    position: 'absolute',
+                                    right: '10px',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '6px',
+                                    borderRadius: '50%',
+                                    color: '#4F46E5'
+                                }}>
+                                    <Loader type="pulse" size="small" inline color="#4F46E5" />
+                                </div>
+                            ) : (
                                 <button
-                                    onClick={handleAddExample}
-                                    style={formStyles.addButton}
-                                    type="button"
-                                >
-                                    + Add Example
-                                </button>
-                            </div>
-                        </div>
-
-                        <div style={formStyles.fieldGroup}>
-                            <label style={formStyles.label}>Image</label>
-                            <div style={formStyles.imageContainer}>
-                                {(editFormData.imageUrl || editFormData.image) ? (
-                                    <img 
-                                        src={(editFormData.imageUrl || editFormData.image || '') as string} 
-                                        alt="" 
-                                        style={formStyles.image} 
-                                    />
-                                ) : (
-                                    <div style={{
-                                        width: '100%',
-                                        height: '100px',
+                                    onClick={handleApplyCustomInstruction}
+                                    disabled={!customInstruction.trim() || isProcessingCustomInstruction}
+                                    style={{
+                                        position: 'absolute',
+                                        right: '8px',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        background: customInstruction.trim() ? 'linear-gradient(to right, #4F46E5, #6366F1)' : 'none',
+                                        border: 'none',
+                                        color: customInstruction.trim() ? '#FFFFFF' : '#9CA3AF',
+                                        cursor: customInstruction.trim() ? 'pointer' : 'not-allowed',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        backgroundColor: '#f1f5f9',
-                                        borderRadius: '6px',
-                                        color: '#64748b',
-                                        fontSize: '14px'
-                                    }}>
-                                        No image available
-                                    </div>
-                                )}
-                                <button
-                                    onClick={handleGenerateNewImage}
-                                    disabled={loadingImage}
-                                    style={formStyles.imageButton}
+                                        padding: '6px',
+                                        borderRadius: '50%',
+                                        width: '28px',
+                                        height: '28px',
+                                        boxShadow: customInstruction.trim() ? '0 1px 3px rgba(0, 0, 0, 0.1)' : 'none',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                    title="Apply instructions"
                                 >
-                                    <FaImage size={14} />
-                                    {loadingImage ? 
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader type="pulse" size="small" inline color="#ffffff" text="Generating" />
-    </div> : 'Generate New Image'}
+                                    <FaMagic size={14} />
                                 </button>
-                            </div>
+                            )}
                         </div>
-                        
-                        <div style={formStyles.fieldGroup}>
-                            <label style={formStyles.label}>Grammar & Linguistics</label>
-                            <textarea
-                                value={editFormData.linguisticInfo || ''}
-                                onChange={(e) => handleEditFormChange('linguisticInfo', e.target.value)}
-                                placeholder="Enter grammar information, word forms, linguistic details..."
-                                style={{
-                                    ...formStyles.input,
-                                    minHeight: '80px',
-                                    resize: 'vertical',
-                                    fontFamily: 'inherit',
-                                    lineHeight: '1.4'
-                                }}
-                            />
+                        <div style={{
+                            fontSize: '12px',
+                            color: isProcessingCustomInstruction ? '#4F46E5' : '#6B7280',
+                            marginTop: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontWeight: isProcessingCustomInstruction ? '500' : 'normal',
+                        }}>
+                            {isProcessingCustomInstruction && (
+                                <span style={{
+                                    display: 'inline-block',
+                                    width: '6px',
+                                    height: '6px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#4F46E5',
+                                    animation: 'pulse 1.5s infinite',
+                                }}></span>
+                            )}
+                            {isProcessingCustomInstruction ? 'Applying your instructions...' : 'Type instructions and press Enter or click the magic wand'}
                         </div>
-                    </>
-                ) : (
-                    <>
-                        <div style={formStyles.fieldGroup}>
-                            <label style={formStyles.label}>Front</label>
-                            <input
-                                type="text"
-                                value={editFormData.front || ''}
-                                onChange={(e) => handleEditFormChange('front', e.target.value)}
-                                style={formStyles.input}
-                            />
-                        </div>
+                    </div>
 
-                        <div style={formStyles.fieldGroup}>
-                            <label style={formStyles.label}>Back</label>
-                            <textarea
-                                value={editFormData.back || ''}
-                                onChange={(e) => handleEditFormChange('back', e.target.value)}
-                                style={formStyles.textarea}
-                            />
-                        </div>
-                    </>
-                )}
+                    {/* Use ResultDisplay component for consistent UI */}
+                    <ResultDisplay
+                        mode={editingCard.mode}
+                        front={front}
+                        translation={translation}
+                        examples={examples}
+                        imageUrl={imageUrl}
+                        image={image}
+                        linguisticInfo={linguisticInfo}
+                        transcription={transcription}
+                        onNewImage={handleNewImageInModal}
+                        onNewExamples={handleNewExamplesInModal}
+                        onAccept={handleSaveEditFromModal}
+                        onViewSavedCards={() => {}}
+                        onCancel={handleCancelEdit}
+                        loadingNewImage={loadingImage}
+                        loadingNewExamples={loadingNewExamples}
+                        loadingAccept={loadingAccept}
+                        shouldGenerateImage={true}
+                        isSaved={true} // Show edit mode since we're editing
+                        isEdited={true}
+                        setTranslation={handleTranslationUpdate}
+                        setExamples={handleExamplesUpdate}
+                        setLinguisticInfo={handleLinguisticInfoUpdate}
+                    />
+                </div>
             </div>
         );
     };
@@ -2297,6 +2146,18 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
     };
 
+    // Debug effect to track modal state changes
+    useEffect(() => {
+        console.log('Modal state changed:', {
+            showEditModal,
+            editingCard: editingCard?.id,
+            currentCardData: {
+                text: currentCardData.text?.substring(0, 20) + '...',
+                translation: currentCardData.translation?.substring(0, 20) + '...'
+            }
+        });
+    }, [showEditModal, editingCard, currentCardData.text, currentCardData.translation]);
+
     return (
         <div style={{
             display: 'flex',
@@ -2355,12 +2216,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 checked={selectedCards.length === filteredCards.length && filteredCards.length > 0}
                                 onChange={handleSelectAll}
                                 style={{ marginRight: '8px' }}
-                                disabled={editingCardId !== null}
+                                disabled={editingCard !== null}
                             />
                             <label htmlFor="selectAll" style={{
                                 fontSize: '14px',
-                                cursor: editingCardId !== null ? 'default' : 'pointer',
-                                opacity: editingCardId !== null ? 0.6 : 1
+                                cursor: editingCard !== null ? 'default' : 'pointer',
+                                opacity: editingCard !== null ? 0.6 : 1
                             }}>
                                 {selectedCards.length === filteredCards.length && filteredCards.length > 0
                                     ? 'Deselect All'
@@ -2370,7 +2231,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                             <button
                                 onClick={handleSaveToAnki}
-                                disabled={isLoading || selectedCards.length === 0 || !useAnkiConnect || !deckId || editingCardId !== null}
+                                disabled={isLoading || selectedCards.length === 0 || !useAnkiConnect || !deckId || editingCard !== null}
                                 style={{
                                     padding: '6px 10px',
                                     borderRadius: '6px',
@@ -2379,10 +2240,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     fontSize: '13px',
                                     border: 'none',
                                     cursor: 'pointer',
-                                    opacity: (isLoading || selectedCards.length === 0 || !useAnkiConnect || !deckId || editingCardId !== null) ? 0.6 : 1
+                                    opacity: (isLoading || selectedCards.length === 0 || !useAnkiConnect || !deckId || editingCard !== null) ? 0.6 : 1
                                 }}
                                 title={
-                                    editingCardId !== null ? 'Finish editing first' :
+                                    editingCard !== null ? 'Finish editing first' :
                                         !deckId && useAnkiConnect ? 'Please select a deck first' : ''
                                 }
                             >
@@ -2393,7 +2254,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             </button>
                             <button
                                 onClick={exportCardsAsFile}
-                                disabled={isLoading || selectedCards.length === 0 || editingCardId !== null}
+                                disabled={isLoading || selectedCards.length === 0 || editingCard !== null}
                                 style={{
                                     padding: '6px 10px',
                                     borderRadius: '6px',
@@ -2405,7 +2266,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '4px',
-                                    opacity: (isLoading || selectedCards.length === 0 || editingCardId !== null) ? 0.6 : 1
+                                    opacity: (isLoading || selectedCards.length === 0 || editingCard !== null) ? 0.6 : 1
                                 }}
                             >
                                 <FaDownload size={12} />
@@ -2440,6 +2301,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             )}
             
             {/* Remove the floating action button since we've added a button to the top navigation */}
+
+            {/* Modal for editing cards */}
+            {renderEditModal()}
 
             {/* Error notifications displayed as toast notifications */}
             <div style={{

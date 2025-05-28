@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Page for Chrome Extension</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-text {
+            background-color: #f0f0f0;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Page for Anki Chrome Extension</h1>
+    
+    <div class="test-section">
+        <h2>Test Text Selection</h2>
+        <p>Select any text below to test the extension:</p>
+        
+        <div class="test-text">
+            <p>Hello world! This is a simple English text for testing.</p>
+        </div>
+        
+        <div class="test-text">
+            <p>Привет мир! Это простой русский текст для тестирования.</p>
+        </div>
+        
+        <div class="test-text">
+            <p>Bonjour le monde! Ceci est un texte français simple pour les tests.</p>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Instructions</h2>
+        <ol>
+            <li>Install the Chrome extension from the build folder</li>
+            <li>Select any text above</li>
+            <li>Open the extension popup</li>
+            <li>Test creating and editing cards</li>
+        </ol>
+    </div>
+    
+    <script>
+        // Add some console logging for debugging
+        console.log('Test page loaded');
+        
+        document.addEventListener('mouseup', function() {
+            const selectedText = window.getSelection().toString().trim();
+            if (selectedText) {
+                console.log('Text selected:', selectedText);
+            }
+        });
+    </script>
+</body>
+</html> 
