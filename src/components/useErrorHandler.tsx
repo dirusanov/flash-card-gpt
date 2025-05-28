@@ -25,19 +25,10 @@ const useErrorNotification = () => {
         setIsAnimating(true);
       }, 50);
       
-      // Auto-hide successful and info messages after 4 seconds
-      if (errorType === 'success' || errorType === 'info') {
-        setTimeout(() => {
-          hideNotification();
-        }, 4000);
-      }
-      // Auto-hide warnings after 6 seconds
-      else if (errorType === 'warning') {
-        setTimeout(() => {
-          hideNotification();
-        }, 6000);
-      }
-      // Errors stay until manually dismissed
+      // Auto-hide all messages after 5 seconds
+      setTimeout(() => {
+        hideNotification();
+      }, 5000);
     } else {
       hideNotification();
     }
@@ -202,26 +193,24 @@ const useErrorNotification = () => {
         </button>
         
         {/* Progress bar for auto-dismiss notifications */}
-        {(type === 'success' || type === 'info' || type === 'warning') && (
+        <div style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '3px',
+          backgroundColor: 'rgba(0, 0, 0, 0.1)',
+          borderRadius: '0 0 12px 12px',
+          overflow: 'hidden'
+        }}>
           <div style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: '3px',
-            backgroundColor: 'rgba(0, 0, 0, 0.1)',
-            borderRadius: '0 0 12px 12px',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              height: '100%',
-              backgroundColor: borderColor,
-              width: '100%',
-              transition: `width ${type === 'warning' ? '6s' : '4s'} linear`,
-              transformOrigin: 'left'
-            }} />
-          </div>
-        )}
+            height: '100%',
+            backgroundColor: borderColor,
+            width: '100%',
+            transition: 'width 5s linear',
+            transformOrigin: 'left'
+          }} />
+        </div>
       </div>
     );
   };

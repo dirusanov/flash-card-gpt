@@ -955,7 +955,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             {renderCardStatus(card.exportStatus)}
                         </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         {editingCardId !== card.id && (
                             <>
                                 <button
@@ -2307,7 +2307,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             overflowY: 'auto',
             width: '100%',
             maxWidth: '320px',
-            margin: '0 auto'
+            margin: '0 auto',
+            position: 'relative'
         }}>
             <div style={{
                 display: 'flex',
@@ -2334,8 +2335,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     Saved Cards ({storedCards.length})
                 </div>
             </div>
-
-            {/* Error notifications now appear as toast in top-right corner */}
 
             {storedCards.length > 0 ? (
                 <>
@@ -2412,44 +2411,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 <FaDownload size={12} />
                                 <span>Export</span>
                             </button>
-                            <button
-                                onClick={diagnoseImageIssues}
-                                style={{
-                                    padding: '6px 10px',
-                                    borderRadius: '6px',
-                                    backgroundColor: '#8B5CF6',
-                                    color: '#ffffff',
-                                    fontSize: '13px',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px'
-                                }}
-                                title="Debug storage and image issues"
-                            >
-                                🔍
-                                <span>Debug</span>
-                            </button>
-                            <button
-                                onClick={fixStorageQuotaIssues}
-                                style={{
-                                    padding: '6px 10px',
-                                    borderRadius: '6px',
-                                    backgroundColor: '#F59E0B',
-                                    color: '#ffffff',
-                                    fontSize: '13px',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px'
-                                }}
-                                title="Optimize storage to preserve images"
-                            >
-                                🛠️
-                                <span>Optimize</span>
-                            </button>
                         </div>
                     </div>
 
@@ -2479,6 +2440,19 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             )}
             
             {/* Remove the floating action button since we've added a button to the top navigation */}
+
+            {/* Error notifications displayed as toast notifications */}
+            <div style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                zIndex: 9999,
+                pointerEvents: 'none'
+            }}>
+                <div style={{ pointerEvents: 'auto' }}>
+                    {renderErrorNotification()}
+                </div>
+            </div>
         </div>
     );
 };

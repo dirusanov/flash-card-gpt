@@ -4304,7 +4304,6 @@ Respond with ONLY the native language name, no additional text.`;
                                 </div> : 'Create Card'}
                         </button>
                     </form>
-                    {/* Error notifications now appear as toast notifications */}
                 </div>
             </div>
 
@@ -4319,6 +4318,19 @@ Respond with ONLY the native language name, no additional text.`;
 
             {/* Не забываем добавить модальное окно для выбора языка в список отображаемых модальных окон */}
             {showLanguageSelector && renderLanguageSelector()}
+
+            {/* Error notifications displayed as toast notifications */}
+            <div style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                zIndex: 9999,
+                pointerEvents: 'none'
+            }}>
+                <div style={{ pointerEvents: 'auto' }}>
+                    {renderErrorNotification()}
+                </div>
+            </div>
         </div>
     );
 };
