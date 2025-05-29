@@ -8,7 +8,7 @@ import { setDeckId } from "../store/actions/decks";
 import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription } from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import { generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText } from "../services/openaiApi";
-import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
+import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setImageGenerationMode } from "../store/actions/settings";
 import { Modes } from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import { OpenAI } from 'openai';
@@ -63,6 +63,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
     const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
+    const imageGenerationMode = useSelector((state: RootState) => state.settings.imageGenerationMode);
     const [showAISettings, setShowAISettings] = useState(false);
     const [showImageSettings, setShowImageSettings] = useState(false);
     const [localAIInstructions, setLocalAIInstructions] = useState(aiInstructions);
@@ -1161,25 +1162,46 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
 
             // 4. Generate image if needed and supported
-            if (shouldGenerateImage) {
+            if (imageGenerationMode !== 'off' && isImageGenerationAvailable()) {
                 try {
-                    const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
+                    let shouldGenerate = imageGenerationMode === 'always';
+                    let analysisReason = '';
 
-                    if (modelProvider === ModelProvider.OpenAI) {
-                        const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
+                    // For smart mode, check if image would be helpful
+                    if (imageGenerationMode === 'smart') {
+                        const analysis = await shouldGenerateImageForText(text);
+                        shouldGenerate = analysis.shouldGenerate;
+                        analysisReason = analysis.reason;
+                        
+                        console.log(`Smart image analysis for "${text}": ${shouldGenerate ? 'YES' : 'NO'} - ${analysisReason}`);
+                    }
 
-                        if (imageUrl) {
-                            console.log('*** HANDLE SUBMIT: Setting imageUrl in Redux:', imageUrl.substring(0, 50));
-                            dispatch(setImageUrl(imageUrl));
+                    if (shouldGenerate) {
+                        const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
+
+                        if (modelProvider === ModelProvider.OpenAI) {
+                            const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
+
+                            if (imageUrl) {
+                                console.log('*** HANDLE SUBMIT: Setting imageUrl in Redux:', imageUrl.substring(0, 50));
+                                dispatch(setImageUrl(imageUrl));
+                            }
+                            if (imageBase64) {
+                                console.log('*** HANDLE SUBMIT: Setting image (base64) in Redux:', imageBase64.substring(0, 50));
+                                dispatch(setImage(imageBase64));
+                            }
+                            completedOperations.image = true;
+                            
+                            if (imageGenerationMode === 'smart') {
+                                showError(`Image generated: ${analysisReason}`, 'info');
+                            }
+                        } else {
+                            // Skip image for providers that don't support it
+                            console.log('Image generation not supported for this provider');
                         }
-                        if (imageBase64) {
-                            console.log('*** HANDLE SUBMIT: Setting image (base64) in Redux:', imageBase64.substring(0, 50));
-                            dispatch(setImage(imageBase64));
-                        }
-                        completedOperations.image = true;
-                    } else {
-                        // Skip image for providers that don't support it
-                        console.log('Image generation not supported for this provider');
+                    } else if (imageGenerationMode === 'smart') {
+                        // Show why image wasn't generated in smart mode
+                        showError(`No image needed: ${analysisReason}`, 'info');
                     }
                 } catch (imageError) {
                     console.error('Image generation failed:', imageError);
@@ -4059,6 +4081,59 @@ Respond with ONLY the native language name, no additional text.`;
         return await getLanguageNameFromAI(languageCode);
     }, [getLanguageNameFromAI]);
 
+    // Smart image generation function
+    const shouldGenerateImageForText = useCallback(async (text: string): Promise<{ shouldGenerate: boolean; reason: string }> => {
+        if (!text || text.trim().length === 0) {
+            return { shouldGenerate: false, reason: "No text provided" };
+        }
+
+        try {
+            const prompt = `Analyze this word/phrase and determine if a visual image would be helpful for language learning: "${text}"
+
+Consider these criteria:
+- Concrete objects, animals, places, foods, tools, vehicles = YES
+- Abstract concepts, emotions, actions, grammar terms = NO
+- People, professions, activities that can be visualized = YES
+- Numbers, prepositions, conjunctions, abstract ideas = NO
+
+Respond with ONLY "YES" or "NO" followed by a brief reason (max 10 words).
+Format: "YES - concrete object that can be visualized" or "NO - abstract concept"`;
+
+            const response = await aiService.createChatCompletion(apiKey, [
+                { role: "user", content: prompt }
+            ]);
+
+            if (response && response.content) {
+                const result = response.content.trim();
+                const shouldGenerate = result.toUpperCase().startsWith('YES');
+                const reason = result.includes(' - ') ? result.split(' - ')[1] : 'AI analysis';
+                
+                return { shouldGenerate, reason };
+            }
+
+            return { shouldGenerate: false, reason: "AI analysis failed" };
+        } catch (error) {
+            console.error('Error analyzing text for image generation:', error);
+            return { shouldGenerate: false, reason: "Analysis error" };
+        }
+    }, [aiService, apiKey]);
+
+    // Handle image mode changes
+    const handleImageModeChange = (mode: 'off' | 'smart' | 'always') => {
+        dispatch(setImageGenerationMode(mode));
+        
+        // If switching to 'always' mode and we have text, try to generate an image
+        if (mode === 'always' && text && isImageGenerationAvailable()) {
+            handleNewImage();
+        }
+        
+        // If switching to 'off' mode, clear existing images
+        if (mode === 'off') {
+            dispatch(setImage(null));
+            dispatch(setImageUrl(null));
+        }
+    };
+
     return (
         <div style={{
             display: 'flex',
@@ -4158,74 +4233,131 @@ Respond with ONLY the native language name, no additional text.`;
 
                             <div style={{
                                 display: 'flex',
-                                alignItems: 'center',
+                                flexDirection: 'column',
                                 gap: '8px',
                                 marginTop: '4px'
                             }}>
-                                <label htmlFor="generateImage" style={{
+                                <label style={{
                                     color: '#111827',
                                     fontWeight: '600',
                                     fontSize: '14px',
                                     margin: 0
-                                }}>Image:</label>
+                                }}>Image Generation:</label>
+                                
+                                {/* Smart Image Generation Mode Selector */}
                                 <div style={{
-                                    position: 'relative',
-                                    display: 'inline-block',
-                                    width: '40px',
-                                    height: '22px',
+                                    display: 'flex',
+                                    backgroundColor: '#F3F4F6',
+                                    borderRadius: '8px',
+                                    padding: '4px',
+                                    gap: '2px',
                                     opacity: isImageGenerationAvailable() ? 1 : 0.5
                                 }}>
-                                    <input
-                                        type="checkbox"
-                                        id="generateImage"
-                                        checked={shouldGenerateImage}
-                                        onChange={handleImageToggle}
+                                    {/* Off Mode */}
+                                    <button
+                                        type="button"
+                                        onClick={() => handleImageModeChange('off')}
                                         disabled={!isImageGenerationAvailable()}
                                         style={{
-                                            opacity: 0,
-                                            width: 0,
-                                            height: 0
-                                        }}
-                                    />
-                                    <label
-                                        htmlFor="generateImage"
-                                        style={{
-                                            position: 'absolute',
+                                            flex: 1,
+                                            padding: '8px 12px',
+                                            borderRadius: '6px',
+                                            border: 'none',
+                                            backgroundColor: imageGenerationMode === 'off' ? '#FFFFFF' : 'transparent',
+                                            color: imageGenerationMode === 'off' ? '#111827' : '#6B7280',
+                                            fontSize: '12px',
+                                            fontWeight: imageGenerationMode === 'off' ? '600' : '500',
                                             cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
-                                            top: 0,
-                                            left: 0,
-                                            right: 0,
-                                            bottom: 0,
-                                            backgroundColor: shouldGenerateImage ? '#2563EB' : '#E5E7EB',
-                                            transition: '.3s',
-                                            borderRadius: '22px'
+                                            transition: 'all 0.2s ease',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '4px',
+                                            boxShadow: imageGenerationMode === 'off' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
                                         }}
                                     >
-                                        <span style={{
-                                            position: 'absolute',
-                                            content: '""',
-                                            height: '18px',
-                                            width: '18px',
-                                            left: '2px',
-                                            bottom: '2px',
-                                            backgroundColor: 'white',
-                                            transition: '.3s',
-                                            borderRadius: '50%',
-                                            transform: shouldGenerateImage ? 'translateX(18px)' : 'translateX(0)'
-                                        }} />
-                                    </label>
+                                        🚫 Off
+                                    </button>
+
+                                    {/* Smart Mode */}
+                                    <button
+                                        type="button"
+                                        onClick={() => handleImageModeChange('smart')}
+                                        disabled={!isImageGenerationAvailable()}
+                                        style={{
+                                            flex: 1,
+                                            padding: '8px 12px',
+                                            borderRadius: '6px',
+                                            border: 'none',
+                                            backgroundColor: imageGenerationMode === 'smart' ? '#FFFFFF' : 'transparent',
+                                            color: imageGenerationMode === 'smart' ? '#111827' : '#6B7280',
+                                            fontSize: '12px',
+                                            fontWeight: imageGenerationMode === 'smart' ? '600' : '500',
+                                            cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
+                                            transition: 'all 0.2s ease',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '4px',
+                                            boxShadow: imageGenerationMode === 'smart' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
+                                        }}
+                                    >
+                                        🧠 Smart
+                                    </button>
+
+                                    {/* Always Mode */}
+                                    <button
+                                        type="button"
+                                        onClick={() => handleImageModeChange('always')}
+                                        disabled={!isImageGenerationAvailable()}
+                                        style={{
+                                            flex: 1,
+                                            padding: '8px 12px',
+                                            borderRadius: '6px',
+                                            border: 'none',
+                                            backgroundColor: imageGenerationMode === 'always' ? '#FFFFFF' : 'transparent',
+                                            color: imageGenerationMode === 'always' ? '#111827' : '#6B7280',
+                                            fontSize: '12px',
+                                            fontWeight: imageGenerationMode === 'always' ? '600' : '500',
+                                            cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
+                                            transition: 'all 0.2s ease',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '4px',
+                                            boxShadow: imageGenerationMode === 'always' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
+                                        }}
+                                    >
+                                        🎨 Always
+                                    </button>
                                 </div>
-                                {!isImageGenerationAvailable() && shouldGenerateImage && (
-                                    <span style={{
+
+                                {/* Description text */}
+                                <div style={{
+                                    fontSize: '11px',
+                                    color: '#6B7280',
+                                    lineHeight: '1.4',
+                                    marginTop: '2px'
+                                }}>
+                                    {imageGenerationMode === 'off' && 'No images will be generated'}
+                                    {imageGenerationMode === 'smart' && 'AI decides: Images only for concrete objects, places, and visual concepts. Saves API costs by skipping abstract terms.'}
+                                    {imageGenerationMode === 'always' && 'Images generated for all cards'}
+                                </div>
+
+                                {!isImageGenerationAvailable() && (
+                                    <div style={{
                                         fontSize: '12px',
                                         color: '#EF4444',
-                                        marginLeft: '4px'
+                                        backgroundColor: '#FEF2F2',
+                                        padding: '6px 8px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #FECACA'
                                     }}>
-                                        Not available with Groq
-                                    </span>
+                                        Image generation not available with Groq provider
+                                    </div>
                                 )}
                             </div>
-                            {shouldGenerateImage && isImageGenerationAvailable() && renderImageSettings()}
+                            {imageGenerationMode !== 'off' && isImageGenerationAvailable() && renderImageSettings()}
                         </div>
                     )}
 

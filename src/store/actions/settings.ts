@@ -6,6 +6,7 @@ export const SET_ANKI_CONNECT_API_KEY = 'SET_ANKI_CONNECT_API_KEY';
 export const SET_USE_ANKI_CONNECT = 'SET_USE_ANKI_CONNECT';
 export const SET_VISIBLE_SIDEBAR = 'SET_VISIBLE_SIDEBAR';
 export const SET_SHOULD_GENERATE_IMAGE = 'SET_SHOULD_GENERATE_IMAGE';
+export const SET_IMAGE_GENERATION_MODE = 'SET_IMAGE_GENERATION_MODE';
 export const SET_TRANSLATION_PROMPT = 'SET_TRANSLATION_PROMPT';
 export const SET_EXAMPLES_PROMPT = 'SET_EXAMPLES_PROMPT';
 export const SET_AI_INSTRUCTIONS = 'SET_AI_INSTRUCTIONS';
@@ -73,6 +74,11 @@ export const setAIInstructions = (instructions: string) => ({
 export const setImageInstructions = (instructions: string) => ({
     type: SET_IMAGE_INSTRUCTIONS,
     payload: instructions,
+});
+
+export const setImageGenerationMode = (mode: 'off' | 'smart' | 'always') => ({
+    type: SET_IMAGE_GENERATION_MODE,
+    payload: mode,
 });
 
 export const setModelProvider = (provider: string) => ({

@@ -4,6 +4,7 @@ import {
     SET_OPEN_AI_KEY,
     SET_SELECTED_MODE,
     SET_SHOULD_GENERATE_IMAGE,
+    SET_IMAGE_GENERATION_MODE,
     SET_TRANSLATE_TO_LANGUAGE,
     SET_USE_ANKI_CONNECT,
     SET_VISIBLE_SIDEBAR,
@@ -35,6 +36,7 @@ interface SettingsState {
     groqApiKey: string
     groqModelName: string
     shouldGenerateImage: boolean
+    imageGenerationMode: 'off' | 'smart' | 'always'
     translationPrompt: string
     examplesPrompt: string
     aiInstructions: string
@@ -54,6 +56,7 @@ const initialState: SettingsState = {
     groqApiKey: '',
     groqModelName: 'llama3-8b-8192',
     shouldGenerateImage: true,
+    imageGenerationMode: 'smart',
     translationPrompt: '',
     examplesPrompt: '',
     aiInstructions: '',
@@ -133,6 +136,11 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 imageInstructions: action.payload,
+            };
+        case SET_IMAGE_GENERATION_MODE:
+            return {
+                ...state,
+                imageGenerationMode: action.payload,
             };
         case SET_MODEL_PROVIDER:
             return {
