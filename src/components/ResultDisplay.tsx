@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FaCheck, FaList, FaPen, FaTrash, FaPlus, FaTimes, FaEdit, FaSave, FaSync, FaChevronDown, FaChevronUp, FaBook, FaInfoCircle } from 'react-icons/fa';
 import { FaLanguage, FaGraduationCap, FaBookOpen, FaQuoteRight, FaTags } from 'react-icons/fa';
 import { Modes } from "../constants";
@@ -65,6 +65,15 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
     const [expandedExamples, setExpandedExamples] = useState(true);
     const [expandedLinguistics, setExpandedLinguistics] = useState(true);
 
+    // Синхронизируем локальные состояния с пропсами
+    useEffect(() => {
+        setLocalTranslation(translation || '');
+    }, [translation]);
+
+    useEffect(() => {
+        setLinguisticInfoValue(linguisticInfo || '');
+    }, [linguisticInfo]);
+
     // Включить режим редактирования
     const enableEditMode = () => {
         setIsEditMode(true);
@@ -72,17 +81,35 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
 
     // Выключить режим редактирования и сохранить изменения
     const disableEditMode = () => {
-        // Сначала сохраняем все изменения
-        onAccept();
+        // Сохраняем все локальные изменения перед выходом из режима редактирования
         
-        // Затем выходим из режима редактирования
-        setIsEditMode(false);
-        
-        // Если есть несохраненные изменения в переводе, сохраняем их
+        // 1. Сохраняем изменения в переводе
         if (isEditingTranslation && setTranslation) {
             setTranslation(localTranslation);
             setIsEditingTranslation(false);
         }
+        
+        // 2. Сохраняем изменения в примерах (если редактируется пример)
+        if (editingExampleIndex !== null && setExamples) {
+            const newExamples = [...examples];
+            newExamples[editingExampleIndex] = [editingExampleOriginal, editingExampleTranslated];
+            setExamples(newExamples);
+            setEditingExampleIndex(null);
+        }
+        
+        // 3. Сохраняем изменения в лингвистической информации
+        if (linguisticInfoEditable && setLinguisticInfo) {
+            setLinguisticInfo(linguisticInfoValue);
+            setLinguisticInfoEditable(false);
+        }
+        
+        // 4. Для уже сохраненных карточек автоматически сохраняем изменения
+        if (isSaved) {
+            onAccept();
+        }
+        
+        // 5. Выходим из режима редактирования
+        setIsEditMode(false);
     };
 
     // Handle translation edit
@@ -171,13 +198,13 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     {loadingAccept ? 
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
-    </div> : 'Save & Finish Editing'}
+    </div> : (isSaved ? 'Save & Finish Editing' : 'Finish Editing')}
                 </button>
             );
         }
 
-        // Кнопка редактирования появляется только когда карточка сохранена и не в режиме редактирования
-        if (isSaved && !isEditMode) {
+        // Кнопка редактирования появляется для всех карточек (и сохраненных, и несохраненных)
+        if (!isEditMode) {
             return (
                 <button
                     onClick={enableEditMode}
@@ -240,7 +267,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     Editing Mode
                 </div>
                 <p style={{ margin: 0, fontSize: '12px' }}>
-                    Click on text elements to edit them. When finished, click "Save & Finish Editing" at the top of the card.
+                    Click on text elements to edit them. When finished, click "{isSaved ? 'Save & Finish Editing' : 'Finish Editing'}" at the top of the card.
                 </p>
             </div>
         );
