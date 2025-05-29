@@ -776,7 +776,28 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     useEffect(() => {
-        const handleMouseUp = () => {
+        const handleMouseUp = (event: MouseEvent) => {
+            // Проверяем, что событие произошло не внутри sidebar расширения
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar && sidebar.contains(event.target as Node)) {
+                // Если клик был внутри sidebar, не обрабатываем выделение текста
+                return;
+            }
+
+            // Дополнительная проверка для Shadow DOM
+            if (event.target && event.composedPath) {
+                const path = event.composedPath();
+                for (const element of path) {
+                    if (element instanceof Element && element.id === 'sidebar') {
+                        return;
+                    }
+                    // Также проверяем, не находится ли элемент внутри Shadow Root расширения
+                    if (element instanceof ShadowRoot && element.host && element.host.id === 'sidebar') {
+                        return;
+                    }
+                }
+            }
+
             const selectedText = window.getSelection()?.toString().trim();
             if (selectedText && selectedText.length > 0) {
                 // Сначала очищаем предыдущие выбранные опции и список опций
@@ -3080,7 +3101,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             fontWeight: 'normal',
                             fontStyle: 'italic'
                         }}>
-                            (UI & translations)
+                            (translations)
                         </span>
                     </label>
                     <button
