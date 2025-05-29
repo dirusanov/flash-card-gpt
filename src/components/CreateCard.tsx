@@ -1554,6 +1554,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // Reset card generation state to enable navigation buttons
         dispatch(setIsGeneratingCard(false));
+        
+        // Reset loading state
+        setLoadingGetResult(false);
 
         // Сбрасываем историю карточек
         setCreatedCards([]);
@@ -2024,9 +2027,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         loadingNewImage={loadingNewImage}
                         loadingNewExamples={loadingNewExamples}
                         loadingAccept={loadingAccept}
+                        loadingGetResult={loadingGetResult}
                         shouldGenerateImage={shouldGenerateImage}
                         isSaved={isSaved}
                         isEdited={isEdited}
+                        isGeneratingCard={isGeneratingCard}
                         setTranslation={handleTranslationUpdate}
                         setExamples={handleExamplesUpdate}
                         setLinguisticInfo={handleLinguisticInfoUpdate}
@@ -4150,6 +4155,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         }
     };
 
+    const isGeneratingCard = useSelector((state: RootState) => state.cards.isGeneratingCard);
+
     return (
         <div style={{
             display: 'flex',
@@ -4190,6 +4197,39 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                             ? "We're creating multiple cards from your selected options..."
                             : "We're analyzing your text and generating learning materials"}
                     </div>
+                    
+                    {/* Cancel button in the loader */}
+                    <button
+                        onClick={handleCancel}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            backgroundColor: '#F3F4F6',
+                            color: '#4B5563',
+                            border: '1px solid #E5E7EB',
+                            borderRadius: '6px',
+                            padding: '10px 16px',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            marginTop: '10px'
+                        }}
+                        onMouseOver={(e) => {
+                            e.currentTarget.style.backgroundColor = '#E5E7EB';
+                            e.currentTarget.style.color = '#374151';
+                        }}
+                        onMouseOut={(e) => {
+                            e.currentTarget.style.backgroundColor = '#F3F4F6';
+                            e.currentTarget.style.color = '#4B5563';
+                        }}
+                        title="Cancel card generation"
+                    >
+                        <FaTimes />
+                        Cancel Generation
+                    </button>
                 </div>
             )}
             {textAnalysisLoader && (
@@ -4209,6 +4249,39 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     padding: '0 20px'
                 }}>
                     <Loader type="pulse" size="medium" color="#3B82F6" text="Analyzing selected text..." />
+                    
+                    {/* Cancel button in the text analysis loader */}
+                    <button
+                        onClick={() => setTextAnalysisLoader(false)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            backgroundColor: '#F3F4F6',
+                            color: '#4B5563',
+                            border: '1px solid #E5E7EB',
+                            borderRadius: '6px',
+                            padding: '10px 16px',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            marginTop: '10px'
+                        }}
+                        onMouseOver={(e) => {
+                            e.currentTarget.style.backgroundColor = '#E5E7EB';
+                            e.currentTarget.style.color = '#374151';
+                        }}
+                        onMouseOut={(e) => {
+                            e.currentTarget.style.backgroundColor = '#F3F4F6';
+                            e.currentTarget.style.color = '#4B5563';
+                        }}
+                        title="Cancel text analysis"
+                    >
+                        <FaTimes />
+                        Cancel Analysis
+                    </button>
                 </div>
             )}
             <div style={{

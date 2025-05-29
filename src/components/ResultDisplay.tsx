@@ -23,10 +23,12 @@ interface ResultDisplayProps {
     loadingNewImage: boolean;
     loadingNewExamples: boolean;
     loadingAccept: boolean;
+    loadingGetResult?: boolean;
     mode?: Modes; 
     shouldGenerateImage?: boolean;
     isSaved?: boolean;
     isEdited?: boolean;
+    isGeneratingCard?: boolean;
     setTranslation?: (translation: string) => void;
     setExamples?: (examples: Array<[string, string | null]>) => void;
     setLinguisticInfo?: (info: string) => void;
@@ -50,9 +52,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             loadingNewImage, 
             loadingNewExamples, 
             loadingAccept,
+            loadingGetResult = false,
             shouldGenerateImage = true,
             isSaved = false,
             isEdited = false,
+            isGeneratingCard,
             setTranslation,
             setExamples,
             setLinguisticInfo
@@ -991,8 +995,8 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             
             {/* Кнопка сохранения/статус карточки */}
             <div style={{ marginBottom: '10px' }}>
-                {!isEditMode && !isSaved && (
-                    // Только для новых карточек показываем кнопку "Save Card"
+                {!isEditMode && (!isSaved || isGeneratingCard || loadingGetResult) && (
+                    // Показываем кнопки "Cancel" и "Save Card" для новых карточек, во время генерации или загрузки
                     <div style={{ 
                         display: 'flex', 
                         gap: '8px', 
@@ -1000,6 +1004,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     }}>
                         <button 
                             onClick={onCancel} 
+                            disabled={loadingAccept}
                             style={{
                                 flex: '1',
                                 padding: '10px',
@@ -1009,54 +1014,61 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                 fontWeight: '600',
                                 fontSize: '14px',
                                 border: '1px solid #E5E7EB',
-                                cursor: 'pointer',
+                                cursor: loadingAccept ? 'not-allowed' : 'pointer',
                                 transition: 'all 0.2s ease',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                gap: '8px'
+                                gap: '8px',
+                                opacity: loadingAccept ? 0.7 : 1
                             }}
                             onMouseOver={(e) => {
-                                e.currentTarget.style.backgroundColor = '#E5E7EB';
-                                e.currentTarget.style.color = '#374151';
+                                if (!loadingAccept) {
+                                    e.currentTarget.style.backgroundColor = '#E5E7EB';
+                                    e.currentTarget.style.color = '#374151';
+                                }
                             }}
                             onMouseOut={(e) => {
-                                e.currentTarget.style.backgroundColor = '#F3F4F6';
-                                e.currentTarget.style.color = '#4B5563';
+                                if (!loadingAccept) {
+                                    e.currentTarget.style.backgroundColor = '#F3F4F6';
+                                    e.currentTarget.style.color = '#4B5563';
+                                }
                             }}
                         >
                             <FaTimes />
-                            Cancel
+                            {isGeneratingCard || loadingGetResult ? 'Cancel Generation' : 'Cancel'}
                         </button>
-                        <button 
-                            onClick={onAccept} 
-                            disabled={loadingAccept}
-                            style={{
-                                flex: '2',
-                                padding: '10px',
-                                borderRadius: '6px',
-                                backgroundColor: '#22C55E',
-                                color: '#ffffff',
-                                fontWeight: '600',
-                                fontSize: '14px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                opacity: loadingAccept ? 0.7 : 1,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '8px'
-                            }}
-                            onMouseOver={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#15803D')}
-                            onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#22C55E')}
-                        >
-                            <FaCheck />
-                            {loadingAccept ? 
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
-    </div> : 'Save Card'}
-                        </button>
+                        {!isGeneratingCard && !loadingGetResult && (
+                            <button 
+                                onClick={onAccept} 
+                                disabled={loadingAccept}
+                                style={{
+                                    flex: '2',
+                                    padding: '10px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#22C55E',
+                                    color: '#ffffff',
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    opacity: loadingAccept ? 0.7 : 1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px'
+                                }}
+                                onMouseOver={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#15803D')}
+                                onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#22C55E')}
+                            >
+                                <FaCheck />
+                                {loadingAccept ? 
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
+        </div> : 'Save Card'}
+                            </button>
+                        )}
                     </div>
                 )}
                 
