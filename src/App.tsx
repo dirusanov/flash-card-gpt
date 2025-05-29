@@ -26,6 +26,9 @@ function App() {
 
   const storedCards = useSelector((state: RootState) => state.cards.storedCards);
 
+  // Add selector for card generation state
+  const isGeneratingCard = useSelector((state: RootState) => state.cards.isGeneratingCard);
+
   useEffect(() => {
     const initializeStore = async () => {
       try {
@@ -238,13 +241,14 @@ function App() {
         }}>
           <button
             onClick={() => handlePageChange('storedCards')}
+            disabled={isGeneratingCard}
             className="nav-button"
             style={{
               backgroundColor: currentPage === 'storedCards' ? '#EFF6FF' : '#F9FAFB',
               border: `1px solid ${currentPage === 'storedCards' ? '#BFDBFE' : '#E5E7EB'}`,
-              cursor: 'pointer',
+              cursor: isGeneratingCard ? 'not-allowed' : 'pointer',
               padding: '10px 14px',
-              color: currentPage === 'storedCards' ? '#2563EB' : '#6B7280',
+              color: isGeneratingCard ? '#9CA3AF' : (currentPage === 'storedCards' ? '#2563EB' : '#6B7280'),
               borderRadius: '10px',
               transition: 'all 0.2s ease',
               display: 'flex',
@@ -256,23 +260,24 @@ function App() {
               fontSize: '11px',
               fontWeight: currentPage === 'storedCards' ? 600 : 500,
               boxShadow: currentPage === 'storedCards' ? '0 2px 4px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
-              position: 'relative'
+              position: 'relative',
+              opacity: isGeneratingCard ? 0.6 : 1
             }}
             onMouseOver={(e) => {
-              if (currentPage !== 'storedCards') {
+              if (currentPage !== 'storedCards' && !isGeneratingCard) {
                 e.currentTarget.style.backgroundColor = '#F3F4F6';
                 e.currentTarget.style.borderColor = '#D1D5DB';
                 e.currentTarget.style.color = '#374151';
               }
             }}
             onMouseOut={(e) => {
-              if (currentPage !== 'storedCards') {
+              if (currentPage !== 'storedCards' && !isGeneratingCard) {
                 e.currentTarget.style.backgroundColor = '#F9FAFB';
                 e.currentTarget.style.borderColor = '#E5E7EB';
                 e.currentTarget.style.color = '#6B7280';
               }
             }}
-            title="View your saved cards"
+            title={isGeneratingCard ? "Please wait while card is being generated" : "View your saved cards"}
           >
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <FaList size={16} />
@@ -303,13 +308,14 @@ function App() {
           
           <button
             onClick={() => handlePageChange('settings')}
+            disabled={isGeneratingCard}
             className="nav-button"
             style={{
               backgroundColor: currentPage === 'settings' ? '#EFF6FF' : '#F9FAFB',
               border: `1px solid ${currentPage === 'settings' ? '#BFDBFE' : '#E5E7EB'}`,
-              cursor: 'pointer',
+              cursor: isGeneratingCard ? 'not-allowed' : 'pointer',
               padding: '10px 14px',
-              color: currentPage === 'settings' ? '#2563EB' : '#6B7280',
+              color: isGeneratingCard ? '#9CA3AF' : (currentPage === 'settings' ? '#2563EB' : '#6B7280'),
               borderRadius: '10px',
               transition: 'all 0.2s ease',
               display: 'flex',
@@ -320,23 +326,24 @@ function App() {
               gap: '3px',
               fontSize: '11px',
               fontWeight: currentPage === 'settings' ? 600 : 500,
-              boxShadow: currentPage === 'settings' ? '0 2px 4px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)'
+              boxShadow: currentPage === 'settings' ? '0 2px 4px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+              opacity: isGeneratingCard ? 0.6 : 1
             }}
             onMouseOver={(e) => {
-              if (currentPage !== 'settings') {
+              if (currentPage !== 'settings' && !isGeneratingCard) {
                 e.currentTarget.style.backgroundColor = '#F3F4F6';
                 e.currentTarget.style.borderColor = '#D1D5DB';
                 e.currentTarget.style.color = '#374151';
               }
             }}
             onMouseOut={(e) => {
-              if (currentPage !== 'settings') {
+              if (currentPage !== 'settings' && !isGeneratingCard) {
                 e.currentTarget.style.backgroundColor = '#F9FAFB';
                 e.currentTarget.style.borderColor = '#E5E7EB';
                 e.currentTarget.style.color = '#6B7280';
               }
             }}
-            title="App settings and API configuration"
+            title={isGeneratingCard ? "Please wait while card is being generated" : "App settings and API configuration"}
           >
             <FaCog size={16} />
             <span>Settings</span>

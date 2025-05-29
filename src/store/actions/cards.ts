@@ -21,6 +21,9 @@ export const SET_CURRENT_CARD_ID = 'SET_CURRENT_CARD_ID';
 export const SET_LINGUISTIC_INFO = 'SET_LINGUISTIC_INFO';
 export const SET_TRANSCRIPTION = 'SET_TRANSCRIPTION';
 
+// Add new actions for card generation state
+export const SET_IS_GENERATING_CARD = 'SET_IS_GENERATING_CARD';
+
 export const saveAnkiCards = (
         mode: Modes, 
         ankiConnectUrl: string, 
@@ -164,7 +167,17 @@ export const setLinguisticInfo = (linguisticInfo: string) => {
     };
 };
 
-export const setTranscription = (transcription: string) => ({
-    type: SET_TRANSCRIPTION,
-    payload: transcription,
-});
+export const setTranscription = (transcription: string) => {
+    return {
+        type: SET_TRANSCRIPTION,
+        payload: transcription,
+    };
+};
+
+// Add action creator for card generation state
+export const setIsGeneratingCard = (isGenerating: boolean) => {
+    return {
+        type: SET_IS_GENERATING_CARD,
+        payload: isGenerating,
+    };
+};

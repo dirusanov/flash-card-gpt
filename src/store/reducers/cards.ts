@@ -16,6 +16,7 @@ import {
     SET_CURRENT_CARD_ID,
     SET_LINGUISTIC_INFO,
     SET_TRANSCRIPTION,
+    SET_IS_GENERATING_CARD,
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
 import { Modes } from '../../constants';
@@ -52,7 +53,8 @@ const initialState: CardState = {
         front: "",
         currentCardId: null,
         linguisticInfo: "",
-        transcription: ""
+        transcription: "",
+        isGeneratingCard: false
     },
 };
 
@@ -70,6 +72,7 @@ export interface CardState {
     currentCardId: string | null;
     linguisticInfo: string;
     transcription: string;
+    isGeneratingCard: boolean;
 }
 
 const cardsReducer = (state = initialState, action: any): CardState => {
@@ -236,6 +239,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             return { ...state, linguisticInfo: action.payload };
         case SET_TRANSCRIPTION:
             return { ...state, transcription: action.payload };
+        case SET_IS_GENERATING_CARD:
+            return { ...state, isGeneratingCard: action.payload };
         default:
             return state;
     }

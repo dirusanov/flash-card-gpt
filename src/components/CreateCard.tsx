@@ -5,7 +5,7 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
 import { setDeckId } from "../store/actions/decks";
-import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription } from "../store/actions/cards";
+import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription, setIsGeneratingCard } from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import { generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText } from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setImageGenerationMode } from "../store/actions/settings";
@@ -919,6 +919,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Установить флаг, что кнопка Create Card была нажата
         setCreateCardClicked(true);
 
+        // Set card generation state to true to disable navigation buttons
+        dispatch(setIsGeneratingCard(true));
+
         // IMPORTANT: Explicitly clear saved state when creating a new card
         setExplicitlySaved(false);
         localStorage.removeItem('explicitly_saved');
@@ -1239,6 +1242,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setShowModal(false);
         } finally {
             setLoadingGetResult(false);
+            
+            // Reset card generation state to enable navigation buttons
+            dispatch(setIsGeneratingCard(false));
         }
     };
 
@@ -1545,6 +1551,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setExplicitlySaved(false); // Reset explicit save
         localStorage.removeItem('explicitly_saved'); // Also remove from localStorage
         localStorage.removeItem('current_card_id'); // Clear current card ID too
+
+        // Reset card generation state to enable navigation buttons
+        dispatch(setIsGeneratingCard(false));
 
         // Сбрасываем историю карточек
         setCreatedCards([]);
@@ -2046,6 +2055,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         setShowTextOptionsModal(false);
         setLoadingGetResult(true);
+        
+        // Set card generation state to true to disable navigation buttons
+        dispatch(setIsGeneratingCard(true));
 
         try {
             const newCards: StoredCard[] = [];
@@ -2308,6 +2320,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             showError(error instanceof Error ? error.message : "Failed to create cards. Please try again.");
         } finally {
             setLoadingGetResult(false);
+            
+            // Reset card generation state to enable navigation buttons  
+            dispatch(setIsGeneratingCard(false));
+            
             // Очищаем карту выбранных опций
             setSelectedOptionsMap({});
         }
