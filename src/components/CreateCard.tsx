@@ -3396,30 +3396,69 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         try {
             // Если у нас есть доступ к API OpenAI, используем его для определения языка
-            if (modelProvider === ModelProvider.OpenAI && openAiKey) {
-                const response = await openai.chat.completions.create({
-                    model: "gpt-3.5-turbo",
-                    messages: [
-                        {
-                            role: "system",
-                            content: "You are a language detection assistant. Respond only with the ISO 639-1 language code."
-                        },
-                        {
-                            role: "user",
-                            content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
-                        }
-                    ],
-                    temperature: 0.3,
-                    max_tokens: 10
-                });
+            if ((modelProvider === ModelProvider.OpenAI && openAiKey) || 
+                (modelProvider === ModelProvider.Groq && groqApiKey)) {
+                
+                let detectedCode: string | undefined;
+                
+                if (modelProvider === ModelProvider.OpenAI) {
+                    const response = await openai.chat.completions.create({
+                        model: "gpt-3.5-turbo",
+                        messages: [
+                            {
+                                role: "system",
+                                content: "You are a language detection assistant. Respond only with the ISO 639-1 language code."
+                            },
+                            {
+                                role: "user",
+                                content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
+                            }
+                        ],
+                        temperature: 0.3,
+                        max_tokens: 10
+                    });
 
-                const detectedCode = response.choices[0].message.content?.trim().toLowerCase();
+                    detectedCode = response.choices[0].message.content?.trim().toLowerCase();
+                    console.log("Language detected via OpenAI:", detectedCode);
+                } else if (modelProvider === ModelProvider.Groq) {
+                    // Используем Groq API для определения языка
+                    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${groqApiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: groqModelName,
+                            messages: [
+                                {
+                                    role: "system",
+                                    content: "You are a language detection assistant. Respond only with the ISO 639-1 language code."
+                                },
+                                {
+                                    role: "user",
+                                    content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
+                                }
+                            ],
+                            temperature: 0.3,
+                            max_tokens: 10
+                        })
+                    });
+                    
+                    if (!groqResponse.ok) {
+                        const errorData = await groqResponse.json();
+                        throw new Error(`Groq API error: ${groqResponse.status} ${groqResponse.statusText} - ${JSON.stringify(errorData)}`);
+                    }
+                    
+                    const groqData = await groqResponse.json();
+                    detectedCode = groqData.choices?.[0]?.message?.content?.trim().toLowerCase();
+                    console.log("Language detected via Groq:", detectedCode);
+                }
 
                 // Проверяем, является ли результат действительным языковым кодом
                 if (detectedCode && allLanguages.some(lang => lang.code === detectedCode)) {
                     setDetectedLanguage(detectedCode);
                     localStorage.setItem('detected_language', detectedCode);
-                    console.log("Language detected:", detectedCode);
                     // Сбрасываем флаг нажатия кнопки, так как язык определен
                     setCreateCardClicked(false);
                     // Сохраняем в localStorage, что язык был определен
@@ -3491,10 +3530,74 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
         } catch (error) {
             console.error("Error detecting language:", error);
+            
+            // Проверяем, связана ли ошибка с API ключом
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isApiKeyError = errorMessage.includes('401') || 
+                                errorMessage.includes('Unauthorized') || 
+                                errorMessage.includes('Authentication') ||
+                                errorMessage.includes('Invalid API key') ||
+                                errorMessage.includes('Incorrect API key') ||
+                                errorMessage.includes('API key is missing');
+            
+            if (isApiKeyError) {
+                console.warn("API key error detected, disabling auto-detection to prevent infinite retries");
+                // Отключаем автоопределение языка при ошибке API ключа
+                setIsAutoDetectLanguage(false);
+                localStorage.setItem('auto_detect_language', 'false');
+                
+                // Показываем уведомление пользователю об ошибке API ключа
+                // (предполагается, что showError доступна из контекста)
+                const providerName = modelProvider === ModelProvider.OpenAI ? 'OpenAI' : 
+                                    modelProvider === ModelProvider.Groq ? 'Groq' : 'AI';
+                
+                if (typeof showError === 'function') {
+                    showError(`Language detection failed: Invalid ${providerName} API key. Please check your API key in settings.`, 'error');
+                }
+                
+                // Возвращаемся к простой эвристике при ошибке API ключа
+                const textSample = text.trim().toLowerCase().slice(0, 100);
+                const cyrillicPattern = /[а-яё]/gi;
+                const latinPattern = /[a-z]/gi;
+                const chinesePattern = /[\u4e00-\u9fff]/gi;
+                const japanesePattern = /[\u3040-\u309f\u30a0-\u30ff]/gi;
+                const koreanPattern = /[\uac00-\ud7af]/gi;
+                const arabicPattern = /[\u0600-\u06ff]/gi;
+                const spanishPattern = /[áéíóúüñ¿¡]/gi;
+                const spanishWords = ['hasta', 'desde', 'como', 'pero', 'porque', 'adonde', 'quien', 'para', 'por'];
+                const isSpanishWord = spanishWords.some(word =>
+                    textSample === word || textSample.startsWith(word + ' ') || textSample.includes(' ' + word + ' ')
+                );
+
+                let detectedLang = '';
+                if (cyrillicPattern.test(textSample)) {
+                    detectedLang = 'ru';
+                } else if (chinesePattern.test(textSample)) {
+                    detectedLang = 'zh';
+                } else if (japanesePattern.test(textSample)) {
+                    detectedLang = 'ja';
+                } else if (koreanPattern.test(textSample)) {
+                    detectedLang = 'ko';
+                } else if (arabicPattern.test(textSample)) {
+                    detectedLang = 'ar';
+                } else if (spanishPattern.test(textSample) || isSpanishWord) {
+                    detectedLang = 'es';
+                } else if (latinPattern.test(textSample)) {
+                    detectedLang = 'en';
+                }
+
+                if (detectedLang) {
+                    setDetectedLanguage(detectedLang);
+                    updateSourceLanguage(detectedLang);
+                    localStorage.setItem('detected_language', detectedLang);
+                    localStorage.setItem('language_already_detected', 'true');
+                    console.log("Language detected using fallback method:", detectedLang);
+                }
+            }
         } finally {
             setIsDetectingLanguage(false);
         }
-    }, [openai, openAiKey, modelProvider, dispatch, allLanguages, updateSourceLanguage]);
+    }, [openai, openAiKey, modelProvider, groqApiKey, groqModelName, dispatch, allLanguages, updateSourceLanguage]);
 
     // Обновление определения языка при изменении текста
     useEffect(() => {
