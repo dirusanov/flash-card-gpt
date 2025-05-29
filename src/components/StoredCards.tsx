@@ -53,6 +53,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [totalPages, setTotalPages] = useState(1);
+    
+    // States for export file modal
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [exportFileName, setExportFileName] = useState('anki_cards');
+    const [isExporting, setIsExporting] = useState(false);
+    
     const { showError, renderErrorNotification } = useErrorNotification();
 
     // Initialize OpenAI client
@@ -467,202 +473,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             showError('Please select at least one card to export');
             return;
         }
-
-        const selectedCardsData = storedCards.filter(card => selectedCards.includes(card.id));
         
-        // Create a simpler format without embedded images, following the exact example format
-        let exportContent = "#separator:tab\n#html:true\n";
-        
-        selectedCardsData.forEach((card, index) => {
-            console.log(`Processing card ${index} for file export:`, {
-                id: card.id,
-                mode: card.mode,
-                hasImage: !!card.image,
-                hasImageUrl: !!card.imageUrl,
-                imageType: typeof card.image,
-                imageUrlType: typeof card.imageUrl,
-                imageLength: card.image?.length,
-                imageUrlLength: card.imageUrl?.length,
-                imagePreview: card.image?.substring(0, 50),
-                imageUrlPreview: card.imageUrl?.substring(0, 50),
-                hasLinguisticInfo: !!card.linguisticInfo
-            });
-            
-            if (card.mode === Modes.LanguageLearning) {
-                // Front is just the word/phrase
-                const front = card.text.trim();
-                
-                // Start building the back without any images
-                let back = '';
-                
-                // Add translation
-                if (card.translation) {
-                    back += `<b>${card.translation}</b>`;
-                }
-                
-                // Add examples
-                if (card.examples && card.examples.length > 0) {
-                    back += "<br><br>";
-                    
-                    card.examples.forEach(([ex, trans], exIndex) => {
-                        back += `${exIndex + 1}. ${ex}`;
-                        if (trans) {
-                            back += `<br><span style='font-size: 0.8em;'><i>${trans}</i></span>`;
-                        }
-                        back += "<br><br>";
-                    });
-                }
-                
-                // Add the actual image if the card has one
-                if (card.image) {
-                    // The image is already in base64 format, but may start with data:image/png;base64, or similar prefix
-                    let imageData = card.image;
-                    
-                    // Extract the actual base64 data if it has a prefix
-                    if (imageData.startsWith('data:')) {
-                        const base64Prefix = 'base64,';
-                        const prefixIndex = imageData.indexOf(base64Prefix);
-                        if (prefixIndex !== -1) {
-                            // Extract just the base64 part without the prefix
-                            const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
-                            // Anki format requires just the raw base64 without data URI
-                            back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        } else {
-                            // Fallback if prefix structure is unexpected
-                            back += `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        }
-                    } else {
-                        // If it's already just base64 data, use it directly
-                        back += `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                    }
-                } else if (card.imageUrl) {
-                    // ImageUrl might be a base64 string or a URL
-                    let imageUrl = card.imageUrl;
-                    
-                    if (imageUrl.startsWith('data:')) {
-                        // Extract the actual base64 data if it has a prefix
-                        const base64Prefix = 'base64,';
-                        const prefixIndex = imageUrl.indexOf(base64Prefix);
-                        if (prefixIndex !== -1) {
-                            // Extract just the base64 part without the prefix
-                            const rawBase64 = imageUrl.substring(prefixIndex + base64Prefix.length);
-                            // Anki format requires just the raw base64 without data URI
-                            back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        } else {
-                            // Fallback if prefix structure is unexpected
-                            back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        }
-                    } else if (imageUrl.startsWith('http')) {
-                        // For remote URLs, just use as is
-                        back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                    } else {
-                        // If it's already just base64 data, use it directly
-                        back += `<div><img src="data:image/jpeg;base64,${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                    }
-                }
-                
-                // Add linguistic information with beautiful formatting
-                if (card.linguisticInfo && card.linguisticInfo.trim()) {
-                    const linguisticText = card.linguisticInfo.trim();
-                    
-                    // Split by lines and format each section
-                    const lines = linguisticText.split('\n').filter(line => line.trim());
-                    let formattedLinguistic = '';
-                    
-                    lines.forEach(line => {
-                        const trimmedLine = line.trim();
-                        
-                        // Check if this is a header line (starts with capital letter and ends with colon)
-                        if (trimmedLine.match(/^[А-ЯЁA-Z][^:]*:$/)) {
-                            formattedLinguistic += `<div style="color: #2563EB; font-weight: bold; margin-top: 12px; margin-bottom: 4px;">${trimmedLine}</div>`;
-                        }
-                        // Check if this is a bullet point or list item
-                        else if (trimmedLine.startsWith('•') || trimmedLine.startsWith('-') || trimmedLine.startsWith('*')) {
-                            const content = trimmedLine.replace(/^[•\-*]\s*/, '');
-                            formattedLinguistic += `<div style="margin-left: 16px; margin-bottom: 2px; color: #374151;">• ${content}</div>`;
-                        }
-                        // Check if this contains label-value pairs (like "Part of speech: Noun")
-                        else if (trimmedLine.includes(':') && !trimmedLine.endsWith(':')) {
-                            const [label, ...valueParts] = trimmedLine.split(':');
-                            const value = valueParts.join(':').trim();
-                            formattedLinguistic += `<div style="margin-bottom: 4px;"><span style="color: #6B7280; font-weight: 500;">${label.trim()}:</span> <span style="color: #111827;">${value}</span></div>`;
-                        }
-                        // Regular text
-                        else if (trimmedLine) {
-                            formattedLinguistic += `<div style="margin-bottom: 6px; color: #374151; line-height: 1.4;">${trimmedLine}</div>`;
-                        }
-                    });
-                    
-                    if (formattedLinguistic) {
-                        back += `<div style="margin-top: 20px; padding: 12px; background-color: #F8FAFC; border-left: 4px solid #2563EB; border-radius: 0 6px 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);"><div style="color: #1E40AF; font-weight: bold; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 6px;">📚</span>Grammar & Linguistics</div>${formattedLinguistic}</div>`;
-                    }
-                }
-                
-                // Clean the front and back content to avoid tab/newline issues
-                const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
-                const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
-                
-                // Export the formatted card with proper escaping
-                exportContent += `${cleanFront}\t${cleanBack}\n`;
-                
-                console.log(`Exported card ${index}:`, {
-                    front: cleanFront.substring(0, 50),
-                    backLength: cleanBack.length,
-                    hasLinguisticInfo: cleanBack.includes('Grammar & Linguistics')
-                });
-            }
-            else if (card.mode === Modes.GeneralTopic) {
-                const front = (card.front || '').trim();
-                const back = (card.back || '').trim();
-                
-                // Clean the content to avoid tab/newline issues
-                const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
-                const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
-                
-                exportContent += `${cleanFront}\t${cleanBack}\n`;
-            }
-        });
-
-        // Create and download file
-        const blob = new Blob([exportContent], { type: 'text/plain;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', 'anki_cards.txt');
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        // Log export summary for debugging
-        const totalCards = selectedCardsData.length;
-        const cardsWithLinguistics = selectedCardsData.filter(card => card.linguisticInfo && card.linguisticInfo.trim()).length;
-        console.log(`Export complete: ${totalCards} cards exported, ${cardsWithLinguistics} with grammar information`);
-        
-        // Show success message
-        showError(`Successfully exported ${totalCards} cards${cardsWithLinguistics > 0 ? ` (${cardsWithLinguistics} with grammar info)` : ''}!`, 'success');
-
-        // Update export status for selected cards
-        selectedCards.forEach(cardId => {
-            dispatch(updateCardExportStatus(cardId, 'exported_to_file'));
-            console.log(`Updated card ${cardId} export status to 'exported_to_file'`);
-        });
-
-        // Add debug check of localStorage after status update
-        setTimeout(() => {
-            try {
-                const rawData = localStorage.getItem('anki_stored_cards');
-                if (rawData) {
-                    const savedCards = JSON.parse(rawData);
-                    console.log('Verified localStorage after file export:', 
-                        savedCards.filter((c: any) => c.id && selectedCards.includes(c.id))
-                            .map((c: any) => ({id: c.id, status: c.exportStatus}))
-                    );
-                }
-            } catch (e) {
-                console.error('Error verifying localStorage after file export:', e);
-            }
-        }, 500);
+        // Generate default filename with current date
+        const currentDate = new Date();
+        const dateStr = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+        const defaultName = `anki_cards_${dateStr}`;
+        setExportFileName(defaultName);
+        setShowExportModal(true);
     };
 
     const formatDate = (dateString: Date) => {
@@ -2158,6 +1975,236 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         });
     }, [showEditModal, editingCard, currentCardData.text, currentCardData.translation]);
 
+    const performFileExport = async () => {
+        if (selectedCards.length === 0) {
+            showError('Please select at least one card to export');
+            return;
+        }
+
+        try {
+            setIsExporting(true);
+            
+            const selectedCardsData = storedCards.filter(card => selectedCards.includes(card.id));
+            
+            // Create a simpler format without embedded images, following the exact example format
+            let exportContent = "#separator:tab\n#html:true\n";
+            
+            selectedCardsData.forEach((card, index) => {
+                console.log(`Processing card ${index} for file export:`, {
+                    id: card.id,
+                    mode: card.mode,
+                    hasImage: !!card.image,
+                    hasImageUrl: !!card.imageUrl,
+                    imageType: typeof card.image,
+                    imageUrlType: typeof card.imageUrl,
+                    imageLength: card.image?.length,
+                    imageUrlLength: card.imageUrl?.length,
+                    imagePreview: card.image?.substring(0, 50),
+                    imageUrlPreview: card.imageUrl?.substring(0, 50),
+                    hasLinguisticInfo: !!card.linguisticInfo
+                });
+                
+                if (card.mode === Modes.LanguageLearning) {
+                    // Front is just the word/phrase
+                    const front = card.text.trim();
+                    
+                    // Start building the back without any images
+                    let back = '';
+                    
+                    // Add translation
+                    if (card.translation) {
+                        back += `<b>${card.translation}</b>`;
+                    }
+                    
+                    // Add examples
+                    if (card.examples && card.examples.length > 0) {
+                        back += "<br><br>";
+                        
+                        card.examples.forEach(([ex, trans], exIndex) => {
+                            back += `${exIndex + 1}. ${ex}`;
+                            if (trans) {
+                                back += `<br><span style='font-size: 0.8em;'><i>${trans}</i></span>`;
+                            }
+                            back += "<br><br>";
+                        });
+                    }
+                    
+                    // Add the actual image if the card has one
+                    if (card.image) {
+                        // The image is already in base64 format, but may start with data:image/png;base64, or similar prefix
+                        let imageData = card.image;
+                        
+                        // Extract the actual base64 data if it has a prefix
+                        if (imageData.startsWith('data:')) {
+                            const base64Prefix = 'base64,';
+                            const prefixIndex = imageData.indexOf(base64Prefix);
+                            if (prefixIndex !== -1) {
+                                // Extract just the base64 part without the prefix
+                                const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
+                                // Anki format requires just the raw base64 without data URI
+                                back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                            } else {
+                                // Fallback if prefix structure is unexpected
+                                back += `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                            }
+                        } else {
+                            // If it's already just base64 data, use it directly
+                            back += `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        }
+                    } else if (card.imageUrl) {
+                        // ImageUrl might be a base64 string or a URL
+                        let imageUrl = card.imageUrl;
+                        
+                        if (imageUrl.startsWith('data:')) {
+                            // Extract the actual base64 data if it has a prefix
+                            const base64Prefix = 'base64,';
+                            const prefixIndex = imageUrl.indexOf(base64Prefix);
+                            if (prefixIndex !== -1) {
+                                // Extract just the base64 part without the prefix
+                                const rawBase64 = imageUrl.substring(prefixIndex + base64Prefix.length);
+                                // Anki format requires just the raw base64 without data URI
+                                back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                            } else {
+                                // Fallback if prefix structure is unexpected
+                                back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                            }
+                        } else if (imageUrl.startsWith('http')) {
+                            // For remote URLs, just use as is
+                            back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        } else {
+                            // If it's already just base64 data, use it directly
+                            back += `<div><img src="data:image/jpeg;base64,${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        }
+                    }
+                    
+                    // Add linguistic information with beautiful formatting
+                    if (card.linguisticInfo && card.linguisticInfo.trim()) {
+                        const linguisticText = card.linguisticInfo.trim();
+                        
+                        // Split by lines and format each section
+                        const lines = linguisticText.split('\n').filter(line => line.trim());
+                        let formattedLinguistic = '';
+                        
+                        lines.forEach(line => {
+                            const trimmedLine = line.trim();
+                            
+                            // Check if this is a header line (starts with capital letter and ends with colon)
+                            if (trimmedLine.match(/^[А-ЯЁA-Z][^:]*:$/)) {
+                                formattedLinguistic += `<div style="color: #2563EB; font-weight: bold; margin-top: 12px; margin-bottom: 4px;">${trimmedLine}</div>`;
+                            }
+                            // Check if this is a bullet point or list item
+                            else if (trimmedLine.startsWith('•') || trimmedLine.startsWith('-') || trimmedLine.startsWith('*')) {
+                                const content = trimmedLine.replace(/^[•\-*]\s*/, '');
+                                formattedLinguistic += `<div style="margin-left: 16px; margin-bottom: 2px; color: #374151;">• ${content}</div>`;
+                            }
+                            // Check if this contains label-value pairs (like "Part of speech: Noun")
+                            else if (trimmedLine.includes(':') && !trimmedLine.endsWith(':')) {
+                                const [label, ...valueParts] = trimmedLine.split(':');
+                                const value = valueParts.join(':').trim();
+                                formattedLinguistic += `<div style="margin-bottom: 4px;"><span style="color: #6B7280; font-weight: 500;">${label.trim()}:</span> <span style="color: #111827;">${value}</span></div>`;
+                            }
+                            // Regular text
+                            else if (trimmedLine) {
+                                formattedLinguistic += `<div style="margin-bottom: 6px; color: #374151; line-height: 1.4;">${trimmedLine}</div>`;
+                            }
+                        });
+                        
+                        if (formattedLinguistic) {
+                            back += `<div style="margin-top: 20px; padding: 12px; background-color: #F8FAFC; border-left: 4px solid #2563EB; border-radius: 0 6px 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);"><div style="color: #1E40AF; font-weight: bold; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 6px;">📚</span>Grammar & Linguistics</div>${formattedLinguistic}</div>`;
+                        }
+                    }
+                    
+                    // Clean the front and back content to avoid tab/newline issues
+                    const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
+                    const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
+                    
+                    // Export the formatted card with proper escaping
+                    exportContent += `${cleanFront}\t${cleanBack}\n`;
+                    
+                    console.log(`Exported card ${index}:`, {
+                        front: cleanFront.substring(0, 50),
+                        backLength: cleanBack.length,
+                        hasLinguisticInfo: cleanBack.includes('Grammar & Linguistics')
+                    });
+                }
+                else if (card.mode === Modes.GeneralTopic) {
+                    const front = (card.front || '').trim();
+                    const back = (card.back || '').trim();
+                    
+                    // Clean the content to avoid tab/newline issues
+                    const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
+                    const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
+                    
+                    exportContent += `${cleanFront}\t${cleanBack}\n`;
+                }
+            });
+
+            // Sanitize filename - remove invalid characters and ensure .txt extension
+            let fileName = exportFileName.trim();
+            if (!fileName) {
+                fileName = 'anki_cards';
+            }
+            
+            // Remove invalid filename characters
+            fileName = fileName.replace(/[<>:"/\\|?*]/g, '_');
+            
+            // Add .txt extension if not present
+            if (!fileName.toLowerCase().endsWith('.txt')) {
+                fileName += '.txt';
+            }
+
+            // Create and download file
+            const blob = new Blob([exportContent], { type: 'text/plain;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', fileName);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // Log export summary for debugging
+            const totalCards = selectedCardsData.length;
+            const cardsWithLinguistics = selectedCardsData.filter(card => card.linguisticInfo && card.linguisticInfo.trim()).length;
+            console.log(`Export complete: ${totalCards} cards exported, ${cardsWithLinguistics} with grammar information`);
+            
+            // Show success message
+            showError(`Successfully exported ${totalCards} cards to "${fileName}"${cardsWithLinguistics > 0 ? ` (${cardsWithLinguistics} with grammar info)` : ''}!`, 'success');
+
+            // Update export status for selected cards
+            selectedCards.forEach(cardId => {
+                dispatch(updateCardExportStatus(cardId, 'exported_to_file'));
+                console.log(`Updated card ${cardId} export status to 'exported_to_file'`);
+            });
+
+            // Close modal
+            setShowExportModal(false);
+
+            // Add debug check of localStorage after status update
+            setTimeout(() => {
+                try {
+                    const rawData = localStorage.getItem('anki_stored_cards');
+                    if (rawData) {
+                        const savedCards = JSON.parse(rawData);
+                        console.log('Verified localStorage after file export:', 
+                            savedCards.filter((c: any) => c.id && selectedCards.includes(c.id))
+                                .map((c: any) => ({id: c.id, status: c.exportStatus}))
+                        );
+                    }
+                } catch (e) {
+                    console.error('Error verifying localStorage after file export:', e);
+                }
+            }, 500);
+
+        } catch (error) {
+            console.error('Error during file export:', error);
+            showError('Failed to export cards. Please try again.');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     return (
         <div style={{
             display: 'flex',
@@ -2301,6 +2348,226 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             )}
             
             {/* Remove the floating action button since we've added a button to the top navigation */}
+
+            {/* Export File Modal */}
+            {showExportModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                    backdropFilter: 'blur(4px)'
+                }}>
+                    <div style={{
+                        backgroundColor: '#ffffff',
+                        borderRadius: '12px',
+                        padding: '24px',
+                        maxWidth: '400px',
+                        width: '90%',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                        border: '1px solid #E5E7EB'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: '20px'
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '18px',
+                                fontWeight: '600',
+                                color: '#111827',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}>
+                                <FaDownload size={16} style={{ color: '#2563EB' }} />
+                                Export Cards
+                            </h3>
+                            <button
+                                onClick={() => setShowExportModal(false)}
+                                disabled={isExporting}
+                                style={{
+                                    backgroundColor: 'transparent',
+                                    border: 'none',
+                                    cursor: isExporting ? 'default' : 'pointer',
+                                    padding: '4px',
+                                    borderRadius: '4px',
+                                    color: '#6B7280',
+                                    opacity: isExporting ? 0.5 : 1
+                                }}
+                            >
+                                <FaTimes size={16} />
+                            </button>
+                        </div>
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <p style={{
+                                margin: '0 0 16px 0',
+                                fontSize: '14px',
+                                color: '#6B7280',
+                                lineHeight: '1.5'
+                            }}>
+                                Export {selectedCards.length} selected cards to a file. Choose a filename or use the default.
+                            </p>
+
+                            <label style={{
+                                display: 'block',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                color: '#374151',
+                                marginBottom: '8px'
+                            }}>
+                                Filename
+                            </label>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    type="text"
+                                    value={exportFileName}
+                                    onChange={(e) => setExportFileName(e.target.value)}
+                                    placeholder="Enter filename (without extension)"
+                                    disabled={isExporting}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        paddingRight: '48px',
+                                        border: '1px solid #D1D5DB',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        outline: 'none',
+                                        transition: 'border-color 0.2s ease',
+                                        backgroundColor: isExporting ? '#F9FAFB' : '#ffffff',
+                                        opacity: isExporting ? 0.7 : 1,
+                                        boxSizing: 'border-box'
+                                    }}
+                                    onFocus={(e) => {
+                                        if (!isExporting) {
+                                            e.target.style.borderColor = '#2563EB';
+                                            e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)';
+                                        }
+                                    }}
+                                    onBlur={(e) => {
+                                        e.target.style.borderColor = '#D1D5DB';
+                                        e.target.style.boxShadow = 'none';
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !isExporting) {
+                                            performFileExport();
+                                        }
+                                        if (e.key === 'Escape') {
+                                            setShowExportModal(false);
+                                        }
+                                    }}
+                                />
+                                <span style={{
+                                    position: 'absolute',
+                                    right: '12px',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    fontSize: '13px',
+                                    color: '#9CA3AF',
+                                    pointerEvents: 'none'
+                                }}>
+                                    .txt
+                                </span>
+                            </div>
+                            <p style={{
+                                margin: '6px 0 0 0',
+                                fontSize: '12px',
+                                color: '#6B7280'
+                            }}>
+                                The .txt extension will be added automatically
+                            </p>
+                        </div>
+
+                        <div style={{
+                            display: 'flex',
+                            gap: '12px',
+                            justifyContent: 'flex-end'
+                        }}>
+                            <button
+                                onClick={() => setShowExportModal(false)}
+                                disabled={isExporting}
+                                style={{
+                                    padding: '10px 16px',
+                                    border: '1px solid #D1D5DB',
+                                    borderRadius: '8px',
+                                    backgroundColor: '#ffffff',
+                                    color: '#374151',
+                                    fontSize: '14px',
+                                    fontWeight: '500',
+                                    cursor: isExporting ? 'default' : 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    opacity: isExporting ? 0.5 : 1
+                                }}
+                                onMouseOver={(e) => {
+                                    if (!isExporting) {
+                                        e.currentTarget.style.backgroundColor = '#F9FAFB';
+                                        e.currentTarget.style.borderColor = '#9CA3AF';
+                                    }
+                                }}
+                                onMouseOut={(e) => {
+                                    if (!isExporting) {
+                                        e.currentTarget.style.backgroundColor = '#ffffff';
+                                        e.currentTarget.style.borderColor = '#D1D5DB';
+                                    }
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={performFileExport}
+                                disabled={isExporting || !exportFileName.trim()}
+                                style={{
+                                    padding: '10px 16px',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    backgroundColor: (!exportFileName.trim() || isExporting) ? '#9CA3AF' : '#2563EB',
+                                    color: '#ffffff',
+                                    fontSize: '14px',
+                                    fontWeight: '500',
+                                    cursor: (!exportFileName.trim() || isExporting) ? 'default' : 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    minWidth: '100px',
+                                    justifyContent: 'center'
+                                }}
+                                onMouseOver={(e) => {
+                                    if (!isExporting && exportFileName.trim()) {
+                                        e.currentTarget.style.backgroundColor = '#1D4ED8';
+                                    }
+                                }}
+                                onMouseOut={(e) => {
+                                    if (!isExporting && exportFileName.trim()) {
+                                        e.currentTarget.style.backgroundColor = '#2563EB';
+                                    }
+                                }}
+                            >
+                                {isExporting ? (
+                                    <>
+                                        <Loader type="spinner" size="small" inline color="#ffffff" />
+                                        <span>Exporting...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <FaDownload size={14} />
+                                        <span>Export</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Modal for editing cards */}
             {renderEditModal()}
