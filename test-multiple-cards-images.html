@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Multiple Cards Images</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-card {
+            background: white;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .problem {
+            color: #d32f2f;
+            font-weight: bold;
+        }
+        .solution {
+            color: #2e7d32;
+            font-weight: bold;
+        }
+        .code {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            border-left: 4px solid #2196f3;
+        }
+    </style>
+</head>
+<body>
+    <h1>🐛 Проблема: Множественные карточки создаются без картинок</h1>
+    
+    <div class="test-card">
+        <h2 class="problem">❌ Проблема</h2>
+        <p>При создании множества карточек из выделенного текста, все карточки создаются без изображений, даже если включена генерация изображений.</p>
+        
+        <h3>Симптомы:</h3>
+        <ul>
+            <li>Первая карточка может иметь изображение</li>
+            <li>Остальные карточки создаются без изображений</li>
+            <li>Проблема только при создании множественных карточек</li>
+            <li>Одиночные карточки работают правильно</li>
+        </ul>
+    </div>
+
+    <div class="test-card">
+        <h2 class="solution">✅ Найденная причина</h2>
+        
+        <h3>1. Очистка изображений в цикле:</h3>
+        <div class="code">
+// В функции createCardsFromSelectedOptions:
+for (const option of selectedOptions) {
+    // ❌ ПРОБЛЕМА: Очищались изображения в начале каждой итерации
+    dispatch(setImage(null));     // ← Удаляло изображения!
+    dispatch(setImageUrl(null));  // ← И это тоже!
+}
+        </div>
+        
+        <h3>2. Неправильная логика генерации:</h3>
+        <div class="code">
+// ❌ СТАРАЯ ЛОГИКА:
+if (shouldGenerateImage && modelProvider === ModelProvider.OpenAI) {
+    // Генерация изображения...
+}
+
+// ✅ ИСПРАВЛЕННАЯ ЛОГИКА:
+if (imageGenerationMode !== 'off' && isImageGenerationAvailable()) {
+    // Учитывает smart/always режимы
+}
+        </div>
+        
+        <h3>3. Конфликт Redux состояния:</h3>
+        <div class="code">
+// ❌ ПРОБЛЕМА: Обновление глобального состояния в цикле
+dispatch(setImageUrl(imageUrl));  // Перезаписывало предыдущие изображения
+dispatch(setImage(imageBase64));  // Все карточки получали одно изображение
+        </div>
+    </div>
+
+    <div class="test-card">
+        <h2 class="solution">🔧 Исправления</h2>
+        
+        <h3>1. Убрана очистка изображений в цикле</h3>
+        <div class="code">
+// ✅ ИСПРАВЛЕНО:
+for (const option of selectedOptions) {
+    // Очищаем только текстовые данные
+    dispatch(setText(''));
+    dispatch(setTranslation(''));
+    dispatch(setExamples([]));
+    // НЕ очищаем: dispatch(setImage(null));
+    // НЕ очищаем: dispatch(setImageUrl(null));
+}
+        </div>
+        
+        <h3>2. Использование локальных переменных</h3>
+        <div class="code">
+// ✅ ИСПРАВЛЕНО:
+let currentImageUrl = null;
+let currentImage = null;
+
+// Генерация изображения в локальные переменные
+if (imageUrl) {
+    currentImageUrl = imageUrl;
+    // НЕ обновляем Redux: dispatch(setImageUrl(imageUrl));
+}
+
+// Сохранение в карточку из локальных переменных
+const cardData = {
+    image: currentImage,     // ← Локальная переменная
+    imageUrl: currentImageUrl, // ← Локальная переменная
+    // ...
+};
+        </div>
+        
+        <h3>3. Правильная логика режимов генерации</h3>
+        <div class="code">
+// ✅ ИСПРАВЛЕНО:
+if (imageGenerationMode !== 'off' && isImageGenerationAvailable()) {
+    let shouldGenerate = imageGenerationMode === 'always';
+    
+    if (imageGenerationMode === 'smart') {
+        const analysis = await shouldGenerateImageForText(option);
+        shouldGenerate = analysis.shouldGenerate;
+    }
+    
+    if (shouldGenerate) {
+        // Генерация изображения
+    }
+}
+        </div>
+    </div>
+
+    <div class="test-card">
+        <h2>📋 Тестирование</h2>
+        
+        <h3>Для проверки исправления:</h3>
+        <ol>
+            <li>Выделите текст с несколькими словами</li>
+            <li>Нажмите "Analyze Selection"</li>
+            <li>Выберите несколько опций</li>
+            <li>Нажмите "Create X Cards"</li>
+            <li>Проверьте, что все карточки имеют изображения (если включена генерация)</li>
+        </ol>
+        
+        <h3>Настройки для тестирования:</h3>
+        <ul>
+            <li>Установите Image Generation Mode: "Always" для гарантированной генерации</li>
+            <li>Используйте OpenAI provider (Groq не поддерживает изображения)</li>
+            <li>Убедитесь, что OpenAI API key настроен</li>
+        </ul>
+    </div>
+
+    <div class="test-card">
+        <h2>🔍 Отладочная информация</h2>
+        <p>После исправления в консоли должны появляться следующие сообщения:</p>
+        <div class="code">
+*** MULTIPLE CARDS CREATION STARTED ***
+Image generation settings: {
+    imageGenerationMode: "always",
+    modelProvider: "openai", 
+    isImageGenerationAvailable: true,
+    selectedOptionsCount: 3
+}
+
+Generating image for "apple"
+Image URL generated for "apple": https://oaidalleapiprodscus...
+Image base64 generated for "apple": data:image/png;base64,iVBOR...
+
+Created card 1234567890_0 but NOT saving to storage yet. Image info: {
+    hasImage: true,
+    hasImageUrl: true,
+    imageLength: 12345,
+    imageUrlLength: 87
+}
+        </div>
+    </div>
+</body>
+</html> 

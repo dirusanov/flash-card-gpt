@@ -2082,6 +2082,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
+        console.log('*** MULTIPLE CARDS CREATION STARTED ***');
+        console.log('Image generation settings:', {
+            imageGenerationMode,
+            modelProvider,
+            isImageGenerationAvailable: isImageGenerationAvailable(),
+            selectedOptionsCount: selectedOptions.length
+        });
+
         setShowTextOptionsModal(false);
         setLoadingGetResult(true);
         
@@ -2093,12 +2101,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Создаем карточки для каждого выбранного варианта
             for (const option of selectedOptions) {
-                // Очистим предыдущие данные перед созданием новой карточки
+                // Очистим только текстовые данные перед созданием новой карточки
+                // НЕ очищаем изображения здесь, так как они должны сохраниться в каждой карточке
                 dispatch(setText(''));
                 dispatch(setTranslation(''));
                 dispatch(setExamples([]));
-                dispatch(setImage(null));
-                dispatch(setImageUrl(null));
                 dispatch(setLinguisticInfo('')); // Важно: очищаем лингвистическое описание
 
                 // Установка текста для текущей карточки (после очистки)
@@ -2230,18 +2237,46 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     let currentImageUrl = null;
                     let currentImage = null;
 
-                    if (shouldGenerateImage && modelProvider === ModelProvider.OpenAI) {
-                        const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions);
-                        const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
+                    // Используем ту же логику, что и для одиночных карточек
+                    if (imageGenerationMode !== 'off' && isImageGenerationAvailable()) {
+                        try {
+                            let shouldGenerate = imageGenerationMode === 'always';
+                            let analysisReason = '';
 
-                        if (imageUrl) {
-                            currentImageUrl = imageUrl;
-                            dispatch(setImageUrl(imageUrl));
+                            // For smart mode, check if image would be helpful
+                            if (imageGenerationMode === 'smart') {
+                                const analysis = await shouldGenerateImageForText(option);
+                                shouldGenerate = analysis.shouldGenerate;
+                                analysisReason = analysis.reason;
+                                
+                                console.log(`Smart image analysis for "${option}": ${shouldGenerate ? 'YES' : 'NO'} - ${analysisReason}`);
+                            }
+
+                            if (shouldGenerate) {
+                                console.log(`Generating image for "${option}"`);
+                                const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions);
+                                const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
+
+                                if (imageUrl) {
+                                    currentImageUrl = imageUrl;
+                                    console.log(`Image URL generated for "${option}": ${imageUrl.substring(0, 50)}...`);
+                                }
+                                if (imageBase64) {
+                                    currentImage = imageBase64;
+                                    console.log(`Image base64 generated for "${option}": ${imageBase64.substring(0, 50)}...`);
+                                }
+                            } else if (imageGenerationMode === 'smart') {
+                                console.log(`No image needed for "${option}": ${analysisReason}`);
+                            }
+                        } catch (imageError) {
+                            console.error(`Image generation failed for "${option}":`, imageError);
+                            // Image errors are not critical - continue with the card creation
                         }
-                        if (imageBase64) {
-                            currentImage = imageBase64;
-                            dispatch(setImage(imageBase64));
-                        }
+                        
+                        // НЕ обновляем глобальное Redux состояние для изображений внутри цикла
+                        // Это позволяет каждой карточке сохранить свои изображения
+                        // dispatch(setImageUrl(imageUrl)); - УДАЛЕНО
+                        // dispatch(setImage(imageBase64)); - УДАЛЕНО
                     }
 
                     // 5. Сохраняем карточку
@@ -2287,6 +2322,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Устанавливаем текущую карточку в состояние Redux для отображения
                 const currentCard = newCards[0];
                 if (currentCard) {
+                    console.log('Loading first card into Redux state:', {
+                        cardId: currentCard.id,
+                        hasImage: !!currentCard.image,
+                        hasImageUrl: !!currentCard.imageUrl,
+                        imageLength: currentCard.image?.length,
+                        imageUrlLength: currentCard.imageUrl?.length
+                    });
+
                     // Проверяем каждое поле перед установкой
                     if (typeof currentCard.text === 'string') {
                         dispatch(setText(currentCard.text));
@@ -2321,6 +2364,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     } else {
                         dispatch(setTranscription(''));
                     }
+                    
+                    console.log('First card loaded into Redux state successfully');
                 }
 
                 // Сброс статуса явного сохранения карточек
@@ -2421,7 +2466,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         console.log('Loading card data for card:', {
             id: card.id,
             text: card.text,
-            hasLinguisticInfo: Boolean(card.linguisticInfo)
+            hasLinguisticInfo: Boolean(card.linguisticInfo),
+            hasImage: !!card.image,
+            hasImageUrl: !!card.imageUrl,
+            imageLength: card.image?.length,
+            imageUrlLength: card.imageUrl?.length
         });
 
         // Сначала очищаем все данные
@@ -2479,6 +2528,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.log('No transcription found for this card');
             dispatch(setTranscription(''));
         }
+        
+        console.log('Card data loaded successfully, image status:', {
+            hasImage: !!card.image,
+            hasImageUrl: !!card.imageUrl
+        });
     };
 
     // Функция для перехода к предыдущей карточке
