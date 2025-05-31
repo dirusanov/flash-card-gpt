@@ -800,6 +800,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             const selectedText = window.getSelection()?.toString().trim();
             if (selectedText && selectedText.length > 0) {
+                // Принудительно закрываем модальное окно перед анализом нового текста
+                setShowTextOptionsModal(false);
+                
                 // Сначала очищаем предыдущие выбранные опции и список опций
                 setSelectedOptionsMap({});
                 setSelectedTextOptions([]);
@@ -2509,9 +2512,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setSelectedOptionsMap({});
         setSelectedTextOptions([]);
 
-        // If text is a single word or very short phrase (less than 20 chars)
-        // use it directly without showing options
-        if (selectedText.length < 20 && !selectedText.includes('.') && !selectedText.includes('\n')) {
+        // Count words in the selected text
+        const wordCount = selectedText.trim().split(/\s+/).length;
+
+        // If text is a short phrase (4 words or less), use it directly without showing modal
+        if (wordCount <= 4 && !selectedText.includes('.') && !selectedText.includes('\n')) {
+            // Принудительно закрываем модальное окно
+            setShowTextOptionsModal(false);
+            
             // Clean the text by removing leading dashes/hyphens and whitespace
             const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
             dispatch(setText(cleanedText));
