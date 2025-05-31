@@ -2503,6 +2503,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Анализировать текст и предложить варианты создания карточек
     const analyzeSelectedText = async (selectedText: string) => {
+        console.log('=== ANALYZE SELECTED TEXT ===');
+        console.log('Selected text:', selectedText);
+        console.log('Text length:', selectedText.length);
+        
         if (!selectedText || selectedText.length < 3) {
             dispatch(setText(selectedText));
             return;
@@ -2514,9 +2518,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // Count words in the selected text
         const wordCount = selectedText.trim().split(/\s+/).length;
+        console.log('Word count:', wordCount);
 
-        // If text is a short phrase (4 words or less), use it directly without showing modal
-        if (wordCount <= 4 && !selectedText.includes('.') && !selectedText.includes('\n')) {
+        // If text is a short phrase (3 words or less), use it directly without showing modal
+        if (wordCount <= 3 && !selectedText.includes('.') && !selectedText.includes('\n')) {
+            console.log('Using short text directly (≤3 words)');
             // Принудительно закрываем модальное окно
             setShowTextOptionsModal(false);
             
@@ -2526,31 +2532,95 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
+        console.log('Proceeding with text analysis...');
         setTextAnalysisLoader(true);
 
         try {
-            // Extract words more intelligently
-            // Use a regex that properly separates words while preserving their form
-            // This regex splits by spaces and punctuation but keeps the words intact
-            const wordRegex = /[a-zA-Z\u00C0-\u017F]+(?:'[a-zA-Z\u00C0-\u017F]+)*/g;
-            const extractedWords = selectedText.match(wordRegex) || [];
-
-            // Filter and clean words
-            let words = extractedWords
-                .filter(word => word.length > 3)  // Only words longer than 3 chars
-                .filter(word => !['the', 'and', 'that', 'this', 'with', 'from', 'have', 'are', 'for'].includes(word.toLowerCase()))  // Filter common stop words
+            // Extract words using simple approach - split by whitespace and punctuation
+            // This works for most languages and avoids complex Unicode regex issues
+            const rawWords = selectedText
+                .split(/[\s\-–—•.,!?;:()\[\]{}""''«»„"\u2014\u2013\u2026]+/)
+                .filter(word => word.length > 1)
                 .map(word => word.trim())
                 .filter(Boolean);
+            
+            console.log('Extracted words from text:', rawWords);
 
-            // Limit to unique words to prevent duplicates
-            words = Array.from(new Set(words));
+            // Universal word filtering without language-specific stop words
+            let words = Array.from(new Set(rawWords)); // Remove duplicates
+            console.log('Filtered words (universal):', words);
 
             // Initialize array of options to present to the user
             let options: string[] = [];
             let phrasesExtracted = false;
 
+            // For short-medium texts (4-10 words), always include individual words and full phrase
+            if (wordCount >= 4 && wordCount <= 10) {
+                console.log('Processing short-medium text (4-10 words)');
+                
+                // Add the full phrase as an option
+                const cleanedFullText = selectedText.replace(/^[-–—•\s]+/, '').trim();
+                options.push(cleanedFullText);
+                console.log('Added full phrase:', cleanedFullText);
+
+                // Primary approach: Use AI to identify important words if available
+                if (apiKey && aiService) {
+                    try {
+                        console.log('Using AI to extract key terms...');
+                        const aiResponse = await aiService.extractKeyTerms(apiKey, selectedText);
+                        if (aiResponse && aiResponse.length > 0) {
+                            aiResponse.forEach((term: string) => {
+                                const cleanedTerm = term.replace(/^[-–—•\s]+/, '').trim();
+                                if (!options.includes(cleanedTerm) && cleanedTerm.length > 1) {
+                                    options.push(cleanedTerm);
+                                    console.log('Added AI-extracted term:', cleanedTerm);
+                                }
+                            });
+                            phrasesExtracted = true; // Mark as processed by AI
+                        }
+                    } catch (e) {
+                        console.log('AI extraction failed, falling back to word-based approach:', e);
+                    }
+                }
+
+                // Fallback: Add individual words if AI didn't work or no API key
+                if (!phrasesExtracted) {
+                    console.log('Adding individual words (fallback):', words);
+                    words.forEach(word => {
+                        // Use length as universal indicator of importance
+                        if (word.length > 2) {  // Universal minimum length
+                            const cleanedWord = word.replace(/^[-–—•\s]+/, '').trim();
+                            if (!options.includes(cleanedWord)) {
+                                options.push(cleanedWord);
+                                console.log('Added individual word:', cleanedWord);
+                            }
+                        }
+                    });
+                }
+
+                // Add 2-word combinations for better coverage
+                if (wordCount >= 6) {
+                    console.log('Adding 2-word combinations...');
+                    const wordsArray = selectedText.split(/\s+/);
+                    for (let i = 0; i < wordsArray.length - 1; i++) {
+                        if (wordsArray[i].length > 1 && wordsArray[i + 1].length > 1) {
+                            let twoWordPhrase = `${wordsArray[i]} ${wordsArray[i + 1]}`.trim();
+                            twoWordPhrase = twoWordPhrase.replace(/^[-–—•\s]+/, '').trim();
+                            if (twoWordPhrase.length > 3 && !options.includes(twoWordPhrase)) {
+                                options.push(twoWordPhrase);
+                                console.log('Added 2-word phrase:', twoWordPhrase);
+                            }
+                        }
+                    }
+                }
+                
+                // Always mark as processed for short-medium texts
+                phrasesExtracted = true;
+                console.log('Short-medium processing complete. Options so far:', options);
+            }
+
             // For longer texts (>100 chars), rely primarily on AI extraction
-            if (selectedText.length > 100 && apiKey) {
+            if (!phrasesExtracted && selectedText.length > 100 && apiKey) {
                 try {
                     setTextAnalysisLoader(true);
                     // Prioritize AI extraction for longer text
@@ -2577,6 +2647,22 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // For medium-length selections, try to extract meaningful phrases
             if (!phrasesExtracted && selectedText.length > 30 && selectedText.length <= 200) {
+                console.log('Processing medium-length text:', selectedText.length, 'chars, words:', wordCount);
+                
+                // For texts with 4-15 words, also add individual words even in this section
+                if (wordCount >= 4 && wordCount <= 15) {
+                    // Add individual meaningful words
+                    words.forEach(word => {
+                        if (word.length > 2) {  // Reduced from 3 to 2 to match filtering criteria
+                            const cleanedWord = word.replace(/^[-–—•\s]+/, '').trim();
+                            if (!options.includes(cleanedWord)) {
+                                options.push(cleanedWord);
+                                console.log('Added individual word:', cleanedWord);
+                            }
+                        }
+                    });
+                }
+                
                 // Split text into sentences
                 const sentences = selectedText.split(/[.!?]+/).filter(s => s.trim().length > 0);
 
@@ -2589,23 +2675,34 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         trimmed.split(/\s+/).length <= 8) {
                         // Clean the phrase by removing leading dashes/hyphens
                         const cleanedPhrase = trimmed.replace(/^[-–—•\s]+/, '').trim();
-                        options.push(cleanedPhrase);
+                        if (!options.includes(cleanedPhrase)) {
+                            options.push(cleanedPhrase);
+                            console.log('Added medium phrase:', cleanedPhrase);
+                        }
                     }
                 });
+                
+                // Set flag to indicate we processed this text
+                phrasesExtracted = true;
             }
 
             // Add individual important words if we don't have many options yet
-            if (options.length < 5) {
+            if (options.length < 5 || (wordCount >= 4 && wordCount <= 15 && !phrasesExtracted)) {
+                console.log('Adding individual words, current options count:', options.length, 'wordCount:', wordCount, 'phrasesExtracted:', phrasesExtracted);
+                
                 // Find potentially important words (longer words are often more significant)
                 const importantWords = words
-                    .filter(word => word.length > 5)  // Prefer longer words
-                    .slice(0, 5);  // Limit to 5 important words
+                    .filter(word => word.length > 2)  // Lowered from 5 to 3 to include more words
+                    .slice(0, 7);  // Increased limit to 7 important words
+
+                console.log('Important words found:', importantWords);
 
                 importantWords.forEach(word => {
                     // Clean the word by removing leading dashes/hyphens
                     const cleanedWord = word.replace(/^[-–—•\s]+/, '').trim();
                     if (!options.includes(cleanedWord)) {
                         options.push(cleanedWord);
+                        console.log('Added important word:', cleanedWord);
                     }
                 });
             }
