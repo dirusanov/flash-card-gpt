@@ -1,12 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "./store";
 import { setCurrentPage } from "./store/actions/page";
 import CreateCard from './components/CreateCard';
-import Settings from "./components/Settings";
+import Settings from './components/Settings';
 import StoredCards from './components/StoredCards';
-import { instantiateStore } from './store';
-import { ExtendedStore } from 'reduxed-chrome-storage';
 import { fetchDecksSuccess } from './store/actions/decks';
 import { fetchDecks } from './services/ankiService';
 import { setAnkiAvailability } from './store/actions/anki';
@@ -14,10 +12,8 @@ import { toggleSidebar } from './store/actions/sidebar'
 import GlobalNotifications from './components/GlobalNotifications';
 import { FaList, FaCog, FaTimes, FaPlus } from 'react-icons/fa';
 import { loadStoredCards } from './store/actions/cards';
-import { loadCardsFromStorage } from './store/middleware/cardsLocalStorage';
 
 function App() {
-  const [store, setStore] = useState<ExtendedStore | null>(null);
   const isAnkiAvailable = useSelector((state: RootState) => state.anki.isAnkiAvailable)
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const currentPage = useSelector((state: RootState) => state.currentPage);
@@ -30,11 +26,8 @@ function App() {
   const isGeneratingCard = useSelector((state: RootState) => state.cards.isGeneratingCard);
 
   useEffect(() => {
-    const initializeStore = async () => {
+    const initializeApp = async () => {
       try {
-        const resolvedStore = await instantiateStore();
-        setStore(resolvedStore);
-        
         // Загружаем сохраненные карточки при запуске приложения
         dispatch(loadStoredCards());
         console.log('Initial card load from App component');
@@ -56,29 +49,27 @@ function App() {
           dispatch(setAnkiAvailability(false));
         }
       } catch (error) {
-        console.error('Error loading state from Chrome storage:', error);
+        console.error('Error initializing app:', error);
       } finally {
         setIsInitialLoad(false);
       }
     };
 
-    initializeStore();
-  }, [dispatch, ankiConnectApiKey, isInitialLoad, currentPage])
+    if (isInitialLoad) {
+      initializeApp();
+    }
+  }, [dispatch, ankiConnectApiKey, isInitialLoad])
 
   // Отслеживаем загрузку сохраненных карточек
   useEffect(() => {
     console.log('App: Stored cards count:', storedCards.length);
   }, [storedCards]);
 
-  if (!store) {
-    return null;
-  }
-
-  const handlePageChange = (page: string) => {
+  const handlePageChange = useCallback((page: string) => {
     dispatch(setCurrentPage(page));
-  };
+  }, [dispatch]);
 
-  const handleCloseExtension = () => {
+  const handleCloseExtension = useCallback(() => {
     dispatch(toggleSidebar());
     chrome.runtime.sendMessage({ action: 'toggleSidebar' }, (response) => {
       if (chrome.runtime.lastError) {
@@ -87,35 +78,34 @@ function App() {
         console.log('Extension closed:', response);
       }
     });
-  };
+  }, [dispatch]);
 
   const renderMainContent = () => {
     // Динамические отступы в зависимости от наличия New Card кнопки
     const topPadding = currentPage !== 'createCard' ? '46px' : '12px'; // компактные отступы
     const bottomPadding = '58px'; // компактнее для bottom navigation
 
+    const baseStyle = {
+      width: '100%',
+      height: '100%',
+      paddingTop: topPadding,
+      paddingBottom: bottomPadding,
+      overflow: 'auto',
+      opacity: 1,
+      transform: 'translateX(0)',
+      transition: 'all 0.3s ease-in-out'
+    };
+
     switch(currentPage) {
       case 'settings':
         return (
-          <div style={{ 
-            width: '100%', 
-            height: '100%',
-            paddingTop: topPadding,
-            paddingBottom: bottomPadding,
-            overflow: 'auto'
-          }}>
+          <div style={baseStyle}>
             <Settings onBackClick={() => handlePageChange('createCard')} popup={false} />
           </div>
         );
       case 'storedCards':
         return (
-          <div style={{ 
-            width: '100%', 
-            height: '100%',
-            paddingTop: topPadding,
-            paddingBottom: bottomPadding,
-            overflow: 'auto'
-          }}>
+          <div style={baseStyle}>
             <StoredCards onBackClick={() => handlePageChange('createCard')} />
           </div>
         );
@@ -131,7 +121,10 @@ function App() {
             height: '100%',
             position: 'relative',
             paddingTop: topPadding,
-            paddingBottom: bottomPadding
+            paddingBottom: bottomPadding,
+            opacity: 1,
+            transform: 'translateX(0)',
+            transition: 'all 0.3s ease-in-out'
           }}>
             <CreateCard />
           </div>

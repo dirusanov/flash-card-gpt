@@ -24,8 +24,8 @@ newDiv.setAttribute('style', `
   height: 100%;
   overflow: auto;
   z-index: 9999;
-  background-color: #282c34;
-  box-shadow: -2px 0 5px rgba(0, 0, 0, 0.5);
+  background-color: #ffffff;
+  box-shadow: -2px 0 5px rgba(0, 0, 0, 0.15);
   transform: translateX(100%); /* по умолчанию скрыто */
   transition: transform 0.3s ease-in-out;
 `);
@@ -42,20 +42,131 @@ document.body.appendChild(newDiv);
 
 const root = createRoot(shadow);
 
+// Компонент красивого лоадера
+const LoadingSpinner = () => {
+  return React.createElement('div', {
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100vh',
+      background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      color: '#ffffff'
+    }
+  }, [
+    // Логотип/иконка
+    React.createElement('div', {
+      key: 'logo',
+      style: {
+        width: '48px',
+        height: '48px',
+        background: 'rgba(255,255,255,0.2)',
+        borderRadius: '12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: '24px',
+        animation: 'pulse 2s ease-in-out infinite'
+      }
+    }, '🧠'),
+    // Анимированный спиннер
+    React.createElement('div', {
+      key: 'spinner',
+      style: {
+        width: '32px',
+        height: '32px',
+        border: '2px solid rgba(255,255,255,0.3)',
+        borderTop: '2px solid #ffffff',
+        borderRadius: '50%',
+        animation: 'spin 1s linear infinite',
+        marginBottom: '20px'
+      }
+    }),
+    // Заголовок
+    React.createElement('h2', {
+      key: 'title',
+      style: {
+        color: '#ffffff',
+        fontSize: '20px',
+        fontWeight: '700',
+        marginBottom: '8px',
+        textAlign: 'center',
+        letterSpacing: '-0.025em'
+      }
+    }, 'Anki Flash Cards'),
+    // Подзаголовок
+    React.createElement('p', {
+      key: 'subtitle',
+      style: {
+        color: 'rgba(255,255,255,0.8)',
+        fontSize: '14px',
+        textAlign: 'center',
+        fontWeight: '400'
+      }
+    }, 'Initializing your learning assistant...'),
+    // Прогресс бар
+    React.createElement('div', {
+      key: 'progress-bar',
+      style: {
+        width: '200px',
+        height: '2px',
+        backgroundColor: 'rgba(255,255,255,0.3)',
+        borderRadius: '1px',
+        marginTop: '24px',
+        overflow: 'hidden'
+      }
+    }, React.createElement('div', {
+      style: {
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#ffffff',
+        animation: 'progressBar 2s ease-in-out infinite'
+      }
+    })),
+    // CSS анимации
+    React.createElement('style', {
+      key: 'styles'
+    }, `
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.05); opacity: 0.8; }
+      }
+      @keyframes progressBar {
+        0% { transform: translateX(-100%); }
+        50% { transform: translateX(0%); }
+        100% { transform: translateX(100%); }
+      }
+    `)
+  ]);
+};
+
 // Компонент инициализации хранилища
 const StoreInitializer = () => {
   const [store, setStore] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     instantiateStore()
       // @ts-ignore
-      .then(resolvedStore => setStore(resolvedStore))
-      .catch(error => console.error('Error loading state from Chrome storage:', error));
+      .then(resolvedStore => {
+        setStore(resolvedStore);
+        // Уменьшенная задержка для более быстрого запуска
+        setTimeout(() => setIsLoading(false), 100);
+      })
+      .catch(error => {
+        console.error('Error loading state from Chrome storage:', error);
+        setIsLoading(false);
+      });
   }, []);
 
-  if (!store) {
-    // Возвращаем некий компонент "загрузка" или null, пока хранилище не инициализировано
-    return null;
+  if (isLoading || !store) {
+    return React.createElement(LoadingSpinner);
   }
 
   return (
