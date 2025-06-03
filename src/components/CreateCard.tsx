@@ -4606,6 +4606,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                             <div style={{
                                 display: 'flex',
                                 flexDirection: 'column',
+                                width: '100%',
                                 gap: '8px',
                                 marginTop: '4px'
                             }}>
@@ -4619,6 +4620,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                                 {/* Smart Image Generation Mode Selector */}
                                 <div style={{
                                     display: 'flex',
+                                    width: '100%',
                                     backgroundColor: '#F3F4F6',
                                     borderRadius: '8px',
                                     padding: '4px',
@@ -4632,6 +4634,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                                         disabled={!isImageGenerationAvailable()}
                                         style={{
                                             flex: 1,
+                                            whiteSpace: 'nowrap',
                                             padding: '8px 12px',
                                             borderRadius: '6px',
                                             border: 'none',
@@ -4658,6 +4661,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                                         disabled={!isImageGenerationAvailable()}
                                         style={{
                                             flex: 1,
+                                            whiteSpace: 'nowrap',
                                             padding: '8px 12px',
                                             borderRadius: '6px',
                                             border: 'none',
@@ -4684,6 +4688,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                                         disabled={!isImageGenerationAvailable()}
                                         style={{
                                             flex: 1,
+                                            whiteSpace: 'nowrap',
                                             padding: '8px 12px',
                                             borderRadius: '6px',
                                             border: 'none',
@@ -4705,15 +4710,24 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                                 </div>
 
                                 {/* Description text */}
-                                <div style={{
-                                    fontSize: '11px',
-                                    color: '#6B7280',
-                                    lineHeight: '1.4',
-                                    marginTop: '2px'
-                                }}>
-                                    {imageGenerationMode === 'off' && 'No images will be generated'}
-                                    {imageGenerationMode === 'smart' && 'AI decides: Images only for concrete objects, places, and visual concepts. Saves API costs by skipping abstract terms.'}
-                                    {imageGenerationMode === 'always' && 'Images generated for all cards'}
+                                <div style={{ position: 'relative', height: '2.8em', marginTop: '2px' }}>
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        fontSize: '11px',
+                                        color: '#6B7280',
+                                        lineHeight: '1.4',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                    }}>
+                                        {imageGenerationMode === 'off' && 'No images will be generated'}
+                                        {imageGenerationMode === 'smart' && 'AI decides: Images only for concrete objects, places, and visual concepts. Saves API costs by skipping abstract terms.'}
+                                        {imageGenerationMode === 'always' && 'Images generated for all cards'}
+                                    </div>
                                 </div>
 
                                 {!isImageGenerationAvailable() && (
