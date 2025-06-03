@@ -484,7 +484,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     const formatDate = (dateString: Date) => {
         const date = new Date(dateString);
-        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${day}/${month} ${hours}:${minutes}`;
     };
 
     const renderCardStatus = (status: ExportStatus) => {
@@ -760,69 +764,82 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             style={{ marginRight: '8px' }}
                             disabled={editingCard !== null}
                         />
-                        <div>
-                            <span style={{ fontSize: '12px', color: '#6B7280' }}>
-                                {card.mode === Modes.LanguageLearning ? 'Language' : 'Topic'}
-                            </span>
-                            <span style={{ fontSize: '11px', color: '#9CA3AF', marginLeft: '8px' }}>
-                                {formatDate(card.createdAt)}
-                            </span>
-                            {(card.image || card.imageUrl) && (
-                                <span style={{ 
-                                    fontSize: '11px', 
-                                    color: '#10B981', 
-                                    marginLeft: '8px',
-                                    backgroundColor: '#ECFDF5',
-                                    padding: '1px 4px',
-                                    borderRadius: '3px',
-                                    fontWeight: 'bold'
-                                }}>
-                                    📸 IMG
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                                <span style={{ fontSize: '12px', color: '#6B7280' }}>
+                                    {card.mode === Modes.LanguageLearning ? 'Language' : 'Topic'}
                                 </span>
-                            )}
-                            {renderCardStatus(card.exportStatus)}
+                                <span style={{ fontSize: '10px', color: '#9CA3AF' }}>
+                                    {formatDate(card.createdAt)}
+                                </span>
+                                {renderCardStatus(card.exportStatus)}
+                            </div>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {editingCard !== card && (
                             <>
                                 <button
                                     onClick={() => handleStartEditing(card)}
                                     style={{
                                         backgroundColor: 'transparent',
-                                        border: 'none',
+                                        border: '1px solid #E5E7EB',
+                                        borderRadius: '6px',
                                         cursor: 'pointer',
                                         color: '#2563EB',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        padding: '4px',
-                                        opacity: 0.8,
-                                        transition: 'opacity 0.2s'
+                                        justifyContent: 'center',
+                                        padding: '6px 8px',
+                                        fontSize: '12px',
+                                        minWidth: '70px',
+                                        height: '32px',
+                                        transition: 'all 0.2s ease',
+                                        gap: '4px'
                                     }}
                                     title="Edit card"
-                                    onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
-                                    onMouseOut={(e) => e.currentTarget.style.opacity = '0.8'}
+                                    onMouseOver={(e) => {
+                                        e.currentTarget.style.backgroundColor = '#EFF6FF';
+                                        e.currentTarget.style.borderColor = '#2563EB';
+                                    }}
+                                    onMouseOut={(e) => {
+                                        e.currentTarget.style.backgroundColor = 'transparent';
+                                        e.currentTarget.style.borderColor = '#E5E7EB';
+                                    }}
                                 >
-                                    <FaEdit size={14} />
+                                    <FaEdit size={12} />
+                                    Edit
                                 </button>
                                 <button
                                     onClick={() => handleDelete(card.id)}
                                     style={{
                                         backgroundColor: 'transparent',
-                                        border: 'none',
+                                        border: '1px solid #E5E7EB',
+                                        borderRadius: '6px',
                                         cursor: 'pointer',
                                         color: '#EF4444',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        padding: '4px',
-                                        opacity: 0.8,
-                                        transition: 'opacity 0.2s'
+                                        justifyContent: 'center',
+                                        padding: '6px 8px',
+                                        fontSize: '12px',
+                                        minWidth: '70px',
+                                        height: '32px',
+                                        transition: 'all 0.2s ease',
+                                        gap: '4px'
                                     }}
                                     title="Delete card"
-                                    onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
-                                    onMouseOut={(e) => e.currentTarget.style.opacity = '0.8'}
+                                    onMouseOver={(e) => {
+                                        e.currentTarget.style.backgroundColor = '#FEF2F2';
+                                        e.currentTarget.style.borderColor = '#EF4444';
+                                    }}
+                                    onMouseOut={(e) => {
+                                        e.currentTarget.style.backgroundColor = 'transparent';
+                                        e.currentTarget.style.borderColor = '#E5E7EB';
+                                    }}
                                 >
-                                    <FaTrash size={14} />
+                                    <FaTrash size={12} />
+                                    Delete
                                 </button>
                             </>
                         )}
