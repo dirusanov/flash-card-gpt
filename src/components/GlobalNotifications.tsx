@@ -16,7 +16,7 @@ const GlobalNotifications: React.FC = () => {
       
       let timeout = 0;
       if (type === 'success' || type === 'info') {
-        timeout = 4000;
+        timeout = 5000;
       } else if (type === 'warning') {
         timeout = 6000;
       }
