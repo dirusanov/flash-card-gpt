@@ -47,7 +47,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const [isEditingInModal, setIsEditingInModal] = useState(false);
     const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
-    const [loadingImage, setLoadingImage] = useState(false);
+
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
     const [loadingAccept, setLoadingAccept] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
@@ -1043,7 +1043,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         setIsEditingInModal(true);
         setCustomInstruction('');
         setIsProcessingCustomInstruction(false);
-        setLoadingImage(false);
         setLoadingNewExamples(false);
         setLoadingAccept(false);
         
@@ -1058,7 +1057,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         setIsEditingInModal(false);
         setCustomInstruction('');
         setIsProcessingCustomInstruction(false);
-        setLoadingImage(false);
         setLoadingNewExamples(false);
         setLoadingAccept(false);
         console.log('Edit canceled, modal should be hidden now.');
@@ -1126,8 +1124,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         if (!editingCard) return;
 
         try {
-            setLoadingImage(true);
-
             // Check if we have API keys
             if (!openAiKey) {
                 throw new Error('OpenAI API key is not configured. Please add it in the settings.');
@@ -1204,8 +1200,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         } catch (error: any) {
             console.error('Error generating image:', error);
             showError(`Image generation failed: ${error?.message || 'Unknown error'}`);
-        } finally {
-            setLoadingImage(false);
         }
     };
 
@@ -1472,7 +1466,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         onAccept={handleSaveEditFromModal}
                         onViewSavedCards={() => {}}
                         onCancel={handleCancelEdit}
-                        loadingNewImage={loadingImage}
+                        loadingNewImage={false}
                         loadingNewExamples={loadingNewExamples}
                         loadingAccept={loadingAccept}
                         shouldGenerateImage={true}
@@ -1813,174 +1807,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     };
 
     // Diagnostic function to check storage size and fix quota issues
-    const diagnoseImageIssues = () => {
-        console.log('=== IMAGE DIAGNOSIS START ===');
-        
-        // Load cards from localStorage directly
-        const rawData = localStorage.getItem('anki_stored_cards');
-        if (!rawData) {
-            console.log('No cards found in localStorage');
-            return;
-        }
-        
-        try {
-            const savedCards = JSON.parse(rawData);
-            console.log('Total cards in localStorage:', savedCards.length);
-            
-            const cardsWithImages = savedCards.filter((card: StoredCard) => card.image || card.imageUrl);
-            console.log('Cards with images in localStorage:', cardsWithImages.length);
-            
-            cardsWithImages.forEach((card: StoredCard, index: number) => {
-                console.log(`\nCard ${index + 1} (${card.id}):`);
-                console.log('- Text:', card.text);
-                console.log('- Mode:', card.mode);
-                console.log('- Has image?', !!card.image);
-                console.log('- Has imageUrl?', !!card.imageUrl);
-                
-                if (card.image) {
-                    console.log('- Image type:', typeof card.image);
-                    console.log('- Image length:', card.image.length);
-                    console.log('- Image starts with data:?', card.image.startsWith('data:'));
-                    console.log('- Image preview:', card.image.substring(0, 100));
-                }
-                
-                if (card.imageUrl) {
-                    console.log('- ImageUrl type:', typeof card.imageUrl);
-                    console.log('- ImageUrl length:', card.imageUrl.length);
-                    console.log('- ImageUrl preview:', card.imageUrl.substring(0, 100));
-                }
-            });
-            
-            // Test Redux state
-            console.log('\n=== REDUX STATE CHECK ===');
-            console.log('Current storedCards length:', storedCards.length);
-            const reduxCardsWithImages = storedCards.filter(card => card.image || card.imageUrl);
-            console.log('Redux cards with images:', reduxCardsWithImages.length);
-            
-            reduxCardsWithImages.forEach((card, index) => {
-                console.log(`Redux card ${index + 1} (${card.id}):`, {
-                    text: card.text,
-                    hasImage: !!card.image,
-                    hasImageUrl: !!card.imageUrl,
-                    imageLength: card.image?.length,
-                    imageUrlLength: card.imageUrl?.length
-                });
-            });
-            
-            // Test image display
-            console.log('\n=== IMAGE DISPLAY TEST ===');
-            cardsWithImages.forEach((card: StoredCard) => {
-                const imageToDisplay = card.imageUrl || card.image;
-                if (imageToDisplay) {
-                    console.log(`Card ${card.id} display test:`, {
-                        imageSource: imageToDisplay.substring(0, 100),
-                        isValidDataUri: imageToDisplay.startsWith('data:'),
-                        isUrl: imageToDisplay.startsWith('http'),
-                        canBeDisplayed: !!(imageToDisplay && (imageToDisplay.startsWith('data:') || imageToDisplay.startsWith('http')))
-                    });
-                }
-            });
-            
-        } catch (error) {
-            console.error('Error parsing localStorage cards:', error);
-        }
-        
-        console.log('=== IMAGE DIAGNOSIS END ===');
-    };
 
-    const diagnosisAndRepair = () => {
-        try {
-            // First check what's in localStorage
-            const rawData = localStorage.getItem('anki_stored_cards');
-            if (!rawData) {
-                showError('No cards found in localStorage.', 'error');
-                return;
-            }
-            
-            // Check storage size
-            const storageSizeInBytes = new Blob([rawData]).size;
-            const storageSizeInKB = Math.round(storageSizeInBytes / 1024);
-            
-            console.log(`Storage diagnosis: Size = ${storageSizeInKB}KB, Raw data length = ${rawData.length}`);
-            
-            try {
-                // Parse the data
-                const parsedCards = JSON.parse(rawData);
-                
-                if (!Array.isArray(parsedCards)) {
-                    showError('Storage data is not a valid array!', 'error');
-                    return;
-                }
-                
-                // Display stats
-                showError(`Found ${parsedCards.length} cards in localStorage (${storageSizeInKB}KB). Looking for quota issues...`, 'info');
-                
-                // Check if emergency quota function was triggered (exactly 4 cards is suspicious)
-                if (parsedCards.length === 4) {
-                    const shouldFix = window.confirm(
-                        'It looks like you hit the storage quota limit, which is why only 4 cards are showing. ' +
-                        'Would you like to try to recover your cards by reducing their size?'
-                    );
-                    
-                    if (shouldFix) {
-                        // Try to reduce size by removing large fields
-                        const trimmedCards = parsedCards.map(card => {
-                            // Create a version with smaller data
-                            const trimmed = {
-                                ...card,
-                                // Remove the large image data which takes up most space
-                                image: null,
-                                // Keep only essential fields for display
-                                text: card.text,
-                                translation: card.translation,
-                                front: card.front,
-                                back: card.back ? card.back.substring(0, 500) : null, // Limit back field length
-                                // Keep only a few examples
-                                examples: card.examples && card.examples.length > 2 ? 
-                                    card.examples.slice(0, 2) : card.examples
-                            };
-                            return trimmed;
-                        });
-                        
-                        // Try to restore using trimmed cards
-                        dispatch({ type: 'SET_STORED_CARDS', payload: trimmedCards });
-                        
-                        // Request backup of full cards for manual restore
-                        const saveBackup = window.confirm(
-                            'We have temporarily recovered your cards with reduced data. ' +
-                            'Would you like to download a backup of your full cards for manual restore later?'
-                        );
-                        
-                        if (saveBackup) {
-                            // Create and download backup file
-                            const blob = new Blob([rawData], { type: 'application/json' });
-                            const url = URL.createObjectURL(blob);
-                            const link = document.createElement('a');
-                            link.href = url;
-                            link.download = 'anki_cards_backup.json';
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            
-                            showError('Backup file downloaded. You can use this file later to restore your full cards.', 'success');
-                        }
-                        
-                        showError('Your cards have been temporarily recovered with reduced data. Note that images have been removed to save space.', 'warning');
-                    }
-                } else {
-                    showError(`Storage seems healthy. Found ${parsedCards.length} cards.`, 'success');
-                }
-                
-            } catch (error) {
-                console.error('Error parsing localStorage data:', error);
-                showError('Error parsing localStorage data. Storage may be corrupted.', 'error');
-            }
-            
-        } catch (error) {
-            console.error('Error accessing localStorage:', error);
-            showError('Error accessing localStorage', 'error');
-        }
-    };
+
+
 
     // Debug effect to track modal state changes
     useEffect(() => {
@@ -2224,76 +2053,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
     };
 
-    const fixTemporaryImageUrls = async () => {
-        try {
-            setLoadingImage(true);
-            console.log('🔧 Starting fix for temporary image URLs...');
-            
-            // Найти карточки с временными URL (http/https) но без base64
-            const cardsWithTemporaryUrls = storedCards.filter(card => 
-                card.imageUrl && 
-                card.imageUrl.startsWith('http') && 
-                !card.image
-            );
-            
-            console.log(`Found ${cardsWithTemporaryUrls.length} cards with temporary image URLs`);
-            
-            if (cardsWithTemporaryUrls.length === 0) {
-                showError('No cards with temporary image URLs found.', 'success');
-                return;
-            }
-            
-            let fixedCount = 0;
-            let failedCount = 0;
-            
-            for (const card of cardsWithTemporaryUrls) {
-                try {
-                    console.log(`Attempting to fix image for card: ${card.id}`);
-                    
-                    // Попытаться конвертировать URL в base64
-                    const base64Data = await new Promise<string | null>((resolve) => {
-                        chrome.runtime.sendMessage(card.imageUrl!, (response) => {
-                            if (chrome.runtime.lastError || !response || !response.status) {
-                                console.warn(`Failed to fetch image for card ${card.id}:`, chrome.runtime.lastError?.message || 'No response');
-                                resolve(null);
-                            } else {
-                                resolve(response.data);
-                            }
-                        });
-                    });
-                    
-                    if (base64Data) {
-                        // Обновить карточку с base64 данными и очистить временный URL
-                        const updatedCard = {
-                            ...card,
-                            image: base64Data,
-                            imageUrl: null // Удаляем временный URL
-                        };
-                        
-                        dispatch(updateStoredCard(updatedCard));
-                        fixedCount++;
-                        console.log(`✅ Fixed image for card: ${card.id}`);
-                    } else {
-                        failedCount++;
-                        console.log(`❌ Could not fetch image for card: ${card.id} (URL may be expired)`);
-                    }
-                } catch (error) {
-                    failedCount++;
-                    console.error(`Error fixing image for card ${card.id}:`, error);
-                }
-            }
-            
-            const message = `Image fix complete: ${fixedCount} fixed, ${failedCount} failed`;
-            console.log(message);
-            showError(message, fixedCount > 0 ? 'success' : 'error');
-            
-        } catch (error) {
-            console.error('Error during image URL fix:', error);
-            showError('Failed to fix image URLs. Please try again.');
-        } finally {
-            setLoadingImage(false);
-        }
-    };
+
 
     return (
         <div style={{
@@ -2408,48 +2168,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             >
                                 <FaDownload size={12} />
                                 <span>Export</span>
-                            </button>
-                            <button
-                                onClick={fixTemporaryImageUrls}
-                                disabled={loadingImage || editingCard !== null}
-                                style={{
-                                    padding: '6px 10px',
-                                    borderRadius: '6px',
-                                    backgroundColor: loadingImage ? '#9CA3AF' : '#F59E0B',
-                                    color: '#ffffff',
-                                    fontSize: '13px',
-                                    border: 'none',
-                                    cursor: loadingImage || editingCard !== null ? 'not-allowed' : 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                    opacity: (loadingImage || editingCard !== null) ? 0.6 : 1
-                                }}
-                                title={editingCard !== null ? 'Finish editing first' : 'Fix temporary image URLs by converting them to permanent base64 data'}
-                            >
-                                {loadingImage ? '🔄' : '🔧'}
-                                <span>{loadingImage ? 'Fixing...' : 'Fix Images'}</span>
-                            </button>
-                            <button
-                                onClick={diagnoseImageIssues}
-                                disabled={editingCard !== null}
-                                style={{
-                                    padding: '6px 10px',
-                                    borderRadius: '6px',
-                                    backgroundColor: '#8B5CF6',
-                                    color: '#ffffff',
-                                    fontSize: '13px',
-                                    border: 'none',
-                                    cursor: editingCard !== null ? 'not-allowed' : 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                    opacity: editingCard !== null ? 0.6 : 1
-                                }}
-                                title={editingCard !== null ? 'Finish editing first' : 'Diagnose image display issues'}
-                            >
-                                🔍
-                                <span>Debug</span>
                             </button>
                         </div>
                     </div>
