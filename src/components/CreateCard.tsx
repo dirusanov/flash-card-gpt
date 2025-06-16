@@ -638,8 +638,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     examples,
                     linguisticInfo, // Добавляем лингвистическое описание
                     transcription: transcription || '',
-                    // Include image and imageUrl if they exist, regardless of shouldGenerateImage setting
-                    // This ensures existing images are preserved when saving cards
+                    // Сохраняем оба типа изображений для надежности
                     image: image,
                     imageUrl: imageUrl,
                     createdAt: new Date(),
@@ -694,7 +693,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     text: cardText,
                     linguisticInfo, // Добавляем лингвистическое описание
                     transcription: transcription || '',
-                    // Include image and imageUrl if they exist (general topic cards can have images too)
+                    // Сохраняем оба типа изображений для надежности
                     image: image,
                     imageUrl: imageUrl,
                     createdAt: new Date(),
@@ -2292,6 +2291,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         transcription: generatedTranscription, // Добавляем транскрипцию
                         front: flashcard.front || '',
                         back: translation.translated || '',
+                        // Сохраняем оба типа изображений для надежности
                         image: currentImage, // Используем локальную переменную
                         imageUrl: currentImageUrl, // Используем локальную переменную
                         createdAt: new Date(),

@@ -28,12 +28,21 @@ export async function getImage(
         console.log('OpenAI returned URL:', imageUrl ? 'success' : 'null');
         
         if (imageUrl) {
+            // ВАЖНО: Всегда пытаемся конвертировать в base64 для надежного хранения
             try {
+                console.log('Converting image URL to base64 for permanent storage...');
                 imageBase64 = await imageUrlToBase64(imageUrl);
                 console.log('Image URL converted to base64:', imageBase64 ? 'success' : 'null');
+                
+                if (imageBase64) {
+                    console.log('✅ Image successfully converted to base64 - keeping both URL and base64 for reliability');
+                } else {
+                    console.warn('⚠️ Failed to convert image to base64 - keeping temporary URL as fallback');
+                }
             } catch (base64Error) {
-                console.error('Error converting URL to base64:', base64Error);
-                // Если ошибка в конвертации - оставляем URL, но base64 будет null
+                console.error('❌ Error converting URL to base64:', base64Error);
+                console.warn('⚠️ Will use temporary URL as fallback, but it may disappear later');
+                // Если ошибка в конвертации - оставляем URL как fallback
             }
         }
     } catch (openaiError) {
@@ -47,10 +56,17 @@ export async function getImage(
         }
     }
 
-    // Если метод не сработал или не вернул результат
-    if (!imageUrl) {
+    // Если ни метод не сработал или не вернул результат
+    if (!imageUrl && !imageBase64) {
         throw new Error("Failed to generate image. Please check your API key and try again.");
     }
+
+    // Сохраняем оба типа данных для надежности
+    console.log('Final result:', {
+        hasBase64: !!imageBase64,
+        hasUrl: !!imageUrl,
+        status: imageBase64 && imageUrl ? 'Both available (best)' : imageBase64 ? 'Base64 only' : 'URL only'
+    });
 
     return { imageUrl, imageBase64 };
 }

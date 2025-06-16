@@ -543,11 +543,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             )}
                         </div>
                     )}
-                    {/* Check for either imageUrl or image to display */}
-                    {(card.imageUrl || card.image) && (
+                    {/* Display image - приоритетно используем base64 данные */}
+                    {(card.image || card.imageUrl) && (
                         <div style={{ marginTop: '8px', textAlign: 'center' }}>
                             <img 
-                                src={(card.imageUrl || card.image || '') as string} 
+                                src={(card.image || card.imageUrl || '') as string} 
                                 alt="Card image" 
                                 style={{ 
                                     maxWidth: '100%', 
@@ -564,7 +564,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                         imageUrlLength: card.imageUrl?.length,
                                         imagePreview: card.image?.substring(0, 50),
                                         imageUrlPreview: card.imageUrl?.substring(0, 50),
-                                        imageSrc: (card.imageUrl || card.image || '').substring(0, 100)
+                                        imageSrc: (card.image || card.imageUrl || '').substring(0, 100),
+                                        usingType: card.image ? 'base64 (permanent)' : 'url (temporary)'
                                     });
                                     
                                     // Replace broken image with placeholder
@@ -585,13 +586,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                         color: #6B7280;
                                         font-size: 12px;
                                     `;
-                                    placeholder.textContent = '🖼️ Image unavailable';
+                                    placeholder.textContent = card.image ? '🖼️ Image error' : '🖼️ URL expired';
                                     
                                     // Insert placeholder after the failed image
                                     target.parentNode?.insertBefore(placeholder, target.nextSibling);
                                 }}
                                 onLoad={() => {
-                                    console.log('✅ Image loaded successfully for card:', card.id, 'Size:', {
+                                    console.log('✅ Image loaded successfully for card:', card.id, {
+                                        usingType: card.image ? 'base64 (permanent)' : 'url (temporary)',
                                         imageLength: card.image?.length,
                                         imageUrlLength: card.imageUrl?.length
                                     });
@@ -2222,6 +2224,77 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
     };
 
+    const fixTemporaryImageUrls = async () => {
+        try {
+            setLoadingImage(true);
+            console.log('🔧 Starting fix for temporary image URLs...');
+            
+            // Найти карточки с временными URL (http/https) но без base64
+            const cardsWithTemporaryUrls = storedCards.filter(card => 
+                card.imageUrl && 
+                card.imageUrl.startsWith('http') && 
+                !card.image
+            );
+            
+            console.log(`Found ${cardsWithTemporaryUrls.length} cards with temporary image URLs`);
+            
+            if (cardsWithTemporaryUrls.length === 0) {
+                showError('No cards with temporary image URLs found.', 'success');
+                return;
+            }
+            
+            let fixedCount = 0;
+            let failedCount = 0;
+            
+            for (const card of cardsWithTemporaryUrls) {
+                try {
+                    console.log(`Attempting to fix image for card: ${card.id}`);
+                    
+                    // Попытаться конвертировать URL в base64
+                    const base64Data = await new Promise<string | null>((resolve) => {
+                        chrome.runtime.sendMessage(card.imageUrl!, (response) => {
+                            if (chrome.runtime.lastError || !response || !response.status) {
+                                console.warn(`Failed to fetch image for card ${card.id}:`, chrome.runtime.lastError?.message || 'No response');
+                                resolve(null);
+                            } else {
+                                resolve(response.data);
+                            }
+                        });
+                    });
+                    
+                    if (base64Data) {
+                        // Обновить карточку с base64 данными и очистить временный URL
+                        const updatedCard = {
+                            ...card,
+                            image: base64Data,
+                            imageUrl: null // Удаляем временный URL
+                        };
+                        
+                        dispatch(updateStoredCard(updatedCard));
+                        fixedCount++;
+                        console.log(`✅ Fixed image for card: ${card.id}`);
+                    } else {
+                        failedCount++;
+                        console.log(`❌ Could not fetch image for card: ${card.id} (URL may be expired)`);
+                    }
+                } catch (error) {
+                    failedCount++;
+                    console.error(`Error fixing image for card ${card.id}:`, error);
+                }
+            }
+            
+            const message = `Image fix complete: ${fixedCount} fixed, ${failedCount} failed`;
+            console.log(message);
+            showError(message, fixedCount > 0 ? 'success' : 'error');
+            
+        } catch (error) {
+            console.error('Error during image URL fix:', error);
+            showError('Failed to fix image URLs. Please try again.');
+        } finally {
+            setLoadingImage(false);
+        }
+    };
+
     return (
         <div style={{
             display: 'flex',
@@ -2335,6 +2408,48 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             >
                                 <FaDownload size={12} />
                                 <span>Export</span>
+                            </button>
+                            <button
+                                onClick={fixTemporaryImageUrls}
+                                disabled={loadingImage || editingCard !== null}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    backgroundColor: loadingImage ? '#9CA3AF' : '#F59E0B',
+                                    color: '#ffffff',
+                                    fontSize: '13px',
+                                    border: 'none',
+                                    cursor: loadingImage || editingCard !== null ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    opacity: (loadingImage || editingCard !== null) ? 0.6 : 1
+                                }}
+                                title={editingCard !== null ? 'Finish editing first' : 'Fix temporary image URLs by converting them to permanent base64 data'}
+                            >
+                                {loadingImage ? '🔄' : '🔧'}
+                                <span>{loadingImage ? 'Fixing...' : 'Fix Images'}</span>
+                            </button>
+                            <button
+                                onClick={diagnoseImageIssues}
+                                disabled={editingCard !== null}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#8B5CF6',
+                                    color: '#ffffff',
+                                    fontSize: '13px',
+                                    border: 'none',
+                                    cursor: editingCard !== null ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    opacity: editingCard !== null ? 0.6 : 1
+                                }}
+                                title={editingCard !== null ? 'Finish editing first' : 'Diagnose image display issues'}
+                            >
+                                🔍
+                                <span>Debug</span>
                             </button>
                         </div>
                     </div>
