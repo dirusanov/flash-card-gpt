@@ -638,9 +638,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     examples,
                     linguisticInfo, // Добавляем лингвистическое описание
                     transcription: transcription || '',
-                    // Сохраняем оба типа изображений для надежности
-                    image: image,
-                    imageUrl: imageUrl,
+                    // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
+                    image: image, // base64 данные (постоянные, приоритет)
+                    imageUrl: imageUrl, // URL как резерв
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
@@ -2456,9 +2456,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         transcription: generatedTranscription, // Добавляем транскрипцию
                         front: flashcard.front || '',
                         back: translation.translated || '',
-                        // Сохраняем оба типа изображений для надежности
-                        image: currentImage, // Используем локальную переменную
-                        imageUrl: currentImageUrl, // Используем локальную переменную
+                        // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64  
+                        image: currentImage, // base64 данные (постоянные, приоритет)
+                        imageUrl: currentImageUrl, // URL как резерв
                         createdAt: new Date(),
                         exportStatus: 'not_exported' as const
                     };

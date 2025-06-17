@@ -1077,8 +1077,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 examples: Array.isArray(currentCardData.examples) ? currentCardData.examples : (Array.isArray(editingCard.examples) ? editingCard.examples : []),
                 front: currentCardData.front || editingCard.front || '',
                 back: currentCardData.back || editingCard.back || '',
-                image: currentCardData.image || editingCard.image || null,
-                imageUrl: currentCardData.imageUrl || editingCard.imageUrl || null,
+                // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
+                image: currentCardData.image || editingCard.image || null, // base64 данные (приоритет)
+                imageUrl: currentCardData.imageUrl || editingCard.imageUrl || null, // URL как резерв
                 linguisticInfo: currentCardData.linguisticInfo || editingCard.linguisticInfo || '',
                 transcription: currentCardData.transcription || editingCard.transcription || ''
             };
@@ -1806,6 +1807,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         console.log('=== STORAGE QUOTA FIX END ===');
     };
 
+
+
     // Diagnostic function to check storage size and fix quota issues
 
 
@@ -2169,6 +2172,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 <FaDownload size={12} />
                                 <span>Export</span>
                             </button>
+
                         </div>
                     </div>
 

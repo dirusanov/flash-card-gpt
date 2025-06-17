@@ -61,12 +61,15 @@ export async function getImage(
         throw new Error("Failed to generate image. Please check your API key and try again.");
     }
 
-    // Сохраняем оба типа данных для надежности
+    // АВТОМАТИЧЕСКАЯ ОПТИМИЗАЦИЯ: Если конвертация в base64 прошла успешно, 
+    // убираем временный URL чтобы экономить место и избежать путаницы
+    const finalImageUrl = imageBase64 ? null : imageUrl;
+    
     console.log('Final result:', {
         hasBase64: !!imageBase64,
-        hasUrl: !!imageUrl,
-        status: imageBase64 && imageUrl ? 'Both available (best)' : imageBase64 ? 'Base64 only' : 'URL only'
+        hasUrl: !!finalImageUrl,
+        status: imageBase64 ? 'Base64 (permanent)' : finalImageUrl ? 'URL only (temporary)' : 'No image'
     });
 
-    return { imageUrl, imageBase64 };
+    return { imageUrl: finalImageUrl, imageBase64 };
 }

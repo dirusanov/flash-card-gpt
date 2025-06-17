@@ -911,7 +911,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                 </>
             )}
             
-            {imageUrl && (
+            {(image || imageUrl) && (
                 <>
                     <hr style={{
                         margin: '16px 0',
@@ -920,7 +920,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     }} />
                     <div style={{ marginBottom: '16px' }}>
                         <img 
-                            src={imageUrl} 
+                            src={image || imageUrl || ''} 
                             alt="" 
                             style={{
                                 width: '100%',
@@ -938,7 +938,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     gap: '6px',
                     marginBottom: '8px'
                 }}>
-                    {imageUrl && (
+                    {(image || imageUrl) && (
                         <button 
                             onClick={onNewImage} 
                             disabled={loadingNewImage}
