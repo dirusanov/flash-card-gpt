@@ -35,6 +35,24 @@ export interface ValidationResult {
     corrections?: string[];
 }
 
+// Новые интерфейсы для расширенной валидации
+export interface DetailedValidationResult {
+    isValid: boolean;
+    errors: string[];
+    corrections?: string[];
+    confidence: number; // Уровень уверенности от 0 до 1
+    validatorType: string;
+}
+
+export interface MultiValidationResult {
+    overallValid: boolean;
+    confidence: number;
+    validations: DetailedValidationResult[];
+    finalErrors: string[];
+    finalCorrections: string[];
+    attempts: number;
+}
+
 // Интерфейс для сервисов AI (обертка вокруг провайдеров)
 export interface AIService {
   translateText: (
@@ -559,6 +577,24 @@ EXAMPLE WRONG OUTPUT (DO NOT DO THIS):
 ❌ <strong>Case:</strong> <span>Nominative</span>
 ❌ <strong>Number/Form:</strong> <span>Singular</span>
 
+⚠️ CRITICAL GRAMMAR RULES for ${sourceLanguage.toUpperCase()}:
+1. **PLURAL FORMS**: If word is plural (e.g., ends in -и, -ы, -а in Russian), DO NOT include gender
+2. **GENDER ONLY FOR SINGULAR**: Gender specification only for singular nouns/adjectives
+3. **ALWAYS INCLUDE NUMBER**: Specify if word is singular or plural
+4. **INCLUDE CASE**: For languages with cases, always specify the case
+5. **PART OF SPEECH ACCURACY**: Ensure correct classification (noun/verb/adjective/etc.)
+
+EXAMPLES OF CORRECT ANALYSIS:
+✅ "заслуги" (Russian plural): Number: Plural, Case: Nominative, NO gender
+✅ "книга" (Russian singular): Gender: Feminine, Number: Singular, Case: Nominative  
+✅ "стол" (Russian singular): Gender: Masculine, Number: Singular, Case: Nominative
+
+EXAMPLES OF WRONG ANALYSIS:
+❌ "заслуги" + Gender: Masculine (plural can't have gender)
+❌ "столы" + Gender: Masculine (plural can't have gender)
+❌ Missing number specification
+❌ Missing case specification
+
 MANDATORY REQUIREMENTS:
 1. Maximum 4-6 grammar points
 2. Each tag content: maximum 3-4 words
@@ -567,6 +603,9 @@ MANDATORY REQUIREMENTS:
 5. Be thorough but concise
 6. Include base form ONLY if current word is NOT in its base form
 7. ALL labels and terms must be in ${langConfig.name} consistently
+8. **NEVER specify gender for plural forms**
+9. **ALWAYS specify number (singular/plural)**
+10. **ALWAYS specify case for languages that have cases**
 
 CRITICAL: Your response must be 100% in ${langConfig.name} for all grammatical terms and labels. No mixing of languages allowed.`;
 
@@ -768,19 +807,334 @@ ${correctionList}
 Выведи ТОЛЬКО исправленную справку без дополнительных комментариев:`;
 }
 
-// Итеративная функция для создания и валидации лингвистической информации
-export async function createValidatedLinguisticInfo(
+// Новая функция для создания специализированных промптов валидации
+function createSpecializedValidationPrompt(
+    text: string, 
+    linguisticInfo: string, 
+    sourceLanguage: string, 
+    userLanguage: string, 
+    validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency'
+): string {
+    const baseInfo = `
+ANALYSIS TARGET:
+- Word/Phrase: "${text}"
+- Source Language: ${sourceLanguage}
+- Interface Language: ${userLanguage}
+
+LINGUISTIC REFERENCE TO VALIDATE:
+${linguisticInfo}`;
+
+    switch (validatorType) {
+        case 'morphology':
+            return `${baseInfo}
+
+🔬 MORPHOLOGY SPECIALIST VALIDATION
+
+You are a specialist in morphological analysis. Focus EXCLUSIVELY on word formation and morphological features:
+
+PRIMARY CHECKS:
+• **Part of Speech**: Is the word classification accurate?
+• **Morphological Form**: Are inflectional forms correctly identified?
+• **Gender/Number/Case**: Are these consistent with ${sourceLanguage} morphology?
+• **Base Form**: Is the root/lemma correctly identified?
+• **Morphological Categories**: Do the features match the word class?
+
+CRITICAL ERROR DETECTION for ${sourceLanguage.toUpperCase()}:
+❌ **Gender for plural forms**: In most languages (Russian, English, etc.), gender should NOT be specified for plural forms
+❌ **Impossible morphological combinations**: Check if all features can coexist
+❌ **Missing essential features**: Ensure number, case (where applicable) are present
+❌ **Wrong part of speech**: Verify the word actually belongs to the stated category
+
+SPECIFIC ${sourceLanguage.toUpperCase()} RULES:
+• If word ends in -и, -ы, -а (plural markers), check if it's truly plural
+• Plural nouns typically don't have gender specification
+• Adjectives in plural may have gender only in specific contexts
+• Verify case markers match the word form
+
+IGNORE: Syntax, semantics, context - focus ONLY on morphology.
+
+RESPONSE FORMAT:
+VALIDATION: [VALID/INVALID]
+CONFIDENCE: [0.0-1.0]
+ERRORS: [morphological errors only, or "None"]
+CORRECTIONS: [morphological corrections only, or "None"]`;
+
+        case 'syntax':
+            return `${baseInfo}
+
+🏗️ SYNTAX SPECIALIST VALIDATION
+
+You are a specialist in syntactic analysis. Focus EXCLUSIVELY on grammatical structure:
+
+PRIMARY CHECKS:
+• **Grammatical Role**: Does the word fit its syntactic position?
+• **Agreement**: Are agreement patterns consistent?
+• **Case Assignment**: Is case marking appropriate for syntax?
+• **Tense/Aspect**: Are verbal categories syntactically coherent?
+• **Syntactic Features**: Do features match syntactic requirements?
+
+CRITICAL SYNTAX VALIDATION for ${sourceLanguage.toUpperCase()}:
+❌ **Agreement violations**: Check subject-verb, noun-adjective agreement
+❌ **Case mismatches**: Ensure case reflects syntactic role
+❌ **Tense inconsistencies**: Verify temporal features make syntactic sense
+❌ **Feature conflicts**: Look for syntactically impossible combinations
+
+IGNORE: Word-internal morphology, meaning - focus ONLY on syntax.
+
+RESPONSE FORMAT:
+VALIDATION: [VALID/INVALID]
+CONFIDENCE: [0.0-1.0]
+ERRORS: [syntactic errors only, or "None"]
+CORRECTIONS: [syntactic corrections only, or "None"]`;
+
+        case 'semantics':
+            return `${baseInfo}
+
+💭 SEMANTICS SPECIALIST VALIDATION
+
+You are a specialist in semantic analysis. Focus EXCLUSIVELY on meaning and usage:
+
+PRIMARY CHECKS:
+• **Semantic Category**: Does the classification match the word's meaning?
+• **Usage Context**: Are grammatical features appropriate for the word's usage?
+• **Semantic Agreement**: Do features align with semantic properties?
+• **Register/Style**: Are formal features appropriate for the word type?
+• **Semantic Coherence**: Do all features make sense together semantically?
+
+SEMANTIC VALIDATION PRIORITIES:
+❌ **Meaning mismatches**: Ensure part of speech matches actual meaning
+❌ **Register conflicts**: Check if formality level matches word type
+❌ **Usage inconsistencies**: Verify features match how word is actually used
+❌ **Semantic impossibilities**: Look for logically impossible feature combinations
+
+IGNORE: Pure morphological/syntactic technicalities - focus on meaning-based validation.
+
+RESPONSE FORMAT:
+VALIDATION: [VALID/INVALID]
+CONFIDENCE: [0.0-1.0]
+ERRORS: [semantic errors only, or "None"]
+CORRECTIONS: [semantic corrections only, or "None"]`;
+
+        case 'consistency':
+            return `${baseInfo}
+
+⚖️ CONSISTENCY SPECIALIST VALIDATION
+
+You are a specialist in logical consistency. Focus EXCLUSIVELY on internal coherence:
+
+PRIMARY CHECKS:
+• **Feature Compatibility**: Are all features mutually compatible?
+• **Language Rules**: Does everything follow ${sourceLanguage} rules?
+• **Logical Contradictions**: Are there any impossible combinations?
+• **Completeness**: Are required features present/absent appropriately?
+• **Cross-feature Validation**: Do different features support each other?
+
+CONSISTENCY CRITICAL CHECKS for ${sourceLanguage.toUpperCase()}:
+❌ **GENDER + PLURAL**: Major error - gender should NOT be specified for plural forms in ${sourceLanguage}
+❌ **Part of speech conflicts**: Ensure all features match the stated part of speech
+❌ **Missing essential info**: Check if number, case, or other required features are missing
+❌ **Redundant information**: Remove features that don't apply to this word form
+❌ **Language-specific violations**: Apply ${sourceLanguage} grammatical rules strictly
+
+EXAMPLE VIOLATIONS TO CATCH:
+• "заслуги" (plural) + "Gender: Masculine" → INVALID (plural has no gender)
+• "Noun" + "Degree of comparison" → INVALID (nouns don't have degrees)
+• "Singular" + plural word ending → INVALID (form/feature mismatch)
+
+IGNORE: Individual feature accuracy - focus ONLY on overall consistency.
+
+RESPONSE FORMAT:
+VALIDATION: [VALID/INVALID]
+CONFIDENCE: [0.0-1.0]
+ERRORS: [consistency errors only, or "None"]
+CORRECTIONS: [consistency corrections only, or "None"]`;
+
+        default:
+            return createValidationPrompt(text, linguisticInfo, sourceLanguage, userLanguage);
+    }
+}
+
+// Функция для запуска одного специализированного валидатора
+async function runSpecializedValidator(
+    aiService: AIService,
+    apiKey: string,
+    text: string,
+    linguisticInfo: string,
+    sourceLanguage: string,
+    userLanguage: string,
+    validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency'
+): Promise<DetailedValidationResult> {
+    try {
+        console.log(`Running ${validatorType} validator for "${text}"`);
+        
+        const prompt = createSpecializedValidationPrompt(
+            text, 
+            linguisticInfo, 
+            sourceLanguage, 
+            userLanguage, 
+            validatorType
+        );
+        
+        const completion = await aiService.createChatCompletion(apiKey, [
+            {
+                role: "user",
+                content: prompt
+            }
+        ]);
+        
+        if (!completion || !completion.content) {
+            return {
+                isValid: false,
+                errors: [`${validatorType} validation failed - no response`],
+                confidence: 0,
+                validatorType
+            };
+        }
+        
+        const response = completion.content.trim();
+        console.log(`${validatorType} validator response:`, response);
+        
+        // Парсим ответ
+        const isValid = response.includes('VALIDATION: VALID');
+        const confidenceMatch = response.match(/CONFIDENCE:\s*([\d.]+)/);
+        const confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.5;
+        
+        const errorSection = response.match(/ERRORS?:([\s\S]*?)(?:CORRECTIONS?:|$)/);
+        const correctionSection = response.match(/CORRECTIONS?:([\s\S]*?)$/);
+        
+        const errors: string[] = [];
+        const corrections: string[] = [];
+        
+        if (errorSection && errorSection[1]) {
+            const errorText = errorSection[1].trim();
+            if (errorText && errorText !== 'None' && errorText !== 'Нет') {
+                errors.push(...errorText.split('\n')
+                    .filter(line => line.trim())
+                    .map(line => line.replace(/^[•\-*]\s*/, '').trim())
+                    .filter(line => line.length > 0));
+            }
+        }
+        
+        if (correctionSection && correctionSection[1]) {
+            const correctionText = correctionSection[1].trim();
+            if (correctionText && correctionText !== 'None' && correctionText !== 'Нет') {
+                corrections.push(...correctionText.split('\n')
+                    .filter(line => line.trim())
+                    .map(line => line.replace(/^[•\-*]\s*/, '').trim())
+                    .filter(line => line.length > 0));
+            }
+        }
+        
+        return {
+            isValid,
+            errors,
+            corrections: corrections.length > 0 ? corrections : undefined,
+            confidence,
+            validatorType
+        };
+        
+    } catch (error) {
+        console.error(`Error in ${validatorType} validator:`, error);
+        return {
+            isValid: false,
+            errors: [`${validatorType} validator error: ${error instanceof Error ? error.message : 'Unknown error'}`],
+            confidence: 0,
+            validatorType
+        };
+    }
+}
+
+// Функция для запуска множественной валидации
+export async function runMultipleValidation(
+    aiService: AIService,
+    apiKey: string,
+    text: string,
+    linguisticInfo: string,
+    sourceLanguage: string,
+    userLanguage: string = 'ru'
+): Promise<MultiValidationResult> {
+    console.log(`Running multiple validation for "${text}"`);
+    
+    const validators: Array<'morphology' | 'syntax' | 'semantics' | 'consistency'> = [
+        'morphology',
+        'syntax', 
+        'semantics',
+        'consistency'
+    ];
+    
+    // Запускаем всех валидаторов параллельно
+    const validationPromises = validators.map(validator => 
+        runSpecializedValidator(
+            aiService, 
+            apiKey, 
+            text, 
+            linguisticInfo, 
+            sourceLanguage, 
+            userLanguage, 
+            validator
+        )
+    );
+    
+    const validations = await Promise.all(validationPromises);
+    
+    // Анализируем результаты
+    const validValidations = validations.filter(v => v.isValid);
+    const invalidValidations = validations.filter(v => !v.isValid);
+    
+    // Вычисляем общую уверенность
+    const averageConfidence = validations.reduce((sum, v) => sum + v.confidence, 0) / validations.length;
+    
+    // Определяем общую валидность
+    const validationRatio = validValidations.length / validations.length;
+    const overallValid = validationRatio >= 0.75; // 75% валидаторов должны согласиться
+    
+    // Собираем финальные ошибки и исправления
+    const finalErrors: string[] = [];
+    const finalCorrections: string[] = [];
+    
+    invalidValidations.forEach(validation => {
+        validation.errors.forEach(error => {
+            if (!finalErrors.includes(error)) {
+                finalErrors.push(`[${validation.validatorType}] ${error}`);
+            }
+        });
+        
+        if (validation.corrections) {
+            validation.corrections.forEach(correction => {
+                if (!finalCorrections.includes(correction)) {
+                    finalCorrections.push(`[${validation.validatorType}] ${correction}`);
+                }
+            });
+        }
+    });
+    
+    console.log(`Multiple validation complete: ${validValidations.length}/${validations.length} passed, confidence: ${averageConfidence.toFixed(2)}`);
+    
+    return {
+        overallValid,
+        confidence: averageConfidence,
+        validations,
+        finalErrors,
+        finalCorrections,
+        attempts: 1
+    };
+}
+
+// Улучшенная функция создания и валидации с множественными агентами
+export async function createValidatedLinguisticInfoAdvanced(
     aiService: AIService,
     apiKey: string,
     text: string,
     sourceLanguage: string,
     userLanguage: string = 'ru',
-    maxAttempts: number = 5
-): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number}> {
+    maxAttempts: number = 5,
+    useMultipleValidators: boolean = true
+): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number; confidence?: number; validationDetails?: MultiValidationResult}> {
     let attempts = 0;
     let currentLinguisticInfo: string | null = null;
+    let lastValidationDetails: MultiValidationResult | undefined;
     
-    console.log(`Starting iterative creation of linguistic info for "${text}" (max ${maxAttempts} attempts)`);
+    console.log(`Starting advanced iterative creation of linguistic info for "${text}" (max ${maxAttempts} attempts, multiple validators: ${useMultipleValidators})`);
     
     while (attempts < maxAttempts) {
         attempts++;
@@ -803,31 +1157,65 @@ export async function createValidatedLinguisticInfo(
                 }
             }
             
-            // 2. Валидируем созданную информацию
-            const validation = await validateLinguisticInfo(
-                aiService,
-                apiKey,
-                text,
-                currentLinguisticInfo,
-                sourceLanguage,
-                userLanguage
-            );
+            // 2. Выбираем тип валидации
+            let validationResult: MultiValidationResult;
+            
+            if (useMultipleValidators) {
+                // Используем множественную валидацию
+                validationResult = await runMultipleValidation(
+                    aiService,
+                    apiKey,
+                    text,
+                    currentLinguisticInfo,
+                    sourceLanguage,
+                    userLanguage
+                );
+            } else {
+                // Используем стандартную валидацию
+                const singleValidation = await validateLinguisticInfo(
+                    aiService,
+                    apiKey,
+                    text,
+                    currentLinguisticInfo,
+                    sourceLanguage,
+                    userLanguage
+                );
+                
+                validationResult = {
+                    overallValid: singleValidation.isValid,
+                    confidence: 0.7, // Фиксированная уверенность для обратной совместимости
+                    validations: [{
+                        isValid: singleValidation.isValid,
+                        errors: singleValidation.errors,
+                        corrections: singleValidation.corrections,
+                        confidence: 0.7,
+                        validatorType: 'general'
+                    }],
+                    finalErrors: singleValidation.errors,
+                    finalCorrections: singleValidation.corrections || [],
+                    attempts: 1
+                };
+            }
+            
+            lastValidationDetails = validationResult;
             
             // 3. Если валидация прошла успешно - возвращаем результат
-            if (validation.isValid) {
-                console.log(`Validation passed on attempt ${attempts}`);
+            if (validationResult.overallValid) {
+                console.log(`Validation passed on attempt ${attempts} with confidence ${validationResult.confidence.toFixed(2)}`);
                 return {
                     linguisticInfo: currentLinguisticInfo,
                     wasValidated: true,
-                    attempts
+                    attempts,
+                    confidence: validationResult.confidence,
+                    validationDetails: validationResult
                 };
             }
             
             // 4. Если есть ошибки и рекомендации - пытаемся исправить
-            if (validation.errors.length > 0) {
-                console.log(`Validation failed on attempt ${attempts}:`, validation.errors);
+            if (validationResult.finalErrors.length > 0) {
+                console.log(`Validation failed on attempt ${attempts}:`, validationResult.finalErrors);
                 
-                if (validation.corrections && validation.corrections.length > 0 && attempts < maxAttempts) {
+                if (validationResult.finalCorrections.length > 0 && attempts < maxAttempts) {
                     console.log(`Attempting correction on attempt ${attempts}...`);
                     
                     const correctedInfo = await correctLinguisticInfo(
@@ -835,8 +1223,8 @@ export async function createValidatedLinguisticInfo(
                         apiKey,
                         text,
                         currentLinguisticInfo,
-                        validation.errors,
-                        validation.corrections,
+                        validationResult.finalErrors,
+                        validationResult.finalCorrections,
                         sourceLanguage,
                         userLanguage
                     );
@@ -860,7 +1248,9 @@ export async function createValidatedLinguisticInfo(
                 return {
                     linguisticInfo: currentLinguisticInfo,
                     wasValidated: false,
-                    attempts
+                    attempts,
+                    confidence: validationResult.confidence,
+                    validationDetails: validationResult
                 };
             }
             
@@ -872,7 +1262,9 @@ export async function createValidatedLinguisticInfo(
                 return {
                     linguisticInfo: null,
                     wasValidated: false,
-                    attempts
+                    attempts,
+                    confidence: 0,
+                    validationDetails: lastValidationDetails
                 };
             }
         }
@@ -882,6 +1274,56 @@ export async function createValidatedLinguisticInfo(
     return {
         linguisticInfo: currentLinguisticInfo,
         wasValidated: false,
-        attempts
+        attempts,
+        confidence: lastValidationDetails?.confidence || 0,
+        validationDetails: lastValidationDetails
     };
+}
+
+// Оригинальная функция для обратной совместимости
+export async function createValidatedLinguisticInfo(
+    aiService: AIService,
+    apiKey: string,
+    text: string,
+    sourceLanguage: string,
+    userLanguage: string = 'ru',
+    maxAttempts: number = 5
+): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number}> {
+    // Используем улучшенную функцию, но возвращаем результат в старом формате
+    const result = await createValidatedLinguisticInfoAdvanced(
+        aiService,
+        apiKey,
+        text,
+        sourceLanguage,
+        userLanguage,
+        maxAttempts,
+        false // Используем стандартную валидацию для обратной совместимости
+    );
+    
+    return {
+        linguisticInfo: result.linguisticInfo,
+        wasValidated: result.wasValidated,
+        attempts: result.attempts
+    };
+}
+
+// Новая функция с расширенной валидацией для опциональногоиспользования
+export async function createValidatedLinguisticInfoEnhanced(
+    aiService: AIService,
+    apiKey: string,
+    text: string,
+    sourceLanguage: string,
+    userLanguage: string = 'ru',
+    maxAttempts: number = 5,
+    useMultipleValidators: boolean = true
+): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number; confidence?: number; validationDetails?: MultiValidationResult}> {
+    return createValidatedLinguisticInfoAdvanced(
+        aiService,
+        apiKey,
+        text,
+        sourceLanguage,
+        userLanguage,
+        maxAttempts,
+        useMultipleValidators
+    );
 } 

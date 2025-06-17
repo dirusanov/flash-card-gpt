@@ -19,7 +19,7 @@ import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, 
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
-import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo, createTranscription } from '../services/aiServiceFactory';
+import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo, createValidatedLinguisticInfoEnhanced, createTranscription } from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
 
 
@@ -1079,33 +1079,49 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 console.log(`Creating validated linguistic info using source language: ${wordLanguage || 'unknown'} for text: "${text.substring(0, 20)}...", user language: ${translateToLanguage}`);
 
+                // Проверяем настройку множественной валидации
+                const useMultipleValidators = localStorage.getItem('useMultipleValidators') === 'true';
+                
                 // Если есть язык источника - используем его
                 if (wordLanguage) {
-                    const result = await createValidatedLinguisticInfo(
-                        aiService,
-                        apiKey,
-                        text,
-                        wordLanguage,
-                        translateToLanguage,
-                        5 // максимум 5 попыток
-                    );
+                    let result;
+                    
+                    if (useMultipleValidators) {
+                        console.log('Using enhanced validation with multiple AI agents');
+                        result = await createValidatedLinguisticInfoEnhanced(
+                            aiService,
+                            apiKey,
+                            text,
+                            wordLanguage,
+                            translateToLanguage,
+                            5, // максимум 5 попыток
+                            true // используем множественную валидацию
+                        );
+                    } else {
+                        console.log('Using standard validation');
+                        result = await createValidatedLinguisticInfo(
+                            aiService,
+                            apiKey,
+                            text,
+                            wordLanguage,
+                            translateToLanguage,
+                            5 // максимум 5 попыток
+                        );
+                    }
 
                     if (result.linguisticInfo) {
                         dispatch(setLinguisticInfo(result.linguisticInfo));
                         completedOperations.linguisticInfo = true;
 
-                        // Показываем уведомления пользователю с небольшой задержкой
-                        // setTimeout(() => {
-                        //     if (result.wasValidated) {
-                        //         if (result.attempts > 1) {
-                        //             showError(`Grammar reference validated and corrected (${result.attempts} attempts)`, 'success');
-                        //         } else {
-                        //             showError('Grammar reference created successfully', 'success');
-                        //         }
-                        //     } else {
-                        //         showError(`Grammar reference may contain inaccuracies (${result.attempts} attempts)`, 'warning');
-                        //     }
-                        // }, 1000);
+                        // Показываем уведомления пользователю
+                        if (useMultipleValidators && 'confidence' in result && typeof result.confidence === 'number') {
+                            const confidencePercent = Math.round(result.confidence * 100);
+                            if (result.wasValidated) {
+                                showError(`✅ Enhanced grammar reference created with ${confidencePercent}% confidence`, 'success');
+                            } else {
+                                showError(`⚠️ Enhanced grammar reference created but validation uncertain (${confidencePercent}% confidence)`, 'warning');
+                            }
+                        }
                     } else {
                         console.warn(`Failed to generate linguistic info after ${result.attempts} attempts`);
                         showError('Failed to generate grammar reference', 'warning');
@@ -1113,20 +1129,42 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 } else {
                     // Используем язык перевода как запасной вариант для источника
                     console.warn(`No source language detected. Using target language (${translateToLanguage}) as fallback for source`);
-                    const result = await createValidatedLinguisticInfo(
-                        aiService,
-                        apiKey,
-                        text,
-                        translateToLanguage, // В качестве исходного языка используем язык перевода
-                        translateToLanguage, // Для интерфейса тоже используем язык перевода
-                        3 // меньше попыток для fallback
-                    );
+                    
+                    let result;
+                    
+                    if (useMultipleValidators) {
+                        result = await createValidatedLinguisticInfoEnhanced(
+                            aiService,
+                            apiKey,
+                            text,
+                            translateToLanguage, // В качестве исходного языка используем язык перевода
+                            translateToLanguage, // Для интерфейса тоже используем язык перевода
+                            3, // меньше попыток для fallback
+                            true // используем множественную валидацию
+                        );
+                    } else {
+                        result = await createValidatedLinguisticInfo(
+                            aiService,
+                            apiKey,
+                            text,
+                            translateToLanguage, // В качестве исходного языка используем язык перевода
+                            translateToLanguage, // Для интерфейса тоже используем язык перевода
+                            3 // меньше попыток для fallback
+                        );
+                    }
 
                     if (result.linguisticInfo) {
                         dispatch(setLinguisticInfo(result.linguisticInfo));
                         completedOperations.linguisticInfo = true;
 
-                        if (result.wasValidated && result.attempts > 1) {
+                        if (useMultipleValidators && 'confidence' in result && typeof result.confidence === 'number') {
+                            const confidencePercent = Math.round(result.confidence * 100);
+                            if (result.wasValidated) {
+                                showError(`✅ Enhanced grammar reference created (fallback mode, ${confidencePercent}% confidence)`, 'success');
+                            } else {
+                                showError(`⚠️ Enhanced grammar reference uncertain (fallback mode, ${confidencePercent}% confidence)`, 'warning');
+                            }
+                        } else if (result.wasValidated && result.attempts > 1) {
                             showError(`✅ Grammar reference corrected (fallback mode)`, 'success');
                         } else if (!result.wasValidated) {
                             showError('⚠️ Grammar reference may contain inaccuracies (fallback mode)', 'warning');
@@ -1408,6 +1446,66 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     Save Instructions
                 </button>
 
+                {/* Настройка множественной валидации */}
+                <div style={{
+                    marginBottom: '12px',
+                    padding: '12px',
+                    backgroundColor: '#FEF3C7',
+                    border: '1px solid #F59E0B',
+                    borderRadius: '6px'
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        marginBottom: '8px'
+                    }}>
+                        <input
+                            type="checkbox"
+                            id="useMultipleValidators"
+                            checked={localStorage.getItem('useMultipleValidators') === 'true'}
+                            onChange={(e) => {
+                                localStorage.setItem('useMultipleValidators', e.target.checked.toString());
+                                showError(
+                                    e.target.checked 
+                                        ? '✅ Multiple AI validators enabled' 
+                                        : '⚪ Standard validation mode', 
+                                    'info'
+                                );
+                            }}
+                            style={{ marginRight: '4px' }}
+                        />
+                        <label 
+                            htmlFor="useMultipleValidators"
+                            style={{
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                color: '#92400E'
+                            }}
+                        >
+                            🎯 Enhanced Grammar Validation
+                        </label>
+                    </div>
+                    <div style={{
+                        fontSize: '12px',
+                        color: '#78350F',
+                        lineHeight: '1.4'
+                    }}>
+                        <p style={{ margin: '0 0 4px 0' }}>
+                            Uses 4 specialized AI agents:
+                        </p>
+                        <ul style={{ margin: 0, paddingLeft: '16px' }}>
+                            <li>🔬 Morphology specialist</li>
+                            <li>🏗️ Syntax specialist</li>
+                            <li>💭 Semantics specialist</li>
+                            <li>⚖️ Consistency validator</li>
+                        </ul>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '11px', fontStyle: 'italic' }}>
+                            More accurate but uses 4x more AI requests
+                        </p>
+                    </div>
+                </div>
+
                 {/* Кнопка для тестирования валидации */}
                 <button
                     onClick={testLinguisticValidation}
@@ -1424,10 +1522,56 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '8px'
+                        gap: '8px',
+                        marginBottom: '8px'
                     }}
                 >
                     🧪 Test Grammar Validation
+                </button>
+
+                {/* Кнопка для тестирования новой системы */}
+                <button
+                    onClick={testEnhancedValidation}
+                    style={{
+                        backgroundColor: '#7C3AED',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '8px 16px',
+                        fontSize: '14px',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        marginBottom: '8px'
+                    }}
+                >
+                    🚀 Test Enhanced Validation
+                </button>
+
+                {/* Кнопка для тестирования конкретной проблемы */}
+                <button
+                    onClick={testSpecificProblem}
+                    style={{
+                        backgroundColor: '#DC2626',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '8px 16px',
+                        fontSize: '14px',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px'
+                    }}
+                >
+                    🎯 Test "заслуги" Problem
                 </button>
             </div>
         );
@@ -2159,22 +2303,43 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // 3.5 Создаем лингвистическое описание конкретно для этого слова/фразы с итеративной валидацией
                     const sourceLanguageForLinguistic = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
                     let generatedLinguisticInfo = "";
+                    
+                    // Проверяем настройку множественной валидации
+                    const useMultipleValidators = localStorage.getItem('useMultipleValidators') === 'true';
 
                     if (sourceLanguageForLinguistic) {
-                        const result = await createValidatedLinguisticInfo(
-                            aiService,
-                            apiKey,
-                            option, // Используем текущую опцию, а не глобальный текст
-                            sourceLanguageForLinguistic,
-                            translateToLanguage,
-                            3 // меньше попыток для множественных карточек
-                        );
+                        let result;
+                        
+                        if (useMultipleValidators) {
+                            console.log(`Using enhanced validation for "${option}"`);
+                            result = await createValidatedLinguisticInfoEnhanced(
+                                aiService,
+                                apiKey,
+                                option, // Используем текущую опцию, а не глобальный текст
+                                sourceLanguageForLinguistic,
+                                translateToLanguage,
+                                3, // меньше попыток для множественных карточек
+                                true // используем множественную валидацию
+                            );
+                        } else {
+                            result = await createValidatedLinguisticInfo(
+                                aiService,
+                                apiKey,
+                                option, // Используем текущую опцию, а не глобальный текст
+                                sourceLanguageForLinguistic,
+                                translateToLanguage,
+                                3 // меньше попыток для множественных карточек
+                            );
+                        }
 
                         if (result.linguisticInfo) {
                             generatedLinguisticInfo = result.linguisticInfo;
                             dispatch(setLinguisticInfo(result.linguisticInfo));
 
-                            if (result.wasValidated && result.attempts > 1) {
+                            if (useMultipleValidators && 'confidence' in result && typeof result.confidence === 'number') {
+                                const confidencePercent = Math.round(result.confidence * 100);
+                                console.log(`Enhanced linguistic info for "${option}" created with ${confidencePercent}% confidence`);
+                            } else if (result.wasValidated && result.attempts > 1) {
                                 console.log(`Corrected linguistic info for "${option}" after ${result.attempts} attempts`);
                             } else if (!result.wasValidated) {
                                 console.warn(`Linguistic info for "${option}" may contain inaccuracies`);
@@ -4293,6 +4458,157 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             } else {
                 showError(`❌ Test failed: Could not generate grammar reference after ${result.attempts} attempts`, 'error');
             }
+        } catch (error) {
+            console.error('Test error:', error);
+            showError('❌ Test failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+        }
+    };
+
+    // Тестовая функция для проверки новой расширенной валидации с множественными агентами
+    const testEnhancedValidation = async () => {
+        if (!apiKey) {
+            showError('API key is required for testing', 'error');
+            return;
+        }
+
+        // Тест с проблемным словом "млекопитающими"
+        const testText = "млекопитающими";
+
+        console.log('Testing enhanced validation system with multiple AI agents...');
+        showError('🚀 Testing enhanced validation system...', 'info');
+
+        try {
+            const result = await createValidatedLinguisticInfoEnhanced(
+                aiService,
+                apiKey,
+                testText,
+                'ru', // source language
+                'ru', // user language
+                3, // максимум 3 попытки для теста
+                true // используем множественную валидацию
+            );
+
+            console.log('Enhanced test result:', result);
+
+            if (result.linguisticInfo) {
+                const confidencePercent = Math.round((result.confidence || 0) * 100);
+                
+                if (result.wasValidated) {
+                    if (result.attempts > 1) {
+                        showError(`✅ Enhanced test passed: Grammar reference validated after ${result.attempts} attempts with ${confidencePercent}% confidence`, 'success');
+                    } else {
+                        showError(`✅ Enhanced test passed: Grammar reference validated on first attempt with ${confidencePercent}% confidence`, 'success');
+                    }
+                } else {
+                    showError(`⚠️ Enhanced test completed: Grammar reference created but validation failed after ${result.attempts} attempts (${confidencePercent}% confidence)`, 'warning');
+                }
+
+                // Показываем детали валидации
+                if (result.validationDetails) {
+                    const validationSummary = result.validationDetails.validations.map(v => 
+                        `${v.validatorType}: ${v.isValid ? '✅' : '❌'} (${Math.round(v.confidence * 100)}%)`
+                    ).join(', ');
+                    
+                    console.log('Validation details:', validationSummary);
+                    console.log('Generated linguistic info:', result.linguisticInfo);
+                    
+                    showError(`Validators: ${validationSummary}`, 'info');
+                }
+            } else {
+                showError(`❌ Enhanced test failed: Could not generate grammar reference after ${result.attempts} attempts`, 'error');
+            }
+        } catch (error) {
+            console.error('Enhanced test error:', error);
+            showError('❌ Enhanced test failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+        }
+    };
+
+    // Тестовая функция для проверки конкретной проблемы со словом "заслуги"
+    const testSpecificProblem = async () => {
+        if (!apiKey) {
+            showError('API key is required for testing', 'error');
+            return;
+        }
+
+        // Тест со словом "заслуги" которое пользователь указал как проблемное
+        const testText = "заслуги";
+
+        console.log('Testing specific problem with "заслуги"...');
+        showError('🎯 Testing specific problem with "заслуги"...', 'info');
+
+        try {
+            // Сначала протестируем стандартную систему
+            console.log('Testing with standard validation...');
+            const standardResult = await createValidatedLinguisticInfo(
+                aiService,
+                apiKey,
+                testText,
+                'ru', 
+                'ru', 
+                3
+            );
+
+            console.log('Standard result:', standardResult.linguisticInfo);
+
+            // Затем протестируем улучшенную систему
+            console.log('Testing with enhanced validation...');
+            const enhancedResult = await createValidatedLinguisticInfoEnhanced(
+                aiService,
+                apiKey,
+                testText,
+                'ru', 
+                'ru', 
+                3, 
+                true
+            );
+
+            console.log('Enhanced result:', enhancedResult);
+
+            // Покажем сравнение
+            if (standardResult.linguisticInfo && enhancedResult.linguisticInfo) {
+                // Анализируем результаты
+                const standardHasGenderError = standardResult.linguisticInfo.toLowerCase().includes('мужской') || 
+                                               standardResult.linguisticInfo.toLowerCase().includes('женский') ||
+                                               standardResult.linguisticInfo.toLowerCase().includes('средний') ||
+                                               standardResult.linguisticInfo.toLowerCase().includes('masculine') ||
+                                               standardResult.linguisticInfo.toLowerCase().includes('feminine');
+                
+                const enhancedHasGenderError = enhancedResult.linguisticInfo.toLowerCase().includes('мужской') || 
+                                               enhancedResult.linguisticInfo.toLowerCase().includes('женский') ||
+                                               enhancedResult.linguisticInfo.toLowerCase().includes('средний') ||
+                                               enhancedResult.linguisticInfo.toLowerCase().includes('masculine') ||
+                                               enhancedResult.linguisticInfo.toLowerCase().includes('feminine');
+
+                const hasNumber = enhancedResult.linguisticInfo.toLowerCase().includes('множественное') ||
+                                  enhancedResult.linguisticInfo.toLowerCase().includes('plural');
+
+                if (!enhancedHasGenderError && hasNumber && 'confidence' in enhancedResult) {
+                    const confidencePercent = Math.round((enhancedResult.confidence || 0) * 100);
+                    showError(`✅ SUCCESS! Enhanced system fixed the gender error (confidence: ${confidencePercent}%)`, 'success');
+                    
+                    if (enhancedResult.validationDetails) {
+                        const validationSummary = enhancedResult.validationDetails.validations.map(v => 
+                            `${v.validatorType}: ${v.isValid ? '✅' : '❌'}`
+                        ).join(', ');
+                        showError(`Validators: ${validationSummary}`, 'info');
+                    }
+                } else if (enhancedHasGenderError) {
+                    showError(`⚠️ Enhanced system still has gender error - need more improvements`, 'warning');
+                } else {
+                    showError(`🔄 Enhanced system improved but may need fine-tuning`, 'info');
+                }
+
+                console.log('=== COMPARISON ===');
+                console.log('Standard result:');
+                console.log(standardResult.linguisticInfo);
+                console.log('Enhanced result:');
+                console.log(enhancedResult.linguisticInfo);
+                console.log('=================');
+
+            } else {
+                showError(`❌ Test failed: Could not generate results`, 'error');
+            }
+
         } catch (error) {
             console.error('Test error:', error);
             showError('❌ Test failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
