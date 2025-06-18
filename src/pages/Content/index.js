@@ -146,6 +146,199 @@ const LoadingSpinner = () => {
   ]);
 };
 
+// Система управления наследованием состояния сайдбара
+class SidebarStateManager {
+  constructor() {
+    this.storageKeys = {
+      globalState: 'sidebar_global_state',
+      tabPrefix: 'sidebar_tab_',
+      settings: 'sidebar_inheritance_settings'
+    };
+  }
+
+  // Получить ключ для состояния конкретной вкладки
+  getTabKey(tabId) {
+    return `${this.storageKeys.tabPrefix}${tabId}`;
+  }
+
+  // Получить настройки наследования
+  async getInheritanceSettings() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([this.storageKeys.settings], (result) => {
+        const defaultSettings = {
+          enabled: true,
+          mode: 'global' // 'global' или 'lastActive'
+        };
+        resolve(result[this.storageKeys.settings] || defaultSettings);
+      });
+    });
+  }
+
+  // Получить глобальное состояние
+  async getGlobalState() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([this.storageKeys.globalState], (result) => {
+        const defaultGlobal = {
+          isVisible: false,
+          lastActiveTabId: null,
+          lastToggleTime: Date.now()
+        };
+        resolve(result[this.storageKeys.globalState] || defaultGlobal);
+      });
+    });
+  }
+
+  // Получить состояние конкретной вкладки
+  async getTabState(tabId) {
+    const tabKey = this.getTabKey(tabId);
+    return new Promise((resolve) => {
+      chrome.storage.local.get([tabKey], (result) => {
+        resolve(result[tabKey] || null);
+      });
+    });
+  }
+
+  // Сохранить глобальное состояние
+  async saveGlobalState(globalState) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({
+        [this.storageKeys.globalState]: globalState
+      }, resolve);
+    });
+  }
+
+  // Сохранить состояние вкладки
+  async saveTabState(tabId, tabState) {
+    const tabKey = this.getTabKey(tabId);
+    return new Promise((resolve) => {
+      chrome.storage.local.set({
+        [tabKey]: tabState
+      }, resolve);
+    });
+  }
+
+  // Определить начальное состояние для новой вкладки с наследованием
+  async determineInitialState(tabId) {
+    const settings = await this.getInheritanceSettings();
+    
+    // Если наследование отключено, возвращаем закрытое состояние
+    if (!settings.enabled) {
+      return { isVisible: false, source: 'default' };
+    }
+
+    const globalState = await this.getGlobalState();
+    
+    switch (settings.mode) {
+      case 'global':
+        // Наследуем от глобального состояния
+        return {
+          isVisible: globalState.isVisible,
+          source: 'global',
+          inheritedFrom: globalState.lastActiveTabId
+        };
+        
+      case 'lastActive':
+        // Наследуем от последней активной вкладки
+        if (globalState.lastActiveTabId) {
+          const lastActiveState = await this.getTabState(globalState.lastActiveTabId);
+          if (lastActiveState) {
+            return {
+              isVisible: lastActiveState.isVisible,
+              source: 'lastActive',
+              inheritedFrom: globalState.lastActiveTabId
+            };
+          }
+        }
+        // Фолбэк на глобальное состояние
+        return {
+          isVisible: globalState.isVisible,
+          source: 'global_fallback',
+          inheritedFrom: null
+        };
+        
+      default:
+        return {
+          isVisible: globalState.isVisible,
+          source: 'global',
+          inheritedFrom: globalState.lastActiveTabId
+        };
+    }
+  }
+
+  // Переключить состояние сайдбара для вкладки
+  async toggleSidebar(tabId) {
+    const existingTabState = await this.getTabState(tabId);
+    const globalState = await this.getGlobalState();
+    
+    let currentVisibility;
+    if (existingTabState) {
+      currentVisibility = existingTabState.isVisible;
+    } else {
+      // Для новой вкладки определяем начальное состояние
+      const initialState = await this.determineInitialState(tabId);
+      currentVisibility = initialState.isVisible;
+    }
+
+    const newVisibility = !currentVisibility;
+    const currentTime = Date.now();
+
+    // Обновляем состояние вкладки
+    const newTabState = {
+      isVisible: newVisibility,
+      lastToggleTime: currentTime,
+      ...(existingTabState?.inheritedFrom && { inheritedFrom: existingTabState.inheritedFrom })
+    };
+
+    // Обновляем глобальное состояние
+    const newGlobalState = {
+      ...globalState,
+      isVisible: newVisibility,
+      lastActiveTabId: tabId,
+      lastToggleTime: currentTime
+    };
+
+    // Сохраняем изменения
+    await Promise.all([
+      this.saveTabState(tabId, newTabState),
+      this.saveGlobalState(newGlobalState)
+    ]);
+
+    return { isVisible: newVisibility, wasInherited: !!existingTabState?.inheritedFrom };
+  }
+
+  // Получить текущее состояние для вкладки
+  async getCurrentState(tabId) {
+    const existingTabState = await this.getTabState(tabId);
+    
+    if (existingTabState) {
+      return { 
+        isVisible: existingTabState.isVisible, 
+        source: 'existing',
+        inheritedFrom: existingTabState.inheritedFrom
+      };
+    }
+
+    // Для новой вкладки определяем состояние через наследование
+    return await this.determineInitialState(tabId);
+  }
+}
+
+// Создаем глобальный экземпляр менеджера состояния
+const sidebarManager = new SidebarStateManager();
+
+// Функция для применения состояния к DOM
+const applySidebarState = (isVisible, tabId, source = 'unknown') => {
+  if (isVisible) {
+    newDiv.style.transform = 'translateX(0)';
+    document.body.style.marginRight = '350px';
+  } else {
+    newDiv.style.transform = 'translateX(100%)';
+    document.body.style.marginRight = '0';
+  }
+  
+  console.log(`Sidebar state applied for tab ${tabId}: ${isVisible ? 'visible' : 'hidden'} (source: ${source})`);
+};
+
 // Компонент инициализации хранилища
 const StoreInitializer = () => {
   const [store, setStore] = useState(null);
@@ -156,13 +349,22 @@ const StoreInitializer = () => {
     const initializeStoreWithTabId = async () => {
       try {
         // Получаем tab ID от background script
-        chrome.runtime.sendMessage({ action: 'getTabId' }, (response) => {
-          if (response && response.tabId) {
-            setTabId(response.tabId);
-            console.log('Content script initialized with tab ID:', response.tabId);
-          } else {
-            console.warn('Could not get tab ID, using fallback');
-            setTabId(Math.floor(Math.random() * 1000000)); // Fallback tab ID
+        chrome.runtime.sendMessage({ action: 'getTabId' }, async (response) => {
+          const currentTabId = response?.tabId || Math.floor(Math.random() * 1000000);
+          setTabId(currentTabId);
+          console.log('Content script initialized with tab ID:', currentTabId);
+
+          // Определяем начальное состояние сайдбара для этой вкладки
+          try {
+            const stateInfo = await sidebarManager.getCurrentState(currentTabId);
+            applySidebarState(stateInfo.isVisible, currentTabId, stateInfo.source);
+            
+            if (stateInfo.inheritedFrom) {
+              console.log(`Sidebar state inherited from tab ${stateInfo.inheritedFrom}`);
+            }
+          } catch (error) {
+            console.error('Error determining initial sidebar state:', error);
+            applySidebarState(false, currentTabId, 'error_fallback');
           }
         });
 
@@ -196,46 +398,45 @@ const StoreInitializer = () => {
 const popup = React.createElement(StoreInitializer, {});
 root.render(popup);
 
+// Обработчик сообщений с новой логикой наследования
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'toggleSidebar') {
     const currentTabId = message.tabId || 'unknown';
-    chrome.storage.local.get([`isSidebarVisible_${currentTabId}`], (result) => {
-      let isVisible = !result[`isSidebarVisible_${currentTabId}`];
-      chrome.storage.local.set({ [`isSidebarVisible_${currentTabId}`]: isVisible }, () => {
-        if (isVisible) {
-          newDiv.style.transform = 'translateX(0)'; // Показать боковую панель
-          document.body.style.marginRight = '350px'; // Сдвинуть содержимое страницы влево
-        } else {
-          newDiv.style.transform = 'translateX(100%)'; // Скрыть боковую панель
-          document.body.style.marginRight = '0'; // Вернуть содержимое страницы на место
-        }
+    
+    if (currentTabId === 'unknown') {
+      console.error('Cannot toggle sidebar: unknown tab ID');
+      sendResponse({ 
+        status: 'error', 
+        message: 'Unknown tab ID' 
+      });
+      return true;
+    }
+
+    // Используем новый менеджер состояния
+    sidebarManager.toggleSidebar(currentTabId)
+      .then((result) => {
+        applySidebarState(result.isVisible, currentTabId, 'toggle');
+        
         sendResponse({ 
           status: 'Sidebar toggled', 
-          visible: isVisible, 
-          tabId: currentTabId 
+          visible: result.isVisible, 
+          tabId: currentTabId,
+          wasInherited: result.wasInherited
         });
-        console.log('Sidebar toggled for tab:', currentTabId, 'visible:', isVisible);
+        
+        console.log(`Sidebar toggled for tab ${currentTabId}: ${result.isVisible ? 'visible' : 'hidden'}${result.wasInherited ? ' (was inherited)' : ''}`);
+      })
+      .catch((error) => {
+        console.error('Error toggling sidebar:', error);
+        sendResponse({ 
+          status: 'error', 
+          message: error.toString() 
+        });
       });
-    });
+
     return true; // Оставляем канал сообщения открытым для sendResponse
   }
 });
 
-// Восстановление состояния при загрузке страницы
-// Сначала получаем tabId, потом восстанавливаем состояние для конкретной вкладки
-chrome.runtime.sendMessage({ action: 'getTabId' }, (response) => {
-  if (response && response.tabId) {
-    const currentTabId = response.tabId;
-    chrome.storage.local.get([`isSidebarVisible_${currentTabId}`], (result) => {
-      if (result[`isSidebarVisible_${currentTabId}`]) {
-        newDiv.style.transform = 'translateX(0)'; // Показать боковую панель
-        document.body.style.marginRight = '350px'; // Сдвинуть содержимое страницы влево
-      } else {
-        newDiv.style.transform = 'translateX(100%)'; // Скрыть боковую панель
-        document.body.style.marginRight = '0'; // Вернуть содержимое страницы на место
-      }
-      console.log('Restored sidebar state for tab:', currentTabId, 'visible:', result[`isSidebarVisible_${currentTabId}`]);
-    });
-  }
-});
+// Восстановление состояния при загрузке страницы уже обработано в StoreInitializer
 

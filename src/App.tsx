@@ -76,15 +76,15 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   }, [setCurrentPage]);
 
   const handleCloseExtension = useCallback(() => {
-    dispatch(toggleSidebar());
-    chrome.runtime.sendMessage({ action: 'toggleSidebar' }, (response) => {
+    dispatch(toggleSidebar(tabId));
+    chrome.runtime.sendMessage({ action: 'toggleSidebar', tabId }, (response) => {
       if (chrome.runtime.lastError) {
         console.error('Error sending message:', chrome.runtime.lastError.message);
       } else {
         console.log('Extension closed:', response);
       }
     });
-  }, [dispatch]);
+  }, [dispatch, tabId]);
 
   const renderMainContent = () => {
     // Динамические отступы в зависимости от наличия New Card кнопки

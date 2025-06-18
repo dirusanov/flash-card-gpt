@@ -14,6 +14,13 @@ interface SettingsProps {
 const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const dispatch = useDispatch();
   const [testResults, setTestResults] = useState<{success: boolean, message: string} | null>(null);
+  const [sidebarSettings, setSidebarSettings] = useState<{
+    enabled: boolean;
+    mode: 'global' | 'lastActive';
+  }>({
+    enabled: true,
+    mode: 'global'
+  });
 
   const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
   const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
@@ -46,6 +53,31 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
     dispatch(setModelProvider(event.target.value as ModelProvider));
     // Clear test results when changing provider
     setTestResults(null);
+  };
+
+  // Load sidebar inheritance settings on component mount
+  React.useEffect(() => {
+    chrome.storage.local.get(['sidebar_inheritance_settings'], (result) => {
+      if (result.sidebar_inheritance_settings) {
+        setSidebarSettings(result.sidebar_inheritance_settings);
+      }
+    });
+  }, []);
+
+  // Save sidebar inheritance settings
+  const saveSidebarSettings = (newSettings: typeof sidebarSettings) => {
+    setSidebarSettings(newSettings);
+    chrome.storage.local.set({ 'sidebar_inheritance_settings': newSettings }, () => {
+      console.log('Sidebar inheritance settings saved:', newSettings);
+    });
+  };
+
+  const handleSidebarInheritanceEnabledChange = (enabled: boolean) => {
+    saveSidebarSettings({ ...sidebarSettings, enabled });
+  };
+
+  const handleSidebarInheritanceModeChange = (mode: 'global' | 'lastActive') => {
+    saveSidebarSettings({ ...sidebarSettings, mode });
   };
 
   const handleBackClick = () => {
@@ -361,6 +393,166 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   };
 
   // Content for Anki Connect section
+  // Render Sidebar Inheritance section
+  const renderSidebarInheritanceSection = () => {
+    return (
+      <div style={{ 
+        marginBottom: '24px',
+        backgroundColor: '#F8FAFC',
+        padding: '16px',
+        borderRadius: '8px',
+        border: '1px solid #E2E8F0'
+      }}>
+        <h3 style={{
+          fontWeight: '600',
+          marginBottom: '12px',
+          color: '#1E40AF',
+          fontSize: '16px',
+          display: 'flex',
+          alignItems: 'center'
+        }}>
+          🔄 Наследование состояния расширения
+        </h3>
+        
+        <p style={{
+          fontSize: '13px',
+          marginBottom: '16px',
+          color: '#64748B',
+          lineHeight: '1.5'
+        }}>
+          Настройте, как расширение должно вести себя при открытии новых вкладок - 
+          наследовать состояние (открыто/закрыто) от предыдущих вкладок или всегда начинать закрытым.
+        </p>
+
+        {/* Enable/Disable inheritance */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: '500',
+            color: '#374151'
+          }}>
+            <input
+              type="checkbox"
+              checked={sidebarSettings.enabled}
+              onChange={(e) => handleSidebarInheritanceEnabledChange(e.target.checked)}
+              style={{
+                marginRight: '8px',
+                transform: 'scale(1.1)',
+                accentColor: '#2563EB'
+              }}
+            />
+            Включить наследование состояния
+          </label>
+          <p style={{
+            fontSize: '12px',
+            marginTop: '4px',
+            marginLeft: '24px',
+            color: '#6B7280'
+          }}>
+            {sidebarSettings.enabled 
+              ? 'Новые вкладки будут наследовать состояние расширения'
+              : 'Новые вкладки всегда будут открываться с закрытым расширением'
+            }
+          </p>
+        </div>
+
+        {/* Inheritance mode selection */}
+        {sidebarSettings.enabled && (
+          <div>
+            <label style={{
+              display: 'block',
+              fontWeight: '500',
+              marginBottom: '8px',
+              color: '#374151',
+              fontSize: '14px'
+            }}>
+              Режим наследования
+            </label>
+            
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                cursor: 'pointer',
+                marginBottom: '8px',
+                fontSize: '13px'
+              }}>
+                <input
+                  type="radio"
+                  name="inheritanceMode"
+                  value="global"
+                  checked={sidebarSettings.mode === 'global'}
+                  onChange={(e) => handleSidebarInheritanceModeChange('global')}
+                  style={{
+                    marginRight: '8px',
+                    marginTop: '2px',
+                    accentColor: '#2563EB'
+                  }}
+                />
+                <div>
+                  <div style={{ fontWeight: '500', color: '#374151' }}>
+                    Глобальное состояние
+                  </div>
+                  <div style={{ color: '#6B7280', fontSize: '12px', marginTop: '2px' }}>
+                    Новые вкладки наследуют общее состояние расширения
+                  </div>
+                </div>
+              </label>
+              
+              <label style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                cursor: 'pointer',
+                fontSize: '13px'
+              }}>
+                <input
+                  type="radio"
+                  name="inheritanceMode"
+                  value="lastActive"
+                  checked={sidebarSettings.mode === 'lastActive'}
+                  onChange={(e) => handleSidebarInheritanceModeChange('lastActive')}
+                  style={{
+                    marginRight: '8px',
+                    marginTop: '2px',
+                    accentColor: '#2563EB'
+                  }}
+                />
+                <div>
+                  <div style={{ fontWeight: '500', color: '#374151' }}>
+                    От последней активной вкладки
+                  </div>
+                  <div style={{ color: '#6B7280', fontSize: '12px', marginTop: '2px' }}>
+                    Новые вкладки наследуют состояние от последней использованной вкладки
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <div style={{
+              backgroundColor: '#EBF8FF',
+              padding: '10px',
+              borderRadius: '6px',
+              borderLeft: '3px solid #3B82F6'
+            }}>
+              <p style={{
+                fontSize: '12px',
+                color: '#1E40AF',
+                margin: 0,
+                fontWeight: '500'
+              }}>
+                💡 Совет: Режим "От последней активной вкладки" удобен, если вы часто работаете 
+                с расширением в открытом состоянии на одних сайтах и в закрытом на других.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderAnkiConnectSection = () => {
     return (
       <div style={{ marginBottom: '20px' }}>
@@ -426,6 +618,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
       </div>
 
       <div>
+        {renderSidebarInheritanceSection()}
         {renderOpenAISection()}
         {renderGroqSettings()}
         {renderAnkiConnectSection()}
