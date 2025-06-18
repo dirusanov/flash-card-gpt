@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "./store";
-import { setCurrentPage } from "./store/actions/page";
 import CreateCard from './components/CreateCard';
 import Settings from './components/Settings';
 import StoredCards from './components/StoredCards';
@@ -12,25 +11,32 @@ import { toggleSidebar } from './store/actions/sidebar'
 import GlobalNotifications from './components/GlobalNotifications';
 import { FaList, FaCog, FaTimes, FaPlus } from 'react-icons/fa';
 import { loadStoredCards } from './store/actions/cards';
+import { setCurrentTabId } from './store/actions/tabState';
+import { TabAwareProvider, useTabAware } from './components/TabAwareProvider';
 
-function App() {
-  const isAnkiAvailable = useSelector((state: RootState) => state.anki.isAnkiAvailable)
+interface AppProps {
+  tabId: number;
+}
+
+// Внутренний компонент, который использует TabAware context
+const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
+  const tabAware = useTabAware();
+  const { currentPage, setCurrentPage } = tabAware;
+  const isAnkiAvailable = useSelector((state: RootState) => state.anki.isAnkiAvailable);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const currentPage = useSelector((state: RootState) => state.currentPage);
   const dispatch = useDispatch();
   const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
 
-  const storedCards = useSelector((state: RootState) => state.cards.storedCards);
-
-  // Add selector for card generation state
-  const isGeneratingCard = useSelector((state: RootState) => state.cards.isGeneratingCard);
+  // Получаем состояние для текущей вкладки из tabAware
+  const { storedCards } = tabAware;
+  const isGeneratingCard = tabAware.isGeneratingCard;
 
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // Загружаем сохраненные карточки при запуске приложения
+        // Загружаем сохраненные карточки при запуске приложения (оставляем для обратной совместимости)
         dispatch(loadStoredCards());
-        console.log('Initial card load from App component');
+        console.log('Initial card load from App component for tab:', tabId);
 
         // Check Anki availability but don't affect the initial page
         try {
@@ -42,7 +48,7 @@ function App() {
           } else {
             dispatch(fetchDecksSuccess(decks.result));
             dispatch(setAnkiAvailability(true));
-            console.log('Anki is available', currentPage);
+            console.log('Anki is available');
           }
         } catch (error) {
           console.error('Anki is unavailable:', error);
@@ -58,16 +64,16 @@ function App() {
     if (isInitialLoad) {
       initializeApp();
     }
-  }, [dispatch, ankiConnectApiKey, isInitialLoad])
+  }, [dispatch, ankiConnectApiKey, isInitialLoad, tabId]);
 
-  // Отслеживаем загрузку сохраненных карточек
+  // Отслеживаем загрузку сохраненных карточек для текущей вкладки
   useEffect(() => {
-    console.log('App: Stored cards count:', storedCards.length);
-  }, [storedCards]);
+    console.log(`App: Stored cards count for tab ${tabId}:`, storedCards.length);
+  }, [storedCards, tabId]);
 
   const handlePageChange = useCallback((page: string) => {
-    dispatch(setCurrentPage(page));
-  }, [dispatch]);
+    setCurrentPage(page);
+  }, [setCurrentPage]);
 
   const handleCloseExtension = useCallback(() => {
     dispatch(toggleSidebar());
@@ -398,6 +404,22 @@ function App() {
         </header>
       </div>
     </div>
+  );
+};
+
+function App({ tabId }: AppProps) {
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    // Устанавливаем текущий tab ID в store
+    dispatch(setCurrentTabId(tabId));
+    console.log('App initialized for tab:', tabId);
+  }, [dispatch, tabId]);
+
+  return (
+    <TabAwareProvider tabId={tabId}>
+      <AppContent tabId={tabId} />
+    </TabAwareProvider>
   );
 }
 

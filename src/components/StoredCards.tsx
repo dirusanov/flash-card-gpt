@@ -5,6 +5,7 @@ import { AnyAction } from 'redux';
 import { RootState } from '../store';
 import { loadStoredCards, deleteStoredCard, saveAnkiCards, updateCardExportStatus, updateStoredCard, setImageUrl, setImage, setText, setTranslation, setExamples, setFront, setBack, setLinguisticInfo, setTranscription } from '../store/actions/cards';
 import { StoredCard, ExportStatus } from '../store/reducers/cards';
+import { useTabAware } from './TabAwareProvider';
 import { Modes } from '../constants';
 import { FaArrowLeft, FaTrash, FaDownload, FaSync, FaEdit, FaCheck, FaTimes, FaImage, FaChevronLeft, FaChevronRight, FaPlus, FaMagic } from 'react-icons/fa';
 import { CardLangLearning, CardGeneral, fetchDecks } from '../services/ankiService';
@@ -24,7 +25,8 @@ type CardFilterType = 'all' | 'not_exported' | 'exported';
 
 const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
-    const { storedCards } = useSelector((state: RootState) => state.cards);
+    const tabAware = useTabAware();
+    const { storedCards } = tabAware;
     const deckId = useSelector((state: RootState) => state.deck.deckId);
     const decks = useSelector((state: RootState) => state.deck.decks);
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
@@ -322,7 +324,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     };
 
     const handleDelete = (cardId: string) => {
-        dispatch(deleteStoredCard(cardId));
+        tabAware.deleteStoredCard(cardId);
+        setSelectedCards(prev => prev.filter(id => id !== cardId));
     };
 
     const handleSaveToAnki = async () => {
@@ -439,7 +442,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
             // Update export status for selected cards
             selectedCards.forEach(cardId => {
-                dispatch(updateCardExportStatus(cardId, 'exported_to_anki'));
+                tabAware.updateCardExportStatus(cardId, 'exported_to_anki');
                 console.log(`Updated card ${cardId} export status to 'exported_to_anki'`);
             });
 
@@ -1106,7 +1109,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             console.log('Final data being saved to Redux:', updatedCardData);
 
             // Update the card in the Redux store
-            dispatch(updateStoredCard(updatedCardData));
+            tabAware.updateStoredCard(updatedCardData);
 
             // Reset the editing state
             handleCancelEdit();
@@ -2025,7 +2028,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
             // Update export status for selected cards
             selectedCards.forEach(cardId => {
-                dispatch(updateCardExportStatus(cardId, 'exported_to_file'));
+                tabAware.updateCardExportStatus(cardId, 'exported_to_file');
                 console.log(`Updated card ${cardId} export status to 'exported_to_file'`);
             });
 

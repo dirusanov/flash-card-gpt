@@ -1,9 +1,11 @@
 import { Middleware } from 'redux';
 import { RootState } from '..';
 import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS } from '../actions/cards';
+import { SAVE_TAB_CARD, DELETE_TAB_CARD, UPDATE_TAB_STORED_CARD, UPDATE_TAB_CARD_EXPORT_STATUS, SET_TAB_CARD_FIELD } from '../actions/tabState';
 import { StoredCard } from '../reducers/cards';
 
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
+const TAB_STORAGE_KEY_PREFIX = 'anki_tab_cards';
 
 // Helper function to compress base64 images
 const compressImageIfPossible = (imageData: string): string => {
@@ -183,6 +185,84 @@ export const loadCardsFromStorage = (): StoredCard[] => {
     }
     
     return [];
+};
+
+// Tab-specific functions
+export const loadTabCardsFromStorage = (tabId: number): StoredCard[] => {
+    try {
+        const tabStorageKey = `${TAB_STORAGE_KEY_PREFIX}_${tabId}`;
+        const storedCardsJson = localStorage.getItem(tabStorageKey);
+        console.log(`Loading cards for tab ${tabId}. Data exists:`, !!storedCardsJson);
+        
+        if (storedCardsJson) {
+            const storedCards: StoredCard[] = JSON.parse(storedCardsJson);
+            console.log(`Successfully loaded ${storedCards.length} cards for tab ${tabId}`);
+            
+            return storedCards.map(card => ({
+                ...card,
+                createdAt: new Date(card.createdAt)
+            }));
+        }
+    } catch (error) {
+        console.error(`Error loading cards for tab ${tabId}:`, error);
+    }
+    
+    return [];
+};
+
+export const saveTabCardsToStorage = (tabId: number, cards: StoredCard[]): void => {
+    try {
+        const tabStorageKey = `${TAB_STORAGE_KEY_PREFIX}_${tabId}`;
+        console.log(`Saving ${cards.length} cards for tab ${tabId}`);
+        
+        const optimizedCards = manageStorageQuota(cards);
+        const serializedCards = JSON.stringify(optimizedCards, (key, value) => {
+            if (value instanceof Date) return value.toISOString();
+            return value;
+        });
+        
+        localStorage.setItem(tabStorageKey, serializedCards);
+        console.log(`Successfully saved ${optimizedCards.length} cards for tab ${tabId}`);
+    } catch (error) {
+        console.error(`Error saving cards for tab ${tabId}:`, error);
+        saveCardsToStorageWithErrorHandling(tabId, cards, error);
+    }
+};
+
+const saveCardsToStorageWithErrorHandling = (tabId: number, cards: StoredCard[], error: any): void => {
+    const tabStorageKey = `${TAB_STORAGE_KEY_PREFIX}_${tabId}`;
+    let originalSize = 0;
+    
+    try {
+        const tempSerialized = JSON.stringify(cards, (key, value) => {
+            if (value instanceof Date) return value.toISOString();
+            return value;
+        });
+        originalSize = new Blob([tempSerialized]).size;
+    } catch (e) {
+        console.error('Could not determine original size:', e);
+    }
+    
+    if (error instanceof DOMException && (
+        error.name === 'QuotaExceededError' ||
+        error.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    )) {
+        console.error(`localStorage quota exceeded for tab ${tabId}. Using storage optimization.`);
+        showQuotaWarning();
+        
+        const smartOptimizedCards = manageStorageQuota(cards);
+        try {
+            const serializedSmart = JSON.stringify(smartOptimizedCards, (key, value) => {
+                if (value instanceof Date) return value.toISOString();
+                return value;
+            });
+            
+            localStorage.setItem(tabStorageKey, serializedSmart);
+            console.warn(`Smart optimization for tab ${tabId}: Saved ${smartOptimizedCards.length} of ${cards.length} cards`);
+        } catch (innerError) {
+            console.error(`Failed to save optimized cards for tab ${tabId}:`, innerError);
+        }
+    }
 };
 
 // Вспомогательная функция для сохранения карточек в localStorage
@@ -402,6 +482,24 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 saveCardsToStorage(storedCards);
             } catch (error) {
                 console.error('Error in card storage middleware:', error);
+            }
+            break;
+            
+        // Handle tab-specific actions
+        case SAVE_TAB_CARD:
+        case DELETE_TAB_CARD:
+        case UPDATE_TAB_STORED_CARD:
+        case UPDATE_TAB_CARD_EXPORT_STATUS:
+            try {
+                const { tabState: { tabStates } } = store.getState();
+                const { tabId } = action.payload;
+                
+                if (tabId && tabStates[tabId]) {
+                    const tabStoredCards = tabStates[tabId].storedCards;
+                    saveTabCardsToStorage(tabId, tabStoredCards);
+                }
+            } catch (error) {
+                console.error('Error in tab storage middleware:', error);
             }
             break;
             

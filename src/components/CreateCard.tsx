@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useTabAware } from './TabAwareProvider';
 
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
@@ -14,7 +15,6 @@ import ResultDisplay from "./ResultDisplay";
 import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 import useErrorNotification from './useErrorHandler';
-import { setCurrentPage } from "../store/actions/page";
 import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
@@ -30,6 +30,7 @@ interface CreateCardProps {
 const CreateCard: React.FC<CreateCardProps> = () => {
     const [showResult, setShowResult] = useState(false);
     const deckId = useSelector((state: RootState) => state.deck.deckId);
+    const tabAware = useTabAware();
 
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
 
@@ -41,7 +42,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
 
-    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription } = useSelector((state: RootState) => state.cards);
+    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, fieldIdPrefix } = tabAware;
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
@@ -84,8 +85,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
     const [isMultipleCards, setIsMultipleCards] = useState(false);
 
-    // Selector для получения всех сохраненных карточек
-    const storedCards = useSelector((state: RootState) => state.cards.storedCards);
+    // Получаем сохраненные карточки из tab-aware контекста
+    const { storedCards } = tabAware;
 
     // Get the appropriate AI service based on the selected provider
     const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
@@ -197,7 +198,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Update the handle text change to check for existing cards
     const handleTextChange = (newText: string) => {
-        dispatch(setText(newText));
+        tabAware.setText(newText);
 
         // If the card is already marked as saved, check if it's being edited
         if (isSaved) {
@@ -210,7 +211,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Handler for translation update
     const handleTranslationUpdate = (newTranslation: string) => {
-        dispatch(setTranslation(newTranslation));
+        tabAware.setTranslation(newTranslation);
         if (isSaved) {
             setIsEdited(true);
         }
@@ -218,7 +219,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Handler for examples update
     const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
-        dispatch(setExamples(newExamples));
+        tabAware.setExamples(newExamples);
         if (isSaved) {
             setIsEdited(true);
         }
@@ -235,10 +236,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
 
                 if (imageUrl) {
-                    dispatch(setImageUrl(imageUrl));
+                    tabAware.setImageUrl(imageUrl);
                 }
                 if (imageBase64) {
-                    dispatch(setImage(imageBase64));
+                    tabAware.setImage(imageBase64);
                 }
             } else {
                 // Other models - show error that image generation isn't supported
@@ -277,7 +278,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const formattedExamples = newExamplesResult.map(example =>
                     [example.original, example.translated] as [string, string | null]
                 );
-                dispatch(setExamples(formattedExamples));
+                tabAware.setExamples(formattedExamples);
             }
         } catch (error) {
             console.error('Error getting examples:', error);
@@ -310,10 +311,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, customInstruction);
 
                 if (imageUrl) {
-                    dispatch(setImageUrl(imageUrl));
+                    tabAware.setImageUrl(imageUrl);
                 }
                 if (imageBase64) {
-                    dispatch(setImage(imageBase64));
+                    tabAware.setImage(imageBase64);
                 }
             } else if (customInstruction.toLowerCase().includes('example') ||
                 customInstruction.toLowerCase().includes('sentence') ||
@@ -322,13 +323,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Generate new examples based on instructions
                 const newExamples = await getExamples(openAiKey, text, translateToLanguage, true, customInstruction);
-                dispatch(setExamples(newExamples));
+                tabAware.setExamples(newExamples);
             } else if (customInstruction.toLowerCase().includes('translat') ||
                 customInstruction.toLowerCase().includes('перевод')) {
 
                 // Update translation based on instructions
                 const translatedText = await translateText(openAiKey, text, translateToLanguage, customInstruction);
-                dispatch(setTranslation(translatedText));
+                if (translatedText) {
+                    tabAware.setTranslation(translatedText);
+                }
             } else {
                 // Apply all updates with custom instructions
                 // Always use custom instructions for both translation and examples
@@ -341,15 +344,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, customInstruction);
 
                     if (imageUrl) {
-                        dispatch(setImageUrl(imageUrl));
+                        tabAware.setImageUrl(imageUrl);
                     }
                     if (imageBase64) {
-                        dispatch(setImage(imageBase64));
+                        tabAware.setImage(imageBase64);
                     }
                 }
 
-                dispatch(setTranslation(translatedText));
-                dispatch(setExamples(newExamples));
+                if (translatedText) {
+                    tabAware.setTranslation(translatedText);
+                }
+                tabAware.setExamples(newExamples);
             }
 
             // Clear the instruction after applying
@@ -570,11 +575,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 if (existingCardIndex === -1) {
                     // Card is not saved yet - сохраняем ТОЛЬКО текущую карточку
-                    dispatch(saveCardToStorage(currentCard));
+                    tabAware.saveCardToStorage(currentCard);
                     console.log(`Saved new card: ${currentCard.id}`);
                 } else {
                     // Update existing card - обновляем ТОЛЬКО текущую карточку
-                    dispatch(updateStoredCard(currentCard));
+                    tabAware.updateStoredCard(currentCard);
                     console.log(`Updated existing card: ${currentCard.id}`);
                 }
 
@@ -593,7 +598,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 dispatch(loadStoredCards());
 
                 // Set current card's ID for reference
-                dispatch(setCurrentCardId(currentCard.id));
+                tabAware.setCurrentCardId(currentCard.id);
                 localStorage.setItem('current_card_id', currentCard.id);
 
                 // Update UI state for the current card only
@@ -665,11 +670,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Сохранение карточки происходит только по явному действию пользователя (кнопка "Accept")
                 if (currentCardId) {
                     console.log('Updating existing card by user action:', cardId);
-                    dispatch(updateStoredCard(cardData));
+                    tabAware.updateStoredCard(cardData);
                 } else {
                     console.log('Saving new card by user action:', cardId);
-                    dispatch(saveCardToStorage(cardData));
-                    dispatch(setCurrentCardId(cardId));
+                    tabAware.saveCardToStorage(cardData);
+                    tabAware.setCurrentCardId(cardId);
                 }
 
             } else if (mode === Modes.GeneralTopic) {
@@ -705,11 +710,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Сохранение происходит только по явному действию пользователя (нажатие кнопки)
                 if (currentCardId) {
                     console.log('Updating existing general topic card by user action:', cardId);
-                    dispatch(updateStoredCard(cardData));
+                    tabAware.updateStoredCard(cardData);
                 } else {
                     console.log('Saving new general topic card by user action:', cardId);
-                    dispatch(saveCardToStorage(cardData));
-                    dispatch(setCurrentCardId(cardId));
+                    tabAware.saveCardToStorage(cardData);
+                    tabAware.setCurrentCardId(cardId);
                 }
             }
 
@@ -757,22 +762,42 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setIsMultipleCards(false);
         setCurrentCardIndex(0);
 
-        // Очищаем все поля Redux полностью
-        dispatch(setText(''));
-        dispatch(setTranslation(''));
-        dispatch(setExamples([]));
-        dispatch(setImage(null));
-        dispatch(setImageUrl(null));
-        dispatch(setFront(''));
-        dispatch(setBack(null));
-        dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
-        dispatch(setTranscription('')); // Очищаем транскрипцию
+        // Очищаем все поля через tabAware
+        tabAware.updateCard({
+            text: '',
+            translation: '',
+            examples: [],
+            image: null,
+            imageUrl: null,
+            front: '',
+            back: null,
+            linguisticInfo: '',
+            transcription: ''
+        });
         setOriginalSelectedText('');
     };
 
     const handleViewSavedCards = () => {
-        dispatch(setCurrentPage('storedCards'));
+        tabAware.setCurrentPage('storedCards');
     };
+
+    // Используем useCallback для стабильной ссылки на функцию обработки выделения
+    const handleTextSelection = useCallback((selectedText: string) => {
+        console.log('Text selection handled for tab-specific state:', selectedText);
+        
+        // Принудительно закрываем модальное окно перед анализом нового текста
+        setShowTextOptionsModal(false);
+        
+        // Сначала очищаем предыдущие выбранные опции и список опций
+        setSelectedOptionsMap({});
+        setSelectedTextOptions([]);
+        
+        // Устанавливаем выделенный текст через tabAware (tab-specific)
+        tabAware.setText(selectedText);
+        
+        // Логируем для отладки
+        console.log('Text set via tabAware.setText:', selectedText);
+    }, [tabAware]);
 
     useEffect(() => {
         const handleMouseUp = (event: MouseEvent) => {
@@ -799,14 +824,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             const selectedText = window.getSelection()?.toString().trim();
             if (selectedText && selectedText.length > 0) {
-                // Принудительно закрываем модальное окно перед анализом нового текста
-                setShowTextOptionsModal(false);
-                
-                // Сначала очищаем предыдущие выбранные опции и список опций
-                setSelectedOptionsMap({});
-                setSelectedTextOptions([]);
-                // Затем анализируем новый текст и предлагаем варианты
-                analyzeSelectedText(selectedText);
+                handleTextSelection(selectedText);
             }
         };
 
@@ -815,7 +833,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         return () => {
             document.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [dispatch, apiKey]);
+    }, [handleTextSelection]);
 
     useEffect(() => {
         // Пока по дефолту ставим LanguageLearning
@@ -876,16 +894,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         }
 
                         // Restore card data
-                        dispatch(setCurrentCardId(savedCardId));
-                        dispatch(setText(savedCard.text));
-                        if (savedCard.translation) dispatch(setTranslation(savedCard.translation));
-                        if (savedCard.examples) dispatch(setExamples(savedCard.examples));
-                        if (savedCard.image) dispatch(setImage(savedCard.image));
-                        if (savedCard.imageUrl) dispatch(setImageUrl(savedCard.imageUrl));
-                        if (savedCard.front) dispatch(setFront(savedCard.front));
-                        if (savedCard.back) dispatch(setBack(savedCard.back));
-                        if (savedCard.linguisticInfo) dispatch(setLinguisticInfo(savedCard.linguisticInfo));
-                        if (savedCard.transcription) dispatch(setTranscription(savedCard.transcription));
+                        tabAware.setCurrentCardId(savedCardId);
+                        tabAware.setText(savedCard.text);
+                        if (savedCard.translation) tabAware.setTranslation(savedCard.translation);
+                        if (savedCard.examples) tabAware.setExamples(savedCard.examples);
+                        if (savedCard.image) tabAware.setImage(savedCard.image);
+                        if (savedCard.imageUrl) tabAware.setImageUrl(savedCard.imageUrl);
+                        if (savedCard.front) tabAware.setFront(savedCard.front);
+                        if (savedCard.back) tabAware.setBack(savedCard.back);
+                        if (savedCard.linguisticInfo) tabAware.setLinguisticInfo(savedCard.linguisticInfo);
+                        if (savedCard.transcription) tabAware.setTranscription(savedCard.transcription);
                         setOriginalSelectedText(savedCard.text);
 
                         setShowResult(true);
@@ -894,7 +912,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         // If card with this ID no longer exists, clear the ID
                         localStorage.removeItem('current_card_id');
                         localStorage.removeItem('explicitly_saved');
-                        dispatch(setCurrentCardId(null));
+                        tabAware.setCurrentCardId(null);
                         setIsNewSubmission(true);
                         setExplicitlySaved(false);
                     }
@@ -943,7 +961,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setCreateCardClicked(true);
 
         // Set card generation state to true to disable navigation buttons
-        dispatch(setIsGeneratingCard(true));
+        tabAware.setIsGeneratingCard(true);
 
         // IMPORTANT: Explicitly clear saved state when creating a new card
         setExplicitlySaved(false);
@@ -954,24 +972,24 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setIsMultipleCards(false);
 
         // Очищаем флаг текущей карточки
-        dispatch(setCurrentCardId(null));
+        tabAware.setCurrentCardId(null);
 
         // FIXED: Clear image data if image generation is disabled or if this is a new text
         // This prevents images from previous cards appearing on new cards
         if (!shouldGenerateImage) {
             console.log('Image generation is disabled, clearing existing images');
-            dispatch(setImage(null));
-            dispatch(setImageUrl(null));
+            tabAware.setImage(null);
+            tabAware.setImageUrl(null);
         } else if (originalSelectedText !== text) {
             // If the text has changed significantly from the original, clear old images
             console.log('Text has changed, clearing existing images for new generation');
-            dispatch(setImage(null));
-            dispatch(setImageUrl(null));
+            tabAware.setImage(null);
+            tabAware.setImageUrl(null);
         }
 
         // Only clear linguistic info and transcription as they are text-specific
-        dispatch(setLinguisticInfo(""));
-        dispatch(setTranscription(''));
+        tabAware.setLinguisticInfo("");
+        tabAware.setTranscription('');
 
         setLoadingGetResult(true);
         setOriginalSelectedText(text);
@@ -1016,7 +1034,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 );
 
                 if (translation.translated) {
-                    dispatch(setTranslation(translation.translated));
+                    tabAware.setTranslation(translation.translated);
                     completedOperations.translation = true;
                 }
             } catch (translationError) {
@@ -1041,7 +1059,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     const formattedExamples = examplesResult.map(example =>
                         [example.original, example.translated] as [string, string | null]
                     );
-                    dispatch(setExamples(formattedExamples));
+                    tabAware.setExamples(formattedExamples);
                     completedOperations.examples = true;
                 }
             } catch (examplesError) {
@@ -1059,7 +1077,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const flashcard = await createFlashcard(aiService, apiKey, text);
 
                 if (flashcard.front) {
-                    dispatch(setFront(flashcard.front));
+                    tabAware.setFront(flashcard.front);
                     completedOperations.flashcard = true;
                 }
             } catch (flashcardError) {
@@ -1110,7 +1128,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
 
                     if (result.linguisticInfo) {
-                        dispatch(setLinguisticInfo(result.linguisticInfo));
+                        tabAware.setLinguisticInfo(result.linguisticInfo);
                         completedOperations.linguisticInfo = true;
 
                         // Показываем уведомления пользователю
@@ -1154,7 +1172,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
 
                     if (result.linguisticInfo) {
-                        dispatch(setLinguisticInfo(result.linguisticInfo));
+                        tabAware.setLinguisticInfo(result.linguisticInfo);
                         completedOperations.linguisticInfo = true;
 
                         if (useMultipleValidators && 'confidence' in result && typeof result.confidence === 'number') {
@@ -1213,7 +1231,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         ].filter(Boolean).join('\n');
 
                         if (transcriptionHtml) {
-                            dispatch(setTranscription(transcriptionHtml));
+                            tabAware.setTranscription(transcriptionHtml);
                             console.log('Transcription created successfully');
                         }
                     }
@@ -1248,11 +1266,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                             if (imageUrl) {
                                 console.log('*** HANDLE SUBMIT: Setting imageUrl in Redux:', imageUrl.substring(0, 50));
-                                dispatch(setImageUrl(imageUrl));
+                                tabAware.setImageUrl(imageUrl);
                             }
                             if (imageBase64) {
                                 console.log('*** HANDLE SUBMIT: Setting image (base64) in Redux:', imageBase64.substring(0, 50));
-                                dispatch(setImage(imageBase64));
+                                tabAware.setImage(imageBase64);
                             }
                             completedOperations.image = true;
                             
@@ -1277,7 +1295,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
 
             // Ensure this is treated as a brand new card
-            dispatch(setCurrentCardId(null));
+            tabAware.setCurrentCardId(null);
 
             // Важно: очищаем статус сохранения для новой карточки
             setExplicitlySaved(false);
@@ -1305,7 +1323,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setLoadingGetResult(false);
             
             // Reset card generation state to enable navigation buttons
-            dispatch(setIsGeneratingCard(false));
+            tabAware.setIsGeneratingCard(false);
         }
     };
 
@@ -2727,7 +2745,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         console.log('Text length:', selectedText.length);
         
         if (!selectedText || selectedText.length < 3) {
-            dispatch(setText(selectedText));
+            tabAware.setText(selectedText);
             return;
         }
 
@@ -2747,7 +2765,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             // Clean the text by removing leading dashes/hyphens and whitespace
             const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
-            dispatch(setText(cleanedText));
+            tabAware.setText(cleanedText);
             return;
         }
 
@@ -2990,21 +3008,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     const firstSentence = selectedText.split(/[.!?]/)[0];
                     if (firstSentence && firstSentence.length < 100) {
                         const cleanedSentence = firstSentence.replace(/^[-–—•\s]+/, '').trim();
-                        dispatch(setText(cleanedSentence + '.'));
+                        tabAware.setText(cleanedSentence + '.');
                     } else {
                         const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
-                        dispatch(setText(cleanedText.substring(0, 100).trim() + '...'));
+                        tabAware.setText(cleanedText.substring(0, 100).trim() + '...');
                     }
                 } else {
                     const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
-                    dispatch(setText(cleanedText));
+                    tabAware.setText(cleanedText);
                 }
             }
         } catch (e) {
             console.error("Error analyzing text", e);
             // In case of error, use the original selected text but clean it
             const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
-            dispatch(setText(cleanedText));
+            tabAware.setText(cleanedText);
         } finally {
             setTextAnalysisLoader(false);
         }
