@@ -49,6 +49,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const [isEditingInModal, setIsEditingInModal] = useState(false);
     const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
+    
+    // Локальное состояние для редактирования карточки (избегаем конфликтов с глобальным Redux)
+    const [localEditingCardData, setLocalEditingCardData] = useState<StoredCard | null>(null);
 
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
     const [loadingAccept, setLoadingAccept] = useState(false);
@@ -1022,26 +1025,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Start editing a card
     const handleStartEditing = (card: StoredCard) => {
-        // Load card data into Redux state for editing
+        // НЕ загружаем данные в глобальный Redux state, так как это влияет на статус карточки в CreateCard
         console.log('Starting to edit card:', card.id);
         console.log('Card data:', card);
-        console.log('Current Redux state before editing:', currentCardData);
         
-        // Set the card data in Redux store for editing
-        dispatch(setText(card.text || ''));
-        dispatch(setTranslation(card.translation || ''));
-        dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
-        dispatch(setFront(card.front || ''));
-        dispatch(setBack(card.back || ''));
-        dispatch(setImage(card.image || null));
-        dispatch(setImageUrl(card.imageUrl || null));
-        dispatch(setLinguisticInfo(card.linguisticInfo || ''));
-        dispatch(setTranscription(card.transcription || ''));
-        
-        console.log('Redux actions dispatched, setting modal state...');
-        
-        // Set the editing state
+        // Просто устанавливаем локальное состояние для редактирования
+        // БЕЗ изменения глобального Redux state
         setEditingCard(card);
+        setLocalEditingCardData({...card}); // Создаем копию для локального редактирования
         setShowEditModal(true);
         setIsEditingInModal(true);
         setCustomInstruction('');
@@ -1049,13 +1040,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         setLoadingNewExamples(false);
         setLoadingAccept(false);
         
-        console.log('Modal state set. showEditModal should be true now.');
+        console.log('Modal state set for editing card:', card.id);
     };
 
     // Cancel editing
     const handleCancelEdit = () => {
         console.log('Canceling edit, resetting modal state...');
         setEditingCard(null);
+        setLocalEditingCardData(null); // Очищаем локальные данные
         setShowEditModal(false);
         setIsEditingInModal(false);
         setCustomInstruction('');
@@ -1067,24 +1059,24 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Save edited card from modal
     const handleSaveEditFromModal = async () => {
-        if (!editingCard) return;
+        if (!editingCard || !localEditingCardData) return;
 
         try {
             setLoadingAccept(true);
 
-            // Use the currentCardData from component level instead of useSelector inside function
+            // Используем локальные данные для сохранения
             const updatedCardData: StoredCard = {
                 ...editingCard,
-                text: currentCardData.text || editingCard.text || '',
-                translation: currentCardData.translation || editingCard.translation || '',
-                examples: Array.isArray(currentCardData.examples) ? currentCardData.examples : (Array.isArray(editingCard.examples) ? editingCard.examples : []),
-                front: currentCardData.front || editingCard.front || '',
-                back: currentCardData.back || editingCard.back || '',
+                text: localEditingCardData.text || editingCard.text || '',
+                translation: localEditingCardData.translation || editingCard.translation || '',
+                examples: Array.isArray(localEditingCardData.examples) ? localEditingCardData.examples : (Array.isArray(editingCard.examples) ? editingCard.examples : []),
+                front: localEditingCardData.front || editingCard.front || '',
+                back: localEditingCardData.back || editingCard.back || '',
                 // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
-                image: currentCardData.image || editingCard.image || null, // base64 данные (приоритет)
-                imageUrl: currentCardData.imageUrl || editingCard.imageUrl || null, // URL как резерв
-                linguisticInfo: currentCardData.linguisticInfo || editingCard.linguisticInfo || '',
-                transcription: currentCardData.transcription || editingCard.transcription || ''
+                image: localEditingCardData.image || editingCard.image || null, // base64 данные (приоритет)
+                imageUrl: localEditingCardData.imageUrl || editingCard.imageUrl || null, // URL как резерв
+                linguisticInfo: localEditingCardData.linguisticInfo || editingCard.linguisticInfo || '',
+                transcription: localEditingCardData.transcription || editingCard.transcription || ''
             };
 
             // Validate form data
@@ -1133,8 +1125,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 throw new Error('OpenAI API key is not configured. Please add it in the settings.');
             }
 
-            // Use currentCardData from component level instead of useSelector inside function
-            const currentText = currentCardData.text || editingCard.text;
+            // Используем локальное состояние вместо Redux
+            const currentText = localEditingCardData?.text || editingCard.text;
             
             console.log('Starting image generation for text:', currentText);
 
@@ -1196,9 +1188,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
             console.log('Image data received from background');
 
-            // Update Redux state with new image
-            dispatch(setImageUrl(imageData as string));
-            dispatch(setImage(imageData as string));
+            // Обновляем локальное состояние с новым изображением
+            if (localEditingCardData) {
+                setLocalEditingCardData({
+                    ...localEditingCardData,
+                    imageUrl: imageData as string,
+                    image: imageData as string
+                });
+            }
 
             showError('New image generated successfully!', 'success');
         } catch (error: any) {
@@ -1214,8 +1211,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         try {
             setLoadingNewExamples(true);
             
-            // Use currentCardData from component level instead of useSelector inside function
-            const currentText = currentCardData.text || editingCard.text;
+            // Используем локальное состояние вместо Redux
+            const currentText = localEditingCardData?.text || editingCard.text;
             
             // For now, just show a placeholder - you can implement actual examples generation here
             showError('Examples generation would be implemented here', 'info');
@@ -1259,17 +1256,35 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Handle translation update from ResultDisplay
     const handleTranslationUpdate = (newTranslation: string) => {
-        dispatch(setTranslation(newTranslation));
+        // Обновляем локальное состояние вместо глобального Redux
+        if (localEditingCardData) {
+            setLocalEditingCardData({
+                ...localEditingCardData,
+                translation: newTranslation
+            });
+        }
     };
 
     // Handle examples update from ResultDisplay
     const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
-        dispatch(setExamples(newExamples));
+        // Обновляем локальное состояние вместо глобального Redux
+        if (localEditingCardData) {
+            setLocalEditingCardData({
+                ...localEditingCardData,
+                examples: newExamples
+            });
+        }
     };
 
     // Handle linguistic info update from ResultDisplay
     const handleLinguisticInfoUpdate = (newInfo: string) => {
-        dispatch(setLinguisticInfo(newInfo));
+        // Обновляем локальное состояние вместо глобального Redux
+        if (localEditingCardData) {
+            setLocalEditingCardData({
+                ...localEditingCardData,
+                linguisticInfo: newInfo
+            });
+        }
     };
 
     // Render the modal for editing cards
@@ -1281,10 +1296,15 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             return null;
         }
 
-        // Use currentCardData from component level instead of useSelector inside function
-        const { text, translation, examples, front, back, image, imageUrl, linguisticInfo, transcription } = currentCardData;
+        // Используем локальное состояние для редактирования
+        if (!localEditingCardData) {
+            console.log('No local editing card data available');
+            return null;
+        }
         
-        console.log('Rendering edit modal with data:', {
+        const { text, translation, examples, front, back, image, imageUrl, linguisticInfo, transcription } = localEditingCardData;
+        
+        console.log('Rendering edit modal with local data:', {
             text: text?.substring(0, 20) + '...',
             translation: translation?.substring(0, 20) + '...',
             examplesCount: examples?.length,
@@ -1458,13 +1478,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     {/* Use ResultDisplay component for consistent UI */}
                     <ResultDisplay
                         mode={editingCard.mode}
-                        front={front}
-                        translation={translation}
-                        examples={examples}
-                        imageUrl={imageUrl}
-                        image={image}
-                        linguisticInfo={linguisticInfo}
-                        transcription={transcription}
+                        front={front || null}
+                        translation={translation || null}
+                        examples={examples || []}
+                        imageUrl={imageUrl || null}
+                        image={image || null}
+                        linguisticInfo={linguisticInfo || undefined}
+                        transcription={transcription || null}
                         onNewImage={handleNewImageInModal}
                         onNewExamples={handleNewExamplesInModal}
                         onAccept={handleSaveEditFromModal}
