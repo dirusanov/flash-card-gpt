@@ -59,7 +59,8 @@ export interface AIService {
     apiKey: string,
     text: string,
     translateToLanguage?: string,
-    customPrompt?: string
+    customPrompt?: string,
+    abortSignal?: AbortSignal
   ) => Promise<string | null>;
   
   getExamples: (
@@ -68,13 +69,15 @@ export interface AIService {
     translateToLanguage: string,
     translate?: boolean,
     customPrompt?: string,
-    sourceLanguage?: string
+    sourceLanguage?: string,
+    abortSignal?: AbortSignal
   ) => Promise<Array<[string, string | null]>>;
   
   getDescriptionImage: (
     apiKey: string,
     word: string,
-    customInstructions?: string
+    customInstructions?: string,
+    abortSignal?: AbortSignal
   ) => Promise<string>;
   
   getImageUrl?: (
@@ -84,7 +87,8 @@ export interface AIService {
   
   generateAnkiFront: (
     apiKey: string,
-    text: string
+    text: string,
+    abortSignal?: AbortSignal
   ) => Promise<string | null>;
   
   extractKeyTerms: (apiKey: string, text: string) => Promise<string[]>;
@@ -111,8 +115,14 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       apiKey: string,
       text: string,
       translateToLanguage: string = 'ru',
-      customPrompt: string = ''
+      customPrompt: string = '',
+      abortSignal?: AbortSignal
     ): Promise<string | null> => {
+      // Check if cancelled before starting
+      if (abortSignal?.aborted) {
+        throw new Error('Request cancelled');
+      }
+      
       // Создаем провайдер на лету
       const aiProvider = createAIProvider(provider, apiKey);
       // Делегируем выполнение провайдеру
@@ -125,8 +135,14 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       translateToLanguage: string,
       translate: boolean = false,
       customPrompt: string = '',
-      sourceLanguage?: string
+      sourceLanguage?: string,
+      abortSignal?: AbortSignal
     ): Promise<Array<[string, string | null]>> => {
+      // Check if cancelled before starting
+      if (abortSignal?.aborted) {
+        throw new Error('Request cancelled');
+      }
+      
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.getExamples(word, translateToLanguage, translate, customPrompt, sourceLanguage);
     },
@@ -134,8 +150,14 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
     getDescriptionImage: async (
       apiKey: string,
       word: string,
-      customInstructions: string = ''
+      customInstructions: string = '',
+      abortSignal?: AbortSignal
     ): Promise<string> => {
+      // Check if cancelled before starting
+      if (abortSignal?.aborted) {
+        throw new Error('Request cancelled');
+      }
+      
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.getDescriptionImage(word, customInstructions);
     },
@@ -150,8 +172,14 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
     
     generateAnkiFront: async (
       apiKey: string,
-      text: string
+      text: string,
+      abortSignal?: AbortSignal
     ): Promise<string | null> => {
+      // Check if cancelled before starting
+      if (abortSignal?.aborted) {
+        throw new Error('Request cancelled');
+      }
+      
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.generateAnkiFront(text);
     },
@@ -218,7 +246,8 @@ export const createTranslation = async (
   text: string,
   translateToLanguage: string,
   customPrompt?: string,
-  textLanguage?: string
+  textLanguage?: string,
+  abortSignal?: AbortSignal
 ): Promise<TranslationResult> => {
   try {
     if (!apiKey) {
@@ -229,7 +258,8 @@ export const createTranslation = async (
       apiKey,
       text,
       translateToLanguage,
-      customPrompt
+      customPrompt,
+      abortSignal
     );
     
     return {
@@ -255,7 +285,8 @@ export const createExamples = async (
   translateToLanguage: string,
   translate: boolean = false,
   customPrompt?: string,
-  sourceLanguage?: string
+  sourceLanguage?: string,
+  abortSignal?: AbortSignal
 ): Promise<ExampleItem[]> => {
   try {
     if (!apiKey) {
@@ -268,7 +299,8 @@ export const createExamples = async (
       translateToLanguage,
       translate,
       customPrompt,
-      sourceLanguage
+      sourceLanguage,
+      abortSignal
     );
     
     return examples.map(([original, translated]) => ({
@@ -290,7 +322,8 @@ export const createExamples = async (
 export const createFlashcard = async (
   service: AIService,
   apiKey: string,
-  text: string
+  text: string,
+  abortSignal?: AbortSignal
 ): Promise<FlashcardContent> => {
   try {
     if (!apiKey) {
@@ -299,7 +332,7 @@ export const createFlashcard = async (
     
     // Получаем только фронт карточки, содержимое для обратной стороны формируется
     // из примеров и перевода в компоненте интерфейса
-    const front = await service.generateAnkiFront(apiKey, text);
+    const front = await service.generateAnkiFront(apiKey, text, abortSignal);
     
     if (!front) {
       throw new Error("Failed to generate flashcard content. Please try again or check your API key.");

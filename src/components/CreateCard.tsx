@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTabAware } from './TabAwareProvider';
 
@@ -84,6 +84,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [createdCards, setCreatedCards] = useState<StoredCard[]>([]);
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
     const [isMultipleCards, setIsMultipleCards] = useState(false);
+
+    // AbortController for cancelling AI requests
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     // Получаем сохраненные карточки из tab-aware контекста
     const { storedCards } = tabAware;
@@ -228,7 +231,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const handleNewImage = async () => {
         setLoadingNewImage(true);
         try {
-            const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
+            // Check if there's an ongoing generation that might be cancelled
+            if (abortControllerRef.current?.signal.aborted) {
+                console.log('New image generation cancelled');
+                return;
+            }
+            
+            const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions, abortControllerRef.current?.signal);
 
             // Use different image generation based on provider
             if (modelProvider === ModelProvider.OpenAI) {
@@ -260,6 +269,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const handleNewExamples = async () => {
         setLoadingNewExamples(true);
         try {
+            // Check if there's an ongoing generation that might be cancelled
+            if (abortControllerRef.current?.signal.aborted) {
+                console.log('New examples generation cancelled');
+                return;
+            }
+            
             // Определяем исходный язык
             const textLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
 
@@ -270,7 +285,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 translateToLanguage,
                 true,
                 aiInstructions,
-                textLanguage || undefined // Передаем исходный язык
+                textLanguage || undefined, // Передаем исходный язык
+                abortControllerRef.current?.signal
             );
 
             if (newExamplesResult && newExamplesResult.length > 0) {
@@ -957,6 +973,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         e.preventDefault();
         if (!text.trim()) return;
 
+        // Create new AbortController for this generation
+        abortControllerRef.current = new AbortController();
+        const abortSignal = abortControllerRef.current.signal;
+
         // Установить флаг, что кнопка Create Card была нажата
         setCreateCardClicked(true);
 
@@ -1023,6 +1043,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             };
 
             try {
+                // Check if cancelled before starting translation
+                if (abortSignal.aborted) {
+                    throw new Error('Generation cancelled by user');
+                }
+
                 // 1. Get translation
                 const translation = await createTranslation(
                     aiService,
@@ -1030,19 +1055,34 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     text,
                     translateToLanguage,
                     aiInstructions,
-                    sourceLanguageForSubmit || undefined // Передаем информацию о языке исходного текста или undefined
+                    sourceLanguageForSubmit || undefined, // Передаем информацию о языке исходного текста или undefined
+                    abortSignal
                 );
+
+                // Check if cancelled after translation
+                if (abortSignal.aborted) {
+                    throw new Error('Generation cancelled by user');
+                }
 
                 if (translation.translated) {
                     tabAware.setTranslation(translation.translated);
                     completedOperations.translation = true;
                 }
             } catch (translationError) {
+                if (abortSignal.aborted) {
+                    console.log('Translation cancelled by user');
+                    return; // Exit silently if cancelled
+                }
                 console.error('Translation failed:', translationError);
                 throw new Error(`Translation failed: ${translationError instanceof Error ? translationError.message : "Unknown error"}`);
             }
 
             try {
+                // Check if cancelled before starting examples
+                if (abortSignal.aborted) {
+                    throw new Error('Generation cancelled by user');
+                }
+
                 // 2. Get examples
                 const examplesResult = await createExamples(
                     aiService,
@@ -1051,8 +1091,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     translateToLanguage,
                     true,
                     aiInstructions,
-                    sourceLanguageForSubmit || undefined // Преобразуем string | null в string | undefined
+                    sourceLanguageForSubmit || undefined, // Преобразуем string | null в string | undefined
+                    abortSignal
                 );
+
+                // Check if cancelled after examples
+                if (abortSignal.aborted) {
+                    throw new Error('Generation cancelled by user');
+                }
 
                 if (examplesResult && examplesResult.length > 0) {
                     // Convert to old format for compatibility with existing code
@@ -1063,6 +1109,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     completedOperations.examples = true;
                 }
             } catch (examplesError) {
+                if (abortSignal.aborted) {
+                    console.log('Examples generation cancelled by user');
+                    return; // Exit silently if cancelled
+                }
                 console.error('Examples generation failed:', examplesError);
                 // Continue if translation worked but examples failed
                 if (completedOperations.translation) {
@@ -1073,14 +1123,28 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
 
             try {
+                // Check if cancelled before starting flashcard
+                if (abortSignal.aborted) {
+                    throw new Error('Generation cancelled by user');
+                }
+
                 // 3. Create flashcard
-                const flashcard = await createFlashcard(aiService, apiKey, text);
+                const flashcard = await createFlashcard(aiService, apiKey, text, abortSignal);
+
+                // Check if cancelled after flashcard
+                if (abortSignal.aborted) {
+                    throw new Error('Generation cancelled by user');
+                }
 
                 if (flashcard.front) {
                     tabAware.setFront(flashcard.front);
                     completedOperations.flashcard = true;
                 }
             } catch (flashcardError) {
+                if (abortSignal.aborted) {
+                    console.log('Flashcard creation cancelled by user');
+                    return; // Exit silently if cancelled
+                }
                 console.error('Flashcard creation failed:', flashcardError);
                 // Continue if at least translation worked
                 if (completedOperations.translation) {
@@ -1313,6 +1377,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 throw new Error("Failed to create card: No data was successfully generated. Please check your API key and try again.");
             }
         } catch (error) {
+            // Check if this is a cancellation
+            if (abortSignal.aborted) {
+                console.log('Card generation was cancelled by user');
+                return; // Exit silently
+            }
+            
             console.error('Error processing text:', error);
             showError(error instanceof Error
                 ? `${error.message}`
@@ -1324,6 +1394,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             // Reset card generation state to enable navigation buttons
             tabAware.setIsGeneratingCard(false);
+            
+            // Clear abort controller
+            abortControllerRef.current = null;
         }
     };
 
@@ -1729,6 +1802,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Add a way to cancel the current card and reset to fresh state
     const handleCancel = () => {
         console.log('Canceling current card, clearing all state');
+        
+        // Cancel any ongoing AI requests
+        if (abortControllerRef.current) {
+            console.log('Aborting ongoing AI requests');
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+        
         setShowResult(false);
         setIsEdited(false);
         dispatch(setCurrentCardId(null));
@@ -2243,6 +2324,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
+        // Create new AbortController for this generation
+        abortControllerRef.current = new AbortController();
+        const abortSignal = abortControllerRef.current.signal;
+
         console.log('*** MULTIPLE CARDS CREATION STARTED ***');
         console.log('Image generation settings:', {
             imageGenerationMode,
@@ -2262,6 +2347,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Создаем карточки для каждого выбранного варианта
             for (const option of selectedOptions) {
+                // Check if cancelled before processing each option
+                if (abortSignal.aborted) {
+                    console.log('Multiple cards creation cancelled by user');
+                    return;
+                }
+
                 // Очистим только текстовые данные перед созданием новой карточки
                 // НЕ очищаем изображения здесь, так как они должны сохраниться в каждой карточке
                 dispatch(setText(''));
@@ -2285,8 +2376,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         option,
                         translateToLanguage,
                         aiInstructions,
-                        undefined // Передаем undefined как шестой параметр
+                        undefined, // Передаем undefined как шестой параметр
+                        abortSignal
                     );
+
+                    // Check if cancelled after translation
+                    if (abortSignal.aborted) {
+                        console.log('Multiple cards creation cancelled by user after translation');
+                        return;
+                    }
 
                     if (translation.translated) {
                         dispatch(setTranslation(translation.translated));
@@ -2302,8 +2400,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         translateToLanguage,
                         true,
                         aiInstructions,
-                        sourceLanguageForExamples || undefined // Передаем исходный язык
+                        sourceLanguageForExamples || undefined, // Передаем исходный язык
+                        abortSignal
                     );
+
+                    // Check if cancelled after examples
+                    if (abortSignal.aborted) {
+                        console.log('Multiple cards creation cancelled by user after examples');
+                        return;
+                    }
 
                     if (examplesResult && examplesResult.length > 0) {
                         const formattedExamples = examplesResult.map(example =>
@@ -2313,7 +2418,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
 
                     // 3. Создаем переднюю часть карточки
-                    const flashcard = await createFlashcard(aiService, apiKey, option);
+                    const flashcard = await createFlashcard(aiService, apiKey, option, abortSignal);
+                    
+                    // Check if cancelled after flashcard
+                    if (abortSignal.aborted) {
+                        console.log('Multiple cards creation cancelled by user after flashcard');
+                        return;
+                    }
+                    
                     if (flashcard.front) {
                         dispatch(setFront(flashcard.front));
                     }
@@ -2573,6 +2685,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
 
         } catch (error) {
+            // Check if this is a cancellation
+            if (abortSignal.aborted) {
+                console.log('Multiple cards creation was cancelled by user');
+                return; // Exit silently
+            }
+            
             console.error('Error processing selected options:', error);
             showError(error instanceof Error ? error.message : "Failed to create cards. Please try again.");
         } finally {
@@ -2583,6 +2701,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             // Очищаем карту выбранных опций
             setSelectedOptionsMap({});
+            
+            // Clear abort controller
+            abortControllerRef.current = null;
         }
     };
 

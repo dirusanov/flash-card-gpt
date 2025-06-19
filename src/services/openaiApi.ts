@@ -31,7 +31,8 @@ export const translateText = async (
   apiKey: string,
   text: string,
   translateToLanguage: string = 'ru',
-  customPrompt: string = ''
+  customPrompt: string = '',
+  abortSignal?: AbortSignal
 ): Promise<string | null> => {
   try {
     if (!apiKey) {
@@ -63,6 +64,7 @@ export const translateText = async (
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: abortSignal,
     });
 
     if (!response.ok) {
@@ -86,7 +88,8 @@ export const getExamples = async (
   word: string,
   translateToLanguage: string,
   translate: boolean = false,
-  customPrompt: string = ''
+  customPrompt: string = '',
+  abortSignal?: AbortSignal
 ): Promise<Array<[string, string | null]>> => {
   if (!apiKey) {
     throw new Error("OpenAI API key is missing. Please check your settings.");
@@ -123,6 +126,7 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: abortSignal,
     });
 
     if (!response.ok) {
@@ -200,6 +204,7 @@ export const isAbstract = async (
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: undefined, // AbortSignal not available in this function
     });
 
     if (!response.ok) {
@@ -224,7 +229,8 @@ export const isAbstract = async (
 export const getDescriptionImage = async (
   apiKey: string,
   word: string,
-  customInstructions: string = ''
+  customInstructions: string = '',
+  abortSignal?: AbortSignal
 ): Promise<string> => {
   if (!apiKey) {
     throw new Error("OpenAI API key is missing. Please check your settings.");
@@ -257,6 +263,7 @@ export const getDescriptionImage = async (
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: abortSignal,
     });
 
     if (!response.ok) {
@@ -421,6 +428,7 @@ const getLangaugeNameText = async (
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: undefined, // AbortSignal not available in this internal function
     });
 
     const data = await response.json();
@@ -433,7 +441,8 @@ const getLangaugeNameText = async (
 
 export const generateAnkiFront = async (
   apiKey: string,
-  text: string
+  text: string,
+  abortSignal?: AbortSignal
 ): Promise<string | null> => {
   const langauage = await getLangaugeNameText(apiKey, text);
 
@@ -460,6 +469,7 @@ export const generateAnkiFront = async (
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: abortSignal,
     });
 
     const data = await response.json();
@@ -503,6 +513,7 @@ export const generateAnkiBack = async (
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: undefined, // AbortSignal not available in this function
     });
 
     const data = await response.json();
