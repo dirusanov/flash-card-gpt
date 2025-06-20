@@ -17,6 +17,18 @@ const initialState: NotificationState = {
 const notificationsReducer = (state = initialState, action: NotificationActionTypes): NotificationState => {
   switch (action.type) {
     case SHOW_NOTIFICATION:
+      // Check if a notification with the same message and type already exists
+      const existingNotification = state.notifications.find(
+        notification => 
+          notification.message === action.payload.message && 
+          notification.type === action.payload.type
+      );
+      
+      // If duplicate exists, don't add the new one
+      if (existingNotification) {
+        return state;
+      }
+      
       return {
         ...state,
         notifications: [...state.notifications, action.payload]

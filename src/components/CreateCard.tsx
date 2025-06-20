@@ -8,7 +8,7 @@ import { RootState } from "../store";
 import { setDeckId } from "../store/actions/decks";
 import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription, setIsGeneratingCard } from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
-import { generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText } from "../services/openaiApi";
+import { generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown } from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setImageGenerationMode } from "../store/actions/settings";
 import { Modes } from "../constants";
 import ResultDisplay from "./ResultDisplay";
@@ -70,6 +70,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [localAIInstructions, setLocalAIInstructions] = useState(aiInstructions);
     const [localImageInstructions, setLocalImageInstructions] = useState(imageInstructions);
     const { showError, renderErrorNotification } = useErrorNotification()
+    
+    // Function to check if an error is related to quota exhaustion
+    const isQuotaError = (error: Error): boolean => {
+        const message = error.message.toLowerCase();
+        return message.includes('quota') || 
+               message.includes('insufficient_quota') ||
+               message.includes('billing') ||
+               message.includes('exceeded') ||
+               message.includes('429');
+    };
     const openai = new OpenAI({
         apiKey: openAiKey,
         dangerouslyAllowBrowser: true,
@@ -255,6 +265,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 showError("Image generation is not supported with the selected provider.");
             }
         } catch (error) {
+            // Check if this is a quota error and show appropriate message
+            if (error instanceof Error && isQuotaError(error)) {
+                console.error('Quota error detected in image generation:', error.message);
+                showError(error.message);
+                return;
+            }
+            
             console.error('Error generating image:', error);
             showError(error instanceof Error ? error.message : "Failed to generate image");
         } finally {
@@ -297,6 +314,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 tabAware.setExamples(formattedExamples);
             }
         } catch (error) {
+            // Check if this is a quota error and show appropriate message
+            if (error instanceof Error && isQuotaError(error)) {
+                console.error('Quota error detected in examples generation:', error.message);
+                showError(error.message);
+                return;
+            }
+            
             console.error('Error getting examples:', error);
             showError(error instanceof Error ? error.message : "Failed to generate examples");
         } finally {
@@ -378,7 +402,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // No notification, the loader UI is enough feedback
         } catch (error) {
+            // Check if this is a quota error and show appropriate message
+            if (error instanceof Error && isQuotaError(error)) {
+                console.error('Quota error detected in custom instructions:', error.message);
+                showError(error.message);
+                return;
+            }
+            
             console.error('Error applying custom instructions:', error);
+            showError(error instanceof Error ? error.message : "Failed to apply custom instructions");
         } finally {
             setIsProcessingCustomInstruction(false);
         }
@@ -1073,6 +1105,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     console.log('Translation cancelled by user');
                     return; // Exit silently if cancelled
                 }
+                
+                // Check if this is a quota error and stop immediately
+                if (translationError instanceof Error && isQuotaError(translationError)) {
+                    console.error('Quota error detected, stopping card creation:', translationError.message);
+                    showError(translationError.message);
+                    return; // Stop all processing immediately
+                }
+                
                 console.error('Translation failed:', translationError);
                 throw new Error(`Translation failed: ${translationError instanceof Error ? translationError.message : "Unknown error"}`);
             }
@@ -1113,6 +1153,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     console.log('Examples generation cancelled by user');
                     return; // Exit silently if cancelled
                 }
+                
+                // Check if this is a quota error and stop immediately
+                if (examplesError instanceof Error && isQuotaError(examplesError)) {
+                    console.error('Quota error detected, stopping card creation:', examplesError.message);
+                    showError(examplesError.message);
+                    return; // Stop all processing immediately
+                }
+                
                 console.error('Examples generation failed:', examplesError);
                 // Continue if translation worked but examples failed
                 if (completedOperations.translation) {
@@ -1145,6 +1193,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     console.log('Flashcard creation cancelled by user');
                     return; // Exit silently if cancelled
                 }
+                
+                // Check if this is a quota error and stop immediately
+                if (flashcardError instanceof Error && isQuotaError(flashcardError)) {
+                    console.error('Quota error detected, stopping card creation:', flashcardError.message);
+                    showError(flashcardError.message);
+                    return; // Stop all processing immediately
+                }
+                
                 console.error('Flashcard creation failed:', flashcardError);
                 // Continue if at least translation worked
                 if (completedOperations.translation) {
@@ -1254,6 +1310,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
                 }
             } catch (linguisticError) {
+                // Check if this is a quota error and stop immediately
+                if (linguisticError instanceof Error && isQuotaError(linguisticError)) {
+                    console.error('Quota error detected, stopping card creation:', linguisticError.message);
+                    showError(linguisticError.message);
+                    return; // Stop all processing immediately
+                }
+                
                 console.error('Linguistic info generation failed:', linguisticError);
                 // Это не критическая ошибка, продолжаем с доступными данными
                 if (completedOperations.translation) {
@@ -1303,6 +1366,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     console.warn('No source language available for transcription');
                 }
             } catch (transcriptionError) {
+                // Check if this is a quota error and stop immediately
+                if (transcriptionError instanceof Error && isQuotaError(transcriptionError)) {
+                    console.error('Quota error detected, stopping card creation:', transcriptionError.message);
+                    showError(transcriptionError.message);
+                    return; // Stop all processing immediately
+                }
+                
                 console.error('Transcription generation failed:', transcriptionError);
                 // Transcription is not critical - continue with the card creation
             }
@@ -1350,6 +1420,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         showError(`No image needed: ${analysisReason}`, 'info');
                     }
                 } catch (imageError) {
+                    // Check if this is a quota error and stop immediately
+                    if (imageError instanceof Error && isQuotaError(imageError)) {
+                        console.error('Quota error detected, stopping card creation:', imageError.message);
+                        showError(imageError.message);
+                        return; // Stop all processing immediately
+                    }
+                    
                     console.error('Image generation failed:', imageError);
                     // Image errors are not critical - continue with the card creation
                     if (completedOperations.translation || completedOperations.examples) {
@@ -1381,6 +1458,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (abortSignal.aborted) {
                 console.log('Card generation was cancelled by user');
                 return; // Exit silently
+            }
+            
+            // Check if this is a quota error
+            if (error instanceof Error && isQuotaError(error)) {
+                console.error('Quota error detected in main catch:', error.message);
+                showError(error.message);
+                setShowResult(false);
+                setShowModal(false);
+                return;
             }
             
             console.error('Error processing text:', error);
@@ -2604,6 +2690,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     newCards.push(cardData);
 
                 } catch (error) {
+                    // Check if this is a quota error and stop immediately
+                    if (error instanceof Error && isQuotaError(error)) {
+                        console.error('Quota error detected, stopping multiple cards creation:', error.message);
+                        showError(error.message);
+                        return; // Stop all processing immediately
+                    }
+                    
                     console.error(`Error creating card for "${option}":`, error);
                     showError(`Failed to create card for "${option.substring(0, 20)}...": ${error instanceof Error ? error.message : "Unknown error"}`, "error");
                 }
@@ -2689,6 +2782,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (abortSignal.aborted) {
                 console.log('Multiple cards creation was cancelled by user');
                 return; // Exit silently
+            }
+            
+            // Check if this is a quota error
+            if (error instanceof Error && isQuotaError(error)) {
+                console.error('Quota error detected in multiple cards creation:', error.message);
+                showError(error.message);
+                return;
             }
             
             console.error('Error processing selected options:', error);
@@ -3876,6 +3976,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Определяем язык, если есть текст
         if (!text || text.trim().length < 2) return;
 
+        // Check if quota is exceeded and skip API calls
+        if (isQuotaExceededCached()) {
+            console.log('Language detection skipped due to cached quota error');
+            // Only show error if it hasn't been shown yet
+            if (shouldShowQuotaNotification()) {
+                const cachedError = getCachedQuotaError();
+                if (cachedError) {
+                    showError(cachedError);
+                    markQuotaNotificationShown();
+                }
+            }
+            return;
+        }
+
         setIsDetectingLanguage(true);
 
         try {
@@ -3886,25 +4000,67 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 let detectedCode: string | undefined;
                 
                 if (modelProvider === ModelProvider.OpenAI) {
-                    const response = await openai.chat.completions.create({
-                        model: "gpt-3.5-turbo",
-                        messages: [
-                            {
-                                role: "system",
-                                content: "You are a language detection assistant. Respond only with the ISO 639-1 language code."
-                            },
-                            {
-                                role: "user",
-                                content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
+                    // Extra check for quota cache before making OpenAI request
+                    if (isQuotaExceededCached()) {
+                        console.log('OpenAI language detection skipped due to cached quota error');
+                        // Only show error if it hasn't been shown yet
+                        if (shouldShowQuotaNotification()) {
+                            const cachedError = getCachedQuotaError();
+                            if (cachedError) {
+                                throw new Error(cachedError);
                             }
-                        ],
-                        temperature: 0.3,
-                        max_tokens: 10
-                    });
+                        }
+                        return;
+                    }
+                    
+                    try {
+                        const response = await openai.chat.completions.create({
+                            model: "gpt-3.5-turbo",
+                            messages: [
+                                {
+                                    role: "system",
+                                    content: "You are a language detection assistant. Respond only with the ISO 639-1 language code."
+                                },
+                                {
+                                    role: "user",
+                                    content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
+                                }
+                            ],
+                            temperature: 0.3,
+                            max_tokens: 10
+                        });
 
-                    detectedCode = response.choices[0].message.content?.trim().toLowerCase();
-                    console.log("Language detected via OpenAI:", detectedCode);
+                        detectedCode = response.choices[0].message.content?.trim().toLowerCase();
+                        console.log("Language detected via OpenAI:", detectedCode);
+                    } catch (openaiError) {
+                        // Check if this is a quota error and cache it
+                        if (openaiError instanceof Error) {
+                            const errorMessage = openaiError.message;
+                            if (errorMessage.includes('quota') || 
+                                errorMessage.includes('insufficient_quota') ||
+                                errorMessage.includes('billing') ||
+                                errorMessage.includes('exceeded') ||
+                                errorMessage.includes('429')) {
+                                cacheQuotaExceededError(errorMessage);
+                                console.log('Quota error detected and cached in OpenAI language detection');
+                            }
+                        }
+                        throw openaiError; // Re-throw to be handled by outer catch
+                    }
                 } else if (modelProvider === ModelProvider.Groq) {
+                    // Extra check for quota cache before making Groq request
+                    if (isQuotaExceededCached()) {
+                        console.log('Groq language detection skipped due to cached quota error');
+                        // Only show error if it hasn't been shown yet
+                        if (shouldShowQuotaNotification()) {
+                            const cachedError = getCachedQuotaError();
+                            if (cachedError) {
+                                throw new Error(cachedError);
+                            }
+                        }
+                        return;
+                    }
+                    
                     // Используем Groq API для определения языка
                     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                         method: 'POST',
@@ -3931,7 +4087,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     
                     if (!groqResponse.ok) {
                         const errorData = await groqResponse.json();
-                        throw new Error(`Groq API error: ${groqResponse.status} ${groqResponse.statusText} - ${JSON.stringify(errorData)}`);
+                        const errorMessage = `Groq API error: ${groqResponse.status} ${groqResponse.statusText} - ${JSON.stringify(errorData)}`;
+                        
+                        // Check if this is a quota/rate limit error for Groq
+                        if (groqResponse.status === 429 || 
+                            (errorData && (errorData.error?.includes?.('quota') || errorData.error?.includes?.('limit')))) {
+                            // For Groq, we don't have the same caching system, but we should still stop
+                            throw new Error("API rate limit exceeded. Please try again in a few minutes.");
+                        }
+                        
+                        throw new Error(errorMessage);
                     }
                     
                     const groqData = await groqResponse.json();
@@ -4015,6 +4180,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         } catch (error) {
             console.error("Error detecting language:", error);
             
+            // Check if this is a quota error first
+            if (error instanceof Error && isQuotaError(error)) {
+                console.error('Quota error detected in language detection:', error.message);
+                showError(error.message);
+                markQuotaNotificationShown();
+                return;
+            }
+            
             // Проверяем, связана ли ошибка с API ключом
             const errorMessage = error instanceof Error ? error.message : String(error);
             const isApiKeyError = errorMessage.includes('401') || 
@@ -4096,6 +4269,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (text && text.trim().length > 2 && isAutoDetectLanguage &&
             ((!languageAlreadyDetected && !detectedLanguage) || createCardClicked)) {
 
+            // Check if quota is exceeded before starting language detection
+            if (isQuotaExceededCached()) {
+                console.log('Language detection skipped in useEffect due to cached quota error');
+                // Only show error if it hasn't been shown yet
+                if (shouldShowQuotaNotification()) {
+                    const cachedError = getCachedQuotaError();
+                    if (cachedError) {
+                        showError(cachedError);
+                        markQuotaNotificationShown();
+                    }
+                }
+                return;
+            }
+
             // Используем debounce, чтобы не определять язык при каждом нажатии клавиши
             const timer = setTimeout(() => {
                 detectLanguage(text);
@@ -4121,6 +4308,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // If turning on auto-detection, clear manual source language
             updateSourceLanguage('');
             if (text) {
+                // Check if quota is exceeded before re-detecting language
+                if (isQuotaExceededCached()) {
+                    console.log('Language detection skipped in toggleAutoDetect due to cached quota error');
+                    // Only show error if it hasn't been shown yet
+                    if (shouldShowQuotaNotification()) {
+                        const cachedError = getCachedQuotaError();
+                        if (cachedError) {
+                            showError(cachedError);
+                            markQuotaNotificationShown();
+                        }
+                    }
+                    return;
+                }
+                
                 // And re-detect language of text
                 detectLanguage(text);
             }
@@ -4293,6 +4494,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         {isAutoDetectLanguage && (
                             <button
                                 onClick={() => {
+                                    // Check if quota is exceeded before resetting language detection
+                                    if (isQuotaExceededCached()) {
+                                        console.log('Language detection reset skipped due to cached quota error');
+                                        // Only show error if it hasn't been shown yet
+                                        if (shouldShowQuotaNotification()) {
+                                            const cachedError = getCachedQuotaError();
+                                            if (cachedError) {
+                                                showError(cachedError);
+                                                markQuotaNotificationShown();
+                                            }
+                                        }
+                                        return;
+                                    }
+                                    
                                     // Сбрасываем флаг определения языка и повторно определяем
                                     localStorage.removeItem('language_already_detected');
                                     if (text) {

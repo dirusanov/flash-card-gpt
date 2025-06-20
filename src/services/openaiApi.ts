@@ -1,5 +1,46 @@
 import { OpenAI } from 'openai';
 
+// Simple cache to prevent API spam when quota is exceeded
+let quotaExceededCache: { timestamp: number; message: string; notificationShown: boolean } | null = null;
+const QUOTA_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Check if we recently got a quota exceeded error
+export const isQuotaExceededCached = (): boolean => {
+  if (!quotaExceededCache) return false;
+  
+  const now = Date.now();
+  if (now - quotaExceededCache.timestamp > QUOTA_CACHE_DURATION) {
+    quotaExceededCache = null;
+    return false;
+  }
+  
+  return true;
+};
+
+// Cache quota exceeded error
+export const cacheQuotaExceededError = (message: string): void => {
+  quotaExceededCache = {
+    timestamp: Date.now(),
+    message,
+    notificationShown: false
+  };
+};
+
+export const markQuotaNotificationShown = (): void => {
+  if (quotaExceededCache) {
+    quotaExceededCache.notificationShown = true;
+  }
+};
+
+export const shouldShowQuotaNotification = (): boolean => {
+  return quotaExceededCache !== null && !quotaExceededCache.notificationShown;
+};
+
+// Get cached quota error message
+export const getCachedQuotaError = (): string | null => {
+  return quotaExceededCache?.message || null;
+};
+
 // Хелпер-функция для форматирования сообщений об ошибках от OpenAI
 const formatOpenAIErrorMessage = (errorData: any): string => {
   if (!errorData || !errorData.error) {
@@ -39,6 +80,11 @@ export const translateText = async (
       throw new Error("OpenAI API key is missing. Please check your settings.");
     }
     
+    // Check if we recently got a quota exceeded error
+    if (isQuotaExceededCached()) {
+      throw new Error(quotaExceededCache!.message);
+    }
+    
     const basePrompt = `Translate the following text to ${translateToLanguage}`;
     
     const systemPrompt = customPrompt 
@@ -70,7 +116,14 @@ export const translateText = async (
     if (!response.ok) {
       const errorData = await response.json();
       if (errorData && errorData.error) {
-        throw new Error(formatOpenAIErrorMessage(errorData));
+        const errorMessage = formatOpenAIErrorMessage(errorData);
+        
+        // Cache quota exceeded errors to prevent spam
+        if (errorData.error.code === 'insufficient_quota' || response.status === 429) {
+          cacheQuotaExceededError(errorMessage);
+        }
+        
+        throw new Error(errorMessage);
       }
       throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
     }
@@ -93,6 +146,11 @@ export const getExamples = async (
 ): Promise<Array<[string, string | null]>> => {
   if (!apiKey) {
     throw new Error("OpenAI API key is missing. Please check your settings.");
+  }
+  
+  // Check if we recently got a quota exceeded error
+  if (isQuotaExceededCached()) {
+    throw new Error(quotaExceededCache!.message);
   }
 
   const processedCustomPrompt = customPrompt.replace(/\{word\}/g, word);
@@ -132,7 +190,14 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
     if (!response.ok) {
       const errorData = await response.json();
       if (errorData && errorData.error) {
-        throw new Error(formatOpenAIErrorMessage(errorData));
+        const errorMessage = formatOpenAIErrorMessage(errorData);
+        
+        // Cache quota exceeded errors to prevent spam
+        if (errorData.error.code === 'insufficient_quota' || response.status === 429) {
+          cacheQuotaExceededError(errorMessage);
+        }
+        
+        throw new Error(errorMessage);
       }
       throw new Error(`Could not generate examples. OpenAI API error: ${response.status} ${response.statusText}`);
     }
@@ -182,6 +247,11 @@ export const isAbstract = async (
   if (!apiKey) {
     throw new Error("OpenAI API key is missing. Please check your settings.");
   }
+  
+  // Check if we recently got a quota exceeded error
+  if (isQuotaExceededCached()) {
+    throw new Error(quotaExceededCache!.message);
+  }
 
   const promptMessages = [
     {
@@ -210,7 +280,14 @@ export const isAbstract = async (
     if (!response.ok) {
       const errorData = await response.json();
       if (errorData && errorData.error) {
-        throw new Error(formatOpenAIErrorMessage(errorData));
+        const errorMessage = formatOpenAIErrorMessage(errorData);
+        
+        // Cache quota exceeded errors to prevent spam
+        if (errorData.error.code === 'insufficient_quota' || response.status === 429) {
+          cacheQuotaExceededError(errorMessage);
+        }
+        
+        throw new Error(errorMessage);
       }
       throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
     }
@@ -234,6 +311,11 @@ export const getDescriptionImage = async (
 ): Promise<string> => {
   if (!apiKey) {
     throw new Error("OpenAI API key is missing. Please check your settings.");
+  }
+  
+  // Check if we recently got a quota exceeded error
+  if (isQuotaExceededCached()) {
+    throw new Error(quotaExceededCache!.message);
   }
 
   const basePrompt = `Provide a detailed description for an image that represents the concept of '${word}'`;
@@ -269,7 +351,14 @@ export const getDescriptionImage = async (
     if (!response.ok) {
       const errorData = await response.json();
       if (errorData && errorData.error) {
-        throw new Error(formatOpenAIErrorMessage(errorData));
+        const errorMessage = formatOpenAIErrorMessage(errorData);
+        
+        // Cache quota exceeded errors to prevent spam
+        if (errorData.error.code === 'insufficient_quota' || response.status === 429) {
+          cacheQuotaExceededError(errorMessage);
+        }
+        
+        throw new Error(errorMessage);
       }
       throw new Error(`Could not generate image description. OpenAI API error: ${response.status} ${response.statusText}`);
     }
@@ -319,7 +408,9 @@ const getImageUrlRequest = async (
       
       // Проверяем типичные ошибки OpenAI
       if (errorMessage.includes('quota') || errorMessage.includes('billing')) {
-        throw new Error("Your OpenAI account has exceeded its quota.\n\nPlease check your billing details or use a different API key.");
+        const quotaError = "Your OpenAI account has exceeded its quota.\n\nPlease check your billing details or use a different API key.";
+        cacheQuotaExceededError(quotaError);
+        throw new Error(quotaError);
       }
       
       if (errorMessage.includes('rate limit')) {
@@ -369,6 +460,11 @@ export const getOpenAiImageUrl = async (
       throw new Error("OpenAI API key is missing. Please check your settings.");
     }
     
+    // Check if we recently got a quota exceeded error
+    if (isQuotaExceededCached()) {
+      throw new Error(quotaExceededCache!.message);
+    }
+    
     try {
         const isAbstractWord = await isAbstract(apiKey, word);
 
@@ -408,6 +504,11 @@ const getLangaugeNameText = async (
   apiKey: string,
   text: string
 ): Promise<string | null> => {
+  // Check if we recently got a quota exceeded error
+  if (isQuotaExceededCached()) {
+    throw new Error(quotaExceededCache!.message);
+  }
+  
   try {
     const body = {
       model: 'gpt-4o-mini',
@@ -431,11 +532,26 @@ const getLangaugeNameText = async (
       signal: undefined, // AbortSignal not available in this internal function
     });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      if (errorData && errorData.error) {
+        const errorMessage = formatOpenAIErrorMessage(errorData);
+        
+        // Cache quota exceeded errors to prevent spam
+        if (errorData.error.code === 'insufficient_quota' || response.status === 429) {
+          cacheQuotaExceededError(errorMessage);
+        }
+        
+        throw new Error(errorMessage);
+      }
+      throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+    }
+
     const data = await response.json();
     return data.choices[0]?.message?.content?.trim() ?? null;
   } catch (error) {
-    console.error('Error during generating back side of the Anki card:', error);
-    return null;
+    console.error('Error during language name detection:', error);
+    throw error; // Propagate error instead of returning null
   }
 };
 
@@ -444,6 +560,11 @@ export const generateAnkiFront = async (
   text: string,
   abortSignal?: AbortSignal
 ): Promise<string | null> => {
+  // Check if we recently got a quota exceeded error
+  if (isQuotaExceededCached()) {
+    throw new Error(quotaExceededCache!.message);
+  }
+  
   const langauage = await getLangaugeNameText(apiKey, text);
 
   try {
@@ -487,6 +608,11 @@ export const generateAnkiBack = async (
   apiKey: string,
   text: string
 ): Promise<string | null> => {
+  // Check if we recently got a quota exceeded error
+  if (isQuotaExceededCached()) {
+    throw new Error(quotaExceededCache!.message);
+  }
+  
   const langauage = await getLangaugeNameText(apiKey, text);
 
   try {
