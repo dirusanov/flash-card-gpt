@@ -6,7 +6,7 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
 import { setDeckId } from "../store/actions/decks";
-import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription, setIsGeneratingCard } from "../store/actions/cards";
+import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription } from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import { generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown } from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setImageGenerationMode } from "../store/actions/settings";
@@ -1906,7 +1906,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.removeItem('current_card_id'); // Clear current card ID too
 
         // Reset card generation state to enable navigation buttons
-        dispatch(setIsGeneratingCard(false));
+        tabAware.setIsGeneratingCard(false);
         
         // Reset loading state
         setLoadingGetResult(false);
@@ -2427,7 +2427,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setLoadingGetResult(true);
         
         // Set card generation state to true to disable navigation buttons
-        dispatch(setIsGeneratingCard(true));
+        tabAware.setIsGeneratingCard(true);
 
         try {
             const newCards: StoredCard[] = [];
@@ -2798,7 +2798,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setLoadingGetResult(false);
             
             // Reset card generation state to enable navigation buttons  
-            dispatch(setIsGeneratingCard(false));
+            tabAware.setIsGeneratingCard(false);
             
             // Очищаем карту выбранных опций
             setSelectedOptionsMap({});
@@ -3974,8 +3974,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Функция для автоматического определения языка
     const detectLanguage = useCallback(async (text: string) => {
+        console.log('=== LANGUAGE DETECTION START ===');
+        console.log('Input text:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
+        console.log('Text length:', text.length);
+        console.log('Model provider:', modelProvider);
+        console.log('API key available:', modelProvider === ModelProvider.OpenAI ? !!openAiKey : !!groqApiKey);
+        
         // Определяем язык, если есть текст
-        if (!text || text.trim().length < 2) return;
+        if (!text || text.trim().length < 2) {
+            console.log('Text too short for language detection');
+            return;
+        }
 
         // Check if quota is exceeded and skip API calls
         if (isQuotaExceededCached()) {
@@ -4107,15 +4116,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Проверяем, является ли результат действительным языковым кодом
                 if (detectedCode && allLanguages.some(lang => lang.code === detectedCode)) {
+                    console.log('Language successfully detected:', detectedCode);
                     setDetectedLanguage(detectedCode);
                     localStorage.setItem('detected_language', detectedCode);
-                    // Сбрасываем флаг нажатия кнопки, так как язык определен
-                    setCreateCardClicked(false);
-                    // Сохраняем в localStorage, что язык был определен
-                    localStorage.setItem('language_already_detected', 'true');
-
+                    
                     // Сохраняем определенный язык в Redux
                     updateSourceLanguage(detectedCode);
+                } else {
+                    console.log('Invalid or unrecognized language code:', detectedCode);
                 }
             } else {
                 // Если OpenAI недоступен, используем более простую эвристику
@@ -4167,15 +4175,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
 
                 if (detectedLang) {
+                    console.log('Language detected using fallback method:', detectedLang);
                     setDetectedLanguage(detectedLang);
+                    localStorage.setItem('detected_language', detectedLang);
 
                     // Сохраняем определенный язык в Redux
                     updateSourceLanguage(detectedLang);
-
-                    // Сбрасываем флаг нажатия кнопки, так как язык определен
-                    setCreateCardClicked(false);
-                    // Сохраняем в localStorage, что язык был определен
-                    localStorage.setItem('language_already_detected', 'true');
                 }
             }
         } catch (error) {
@@ -4245,31 +4250,26 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
 
                 if (detectedLang) {
+                    console.log("Language detected using fallback method in error handler:", detectedLang);
                     setDetectedLanguage(detectedLang);
-                    updateSourceLanguage(detectedLang);
                     localStorage.setItem('detected_language', detectedLang);
-                    localStorage.setItem('language_already_detected', 'true');
-                    console.log("Language detected using fallback method:", detectedLang);
+                    updateSourceLanguage(detectedLang);
                 }
             }
         } finally {
             setIsDetectingLanguage(false);
+            console.log('=== LANGUAGE DETECTION END ===');
         }
     }, [openai, openAiKey, modelProvider, groqApiKey, groqModelName, dispatch, allLanguages, updateSourceLanguage]);
 
     // Обновление определения языка при изменении текста
     useEffect(() => {
-        // Проверяем, был ли язык уже определен ранее
-        const languageAlreadyDetected = localStorage.getItem('language_already_detected') === 'true';
-
         // Определяем язык только в следующих случаях:
         // 1. Режим автоопределения включен
-        // 2. Есть текст для анализа
-        // 3. И ЛИБО это первый запуск (язык еще не определен), 
-        //    ЛИБО была нажата кнопка Create Card и язык не был определен
-        if (text && text.trim().length > 2 && isAutoDetectLanguage &&
-            ((!languageAlreadyDetected && !detectedLanguage) || createCardClicked)) {
-
+        // 2. Есть текст для анализа (минимум 2 символа)
+        // 3. Либо нет определенного языка, либо текст изменился значительно
+        if (text && text.trim().length > 2 && isAutoDetectLanguage) {
+            
             // Check if quota is exceeded before starting language detection
             if (isQuotaExceededCached()) {
                 console.log('Language detection skipped in useEffect due to cached quota error');
@@ -4284,14 +4284,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 return;
             }
 
+            // Всегда пытаемся определить язык для нового текста
             // Используем debounce, чтобы не определять язык при каждом нажатии клавиши
             const timer = setTimeout(() => {
+                console.log('Attempting to detect language for text:', text.substring(0, 50) + '...');
                 detectLanguage(text);
             }, 500);
 
             return () => clearTimeout(timer);
         }
-    }, [text, detectLanguage, isAutoDetectLanguage, detectedLanguage, createCardClicked, updateSourceLanguage]);
+    }, [text, detectLanguage, isAutoDetectLanguage, updateSourceLanguage]);
 
     // Обработчик переключения между автоопределением и ручным выбором
     const toggleAutoDetect = () => {
@@ -4509,9 +4511,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         return;
                                     }
                                     
-                                    // Сбрасываем флаг определения языка и повторно определяем
-                                    localStorage.removeItem('language_already_detected');
+                                    // Повторно определяем язык для текущего текста
                                     if (text) {
+                                        console.log('Manually triggering language detection for:', text.substring(0, 50) + '...');
                                         detectLanguage(text);
                                     }
                                 }}
