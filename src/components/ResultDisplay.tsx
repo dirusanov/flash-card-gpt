@@ -9,6 +9,7 @@ import GrammarCard from './grammar/GrammarCard';
 
 interface ResultDisplayProps {
     front: string | null
+    back?: string | null; // Add back field for General mode
     translation: string | null;
     examples: Array<[string, string | null]>;
     imageUrl: string | null;
@@ -30,13 +31,16 @@ interface ResultDisplayProps {
     isEdited?: boolean;
     isGeneratingCard?: boolean;
     setTranslation?: (translation: string) => void;
+    setBack?: (back: string) => void; // Add setter for back field
     setExamples?: (examples: Array<[string, string | null]>) => void;
     setLinguisticInfo?: (info: string) => void;
+    hideActionButtons?: boolean; // Hide action buttons in preview mode
 }
 
 const ResultDisplay: React.FC<ResultDisplayProps> = (
         { 
             front, 
+            back,
             translation, 
             examples, 
             imageUrl,
@@ -58,13 +62,17 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             isEdited = false,
             isGeneratingCard,
             setTranslation,
+            setBack,
             setExamples,
-            setLinguisticInfo
+            setLinguisticInfo,
+            hideActionButtons = false
         }
     ) => {
     
     const [isEditingTranslation, setIsEditingTranslation] = useState(false);
     const [localTranslation, setLocalTranslation] = useState(translation || '');
+    const [isEditingBack, setIsEditingBack] = useState(false);
+    const [localBack, setLocalBack] = useState(back || '');
     const [isEditMode, setIsEditMode] = useState(false);
     const [expandedExamples, setExpandedExamples] = useState(true);
     const [expandedLinguistics, setExpandedLinguistics] = useState(true);
@@ -73,6 +81,10 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
     useEffect(() => {
         setLocalTranslation(translation || '');
     }, [translation]);
+
+    useEffect(() => {
+        setLocalBack(back || '');
+    }, [back]);
 
     useEffect(() => {
         setLinguisticInfoValue(linguisticInfo || '');
@@ -93,7 +105,13 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             setIsEditingTranslation(false);
         }
         
-        // 2. Сохраняем изменения в примерах (если редактируется пример)
+        // 2. Сохраняем изменения в back поле (для General mode)
+        if (isEditingBack && setBack) {
+            setBack(localBack);
+            setIsEditingBack(false);
+        }
+        
+        // 3. Сохраняем изменения в примерах (если редактируется пример)
         if (editingExampleIndex !== null && setExamples) {
             const newExamples = [...examples];
             newExamples[editingExampleIndex] = [editingExampleOriginal, editingExampleTranslated];
@@ -101,18 +119,18 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             setEditingExampleIndex(null);
         }
         
-        // 3. Сохраняем изменения в лингвистической информации
+        // 4. Сохраняем изменения в лингвистической информации
         if (linguisticInfoEditable && setLinguisticInfo) {
             setLinguisticInfo(linguisticInfoValue);
             setLinguisticInfoEditable(false);
         }
         
-        // 4. Для уже сохраненных карточек автоматически сохраняем изменения
+        // 5. Для уже сохраненных карточек автоматически сохраняем изменения
         if (isSaved) {
             onAccept();
         }
         
-        // 5. Выходим из режима редактирования
+        // 6. Выходим из режима редактирования
         setIsEditMode(false);
     };
 
@@ -128,6 +146,20 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             setTranslation(localTranslation);
         }
         setIsEditingTranslation(false);
+    };
+
+    // Handle back field edit
+    const handleBackEdit = () => {
+        if (!isEditMode) return;
+        setIsEditingBack(true);
+        setLocalBack(back || '');
+    };
+
+    const handleBackSave = () => {
+        if (setBack) {
+            setBack(localBack);
+        }
+        setIsEditingBack(false);
     };
 
     // Handle example edit
@@ -460,7 +492,8 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                 </div>
             )}
             
-            {translation && (
+            {/* Display translation for Language Learning mode or back for General mode */}
+            {(mode === Modes.LanguageLearning ? translation : back) && (
                 <>
                     <hr style={{
                         margin: '10px 0',
@@ -468,48 +501,80 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         borderTop: '1px solid #E5E7EB'
                     }} />
                     
-                    {isEditingTranslation && isEditMode ? (
+                    {/* Editing mode for translation (Language Learning) or back (General) */}
+                    {(mode === Modes.LanguageLearning ? isEditingTranslation : isEditingBack) && isEditMode ? (
                         <div style={{
                             marginBottom: '12px',
                             position: 'relative'
                         }}>
-                            <input
-                                type="text"
-                                value={localTranslation}
-                                onChange={(e) => setLocalTranslation(e.target.value)}
-                                style={{
-                                    width: '100%',
-                                    padding: '8px 12px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #3B82F6',
-                                    backgroundColor: '#ffffff',
-                                    color: '#111827',
-                                    fontSize: '14px',
-                                    outline: 'none',
-                                    fontWeight: '600',
-                                    textAlign: 'center',
-                                }}
-                                autoFocus
-                                onBlur={handleTranslationSave}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        handleTranslationSave();
-                                    }
-                                }}
-                            />
+                            {mode === Modes.LanguageLearning ? (
+                                <input
+                                    type="text"
+                                    value={localTranslation}
+                                    onChange={(e) => setLocalTranslation(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #3B82F6',
+                                        backgroundColor: '#ffffff',
+                                        color: '#111827',
+                                        fontSize: '14px',
+                                        outline: 'none',
+                                        fontWeight: '600',
+                                        textAlign: 'center',
+                                    }}
+                                    autoFocus
+                                    onBlur={handleTranslationSave}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            handleTranslationSave();
+                                        }
+                                    }}
+                                />
+                            ) : (
+                                <textarea
+                                    value={localBack}
+                                    onChange={(e) => setLocalBack(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        minHeight: '120px',
+                                        padding: '12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #3B82F6',
+                                        backgroundColor: '#ffffff',
+                                        color: '#111827',
+                                        fontSize: '14px',
+                                        outline: 'none',
+                                        fontWeight: '400',
+                                        lineHeight: '1.5',
+                                        resize: 'vertical'
+                                    }}
+                                    autoFocus
+                                    onBlur={handleBackSave}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && e.ctrlKey) {
+                                            handleBackSave();
+                                        }
+                                    }}
+                                />
+                            )}
                             <div style={{
                                 fontSize: '11px',
                                 color: '#6B7280',
                                 textAlign: 'center',
                                 marginTop: '4px'
                             }}>
-                                Press Enter or click outside to save
+                                {mode === Modes.LanguageLearning 
+                                    ? 'Press Enter or click outside to save'
+                                    : 'Press Ctrl+Enter or click outside to save'
+                                }
                             </div>
                         </div>
                     ) : (
                         <div style={{
                             marginBottom: '12px',
-                            textAlign: 'center',
+                            textAlign: mode === Modes.LanguageLearning ? 'center' : 'left',
                             position: 'relative',
                             paddingRight: isEditMode ? '24px' : '0',
                             ...(isEditMode ? {
@@ -521,7 +586,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                 backgroundColor: '#FAFAFA'
                             } : {})
                         }}
-                        onClick={isEditMode ? handleTranslationEdit : undefined}
+                        onClick={isEditMode ? (mode === Modes.LanguageLearning ? handleTranslationEdit : handleBackEdit) : undefined}
                         onMouseOver={(e) => {
                             if (isEditMode) {
                                 e.currentTarget.style.borderColor = '#3B82F6';
@@ -535,18 +600,31 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             }
                         }}
                         >
-                            <p style={{
-                                fontWeight: '600',
-                                color: '#111827',
-                                fontSize: '14px',
-                                margin: 0
-                            }}>{translation}</p>
+                            {mode === Modes.LanguageLearning ? (
+                                <p style={{
+                                    fontWeight: '600',
+                                    color: '#111827',
+                                    fontSize: '14px',
+                                    margin: 0
+                                }}>{translation}</p>
+                            ) : (
+                                <div style={{
+                                    color: '#111827',
+                                    fontSize: '14px',
+                                    lineHeight: '1.6',
+                                    margin: 0,
+                                    whiteSpace: 'pre-wrap',
+                                    wordWrap: 'break-word'
+                                }}>
+                                    {back}
+                                </div>
+                            )}
                             
                             {isEditMode && (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation(); // Предотвращаем всплытие события
-                                        handleTranslationEdit();
+                                        mode === Modes.LanguageLearning ? handleTranslationEdit() : handleBackEdit();
                                     }}
                                     style={{
                                         position: 'absolute',
@@ -562,7 +640,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                         padding: '4px',
                                         boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                                     }}
-                                    title="Edit translation"
+                                    title={mode === Modes.LanguageLearning ? "Edit translation" : "Edit content"}
                                     onMouseOver={(e) => {
                                         e.currentTarget.style.backgroundColor = '#E5E7EB';
                                         e.currentTarget.style.color = '#3B82F6';
@@ -960,7 +1038,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         >
                             {loadingNewImage ? 
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader type="pulse" size="small" inline color="#ffffff" text="Generating" />
+        <Loader type="spinner" size="small" inline color="#ffffff" text="Generating" />
     </div> : 'New Image'}
                         </button>
                     )}
@@ -986,164 +1064,169 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         >
                             {loadingNewExamples ? 
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader type="dots" size="small" inline color="#ffffff" text="Loading" />
+        <Loader type="spinner" size="small" inline color="#ffffff" text="Loading" />
     </div> : 'New Examples'}
                         </button>
                     )}
                 </div>
             )}
             
-            {/* Кнопка сохранения/статус карточки */}
-            <div style={{ marginBottom: '10px' }}>
-                {!isEditMode && (!isSaved || isGeneratingCard || loadingGetResult) && (
-                    // Показываем кнопки "Cancel" и "Save Card" для новых карточек, во время генерации или загрузки
-                    <div style={{ 
-                        display: 'flex', 
-                        gap: '8px', 
-                        width: '100%' 
-                    }}>
-                        <button 
-                            onClick={onCancel} 
-                            disabled={loadingAccept}
-                            style={{
-                                flex: '1',
+            {/* Кнопки действий - скрываем в режиме предварительного просмотра */}
+            {!hideActionButtons && (
+                <>
+                    {/* Кнопка сохранения/статус карточки */}
+                    <div style={{ marginBottom: '10px' }}>
+                        {!isEditMode && (!isSaved || isGeneratingCard || loadingGetResult) && (
+                            // Показываем кнопки "Cancel" и "Save Card" для новых карточек, во время генерации или загрузки
+                            <div style={{ 
+                                display: 'flex', 
+                                gap: '8px', 
+                                width: '100%' 
+                            }}>
+                                <button 
+                                    onClick={onCancel} 
+                                    disabled={loadingAccept}
+                                    style={{
+                                        flex: '1',
+                                        padding: '10px',
+                                        borderRadius: '6px',
+                                        backgroundColor: '#F3F4F6',
+                                        color: '#4B5563',
+                                        fontWeight: '600',
+                                        fontSize: '14px',
+                                        border: '1px solid #E5E7EB',
+                                        cursor: loadingAccept ? 'not-allowed' : 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '8px',
+                                        opacity: loadingAccept ? 0.7 : 1
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (!loadingAccept) {
+                                            e.currentTarget.style.backgroundColor = '#E5E7EB';
+                                            e.currentTarget.style.color = '#374151';
+                                        }
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (!loadingAccept) {
+                                            e.currentTarget.style.backgroundColor = '#F3F4F6';
+                                            e.currentTarget.style.color = '#4B5563';
+                                        }
+                                    }}
+                                >
+                                    <FaTimes />
+                                    {isGeneratingCard || loadingGetResult ? 'Cancel Generation' : 'Cancel'}
+                                </button>
+                                {!isGeneratingCard && !loadingGetResult && (
+                                    <button 
+                                        onClick={onAccept} 
+                                        disabled={loadingAccept}
+                                        style={{
+                                            flex: '2',
+                                            padding: '10px',
+                                            borderRadius: '6px',
+                                            backgroundColor: '#22C55E',
+                                            color: '#ffffff',
+                                            fontWeight: '600',
+                                            fontSize: '14px',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease',
+                                            opacity: loadingAccept ? 0.7 : 1,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '8px'
+                                        }}
+                                        onMouseOver={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#15803D')}
+                                        onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#22C55E')}
+                                    >
+                                        <FaCheck />
+                                        {loadingAccept ? 
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
+                </div> : 'Save Card'}
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                        
+                        {!isEditMode && isSaved && (
+                            // Для сохраненных карточек показываем индикатор статуса
+                            <div style={{
+                                width: '100%',
                                 padding: '10px',
                                 borderRadius: '6px',
-                                backgroundColor: '#F3F4F6',
-                                color: '#4B5563',
-                                fontWeight: '600',
-                                fontSize: '14px',
-                                border: '1px solid #E5E7EB',
-                                cursor: loadingAccept ? 'not-allowed' : 'pointer',
-                                transition: 'all 0.2s ease',
+                                backgroundColor: '#ECFDF5',
+                                border: '1px solid #D1FAE5',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                gap: '8px',
-                                opacity: loadingAccept ? 0.7 : 1
-                            }}
-                            onMouseOver={(e) => {
-                                if (!loadingAccept) {
-                                    e.currentTarget.style.backgroundColor = '#E5E7EB';
-                                    e.currentTarget.style.color = '#374151';
-                                }
-                            }}
-                            onMouseOut={(e) => {
-                                if (!loadingAccept) {
-                                    e.currentTarget.style.backgroundColor = '#F3F4F6';
-                                    e.currentTarget.style.color = '#4B5563';
-                                }
-                            }}
-                        >
-                            <FaTimes />
-                            {isGeneratingCard || loadingGetResult ? 'Cancel Generation' : 'Cancel'}
-                        </button>
-                        {!isGeneratingCard && !loadingGetResult && (
-                            <button 
-                                onClick={onAccept} 
-                                disabled={loadingAccept}
-                                style={{
-                                    flex: '2',
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    backgroundColor: '#22C55E',
-                                    color: '#ffffff',
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    opacity: loadingAccept ? 0.7 : 1,
+                                gap: '8px'
+                            }}>
+                                <div style={{
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: '8px'
-                                }}
-                                onMouseOver={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#15803D')}
-                                onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#22C55E')}
-                            >
-                                <FaCheck />
-                                {loadingAccept ? 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
-        </div> : 'Save Card'}
-                            </button>
+                                    width: '24px',
+                                    height: '24px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#10B981',
+                                    color: 'white'
+                                }}>
+                                    <FaCheck size={12} />
+                                </div>
+                                <span style={{
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    color: '#059669'
+                                }}>
+                                    Saved to Collection
+                                </span>
+                            </div>
+                        )}
+
+                        {/* Пояснительный текст под кнопкой */}
+                        {!isEditMode && !isSaved && (
+                            <p style={{
+                                fontSize: '11px',
+                                color: '#6B7280',
+                                textAlign: 'center',
+                                margin: '4px 0 0 0'
+                            }}>
+                                The card will be saved to your collection
+                            </p>
                         )}
                     </div>
-                )}
-                
-                {!isEditMode && isSaved && (
-                    // Для сохраненных карточек показываем индикатор статуса
-                    <div style={{
-                        width: '100%',
-                        padding: '10px',
-                        borderRadius: '6px',
-                        backgroundColor: '#ECFDF5',
-                        border: '1px solid #D1FAE5',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px'
-                    }}>
-                        <div style={{
+                    
+                    <button 
+                        onClick={onViewSavedCards}
+                        style={{
+                            width: '100%',
+                            padding: '10px',
+                            borderRadius: '6px',
+                            backgroundColor: '#4B5563',
+                            color: '#ffffff',
+                            fontWeight: '600',
+                            fontSize: '13px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            width: '24px',
-                            height: '24px',
-                            borderRadius: '50%',
-                            backgroundColor: '#10B981',
-                            color: 'white'
-                        }}>
-                            <FaCheck size={12} />
-                        </div>
-                        <span style={{
-                            fontWeight: '600',
-                            fontSize: '14px',
-                            color: '#059669'
-                        }}>
-                            Saved to Collection
-                        </span>
-                    </div>
-                )}
-
-                {/* Пояснительный текст под кнопкой */}
-                {!isEditMode && !isSaved && (
-                    <p style={{
-                        fontSize: '11px',
-                        color: '#6B7280',
-                        textAlign: 'center',
-                        margin: '4px 0 0 0'
-                    }}>
-                        The card will be saved to your collection
-                    </p>
-                )}
-            </div>
-            
-            <button 
-                onClick={onViewSavedCards}
-                style={{
-                    width: '100%',
-                    padding: '10px',
-                    borderRadius: '6px',
-                    backgroundColor: '#4B5563',
-                    color: '#ffffff',
-                    fontWeight: '600',
-                    fontSize: '13px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                }}
-                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#374151'}
-                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#4B5563'}
-            >
-                <FaList size={14} />
-                View Saved Cards
-            </button>
+                            gap: '8px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#374151'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#4B5563'}
+                    >
+                        <FaList size={14} />
+                        View Saved Cards
+                    </button>
+                </>
+            )}
         </div>
     );
 };

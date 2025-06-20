@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Cards Demo - Anki Extension</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            color: #2d3748;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            color: #718096;
+            margin: 0;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .feature-card {
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 24px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+            border-color: #3b82f6;
+        }
+
+        .feature-card h3 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0 0 15px 0;
+            font-size: 1.3rem;
+            color: #2d3748;
+        }
+
+        .feature-card .icon {
+            font-size: 1.5rem;
+        }
+
+        .feature-card p {
+            color: #4a5568;
+            margin: 0 0 15px 0;
+            line-height: 1.5;
+        }
+
+        .sample-text {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.9rem;
+            color: #2d3748;
+            user-select: all;
+            cursor: text;
+            position: relative;
+        }
+
+        .sample-text::before {
+            content: "✨ Try selecting this text";
+            position: absolute;
+            top: -25px;
+            left: 0;
+            font-size: 0.8rem;
+            color: #3b82f6;
+            font-weight: 500;
+        }
+
+        .demo-section {
+            background: #f0f9ff;
+            border: 2px solid #0ea5e9;
+            border-radius: 12px;
+            padding: 30px;
+            margin: 40px 0;
+        }
+
+        .demo-section h2 {
+            color: #0c4a6e;
+            margin: 0 0 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .step {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #bae6fd;
+        }
+
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            background: #0ea5e9;
+            color: white;
+            border-radius: 50%;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .benefits {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .benefit {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 15px;
+            background: #f0fdf4;
+            border-radius: 8px;
+            border: 1px solid #bbf7d0;
+        }
+
+        .benefit .icon {
+            color: #16a34a;
+            font-size: 1.2rem;
+        }
+
+        .cta {
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            margin-top: 40px;
+        }
+
+        .cta h2 {
+            margin: 0 0 15px 0;
+            font-size: 1.8rem;
+        }
+
+        .cta p {
+            margin: 0 0 25px 0;
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .install-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: white;
+            color: #4c51bf;
+            padding: 15px 30px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.1rem;
+            transition: transform 0.2s ease;
+        }
+
+        .install-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        }
+
+        .highlight {
+            background: linear-gradient(120deg, #fef3c7 0%, #fde68a 100%);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧠 Universal Card Creator</h1>
+            <p>Transform any text into powerful Anki flashcards with AI</p>
+        </div>
+
+        <div class="demo-section">
+            <h2>🎯 How It Works</h2>
+            <p>Our new Universal Card Creator lets you create flashcards from <strong>any content</strong> - not just language learning! Here's how simple it is:</p>
+            
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h4>Select Text</h4>
+                    <p>Highlight any text on any webpage</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h4>Choose Template</h4>
+                    <p>Pick from 6 smart card types or use custom prompts</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h4>Generate & Save</h4>
+                    <p>AI creates perfect flashcards automatically</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="feature-grid">
+            <div class="feature-card" style="border-color: #3b82f6;">
+                <h3><span class="icon">❓</span>Q&A Cards</h3>
+                <p>Perfect for factual information, definitions, and study questions.</p>
+                <div class="sample-text">
+                    The mitochondria is the powerhouse of the cell, responsible for producing ATP through cellular respiration. This organelle contains its own DNA and can replicate independently.
+                </div>
+            </div>
+
+            <div class="feature-card" style="border-color: #10b981;">
+                <h3><span class="icon">📖</span>Definition Cards</h3>
+                <p>Extract key terms and their meanings automatically.</p>
+                <div class="sample-text">
+                    Machine Learning is a subset of artificial intelligence that enables computers to learn and improve from experience without being explicitly programmed for every task.
+                </div>
+            </div>
+
+            <div class="feature-card" style="border-color: #8b5cf6;">
+                <h3><span class="icon">📝</span>Summary Cards</h3>
+                <p>Condense complex information into digestible bullet points.</p>
+                <div class="sample-text">
+                    The Industrial Revolution began in Britain in the late 18th century. It featured the transition from manual labor to mechanized production, urbanization, and the rise of factory systems. Key innovations included the steam engine, textile machinery, and iron production techniques.
+                </div>
+            </div>
+
+            <div class="feature-card" style="border-color: #f59e0b;">
+                <h3><span class="icon">💡</span>Fact Cards</h3>
+                <p>Highlight important facts and details for memorization.</p>
+                <div class="sample-text">
+                    The Great Wall of China stretches approximately 13,170 miles (21,196 km). Construction began in the 7th century BC and continued for over 2,000 years. Contrary to popular belief, it's not visible from space with the naked eye.
+                </div>
+            </div>
+
+            <div class="feature-card" style="border-color: #ef4444;">
+                <h3><span class="icon">🔄</span>Process Cards</h3>
+                <p>Break down procedures into clear, step-by-step instructions.</p>
+                <div class="sample-text">
+                    Photosynthesis is the process by which plants convert light energy into chemical energy. First, chlorophyll absorbs sunlight. Then, water molecules are split to release oxygen. Finally, carbon dioxide combines with hydrogen to form glucose.
+                </div>
+            </div>
+
+            <div class="feature-card" style="border-color: #6366f1;">
+                <h3><span class="icon">🧠</span>Concept Cards</h3>
+                <p>Explain complex ideas with examples and analogies.</p>
+                <div class="sample-text">
+                    Recursion in programming is when a function calls itself to solve a smaller version of the same problem. It's like Russian nesting dolls - each doll contains a smaller version until you reach the smallest one that can't be opened further.
+                </div>
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h2>✨ Key Benefits</h2>
+            <div class="benefits">
+                <div class="benefit">
+                    <span class="icon">⚡</span>
+                    <span><strong>Instant Creation:</strong> Generate cards in seconds</span>
+                </div>
+                <div class="benefit">
+                    <span class="icon">🎯</span>
+                    <span><strong>Smart AI:</strong> Understands context and creates relevant cards</span>
+                </div>
+                <div class="benefit">
+                    <span class="icon">🔧</span>
+                    <span><strong>Customizable:</strong> Use templates or write custom prompts</span>
+                </div>
+                <div class="benefit">
+                    <span class="icon">🌐</span>
+                    <span><strong>Universal:</strong> Works with any text content</span>
+                </div>
+                <div class="benefit">
+                    <span class="icon">🎨</span>
+                    <span><strong>Beautiful UI:</strong> Intuitive and modern interface</span>
+                </div>
+                <div class="benefit">
+                    <span class="icon">💾</span>
+                    <span><strong>Auto-Save:</strong> Cards saved directly to your collection</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="demo-section" style="background: #fef3c7; border-color: #f59e0b;">
+            <h2 style="color: #92400e;">🚀 Try It Now!</h2>
+            <p style="color: #92400e;"><strong>To test the Universal Card Creator:</strong></p>
+            <ol style="color: #92400e;">
+                <li>Install the Chrome extension</li>
+                <li>Navigate to any webpage with interesting content</li>
+                <li>Select some text (try the examples above!)</li>
+                <li>Open the extension and toggle to <span class="highlight">"General Cards"</span> mode</li>
+                <li>Click <span class="highlight">"Create Universal Card"</span></li>
+                <li>Choose your preferred card template</li>
+                <li>Watch AI generate the perfect flashcard!</li>
+            </ol>
+        </div>
+
+        <div class="cta">
+            <h2>Ready to Supercharge Your Learning?</h2>
+            <p>Transform any website into your personal study material with AI-powered flashcard generation</p>
+            <a href="#" class="install-button">
+                <span>🔥</span>
+                Install Extension Now
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Add some interactive effects
+        document.querySelectorAll('.sample-text').forEach(element => {
+            element.addEventListener('mouseenter', function() {
+                this.style.background = '#e0f2fe';
+                this.style.borderColor = '#0ea5e9';
+            });
+            
+            element.addEventListener('mouseleave', function() {
+                this.style.background = '#ffffff';
+                this.style.borderColor = '#e2e8f0';
+            });
+            
+            element.addEventListener('selectstart', function() {
+                this.style.background = '#dbeafe';
+                this.style.borderColor = '#3b82f6';
+            });
+        });
+
+        // Animate feature cards on scroll
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver(function(entries) {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.feature-card').forEach(card => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+            observer.observe(card);
+        });
+    </script>
+</body>
+</html> 

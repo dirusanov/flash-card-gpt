@@ -450,7 +450,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             });
 
             // Show success notification with type parameter
-            showError('Cards saved to Anki successfully!', 'success');
+            // Удалили навязчивое success уведомление
 
             // Add debug check of localStorage after status update
             setTimeout(() => {
@@ -514,115 +514,158 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             return null;
         }
 
-        if (card.mode === Modes.LanguageLearning) {
-            return (
-                <div style={{ padding: '8px' }}>
-                    <p style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px' }}>{card.text}</p>
-                    {card.translation && (
-                        <p style={{ color: '#374151', fontSize: '13px', marginBottom: '8px' }}>{card.translation}</p>
-                    )}
-                    {card.examples && card.examples.length > 0 && (
-                        <div style={{ marginTop: '8px' }}>
-                            <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>Examples:</p>
-                            {card.examples.slice(0, 1).map(([example, translation], index) => (
-                                <div key={index} style={{ fontSize: '12px', marginBottom: '2px' }}>
-                                    <p style={{ 
-                                        color: '#111827', 
-                                        marginBottom: '2px',
-                                        lineHeight: '1.4',
-                                        wordWrap: 'break-word',
-                                        overflow: 'visible',
-                                        whiteSpace: 'normal'
-                                    }}>{example}</p>
-                                    {translation && <p style={{ 
-                                        color: '#6B7280', 
-                                        fontStyle: 'italic',
-                                        lineHeight: '1.4',
-                                        wordWrap: 'break-word',
-                                        overflow: 'visible',
-                                        whiteSpace: 'normal'
-                                    }}>{translation}</p>}
-                                </div>
-                            ))}
-                            {card.examples.length > 1 && (
-                                <p style={{ fontSize: '11px', color: '#6B7280' }}>+{card.examples.length - 1} more examples</p>
-                            )}
-                        </div>
-                    )}
-                    {/* Display image - приоритетно используем base64 данные */}
-                    {(card.image || card.imageUrl) && (
-                        <div style={{ marginTop: '8px', textAlign: 'center' }}>
-                            <img 
-                                src={(card.image || card.imageUrl || '') as string} 
-                                alt="Card image" 
-                                style={{ 
-                                    maxWidth: '100%', 
-                                    maxHeight: '80px', 
-                                    borderRadius: '4px',
-                                    border: '1px solid #E5E7EB',
-                                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-                                }} 
-                                onError={(e) => {
-                                    console.error('Image failed to load for card:', card.id, 'image data:', {
-                                        hasImage: !!card.image,
-                                        hasImageUrl: !!card.imageUrl,
-                                        imageLength: card.image?.length,
-                                        imageUrlLength: card.imageUrl?.length,
-                                        imagePreview: card.image?.substring(0, 50),
-                                        imageUrlPreview: card.imageUrl?.substring(0, 50),
-                                        imageSrc: (card.image || card.imageUrl || '').substring(0, 100),
-                                        usingType: card.image ? 'base64 (permanent)' : 'url (temporary)'
-                                    });
-                                    
-                                    // Replace broken image with placeholder
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    
-                                    // Create a placeholder div
-                                    const placeholder = document.createElement('div');
-                                    placeholder.style.cssText = `
-                                        width: 100%;
-                                        height: 60px;
-                                        background-color: #F3F4F6;
-                                        border: 1px dashed #D1D5DB;
-                                        border-radius: 4px;
-                                        display: flex;
-                                        align-items: center;
-                                        justify-content: center;
-                                        color: #6B7280;
-                                        font-size: 12px;
-                                    `;
-                                    placeholder.textContent = card.image ? '🖼️ Image error' : '🖼️ URL expired';
-                                    
-                                    // Insert placeholder after the failed image
-                                    target.parentNode?.insertBefore(placeholder, target.nextSibling);
-                                }}
-                                onLoad={() => {
-                                    console.log('✅ Image loaded successfully for card:', card.id, {
-                                        usingType: card.image ? 'base64 (permanent)' : 'url (temporary)',
-                                        imageLength: card.image?.length,
-                                        imageUrlLength: card.imageUrl?.length
-                                    });
-                                }}
-                            />
-                        </div>
-                    )}
+        // Unified display logic for both modes
+        return (
+            <div style={{ padding: '8px' }}>
+                {/* Main content - shows text for Language Learning, front for General */}
+                {(card.text || card.front) && (
+                    <p style={{ 
+                        fontWeight: 'bold', 
+                        fontSize: '14px', 
+                        marginBottom: '4px',
+                        color: '#111827',
+                        lineHeight: '1.4',
+                        wordWrap: 'break-word'
+                    }}>
+                        {card.mode === Modes.LanguageLearning ? card.text : card.front}
+                    </p>
+                )}
+
+                {/* Secondary content - shows translation for Language Learning, back for General */}
+                {(card.translation || card.back) && (
+                    <p style={{ 
+                        color: '#374151', 
+                        fontSize: '13px', 
+                        marginBottom: '8px',
+                        lineHeight: '1.4',
+                        wordWrap: 'break-word'
+                    }}>
+                        {card.mode === Modes.LanguageLearning 
+                            ? card.translation 
+                            : (card.back && card.back.length > 150 
+                                ? card.back.substring(0, 150) + '...' 
+                                : card.back)
+                        }
+                    </p>
+                )}
+
+                {/* Examples - only for Language Learning mode */}
+                {card.mode === Modes.LanguageLearning && card.examples && card.examples.length > 0 && (
+                    <div style={{ marginTop: '8px' }}>
+                        <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>Examples:</p>
+                        {card.examples.slice(0, 1).map(([example, translation], index) => (
+                            <div key={index} style={{ fontSize: '12px', marginBottom: '2px' }}>
+                                <p style={{ 
+                                    color: '#111827', 
+                                    marginBottom: '2px',
+                                    lineHeight: '1.4',
+                                    wordWrap: 'break-word',
+                                    overflow: 'visible',
+                                    whiteSpace: 'normal'
+                                }}>{example}</p>
+                                {translation && <p style={{ 
+                                    color: '#6B7280', 
+                                    fontStyle: 'italic',
+                                    lineHeight: '1.4',
+                                    wordWrap: 'break-word',
+                                    overflow: 'visible',
+                                    whiteSpace: 'normal'
+                                }}>{translation}</p>}
+                            </div>
+                        ))}
+                        {card.examples.length > 1 && (
+                            <p style={{ fontSize: '11px', color: '#6B7280' }}>+{card.examples.length - 1} more examples</p>
+                        )}
+                    </div>
+                )}
+
+                {/* Image display - for both modes */}
+                {(card.image || card.imageUrl) && (
+                    <div style={{ marginTop: '8px', textAlign: 'center' }}>
+                        <img 
+                            src={(card.image || card.imageUrl || '') as string} 
+                            alt="Card image" 
+                            style={{ 
+                                maxWidth: '100%', 
+                                maxHeight: '80px', 
+                                borderRadius: '4px',
+                                border: '1px solid #E5E7EB',
+                                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                            }} 
+                            onError={(e) => {
+                                console.error('Image failed to load for card:', card.id, 'image data:', {
+                                    hasImage: !!card.image,
+                                    hasImageUrl: !!card.imageUrl,
+                                    imageLength: card.image?.length,
+                                    imageUrlLength: card.imageUrl?.length,
+                                    imagePreview: card.image?.substring(0, 50),
+                                    imageUrlPreview: card.imageUrl?.substring(0, 50),
+                                    imageSrc: (card.image || card.imageUrl || '').substring(0, 100),
+                                    usingType: card.image ? 'base64 (permanent)' : 'url (temporary)'
+                                });
+                                
+                                // Replace broken image with placeholder
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                
+                                // Create a placeholder div
+                                const placeholder = document.createElement('div');
+                                placeholder.style.cssText = `
+                                    width: 100%;
+                                    height: 60px;
+                                    background-color: #F3F4F6;
+                                    border: 1px dashed #D1D5DB;
+                                    border-radius: 4px;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    color: #6B7280;
+                                    font-size: 12px;
+                                `;
+                                placeholder.textContent = card.image ? '🖼️ Image error' : '🖼️ URL expired';
+                                
+                                // Insert placeholder after the failed image
+                                target.parentNode?.insertBefore(placeholder, target.nextSibling);
+                            }}
+                            onLoad={() => {
+                                console.log('✅ Image loaded successfully for card:', card.id, {
+                                    usingType: card.image ? 'base64 (permanent)' : 'url (temporary)',
+                                    imageLength: card.image?.length,
+                                    imageUrlLength: card.imageUrl?.length
+                                });
+                            }}
+                        />
+                    </div>
+                )}
+
+                {/* Mode indicator badge */}
+                <div style={{ 
+                    marginTop: '8px', 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center'
+                }}>
+                    <span style={{
+                        fontSize: '10px',
+                        color: '#6B7280',
+                        backgroundColor: card.mode === Modes.LanguageLearning ? '#EEF2FF' : '#F0FDF4',
+                        padding: '2px 6px',
+                        borderRadius: '12px',
+                        border: `1px solid ${card.mode === Modes.LanguageLearning ? '#C7D2FE' : '#BBF7D0'}`,
+                        fontWeight: '500'
+                    }}>
+                        {card.mode === Modes.LanguageLearning ? '🗣️ Language' : '📚 General'}
+                    </span>
+                    {/* Show creation date */}
+                    <span style={{
+                        fontSize: '10px',
+                        color: '#9CA3AF'
+                    }}>
+                        {formatDate(card.createdAt)}
+                    </span>
                 </div>
-            );
-        } else {
-            return (
-                <div style={{ padding: '8px' }}>
-                    {card.front && (
-                        <p style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px' }}>{card.front}</p>
-                    )}
-                    {card.back && (
-                        <p style={{ color: '#374151', fontSize: '12px' }}>
-                            {card.back.length > 100 ? card.back.substring(0, 100) + '...' : card.back}
-                        </p>
-                    )}
-                </div>
-            );
-        }
+            </div>
+        );
     };
 
     // Modified to render the tab navigation
@@ -1106,7 +1149,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             // Reset the editing state
             handleCancelEdit();
 
-            showError('Card updated successfully!', 'success');
+            // Удалили навязчивое success уведомление
         } catch (error) {
             console.error('Error saving card:', error);
             showError('Failed to update card. Please try again.');
@@ -1197,7 +1240,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 });
             }
 
-            showError('New image generated successfully!', 'success');
+            // Удалили навязчивое success уведомление
         } catch (error: any) {
             console.error('Error generating image:', error);
             showError(`Image generation failed: ${error?.message || 'Unknown error'}`);
@@ -1272,6 +1315,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             setLocalEditingCardData({
                 ...localEditingCardData,
                 examples: newExamples
+            });
+        }
+    };
+
+    // Handle back field update from ResultDisplay
+    const handleBackUpdate = (newBack: string) => {
+        // Обновляем локальное состояние вместо глобального Redux
+        if (localEditingCardData) {
+            setLocalEditingCardData({
+                ...localEditingCardData,
+                back: newBack
             });
         }
     };
@@ -1421,7 +1475,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     borderRadius: '50%',
                                     color: '#4F46E5'
                                 }}>
-                                    <Loader type="pulse" size="small" inline color="#4F46E5" />
+                                    <Loader type="spinner" size="small" inline color="#4F46E5" />
                                 </div>
                             ) : (
                                 <button
@@ -1479,6 +1533,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     <ResultDisplay
                         mode={editingCard.mode}
                         front={front || null}
+                        back={back || null}
                         translation={translation || null}
                         examples={examples || []}
                         imageUrl={imageUrl || null}
@@ -1497,6 +1552,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         isSaved={true} // Show edit mode since we're editing
                         isEdited={true}
                         setTranslation={handleTranslationUpdate}
+                        setBack={handleBackUpdate}
                         setExamples={handleExamplesUpdate}
                         setLinguisticInfo={handleLinguisticInfoUpdate}
                     />
@@ -1783,7 +1839,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             console.log(`Current storage size: ${sizeInMB.toFixed(2)}MB`);
             
             if (sizeInMB < 4) {
-                showError(`Storage is healthy (${sizeInMB.toFixed(2)}MB). No optimization needed.`, 'success');
+                // Удалили навязчивое success уведомление - хранилище в порядке
                 return;
             }
             
@@ -2044,7 +2100,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             console.log(`Export complete: ${totalCards} cards exported, ${cardsWithLinguistics} with grammar information`);
             
             // Show success message
-            showError(`Successfully exported ${totalCards} cards to "${fileName}"${cardsWithLinguistics > 0 ? ` (${cardsWithLinguistics} with grammar info)` : ''}!`, 'success');
+            // Удалили навязчивое success уведомление об экспорте
 
             // Update export status for selected cards
             selectedCards.forEach(cardId => {

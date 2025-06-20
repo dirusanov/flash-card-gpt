@@ -15,19 +15,110 @@ import ResultDisplay from "./ResultDisplay";
 import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 import useErrorNotification from './useErrorHandler';
-import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt } from 'react-icons/fa';
+import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
 import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo, createValidatedLinguisticInfoEnhanced, createTranscription } from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
+import UniversalCardCreator from './UniversalCardCreator';
+import { createAIAgentService } from '../services/aiAgentService';
 
+// Добавляем интерфейс для типов общих карточек
+interface GeneralCardTemplate {
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    prompt: string;
+}
+
+// Шаблоны для создания общих карточек
+const GENERAL_CARD_TEMPLATES: GeneralCardTemplate[] = [
+    {
+        id: 'qa',
+        name: 'Q&A',
+        description: 'Question and answer format',
+        icon: '❓',
+        prompt: 'Create a question and answer based on this text. Format as Q: [question] A: [answer]'
+    },
+    {
+        id: 'definition',
+        name: 'Definition',
+        description: 'Key term and definition',
+        icon: '📖',
+        prompt: 'Extract the main concept and provide a clear definition'
+    },
+    {
+        id: 'summary',
+        name: 'Summary',
+        description: 'Key points summary',
+        icon: '📝',
+        prompt: 'Summarize the key points from this text in bullet points'
+    },
+    {
+        id: 'facts',
+        name: 'Facts',
+        description: 'Important facts and details',
+        icon: '💡',
+        prompt: 'Extract the most important facts and details from this text'
+    },
+    {
+        id: 'process',
+        name: 'Process',
+        description: 'Step-by-step explanation',
+        icon: '🔄',
+        prompt: 'Break down any process or procedure mentioned in this text into clear steps'
+    },
+    {
+        id: 'concept',
+        name: 'Concept',
+        description: 'Explain the concept',
+        icon: '🧠',
+        prompt: 'Explain the main concept from this text in simple terms with examples'
+    }
+];
 
 interface CreateCardProps {
     // Пустой интерфейс, так как больше не нужен onSettingsClick
 }
 
 const CreateCard: React.FC<CreateCardProps> = () => {
+    // Add CSS animations for the preview modal
+    React.useEffect(() => {
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            @keyframes slideUp {
+                from { 
+                    opacity: 0;
+                    transform: translateY(30px) scale(0.95);
+                }
+                to { 
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+            }
+            @keyframes slideIn {
+                from { 
+                    opacity: 0;
+                    transform: translateX(-20px);
+                }
+                to { 
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
+        `;
+        document.head.appendChild(style);
+        return () => {
+            document.head.removeChild(style);
+        };
+    }, []);
+
     const [showResult, setShowResult] = useState(false);
     const deckId = useSelector((state: RootState) => state.deck.deckId);
     const tabAware = useTabAware();
@@ -49,6 +140,36 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const decks = useSelector((state: RootState) => state.deck.decks);
     const mode = useSelector((state: RootState) => state.settings.mode);
     const [originalSelectedText, setOriginalSelectedText] = useState('');
+
+    // Function to toggle between modes
+    const toggleMode = useCallback(() => {
+        const newMode = mode === Modes.LanguageLearning ? Modes.GeneralTopic : Modes.LanguageLearning;
+        dispatch(setMode(newMode));
+        
+        // Save the new mode to localStorage
+        localStorage.setItem('selected_mode', newMode);
+        
+        // Clear form data when switching modes
+        dispatch(setText(''));
+        dispatch(setFront(''));
+        dispatch(setBack(null));
+        dispatch(setTranslation(null));
+        dispatch(setExamples([]));
+        dispatch(setImage(null));
+        dispatch(setImageUrl(null));
+        dispatch(setLinguisticInfo(''));
+        dispatch(setTranscription(''));
+        dispatch(setCurrentCardId(null));
+        
+        // Reset general card state
+        setSelectedTemplate(null);
+        setCustomPrompt('');
+        setShowTemplateModal(false);
+        setShowResult(false);
+        setIsMultipleCards(false);
+        setCreatedCards([]);
+        setCurrentCardIndex(0);
+    }, [mode, dispatch]);
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
@@ -94,6 +215,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [createdCards, setCreatedCards] = useState<StoredCard[]>([]);
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
     const [isMultipleCards, setIsMultipleCards] = useState(false);
+    
+    // State for general card creation
+    const [selectedTemplate, setSelectedTemplate] = useState<GeneralCardTemplate | null>(null);
+    const [showTemplateModal, setShowTemplateModal] = useState(false);
+    const [customPrompt, setCustomPrompt] = useState('');
+    // Removed isGeneratingGeneralCard - now using unified loadingGetResult
+    
+    // State for AI cards preview
+    const [previewCards, setPreviewCards] = useState<StoredCard[]>([]);
+    const [showPreview, setShowPreview] = useState(false);
+    const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
+    const [savedCardIndices, setSavedCardIndices] = useState<Set<number>>(new Set());
+    const [showRecreateModal, setShowRecreateModal] = useState(false);
+    const [recreateComments, setRecreateComments] = useState('');
 
     // AbortController for cancelling AI requests
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -362,13 +497,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 customInstruction.toLowerCase().includes('предложение')) {
 
                 // Generate new examples based on instructions
-                const newExamples = await getExamples(openAiKey, text, translateToLanguage, true, customInstruction);
+                const newExamples = await aiService.getExamples(apiKey, text, translateToLanguage, true, customInstruction);
                 tabAware.setExamples(newExamples);
             } else if (customInstruction.toLowerCase().includes('translat') ||
                 customInstruction.toLowerCase().includes('перевод')) {
 
                 // Update translation based on instructions
-                const translatedText = await translateText(openAiKey, text, translateToLanguage, customInstruction);
+                const translatedText = await aiService.translateText(apiKey, text, translateToLanguage, customInstruction);
                 if (translatedText) {
                     tabAware.setTranslation(translatedText);
                 }
@@ -376,18 +511,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Apply all updates with custom instructions
                 // Always use custom instructions for both translation and examples
                 // This should ensure instructions are always applied
-                const translatedText = await translateText(openAiKey, text, translateToLanguage, customInstruction);
-                const newExamples = await getExamples(openAiKey, text, translateToLanguage, true, customInstruction);
+                const translatedText = await aiService.translateText(apiKey, text, translateToLanguage, customInstruction);
+                const newExamples = await aiService.getExamples(apiKey, text, translateToLanguage, true, customInstruction);
 
                 if (shouldGenerateImage) {
-                    const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
-                    const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, customInstruction);
+                    const descriptionImage = await aiService.getDescriptionImage(apiKey, text, customInstruction);
+                    const imageUrl = await aiService.getImageUrl?.(apiKey, descriptionImage);
 
                     if (imageUrl) {
                         tabAware.setImageUrl(imageUrl);
-                    }
-                    if (imageBase64) {
-                        tabAware.setImage(imageBase64);
                     }
                 }
 
@@ -560,7 +692,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 ? `Updated ${updatedCards} cards successfully!`
                                 : `All ${successCount} cards are now saved!`;
 
-                showError(successMessage, 'success');
+                // Удалили навязчивое success уведомление
             } else {
                 showError(`Saved ${successCount} cards, ${errorCount} failed.`, 'warning');
             }
@@ -653,7 +785,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 setExplicitlySaved(true);
                 localStorage.setItem('explicitly_saved', 'true');
                 setIsEdited(false);
-                showError('Card saved successfully!', 'success');
+                // showError('Card saved successfully!', 'success'); // Убрали уведомление
 
                 return; // Exit early for multi-card save
             }
@@ -771,11 +903,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setExplicitlySaved(true);
             localStorage.setItem('explicitly_saved', 'true');
 
-            if (isEdited) {
-                showError('Card updated successfully!', 'success');
-            } else {
-                showError('Card saved successfully!', 'success');
-            }
+            // Убрали уведомления при сохранении/обновлении карточек
+            // if (isEdited) {
+            //     showError('Card updated successfully!', 'success');
+            // } else {
+            //     showError('Card saved successfully!', 'success');
+            // }
 
             setIsEdited(false);
             setIsNewSubmission(false); // Reset the new submission flag after explicitly saving
@@ -884,8 +1017,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, [handleTextSelection]);
 
     useEffect(() => {
-        // Пока по дефолту ставим LanguageLearning
-        dispatch(setMode(Modes.LanguageLearning))
+        // Initialize mode from localStorage if available
+        const savedMode = localStorage.getItem('selected_mode');
+        if (savedMode) {
+            dispatch(setMode(savedMode as Modes));
+        } else {
+            // Only set default if no saved mode exists
+            dispatch(setMode(Modes.LanguageLearning));
+        }
 
         if (text && translation && examples.length > 0) {
             setShowResult(true);
@@ -1255,7 +1394,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         if (useMultipleValidators && 'confidence' in result && typeof result.confidence === 'number') {
                             const confidencePercent = Math.round(result.confidence * 100);
                             if (result.wasValidated) {
-                                showError(`✅ Enhanced grammar reference created with ${confidencePercent}% confidence`, 'success');
+                                // Удалили навязчивое success уведомление
                             } else {
                                 showError(`⚠️ Enhanced grammar reference created but validation uncertain (${confidencePercent}% confidence)`, 'warning');
                             }
@@ -1298,12 +1437,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         if (useMultipleValidators && 'confidence' in result && typeof result.confidence === 'number') {
                             const confidencePercent = Math.round(result.confidence * 100);
                             if (result.wasValidated) {
-                                showError(`✅ Enhanced grammar reference created (fallback mode, ${confidencePercent}% confidence)`, 'success');
+                                // Удалили навязчивое success уведомление
                             } else {
                                 showError(`⚠️ Enhanced grammar reference uncertain (fallback mode, ${confidencePercent}% confidence)`, 'warning');
                             }
                         } else if (result.wasValidated && result.attempts > 1) {
-                            showError(`✅ Grammar reference corrected (fallback mode)`, 'success');
+                            // Удалили навязчивое success уведомление
                         } else if (!result.wasValidated) {
                             showError('⚠️ Grammar reference may contain inaccuracies (fallback mode)', 'warning');
                         }
@@ -1490,13 +1629,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const handleSaveAISettings = () => {
         dispatch(setAIInstructions(localAIInstructions));
         setShowAISettings(false);
-        showError('AI settings saved successfully', 'success');
+        // Удалили навязчивое success уведомление
     };
 
     const handleSaveImageSettings = () => {
         dispatch(setImageInstructions(localImageInstructions));
         setShowImageSettings(false);
-        showError('Image instructions saved successfully', 'success');
+        // Удалили навязчивое success уведомление
     };
 
     // Render AI Settings Panel
@@ -1624,133 +1763,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     Save Instructions
                 </button>
 
-                {/* Настройка множественной валидации */}
-                <div style={{
-                    marginBottom: '12px',
-                    padding: '12px',
-                    backgroundColor: '#FEF3C7',
-                    border: '1px solid #F59E0B',
-                    borderRadius: '6px'
-                }}>
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        marginBottom: '8px'
-                    }}>
-                        <input
-                            type="checkbox"
-                            id="useMultipleValidators"
-                            checked={localStorage.getItem('useMultipleValidators') === 'true'}
-                            onChange={(e) => {
-                                localStorage.setItem('useMultipleValidators', e.target.checked.toString());
-                                showError(
-                                    e.target.checked 
-                                        ? '✅ Multiple AI validators enabled' 
-                                        : '⚪ Standard validation mode', 
-                                    'info'
-                                );
-                            }}
-                            style={{ marginRight: '4px' }}
-                        />
-                        <label 
-                            htmlFor="useMultipleValidators"
-                            style={{
-                                fontSize: '14px',
-                                fontWeight: '500',
-                                color: '#92400E'
-                            }}
-                        >
-                            🎯 Enhanced Grammar Validation
-                        </label>
-                    </div>
-                    <div style={{
-                        fontSize: '12px',
-                        color: '#78350F',
-                        lineHeight: '1.4'
-                    }}>
-                        <p style={{ margin: '0 0 4px 0' }}>
-                            Uses 4 specialized AI agents:
-                        </p>
-                        <ul style={{ margin: 0, paddingLeft: '16px' }}>
-                            <li>🔬 Morphology specialist</li>
-                            <li>🏗️ Syntax specialist</li>
-                            <li>💭 Semantics specialist</li>
-                            <li>⚖️ Consistency validator</li>
-                        </ul>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '11px', fontStyle: 'italic' }}>
-                            More accurate but uses 4x more AI requests
-                        </p>
-                    </div>
-                </div>
-
-                {/* Кнопка для тестирования валидации */}
-                <button
-                    onClick={testLinguisticValidation}
-                    style={{
-                        backgroundColor: '#10B981',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        padding: '8px 16px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        marginBottom: '8px'
-                    }}
-                >
-                    🧪 Test Grammar Validation
-                </button>
-
-                {/* Кнопка для тестирования новой системы */}
-                <button
-                    onClick={testEnhancedValidation}
-                    style={{
-                        backgroundColor: '#7C3AED',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        padding: '8px 16px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        marginBottom: '8px'
-                    }}
-                >
-                    🚀 Test Enhanced Validation
-                </button>
-
-                {/* Кнопка для тестирования конкретной проблемы */}
-                <button
-                    onClick={testSpecificProblem}
-                    style={{
-                        backgroundColor: '#DC2626',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        padding: '8px 16px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px'
-                    }}
-                >
-                    🎯 Test "заслуги" Problem
-                </button>
+                {/* Simplified interface - removed test buttons and complex validation options */}
             </div>
         );
     };
@@ -2134,7 +2147,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     borderRadius: '50%',
                                     color: '#4F46E5'
                                 }}>
-                                    <Loader type="pulse" size="small" inline color="#4F46E5" />
+                                    <Loader type="spinner" size="small" inline color="#4F46E5" />
                                 </div>
                             ) : (
                                 <button
@@ -2329,7 +2342,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 disabled={loadingAccept}
                             >
                                 {loadingAccept ? (
-                                    <Loader type="dots" size="small" inline color="#ffffff" text="Saving" />
+                                    <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
                                 ) : (
                                     <>
                                         <svg
@@ -2771,7 +2784,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Показываем результат
                 setShowResult(true);
                 setShowModal(true);
-                showError(`Created ${newCards.length} cards!`, "success");
+                // Удалили навязчивое success уведомление
 
                 console.log('Created new cards, none saved yet. Card IDs:', newCards.map(card => card.id));
             } else {
@@ -3435,7 +3448,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 justifyContent: 'center',
                                 padding: '20px'
                             }}>
-                                <Loader type="pulse" size="small" color="#4F46E5" text="Analyzing selected text..." />
+                                <Loader type="spinner" size="large" color="#3B82F6" text="Analyzing selected text..." />
                             </div>
                         ) : (
                             selectedTextOptions.map((option, index) => (
@@ -3986,6 +3999,24 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
+        // Кэширование: Проверяем, определяли ли мы уже язык для этого текста
+        const textHash = text.trim().toLowerCase().slice(0, 200); // Используем первые 200 символов для кэша
+        const cacheKey = `language_detection_${textHash}`;
+        const cachedResult = localStorage.getItem(cacheKey);
+        
+        if (cachedResult && detectedLanguage !== cachedResult) {
+            console.log('Using cached language detection result:', cachedResult);
+            setDetectedLanguage(cachedResult);
+            updateSourceLanguage(cachedResult);
+            return;
+        }
+
+        // Если язык уже определен для этого текста, не определяем повторно
+        if (detectedLanguage && cachedResult === detectedLanguage) {
+            console.log('Language already detected for this text:', detectedLanguage);
+            return;
+        }
+
         // Check if quota is exceeded and skip API calls
         if (isQuotaExceededCached()) {
             console.log('Language detection skipped due to cached quota error');
@@ -4120,6 +4151,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     setDetectedLanguage(detectedCode);
                     localStorage.setItem('detected_language', detectedCode);
                     
+                    // Сохраняем результат в кэш
+                    localStorage.setItem(cacheKey, detectedCode);
+                    
                     // Сохраняем определенный язык в Redux
                     updateSourceLanguage(detectedCode);
                 } else {
@@ -4178,6 +4212,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     console.log('Language detected using fallback method:', detectedLang);
                     setDetectedLanguage(detectedLang);
                     localStorage.setItem('detected_language', detectedLang);
+
+                    // Сохраняем результат в кэш
+                    localStorage.setItem(cacheKey, detectedLang);
 
                     // Сохраняем определенный язык в Redux
                     updateSourceLanguage(detectedLang);
@@ -4253,6 +4290,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     console.log("Language detected using fallback method in error handler:", detectedLang);
                     setDetectedLanguage(detectedLang);
                     localStorage.setItem('detected_language', detectedLang);
+                    
+                    // Сохраняем результат в кэш (пересоздаем cacheKey для error handler)
+                    const errorCacheKey = `language_detection_${text.trim().toLowerCase().slice(0, 200)}`;
+                    localStorage.setItem(errorCacheKey, detectedLang);
+                    
                     updateSourceLanguage(detectedLang);
                 }
             }
@@ -4260,7 +4302,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setIsDetectingLanguage(false);
             console.log('=== LANGUAGE DETECTION END ===');
         }
-    }, [openai, openAiKey, modelProvider, groqApiKey, groqModelName, dispatch, allLanguages, updateSourceLanguage]);
+    }, [openai, openAiKey, modelProvider, groqApiKey, groqModelName, dispatch, allLanguages]);
 
     // Обновление определения языка при изменении текста
     useEffect(() => {
@@ -4293,7 +4335,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             return () => clearTimeout(timer);
         }
-    }, [text, detectLanguage, isAutoDetectLanguage, updateSourceLanguage]);
+    }, [text, detectLanguage, isAutoDetectLanguage]);
 
     // Обработчик переключения между автоопределением и ручным выбором
     const toggleAutoDetect = () => {
@@ -4432,7 +4474,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     >
                         <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {isDetectingLanguage ? (
-                                <Loader type="pulse" size="small" inline color="#6B7280" />
+                                <Loader type="spinner" size="small" inline color="#6B7280" />
                             ) : currentSourceLanguage ? (
                                 <>
                                     <span style={{ fontSize: '18px' }}>{currentSourceLanguage.flag}</span>
@@ -4775,202 +4817,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     // Тестовая функция для проверки новой итеративной валидации
-    const testLinguisticValidation = async () => {
-        if (!apiKey) {
-            showError('API key is required for testing', 'error');
-            return;
-        }
-
-        // Тест с проблемным словом "млекопитающими"
-        const testText = "млекопитающими";
-
-        console.log('Testing new iterative validation system...');
-        showError('Testing iterative validation system...', 'info');
-
-        try {
-            const result = await createValidatedLinguisticInfo(
-                aiService,
-                apiKey,
-                testText,
-                'ru', // source language
-                'ru', // user language
-                3 // максимум 3 попытки для теста
-            );
-
-            console.log('Test result:', result);
-
-            if (result.linguisticInfo) {
-                if (result.wasValidated) {
-                    if (result.attempts > 1) {
-                        showError(`✅ Test passed: Grammar reference created and validated after ${result.attempts} attempts`, 'success');
-                    } else {
-                        showError(`✅ Test passed: Grammar reference validated on first attempt`, 'success');
-                    }
-                } else {
-                    showError(`⚠️ Test completed: Grammar reference created but validation failed after ${result.attempts} attempts`, 'warning');
-                }
-
-                // Показываем созданную справку в консоли для проверки
-                console.log('Generated linguistic info:', result.linguisticInfo);
-            } else {
-                showError(`❌ Test failed: Could not generate grammar reference after ${result.attempts} attempts`, 'error');
-            }
-        } catch (error) {
-            console.error('Test error:', error);
-            showError('❌ Test failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
-        }
-    };
-
-    // Тестовая функция для проверки новой расширенной валидации с множественными агентами
-    const testEnhancedValidation = async () => {
-        if (!apiKey) {
-            showError('API key is required for testing', 'error');
-            return;
-        }
-
-        // Тест с проблемным словом "млекопитающими"
-        const testText = "млекопитающими";
-
-        console.log('Testing enhanced validation system with multiple AI agents...');
-        showError('🚀 Testing enhanced validation system...', 'info');
-
-        try {
-            const result = await createValidatedLinguisticInfoEnhanced(
-                aiService,
-                apiKey,
-                testText,
-                'ru', // source language
-                'ru', // user language
-                3, // максимум 3 попытки для теста
-                true // используем множественную валидацию
-            );
-
-            console.log('Enhanced test result:', result);
-
-            if (result.linguisticInfo) {
-                const confidencePercent = Math.round((result.confidence || 0) * 100);
-                
-                if (result.wasValidated) {
-                    if (result.attempts > 1) {
-                        showError(`✅ Enhanced test passed: Grammar reference validated after ${result.attempts} attempts with ${confidencePercent}% confidence`, 'success');
-                    } else {
-                        showError(`✅ Enhanced test passed: Grammar reference validated on first attempt with ${confidencePercent}% confidence`, 'success');
-                    }
-                } else {
-                    showError(`⚠️ Enhanced test completed: Grammar reference created but validation failed after ${result.attempts} attempts (${confidencePercent}% confidence)`, 'warning');
-                }
-
-                // Показываем детали валидации
-                if (result.validationDetails) {
-                    const validationSummary = result.validationDetails.validations.map(v => 
-                        `${v.validatorType}: ${v.isValid ? '✅' : '❌'} (${Math.round(v.confidence * 100)}%)`
-                    ).join(', ');
-                    
-                    console.log('Validation details:', validationSummary);
-                    console.log('Generated linguistic info:', result.linguisticInfo);
-                    
-                    showError(`Validators: ${validationSummary}`, 'info');
-                }
-            } else {
-                showError(`❌ Enhanced test failed: Could not generate grammar reference after ${result.attempts} attempts`, 'error');
-            }
-        } catch (error) {
-            console.error('Enhanced test error:', error);
-            showError('❌ Enhanced test failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
-        }
-    };
-
-    // Тестовая функция для проверки конкретной проблемы со словом "заслуги"
-    const testSpecificProblem = async () => {
-        if (!apiKey) {
-            showError('API key is required for testing', 'error');
-            return;
-        }
-
-        // Тест со словом "заслуги" которое пользователь указал как проблемное
-        const testText = "заслуги";
-
-        console.log('Testing specific problem with "заслуги"...');
-        showError('🎯 Testing specific problem with "заслуги"...', 'info');
-
-        try {
-            // Сначала протестируем стандартную систему
-            console.log('Testing with standard validation...');
-            const standardResult = await createValidatedLinguisticInfo(
-                aiService,
-                apiKey,
-                testText,
-                'ru', 
-                'ru', 
-                3
-            );
-
-            console.log('Standard result:', standardResult.linguisticInfo);
-
-            // Затем протестируем улучшенную систему
-            console.log('Testing with enhanced validation...');
-            const enhancedResult = await createValidatedLinguisticInfoEnhanced(
-                aiService,
-                apiKey,
-                testText,
-                'ru', 
-                'ru', 
-                3, 
-                true
-            );
-
-            console.log('Enhanced result:', enhancedResult);
-
-            // Покажем сравнение
-            if (standardResult.linguisticInfo && enhancedResult.linguisticInfo) {
-                // Анализируем результаты
-                const standardHasGenderError = standardResult.linguisticInfo.toLowerCase().includes('мужской') || 
-                                               standardResult.linguisticInfo.toLowerCase().includes('женский') ||
-                                               standardResult.linguisticInfo.toLowerCase().includes('средний') ||
-                                               standardResult.linguisticInfo.toLowerCase().includes('masculine') ||
-                                               standardResult.linguisticInfo.toLowerCase().includes('feminine');
-                
-                const enhancedHasGenderError = enhancedResult.linguisticInfo.toLowerCase().includes('мужской') || 
-                                               enhancedResult.linguisticInfo.toLowerCase().includes('женский') ||
-                                               enhancedResult.linguisticInfo.toLowerCase().includes('средний') ||
-                                               enhancedResult.linguisticInfo.toLowerCase().includes('masculine') ||
-                                               enhancedResult.linguisticInfo.toLowerCase().includes('feminine');
-
-                const hasNumber = enhancedResult.linguisticInfo.toLowerCase().includes('множественное') ||
-                                  enhancedResult.linguisticInfo.toLowerCase().includes('plural');
-
-                if (!enhancedHasGenderError && hasNumber && 'confidence' in enhancedResult) {
-                    const confidencePercent = Math.round((enhancedResult.confidence || 0) * 100);
-                    showError(`✅ SUCCESS! Enhanced system fixed the gender error (confidence: ${confidencePercent}%)`, 'success');
-                    
-                    if (enhancedResult.validationDetails) {
-                        const validationSummary = enhancedResult.validationDetails.validations.map(v => 
-                            `${v.validatorType}: ${v.isValid ? '✅' : '❌'}`
-                        ).join(', ');
-                        showError(`Validators: ${validationSummary}`, 'info');
-                    }
-                } else if (enhancedHasGenderError) {
-                    showError(`⚠️ Enhanced system still has gender error - need more improvements`, 'warning');
-                } else {
-                    showError(`🔄 Enhanced system improved but may need fine-tuning`, 'info');
-                }
-
-                console.log('=== COMPARISON ===');
-                console.log('Standard result:');
-                console.log(standardResult.linguisticInfo);
-                console.log('Enhanced result:');
-                console.log(enhancedResult.linguisticInfo);
-                console.log('=================');
-
-            } else {
-                showError(`❌ Test failed: Could not generate results`, 'error');
-            }
-
-        } catch (error) {
-            console.error('Test error:', error);
-            showError('❌ Test failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
-        }
-    };
+    // Removed test functions to simplify interface
 
     // Handler для обновления лингвистической информации
     const handleLinguisticInfoUpdate = (newInfo: string) => {
@@ -5006,7 +4853,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setIsAutoDetectLanguage(false);
         }
 
-    }, [updateSourceLanguage]);
+    }, []);
 
     // AI-powered функция для получения названия языка
     const getLanguageNameFromAI = useCallback(async (languageCode: string): Promise<string> => {
@@ -5111,6 +4958,329 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         }
     };
 
+    // Function to generate general cards
+    const generateGeneralCard = useCallback(async (template: GeneralCardTemplate, inputText: string, customPrompt?: string) => {
+        if (!inputText.trim()) {
+            showError('Please enter some text to create a card from', 'error');
+            return;
+        }
+
+        // Using unified loadingGetResult instead of separate isGeneratingGeneralCard
+        
+        try {
+            const finalPrompt = customPrompt || template.prompt;
+            const fullPrompt = `${finalPrompt}\n\nText: "${inputText}"\n\nProvide a clear, educational response that would work well as flashcard content. Be concise but informative.`;
+            
+            // Use the AI service to generate the card content
+            const response = await aiService.translateText(fullPrompt, 'en');
+            
+            if (!response) {
+                throw new Error('Failed to generate card content');
+            }
+
+            // Parse the response for Q&A format
+            let front = template.name;
+            let back = response;
+            
+            if (template.id === 'qa' && response.includes('Q:') && response.includes('A:')) {
+                const qIndex = response.indexOf('Q:');
+                const aIndex = response.indexOf('A:');
+                if (qIndex !== -1 && aIndex !== -1 && aIndex > qIndex) {
+                    front = response.substring(qIndex + 2, aIndex).trim();
+                    back = response.substring(aIndex + 2).trim();
+                }
+            } else if (template.id === 'definition') {
+                // For definitions, try to extract the term as front
+                const lines = response.split('\n').filter(line => line.trim());
+                if (lines.length > 0) {
+                    // Look for a pattern like "Term: definition" or just use first line as term
+                    const firstLine = lines[0];
+                    if (firstLine.includes(':')) {
+                        const parts = firstLine.split(':');
+                        front = parts[0].trim();
+                        back = parts.slice(1).join(':').trim();
+                        if (lines.length > 1) {
+                            back += '\n' + lines.slice(1).join('\n');
+                        }
+                    } else {
+                        // Extract key terms from the original text
+                        const words = inputText.split(' ').filter(word => word.length > 3);
+                        front = words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
+                        back = response;
+                    }
+                }
+            } else {
+                // For other types, use template name + excerpt as front
+                const excerpt = inputText.length > 50 ? inputText.substring(0, 50) + '...' : inputText;
+                front = `${template.name}: ${excerpt}`;
+                back = response;
+            }
+
+            // Generate image if enabled
+            let imageData = null;
+            if (shouldGenerateImage && imageGenerationMode !== 'off' && isImageGenerationAvailable()) {
+                try {
+                    const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions);
+                    if (imageDescription) {
+                        const imageUrl = await aiService.getImageUrl?.(apiKey, imageDescription);
+                        if (imageUrl) {
+                            imageData = imageUrl;
+                        }
+                    }
+                } catch (imageError) {
+                    console.warn('Failed to generate image:', imageError);
+                    // Continue without image
+                }
+            }
+
+            // Update Redux state
+            dispatch(setFront(front));
+            dispatch(setBack(back));
+            dispatch(setText(inputText));
+            if (imageData) {
+                dispatch(setImageUrl(imageData));
+            }
+            
+            setShowResult(true);
+            
+        } catch (error) {
+            console.error('Error generating general card:', error);
+            showError(`Failed to generate card: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        } finally {
+            // Using unified loadingGetResult instead of separate isGeneratingGeneralCard
+        }
+    }, [aiService, showError, dispatch, shouldGenerateImage, imageGenerationMode, isImageGenerationAvailable, imageInstructions]);
+
+    // Function to handle template selection
+    const handleTemplateSelect = useCallback((template: GeneralCardTemplate) => {
+        setSelectedTemplate(template);
+        if (text.trim()) {
+            generateGeneralCard(template, text);
+        }
+        setShowTemplateModal(false);
+    }, [text, generateGeneralCard]);
+
+    // Function to handle custom prompt submission
+    const handleCustomPromptSubmit = useCallback(async () => {
+        if (!customPrompt.trim() || !text.trim()) {
+            showError('Please enter both text and a custom prompt', 'error');
+            return;
+        }
+
+        const customTemplate: GeneralCardTemplate = {
+            id: 'custom',
+            name: 'Custom',
+            description: 'Custom prompt',
+            icon: '⚡',
+            prompt: customPrompt
+        };
+
+        await generateGeneralCard(customTemplate, text, customPrompt);
+        setCustomPrompt('');
+    }, [customPrompt, text, generateGeneralCard, showError]);
+
+    // Function to handle AI agent card creation
+    const handleCreateAICards = useCallback(async () => {
+        if (!text.trim()) {
+            showError('Please enter or select text to create cards', 'error');
+            return;
+        }
+
+        // Create new AbortController for this generation
+        abortControllerRef.current = new AbortController();
+        const abortSignal = abortControllerRef.current.signal;
+
+        setLoadingGetResult(true);
+
+        try {
+            // Check if cancelled before starting
+            if (abortSignal.aborted) {
+                throw new Error('Generation cancelled by user');
+            }
+
+            // Создаем AI Agent Service
+            const aiAgentService = createAIAgentService(aiService, apiKey);
+            
+            // Используем AI-агенты для создания карточек
+            const createdCards = await aiAgentService.createCardsFromText(text, abortSignal);
+            
+            // Check if cancelled after creation
+            if (abortSignal.aborted) {
+                console.log('AI card creation was cancelled by user');
+                return;
+            }
+            
+            console.log(`🎉 AI Agents created ${createdCards.length} cards successfully`);
+            
+            // НЕ сохраняем карточки автоматически, а показываем предварительный просмотр
+            setPreviewCards(createdCards);
+            setCurrentPreviewIndex(0);
+            setShowPreview(true);
+            
+            // Удалили навязчивое success уведомление
+            
+        } catch (error) {
+            if (abortSignal.aborted) {
+                console.log('AI card creation was cancelled by user');
+                return;
+            }
+            console.error('❌ Error in AI agent card creation:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            showError(`Card creation error: ${errorMessage}`, 'error');
+        } finally {
+            setLoadingGetResult(false);
+            abortControllerRef.current = null;
+        }
+    }, [text, aiService, apiKey, showError]);
+
+    // Functions for preview management
+    const handleAcceptPreviewCards = async () => {
+        setLoadingAccept(true);
+        try {
+            // Сохраняем все карточки в Redux store
+            for (const card of previewCards) {
+                dispatch(saveCardToStorage(card));
+            }
+            
+            // Закрываем предварительный просмотр
+            setShowPreview(false);
+            setPreviewCards([]);
+            setCurrentPreviewIndex(0);
+            
+            // Удалили навязчивое success уведомление
+            
+            // Очищаем форму
+            dispatch(setText(''));
+            
+        } catch (error) {
+            console.error('Error saving preview cards:', error);
+            showError('Error saving cards', 'error');
+        } finally {
+            setLoadingAccept(false);
+        }
+    };
+
+    const handleRejectPreviewCards = () => {
+        setShowPreview(false);
+        setPreviewCards([]);
+        setCurrentPreviewIndex(0);
+        setSavedCardIndices(new Set());
+        setRecreateComments('');
+        // showError('Cards rejected', 'info'); // Убрали уведомление об отмене
+    };
+
+    const handleRecreateCards = async () => {
+        setShowPreview(false);
+        setPreviewCards([]);
+        setCurrentPreviewIndex(0);
+        setSavedCardIndices(new Set());
+        setRecreateComments('');
+        // Запускаем процесс создания карточек заново
+        await handleCreateAICards();
+    };
+
+    // New function to save current single card
+    const handleSaveCurrentCard = async () => {
+        setLoadingAccept(true);
+        try {
+            const currentCard = previewCards[currentPreviewIndex];
+            if (!currentCard) {
+                showError('No card to save', 'error');
+                return;
+            }
+
+            // Save the current card to Redux store
+            dispatch(saveCardToStorage(currentCard));
+            
+            // Mark this card as saved
+            setSavedCardIndices(prev => new Set(prev).add(currentPreviewIndex));
+            
+            // Удалили навязчивое success уведомление
+            
+        } catch (error) {
+            console.error('Error saving current card:', error);
+            showError('Error saving card', 'error');
+        } finally {
+            setLoadingAccept(false);
+        }
+    };
+
+    // New function to recreate only current card
+    const handleRecreateCurrentCard = () => {
+        setShowRecreateModal(true);
+        setRecreateComments('');
+    };
+
+    // Function to handle single card recreation with comments
+    const handleConfirmRecreateCard = async () => {
+        setShowRecreateModal(false);
+        setLoadingAccept(true);
+        
+        try {
+            const currentCard = previewCards[currentPreviewIndex];
+            if (!currentCard) {
+                showError('No card to recreate', 'error');
+                return;
+            }
+
+            // Create AI Agent Service
+            const aiAgentService = createAIAgentService(aiService, apiKey);
+            
+            // Prepare recreation prompt with user comments
+            let recreationPrompt = `Please recreate this card with improvements. Original card:
+Question: ${currentCard.front}
+Answer: ${currentCard.back}
+Original text: ${text}`;
+
+            if (recreateComments.trim()) {
+                recreationPrompt += `\n\nUser feedback: ${recreateComments.trim()}`;
+            }
+            
+            recreationPrompt += `\n\nPlease create an improved version based on the feedback.`;
+
+            // Recreate single card
+            const recreatedCards = await aiAgentService.createCardsFromText(recreationPrompt);
+            
+            if (recreatedCards.length > 0) {
+                // Replace the current card with the recreated one
+                const newPreviewCards = [...previewCards];
+                newPreviewCards[currentPreviewIndex] = recreatedCards[0];
+                setPreviewCards(newPreviewCards);
+                
+                // Remove saved status for this card since it's been recreated
+                setSavedCardIndices(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(currentPreviewIndex);
+                    return newSet;
+                });
+                
+                // Удалили навязчивое success уведомление
+            } else {
+                showError('Failed to recreate card', 'error');
+            }
+            
+        } catch (error) {
+            console.error('Error recreating card:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            showError(`Card recreation error: ${errorMessage}`, 'error');
+        } finally {
+            setLoadingAccept(false);
+            setRecreateComments('');
+        }
+    };
+
+    const nextPreviewCard = () => {
+        if (currentPreviewIndex < previewCards.length - 1) {
+            setCurrentPreviewIndex(currentPreviewIndex + 1);
+        }
+    };
+
+    const prevPreviewCard = () => {
+        if (currentPreviewIndex > 0) {
+            setCurrentPreviewIndex(currentPreviewIndex - 1);
+        }
+    };
+
     const isGeneratingCard = useSelector((state: RootState) => state.cards.isGeneratingCard);
 
     return (
@@ -5138,7 +5308,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     gap: '20px',
                     padding: '0 20px'
                 }}>
-                    <Loader type="spinner" size="large" color="#3B82F6" text="Creating your Anki card..." />
+                    <Loader type="spinner" size="large" color="#3B82F6" 
+                        text={mode === Modes.GeneralTopic ? "Creating cards with AI agents..." : "Creating your Anki card..."} />
                     <div style={{
                         backgroundColor: '#F3F4F6',
                         padding: '10px 16px',
@@ -5149,9 +5320,11 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         textAlign: 'center',
                         boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                     }}>
-                        {isMultipleCards
-                            ? "We're creating multiple cards from your selected options..."
-                            : "We're analyzing your text and generating learning materials"}
+                        {mode === Modes.GeneralTopic
+                            ? "🤖 Text Analysis → 🔍 Card Creation → ✅ Quality Validation"
+                            : isMultipleCards
+                                ? "We're creating multiple cards from your selected options..."
+                                : "We're analyzing your text and generating learning materials"}
                     </div>
                     
                     {/* Cancel button in the loader */}
@@ -5204,7 +5377,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     gap: '20px',
                     padding: '0 20px'
                 }}>
-                    <Loader type="pulse" size="medium" color="#3B82F6" text="Analyzing selected text..." />
+                    <Loader type="spinner" size="large" color="#3B82F6" text="Analyzing selected text..." />
                     
                     {/* Cancel button in the text analysis loader */}
                     <button
@@ -5262,6 +5435,73 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     width: '100%',
                     maxWidth: '320px'
                 }}>
+                    {/* Mode Toggle */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        width: '100%',
+                        padding: '12px',
+                        backgroundColor: '#F8FAFC',
+                        border: '1px solid #E2E8F0',
+                        borderRadius: '8px',
+                        marginBottom: '8px'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            color: mode === Modes.LanguageLearning ? '#3B82F6' : '#6B7280',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            transition: 'color 0.2s ease'
+                        }}>
+                            <FaGraduationCap />
+                            Language Learning
+                        </div>
+                        
+                        <button
+                            onClick={toggleMode}
+                            style={{
+                                position: 'relative',
+                                width: '48px',
+                                height: '24px',
+                                backgroundColor: mode === Modes.GeneralTopic ? '#3B82F6' : '#CBD5E1',
+                                borderRadius: '12px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.2s ease',
+                                outline: 'none'
+                            }}
+                            title={`Switch to ${mode === Modes.LanguageLearning ? 'General Cards' : 'Language Learning'}`}
+                        >
+                            <div style={{
+                                position: 'absolute',
+                                top: '2px',
+                                left: mode === Modes.GeneralTopic ? '26px' : '2px',
+                                width: '20px',
+                                height: '20px',
+                                backgroundColor: '#ffffff',
+                                borderRadius: '50%',
+                                transition: 'left 0.2s ease',
+                                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
+                            }} />
+                        </button>
+                        
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            color: mode === Modes.GeneralTopic ? '#3B82F6' : '#6B7280',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            transition: 'color 0.2s ease'
+                        }}>
+                            <FaBrain />
+                            General Cards
+                        </div>
+                    </div>
+
                     {mode === Modes.LanguageLearning && (
                         <div style={{
                             display: 'flex',
@@ -5420,37 +5660,210 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         </div>
                     )}
 
-                    {renderAISettings()}
-
-                    <form onSubmit={handleSubmit} style={{
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                        marginTop: '4px',
-                        marginBottom: '0'
-                    }}>
+                    {mode === Modes.GeneralTopic && (
                         <div style={{
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: '4px',
-                            width: '100%'
+                            gap: '12px',
+                            padding: '16px',
+                            backgroundColor: '#F8FAFC',
+                            borderRadius: '8px',
+                            border: '1px solid #E2E8F0'
                         }}>
-                            <label htmlFor="text" style={{
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                marginBottom: '8px'
+                            }}>
+                                <FaRobot style={{ color: '#6366F1' }} />
+                                <h4 style={{
+                                    fontSize: '16px',
+                                    fontWeight: '600',
+                                    color: '#111827',
+                                    margin: 0
+                                }}>
+                                    AI Agent Card Creator
+                                </h4>
+                            </div>
+                            
+                            <p style={{
+                                fontSize: '14px',
+                                color: '#6B7280',
+                                margin: 0,
+                                lineHeight: '1.4'
+                            }}>
+                                Select text on any page and AI agents will automatically create optimal cards for learning. The system analyzes content and creates 1 to several cards with quality validation.
+                            </p>
+
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px 12px',
+                                backgroundColor: '#FEF3C7',
+                                borderRadius: '6px',
+                                border: '1px solid #F59E0B'
+                            }}>
+                                <FaLightbulb style={{ color: '#F59E0B' }} />
+                                <span style={{
+                                    fontSize: '12px',
+                                    color: '#92400E',
+                                    fontWeight: '500'
+                                }}>
+                                    AI analyzes text, creates cards and validates results
+                                </span>
+                            </div>
+
+                            {!loadingGetResult && (
+                                <button
+                                    onClick={handleCreateAICards}
+                                    disabled={!text.trim() || loadingGetResult}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '8px',
+                                        width: '100%',
+                                        padding: '8px 10px',
+                                        backgroundColor: text.trim() && !loadingGetResult ? '#2563EB' : '#E5E7EB',
+                                        color: text.trim() && !loadingGetResult ? '#ffffff' : '#9CA3AF',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        cursor: text.trim() && !loadingGetResult ? 'pointer' : 'not-allowed',
+                                        transition: 'all 0.2s ease',
+                                        marginTop: '4px',
+                                        opacity: loadingGetResult ? 0.7 : 1
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (text.trim() && !loadingGetResult) {
+                                            e.currentTarget.style.backgroundColor = '#1D4ED8';
+                                        }
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (text.trim() && !loadingGetResult) {
+                                            e.currentTarget.style.backgroundColor = '#2563EB';
+                                        }
+                                    }}
+                                >
+                                    {loadingGetResult ? (
+                                        <Loader type="spinner" size="small" inline color="#ffffff" />
+                                    ) : (
+                                        <FaRobot />
+                                    )}
+                                    Create Cards with AI
+                                </button>
+                            )}
+
+                            {/* Removed separate loader - now using unified loadingGetResult loader */}
+                        </div>
+                    )}
+
+                    {renderAISettings()}
+
+                    {/* Форма для ввода текста - показываем только в режиме Language Learning */}
+                    {mode === Modes.LanguageLearning && (
+                        <form onSubmit={handleSubmit} style={{
+                            width: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                            marginTop: '4px',
+                            marginBottom: '0'
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '4px',
+                                width: '100%'
+                            }}>
+                                <label htmlFor="text" style={{
+                                    color: '#111827',
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                }}>
+                                    Text:
+                                    {renderProviderBadge()}
+                                </label>
+                                <textarea
+                                    id="text"
+                                    value={text}
+                                    onChange={(e) => handleTextChange(e.target.value)}
+                                    placeholder="Enter text to translate or select text from a webpage"
+                                    style={{
+                                        width: '100%',
+                                        minHeight: '80px',
+                                        padding: '8px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #E5E7EB',
+                                        backgroundColor: '#ffffff',
+                                        color: '#374151',
+                                        fontSize: '14px',
+                                        resize: 'vertical',
+                                        outline: 'none',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                    onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+                                    onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={loadingGetResult}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 10px',
+                                    marginTop: '4px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#2563EB',
+                                    color: '#ffffff',
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    opacity: loadingGetResult ? 0.7 : 1
+                                }}
+                                onMouseOver={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#1D4ED8')}
+                                onMouseOut={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#2563EB')}
+                            >
+                                {loadingGetResult ?
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Loader type="spinner" size="small" inline color="#ffffff" text="Creating card" />
+                                    </div> : 'Create Card'}
+                            </button>
+                        </form>
+                    )}
+
+                    {/* Простое поле ввода для General Topic режима */}
+                    {mode === Modes.GeneralTopic && (
+                        <div style={{
+                            width: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                            marginTop: '4px'
+                        }}>
+                            <label htmlFor="general-text" style={{
                                 color: '#111827',
                                 fontWeight: '600',
                                 fontSize: '14px',
                                 display: 'flex',
                                 alignItems: 'center'
                             }}>
-                                Text:
+                                Text for Analysis:
                                 {renderProviderBadge()}
                             </label>
                             <textarea
-                                id="text"
+                                id="general-text"
                                 value={text}
                                 onChange={(e) => handleTextChange(e.target.value)}
-                                placeholder="Enter text to translate or select text from a webpage"
+                                placeholder="Enter or select text from the page to create cards"
                                 style={{
                                     width: '100%',
                                     minHeight: '80px',
@@ -5468,33 +5881,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                                 onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
                             />
                         </div>
-
-                        <button
-                            type="submit"
-                            disabled={loadingGetResult}
-                            style={{
-                                width: '100%',
-                                padding: '8px 10px',
-                                marginTop: '4px',
-                                borderRadius: '6px',
-                                backgroundColor: '#2563EB',
-                                color: '#ffffff',
-                                fontWeight: '600',
-                                fontSize: '14px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                opacity: loadingGetResult ? 0.7 : 1
-                            }}
-                            onMouseOver={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#1D4ED8')}
-                            onMouseOut={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#2563EB')}
-                        >
-                            {loadingGetResult ?
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Loader type="dots" size="small" inline color="#ffffff" text="Creating card" />
-                                </div> : 'Create Card'}
-                        </button>
-                    </form>
+                    )}
                 </div>
             </div>
 
@@ -5509,6 +5896,642 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
             {/* Не забываем добавить модальное окно для выбора языка в список отображаемых модальных окон */}
             {showLanguageSelector && renderLanguageSelector()}
+
+            {/* AI Cards Preview Modal - Matching Main Interface Style */}
+            {showPreview && previewCards.length > 0 && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                    zIndex: 9999,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px',
+                    animation: 'fadeIn 0.3s ease-out'
+                }}>
+                    <div style={{
+                        backgroundColor: '#ffffff',
+                        borderRadius: '8px',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                        maxWidth: '640px',
+                        width: '100%',
+                        maxHeight: '90vh',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        border: '1px solid #EAEAEA',
+                        animation: 'slideUp 0.4s ease-out'
+                    }}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px 24px 16px 24px',
+                            borderBottom: '1px solid #EAEAEA'
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                            }}>
+                                <div>
+                                    <h3 style={{
+                                        margin: 0,
+                                        fontSize: '18px',
+                                        fontWeight: '600',
+                                        color: '#000000',
+                                        letterSpacing: '-0.025em'
+                                    }}>
+                                        Review Cards
+                                    </h3>
+                                    <p style={{
+                                        margin: '4px 0 0 0',
+                                        fontSize: '14px',
+                                        color: '#666666',
+                                        fontWeight: '400'
+                                    }}>
+                                        {previewCards.length} cards generated by AI
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleRejectPreviewCards}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        fontSize: '16px',
+                                        color: '#999999',
+                                        cursor: 'pointer',
+                                        padding: '6px',
+                                        borderRadius: '4px',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                    onMouseOver={(e) => {
+                                        e.currentTarget.style.backgroundColor = '#F5F5F5';
+                                        e.currentTarget.style.color = '#666666';
+                                    }}
+                                    onMouseOut={(e) => {
+                                        e.currentTarget.style.backgroundColor = 'transparent';
+                                        e.currentTarget.style.color = '#999999';
+                                    }}
+                                >
+                                    <FaTimes />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Navigation bar */}
+                        {previewCards.length > 1 && (
+                            <div style={{
+                                padding: '12px 24px',
+                                backgroundColor: '#FAFAFA',
+                                borderBottom: '1px solid #EAEAEA',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px'
+                                }}>
+                                    <button
+                                        onClick={prevPreviewCard}
+                                        disabled={currentPreviewIndex === 0}
+                                        style={{
+                                            backgroundColor: 'transparent',
+                                            color: currentPreviewIndex === 0 ? '#CCCCCC' : '#666666',
+                                            border: `1px solid ${currentPreviewIndex === 0 ? '#EAEAEA' : '#DDDDD'}`,
+                                            borderRadius: '6px',
+                                            padding: '6px 10px',
+                                            fontSize: '13px',
+                                            fontWeight: '500',
+                                            cursor: currentPreviewIndex === 0 ? 'not-allowed' : 'pointer',
+                                            transition: 'all 0.15s ease',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}
+                                        onMouseOver={(e) => {
+                                            if (currentPreviewIndex !== 0) {
+                                                e.currentTarget.style.borderColor = '#999999';
+                                                e.currentTarget.style.color = '#333333';
+                                            }
+                                        }}
+                                        onMouseOut={(e) => {
+                                            if (currentPreviewIndex !== 0) {
+                                                e.currentTarget.style.borderColor = '#DDDDDD';
+                                                e.currentTarget.style.color = '#666666';
+                                            }
+                                        }}
+                                    >
+                                        ←
+                                    </button>
+                                    
+                                    <div style={{
+                                        fontSize: '13px',
+                                        color: '#666666',
+                                        fontWeight: '500',
+                                        padding: '0 8px'
+                                    }}>
+                                        {currentPreviewIndex + 1} of {previewCards.length}
+                                    </div>
+                                    
+                                    <button
+                                        onClick={nextPreviewCard}
+                                        disabled={currentPreviewIndex === previewCards.length - 1}
+                                        style={{
+                                            backgroundColor: 'transparent',
+                                            color: currentPreviewIndex === previewCards.length - 1 ? '#CCCCCC' : '#666666',
+                                            border: `1px solid ${currentPreviewIndex === previewCards.length - 1 ? '#EAEAEA' : '#DDDDDD'}`,
+                                            borderRadius: '6px',
+                                            padding: '6px 10px',
+                                            fontSize: '13px',
+                                            fontWeight: '500',
+                                            cursor: currentPreviewIndex === previewCards.length - 1 ? 'not-allowed' : 'pointer',
+                                            transition: 'all 0.15s ease',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}
+                                        onMouseOver={(e) => {
+                                            if (currentPreviewIndex !== previewCards.length - 1) {
+                                                e.currentTarget.style.borderColor = '#999999';
+                                                e.currentTarget.style.color = '#333333';
+                                            }
+                                        }}
+                                        onMouseOut={(e) => {
+                                            if (currentPreviewIndex !== previewCards.length - 1) {
+                                                e.currentTarget.style.borderColor = '#DDDDDD';
+                                                e.currentTarget.style.color = '#666666';
+                                            }
+                                        }}
+                                    >
+                                        →
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Content - Using unified ResultDisplay style */}
+                        <div style={{
+                            flex: 1,
+                            overflow: 'auto',
+                            padding: '16px',
+                            backgroundColor: '#ffffff'
+                        }}>
+                            {/* Current Card Display using ResultDisplay component style */}
+                            {previewCards[currentPreviewIndex] && (
+                                <div style={{ animation: 'slideIn 0.3s ease-out' }}>
+                                    <ResultDisplay
+                                        front={previewCards[currentPreviewIndex].front || null}
+                                        back={previewCards[currentPreviewIndex].back || null}
+                                        translation={null}
+                                        examples={[]}
+                                        imageUrl={null}
+                                        image={null}
+                                        linguisticInfo=""
+                                        transcription={null}
+                                        onNewImage={() => {}}
+                                        onNewExamples={() => {}}
+                                        onAccept={handleSaveCurrentCard}
+                                        onViewSavedCards={() => {}}
+                                        loadingNewImage={false}
+                                        loadingNewExamples={false}
+                                        loadingAccept={loadingAccept}
+                                        mode={Modes.GeneralTopic}
+                                        shouldGenerateImage={false}
+                                        isSaved={savedCardIndices.has(currentPreviewIndex)}
+                                        isEdited={false}
+                                        isGeneratingCard={false}
+                                        hideActionButtons={true}
+                                        setBack={(newBack) => {
+                                            const newPreviewCards = [...previewCards];
+                                            newPreviewCards[currentPreviewIndex] = {
+                                                ...newPreviewCards[currentPreviewIndex],
+                                                back: newBack
+                                            };
+                                            setPreviewCards(newPreviewCards);
+                                        }}
+                                    />
+                                    
+                                    {/* Removed unnecessary card metadata - cleaner interface */}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer with action buttons - Vercel style */}
+                        <div style={{
+                            padding: '16px 20px',
+                            borderTop: '1px solid #EAEAEA',
+                            backgroundColor: '#FAFAFA',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '12px'
+                        }}>
+                            {/* Top row - individual card actions */}
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}>
+                                <button
+                                    onClick={handleSaveCurrentCard}
+                                    disabled={loadingAccept || savedCardIndices.has(currentPreviewIndex)}
+                                    style={{
+                                        backgroundColor: savedCardIndices.has(currentPreviewIndex) ? '#10B981' : '#ffffff',
+                                        color: savedCardIndices.has(currentPreviewIndex) ? '#ffffff' : '#374151',
+                                        border: `1px solid ${savedCardIndices.has(currentPreviewIndex) ? '#10B981' : '#D1D5DB'}`,
+                                        borderRadius: '6px',
+                                        padding: '8px 16px',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        cursor: (loadingAccept || savedCardIndices.has(currentPreviewIndex)) ? 'not-allowed' : 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        minWidth: '100px',
+                                        justifyContent: 'center',
+                                        boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                                        opacity: (loadingAccept || savedCardIndices.has(currentPreviewIndex)) ? 0.7 : 1
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (!loadingAccept && !savedCardIndices.has(currentPreviewIndex)) {
+                                            e.currentTarget.style.borderColor = '#9CA3AF';
+                                            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+                                        }
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (!loadingAccept && !savedCardIndices.has(currentPreviewIndex)) {
+                                            e.currentTarget.style.borderColor = '#D1D5DB';
+                                            e.currentTarget.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                                        }
+                                    }}
+                                >
+                                    {savedCardIndices.has(currentPreviewIndex) ? (
+                                        <>
+                                            <FaCheck size={14} />
+                                            Saved
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FaSave size={14} />
+                                            Save
+                                        </>
+                                    )}
+                                </button>
+
+                                <button
+                                    onClick={handleRecreateCurrentCard}
+                                    disabled={loadingAccept}
+                                    style={{
+                                        backgroundColor: '#ffffff',
+                                        color: '#F59E0B',
+                                        border: '1px solid #F59E0B',
+                                        borderRadius: '6px',
+                                        padding: '8px 16px',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        cursor: loadingAccept ? 'not-allowed' : 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        minWidth: '100px',
+                                        justifyContent: 'center',
+                                        boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                                        opacity: loadingAccept ? 0.7 : 1
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (!loadingAccept) {
+                                            e.currentTarget.style.backgroundColor = '#F59E0B';
+                                            e.currentTarget.style.color = '#ffffff';
+                                            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+                                        }
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (!loadingAccept) {
+                                            e.currentTarget.style.backgroundColor = '#ffffff';
+                                            e.currentTarget.style.color = '#F59E0B';
+                                            e.currentTarget.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                                        }
+                                    }}
+                                >
+                                    <FaEdit size={14} />
+                                    Improve
+                                </button>
+                            </div>
+
+                            {/* Bottom row - main actions */}
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}>
+                                <button
+                                    onClick={handleRejectPreviewCards}
+                                    disabled={loadingAccept}
+                                    style={{
+                                        backgroundColor: '#ffffff',
+                                        color: '#6B7280',
+                                        border: '1px solid #D1D5DB',
+                                        borderRadius: '6px',
+                                        padding: '8px 16px',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        cursor: loadingAccept ? 'not-allowed' : 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        minWidth: '100px',
+                                        boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                                        opacity: loadingAccept ? 0.7 : 1
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (!loadingAccept) {
+                                            e.currentTarget.style.backgroundColor = '#F3F4F6';
+                                            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+                                        }
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (!loadingAccept) {
+                                            e.currentTarget.style.backgroundColor = '#ffffff';
+                                            e.currentTarget.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                                        }
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+
+                                <button
+                                    onClick={handleAcceptPreviewCards}
+                                    disabled={loadingAccept}
+                                    style={{
+                                        backgroundColor: loadingAccept ? '#9CA3AF' : '#3B82F6',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        padding: '8px 20px',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        cursor: loadingAccept ? 'not-allowed' : 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        minWidth: '140px',
+                                        justifyContent: 'center',
+                                        boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.3)',
+                                        opacity: loadingAccept ? 0.7 : 1
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (!loadingAccept) {
+                                            e.currentTarget.style.backgroundColor = '#2563EB';
+                                            e.currentTarget.style.boxShadow = '0 6px 10px -1px rgba(59, 130, 246, 0.4)';
+                                            e.currentTarget.style.transform = 'translateY(-1px)';
+                                        }
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (!loadingAccept) {
+                                            e.currentTarget.style.backgroundColor = '#3B82F6';
+                                            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(59, 130, 246, 0.3)';
+                                            e.currentTarget.style.transform = 'translateY(0)';
+                                        }
+                                    }}
+                                >
+                                    {loadingAccept ? (
+                                        <>
+                                            <Loader type="spinner" size="small" inline color="#ffffff" />
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FaCheck size={14} />
+                                            Save All ({previewCards.length})
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Recreate Card Modal */}
+            {showRecreateModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    zIndex: 10000,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px'
+                }}>
+                    <div style={{
+                        backgroundColor: '#ffffff',
+                        borderRadius: '8px',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                        maxWidth: '520px',
+                        width: '100%',
+                        maxHeight: '80vh',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        border: '1px solid #EAEAEA'
+                    }}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px 24px 16px 24px',
+                            borderBottom: '1px solid #EAEAEA'
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                            }}>
+                                <div>
+                                    <h3 style={{
+                                        margin: 0,
+                                        fontSize: '18px',
+                                        fontWeight: '600',
+                                        color: '#000000',
+                                        letterSpacing: '-0.025em'
+                                    }}>
+                                        Improve Card
+                                    </h3>
+                                    <p style={{
+                                        margin: '4px 0 0 0',
+                                        fontSize: '14px',
+                                        color: '#666666',
+                                        fontWeight: '400'
+                                    }}>
+                                        Provide feedback to create a better version
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setShowRecreateModal(false)}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        fontSize: '16px',
+                                        color: '#999999',
+                                        cursor: 'pointer',
+                                        padding: '6px',
+                                        borderRadius: '4px',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                    onMouseOver={(e) => {
+                                        e.currentTarget.style.backgroundColor = '#F5F5F5';
+                                        e.currentTarget.style.color = '#666666';
+                                    }}
+                                    onMouseOut={(e) => {
+                                        e.currentTarget.style.backgroundColor = 'transparent';
+                                        e.currentTarget.style.color = '#999999';
+                                    }}
+                                >
+                                    <FaTimes />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{
+                            padding: '24px',
+                            flex: 1,
+                            overflow: 'auto'
+                        }}>
+                            <textarea
+                                value={recreateComments}
+                                onChange={(e) => setRecreateComments(e.target.value)}
+                                placeholder="Example: Make the question more specific, simplify the answer, add more context, focus on practical examples..."
+                                style={{
+                                    width: '100%',
+                                    minHeight: '140px',
+                                    padding: '16px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #EAEAEA',
+                                    backgroundColor: '#FAFAFA',
+                                    fontSize: '14px',
+                                    lineHeight: '1.6',
+                                    resize: 'vertical',
+                                    fontFamily: 'inherit',
+                                    outline: 'none',
+                                    transition: 'all 0.15s ease'
+                                }}
+                                onFocus={(e) => {
+                                    e.currentTarget.style.borderColor = '#0070F3';
+                                    e.currentTarget.style.backgroundColor = '#ffffff';
+                                }}
+                                onBlur={(e) => {
+                                    e.currentTarget.style.borderColor = '#EAEAEA';
+                                    e.currentTarget.style.backgroundColor = '#FAFAFA';
+                                }}
+                            />
+                            
+                            <div style={{
+                                marginTop: '16px',
+                                padding: '12px 16px',
+                                backgroundColor: '#F9F9F9',
+                                borderRadius: '6px',
+                                border: '1px solid #EAEAEA'
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '8px',
+                                    fontSize: '13px',
+                                    color: '#666666',
+                                    lineHeight: '1.5'
+                                }}>
+                                    <FaLightbulb size={14} style={{ color: '#999999', marginTop: '1px' }} />
+                                    <span>Be specific about what you want to change for better results</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{
+                            padding: '20px 24px',
+                            borderTop: '1px solid #EAEAEA',
+                            backgroundColor: '#FAFAFA',
+                            display: 'flex',
+                            justifyContent: 'flex-end',
+                            gap: '8px'
+                        }}>
+                            <button
+                                onClick={() => setShowRecreateModal(false)}
+                                style={{
+                                    backgroundColor: 'transparent',
+                                    color: '#999999',
+                                    border: 'none',
+                                    padding: '8px 12px',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    borderRadius: '5px'
+                                }}
+                                onMouseOver={(e) => {
+                                    e.currentTarget.style.color = '#666666';
+                                    e.currentTarget.style.backgroundColor = '#F5F5F5';
+                                }}
+                                onMouseOut={(e) => {
+                                    e.currentTarget.style.color = '#999999';
+                                    e.currentTarget.style.backgroundColor = 'transparent';
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleConfirmRecreateCard}
+                                disabled={loadingAccept}
+                                style={{
+                                    backgroundColor: loadingAccept ? '#F5F5F5' : '#000000',
+                                    color: loadingAccept ? '#999999' : '#ffffff',
+                                    border: 'none',
+                                    borderRadius: '5px',
+                                    padding: '8px 16px',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    cursor: loadingAccept ? 'not-allowed' : 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    opacity: loadingAccept ? 0.6 : 1
+                                }}
+                                onMouseOver={(e) => {
+                                    if (!loadingAccept) {
+                                        e.currentTarget.style.backgroundColor = '#333333';
+                                    }
+                                }}
+                                onMouseOut={(e) => {
+                                    if (!loadingAccept) {
+                                        e.currentTarget.style.backgroundColor = '#000000';
+                                    }
+                                }}
+                            >
+                                {loadingAccept ? (
+                                    <>
+                                        <Loader type="spinner" size="small" inline color="#999999" />
+                                        Improving...
+                                    </>
+                                ) : (
+                                    <>
+                                        <FaEdit size={11} />
+                                        Improve Card
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Error notifications displayed as toast notifications */}
             <div style={{
