@@ -1409,15 +1409,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             completedOperations.image = true;
                             
                             if (imageGenerationMode === 'smart') {
-                                showError(`Image generated: ${analysisReason}`, 'info');
+                                // Skip showing notification about successful image generation
+                                // showError(`Image generated: ${analysisReason}`, 'info');
                             }
                         } else {
                             // Skip image for providers that don't support it
                             console.log('Image generation not supported for this provider');
                         }
                     } else if (imageGenerationMode === 'smart') {
-                        // Show why image wasn't generated in smart mode
-                        showError(`No image needed: ${analysisReason}`, 'info');
+                        // Skip showing notification for abstract concepts in smart mode
+                        // showError(`No image needed: ${analysisReason}`, 'info');
                     }
                 } catch (imageError) {
                     // Check if this is a quota error and stop immediately
