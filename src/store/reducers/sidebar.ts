@@ -23,7 +23,7 @@ interface SidebarState {
   // Состояние для каждой вкладки
   tabStates: { [tabId: number]: TabSidebarState };
   
-  // Настройки наследования
+  // Настройки наследования - всегда используем lastActive
   inheritanceSettings: {
     enabled: boolean; // включено ли наследование
     mode: 'global' | 'lastActive'; // режим наследования
@@ -38,7 +38,7 @@ const initialState: SidebarState = {
   tabStates: {},
   inheritanceSettings: {
     enabled: true,
-    mode: 'global' // по умолчанию наследуем от глобального состояния
+    mode: 'lastActive' // всегда наследуем от последней активной вкладки
   }
 };
 
@@ -50,26 +50,14 @@ const getTabState = (state: SidebarState, tabId: number): TabSidebarState => {
   };
 };
 
-// Помощник для получения состояния наследования
+// Помощник для получения состояния наследования - всегда от последней активной вкладки
 const getInheritedState = (state: SidebarState, tabId: number): boolean => {
-  if (!state.inheritanceSettings.enabled) {
-    return false; // по умолчанию закрыто, если наследование отключено
+  // Всегда наследуем от последней активной вкладки
+  if (state.globalState.lastActiveTabId && 
+      state.tabStates[state.globalState.lastActiveTabId]) {
+    return state.tabStates[state.globalState.lastActiveTabId].isVisible;
   }
-
-  switch (state.inheritanceSettings.mode) {
-    case 'global':
-      return state.globalState.isVisible;
-    
-    case 'lastActive':
-      if (state.globalState.lastActiveTabId && 
-          state.tabStates[state.globalState.lastActiveTabId]) {
-        return state.tabStates[state.globalState.lastActiveTabId].isVisible;
-      }
-      return state.globalState.isVisible;
-    
-    default:
-      return state.globalState.isVisible;
-  }
+  return state.globalState.isVisible;
 };
 
 const sidebarReducer = (

@@ -151,8 +151,7 @@ class SidebarStateManager {
   constructor() {
     this.storageKeys = {
       globalState: 'sidebar_global_state',
-      tabPrefix: 'sidebar_tab_',
-      settings: 'sidebar_inheritance_settings'
+      tabPrefix: 'sidebar_tab_'
     };
   }
 
@@ -161,17 +160,12 @@ class SidebarStateManager {
     return `${this.storageKeys.tabPrefix}${tabId}`;
   }
 
-  // Получить настройки наследования
+  // Получить настройки наследования - всегда используем lastActive режим
   async getInheritanceSettings() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get([this.storageKeys.settings], (result) => {
-        const defaultSettings = {
-          enabled: true,
-          mode: 'global' // 'global' или 'lastActive'
-        };
-        resolve(result[this.storageKeys.settings] || defaultSettings);
-      });
-    });
+    return {
+      enabled: true,
+      mode: 'lastActive'
+    };
   }
 
   // Получить глобальное состояние
@@ -217,52 +211,28 @@ class SidebarStateManager {
     });
   }
 
-  // Определить начальное состояние для новой вкладки с наследованием
+  // Определить начальное состояние для новой вкладки - всегда наследуем от последней активной
   async determineInitialState(tabId) {
-    const settings = await this.getInheritanceSettings();
-    
-    // Если наследование отключено, возвращаем закрытое состояние
-    if (!settings.enabled) {
-      return { isVisible: false, source: 'default' };
-    }
-
     const globalState = await this.getGlobalState();
     
-    switch (settings.mode) {
-      case 'global':
-        // Наследуем от глобального состояния
+    // Наследуем от последней активной вкладки
+    if (globalState.lastActiveTabId) {
+      const lastActiveState = await this.getTabState(globalState.lastActiveTabId);
+      if (lastActiveState) {
         return {
-          isVisible: globalState.isVisible,
-          source: 'global',
+          isVisible: lastActiveState.isVisible,
+          source: 'lastActive',
           inheritedFrom: globalState.lastActiveTabId
         };
-        
-      case 'lastActive':
-        // Наследуем от последней активной вкладки
-        if (globalState.lastActiveTabId) {
-          const lastActiveState = await this.getTabState(globalState.lastActiveTabId);
-          if (lastActiveState) {
-            return {
-              isVisible: lastActiveState.isVisible,
-              source: 'lastActive',
-              inheritedFrom: globalState.lastActiveTabId
-            };
-          }
-        }
-        // Фолбэк на глобальное состояние
-        return {
-          isVisible: globalState.isVisible,
-          source: 'global_fallback',
-          inheritedFrom: null
-        };
-        
-      default:
-        return {
-          isVisible: globalState.isVisible,
-          source: 'global',
-          inheritedFrom: globalState.lastActiveTabId
-        };
+      }
     }
+    
+    // Фолбэк на глобальное состояние
+    return {
+      isVisible: globalState.isVisible,
+      source: 'global_fallback',
+      inheritedFrom: null
+    };
   }
 
   // Переключить состояние сайдбара для вкладки
