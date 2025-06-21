@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 Улучшенная отладка изображений</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            background: #f8f9fa;
+            padding: 25px;
+            margin: 25px 0;
+            border-radius: 12px;
+            border: 2px solid #007acc;
+        }
+        .highlight {
+            background: yellow;
+            padding: 3px 6px;
+            font-weight: bold;
+            border-radius: 3px;
+        }
+        .image-container {
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .debug-info {
+            background: #e3f2fd;
+            padding: 20px;
+            margin: 15px 0;
+            border-left: 5px solid #1976d2;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            border-radius: 0 8px 8px 0;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 5px solid #ffc107;
+            color: #856404;
+        }
+        .success {
+            background: #d4edda;
+            border-left: 5px solid #28a745;
+            color: #155724;
+        }
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .image-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .step-counter {
+            background: #007acc;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 14px;
+            font-weight: bold;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Улучшенная отладка изображений в системе карточек</h1>
+    
+    <div class="debug-info warning">
+        <strong>⚠️ ВАЖНЫЕ ИНСТРУКЦИИ:</strong><br>
+        1. Откройте консоль разработчика (F12) ПЕРЕД началом теста<br>
+        2. Выделите ВЕСЬ текст с изображениями (Ctrl+A или мышкой)<br>
+        3. Создайте карточки через расширение<br>
+        4. Отследите все логи в порядке, указанном ниже<br>
+        5. Проверьте финальные карточки на наличие изображений
+    </div>
+
+    <div class="test-section">
+        <div class="step-counter">Тест 1</div>
+        <h2>📱 Простые изображения</h2>
+        
+        <p>Это тест для проверки <span class="highlight">базового функционала</span> добавления изображений к карточкам. Изображения должны автоматически обнаруживаться и добавляться.</p>
+        
+        <div class="image-grid">
+            <div class="image-item">
+                <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMTUwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iIzQyODVmNCIgcng9IjgiLz4KICA8dGV4dCB4PSI3NSIgeT0iNTUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtd2VpZ2h0PSJib2xkIj7QlNC40LDQs9GA0LDQvNC80LAsIDGwL3RleHQ+Cjwvc3ZnPg==" 
+                     alt="Диаграмма простого процесса" 
+                     width="150" height="100">
+                <p><small>Диаграмма 1 (150x100px)</small></p>
+            </div>
+            
+            <div class="image-item">
+                <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTgwIiBoZWlnaHQ9IjEyMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjEyMCIgZmlsbD0iIzI4YTc0NSIgcng9IjgiLz4KICA8dGV4dCB4PSI5MCIgeT0iNjUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtd2VpZ2h0PSJib2xkIj7QodGF0LXQvNCwsIDI8L3RleHQ+Cjwvc3ZnPg==" 
+                     alt="Схема сложной системы" 
+                     width="180" height="120">
+                <p><small>Схема 2 (180x120px)</small></p>
+            </div>
+        </div>
+        
+        <p>Эти изображения должны <strong>автоматически обнаруживаться</strong> системой и добавляться к карточкам, даже если не выделены специально.</p>
+    </div>
+
+    <div class="test-section">
+        <div class="step-counter">Тест 2</div>
+        <h2>📊 Образовательные диаграммы</h2>
+        
+        <p>Тестируем <span class="highlight">автоматическое обнаружение</span> образовательного контента с диаграммами и схемами.</p>
+        
+        <div class="image-container">
+            <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ3JhZCIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiM2MzY2ZjE7c3RvcC1vcGFjaXR5OjEiIC8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3R5bGU9InN0b3AtY29sb3I6Izk0YTNiODtzdG9wLW9wYWNpdHk6MSIgLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMjAwIiBmaWxsPSJ1cmwoI2dyYWQpIiByeD0iMTAiLz4KICA8Y2lyY2xlIGN4PSI3NSIgY3k9IjUwIiByPSIyMCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8Y2lyY2xlIGN4PSIyMjUiIGN5PSI1MCIgcj0iMjAiIGZpbGw9IiNmZmYiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPGNpcmNsZSBjeD0iMTUwIiBjeT0iMTUwIiByPSIyMCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8bGluZSB4MT0iOTUiIHkxPSI1MCIgeDI9IjIwNSIgeTI9IjUwIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz4KICA8bGluZSB4MT0iNzUiIHkxPSI3MCIgeDI9IjE1MCIgeTI9IjEzMCIgc3Ryb2tlPSIjMzMzIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8bGluZSB4MT0iMjI1IiB5MT0iNzAiIHgyPSIxNTAiIHkyPSIxMzAiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHRleHQgeD0iNzUiIHk9IjU1IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiMzMzMiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtd2VpZ2h0PSJib2xkIj5BPC90ZXh0PgogIDx0ZXh0IHg9IjIyNSIgeT0iNTUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMiIgZmlsbD0iIzMzMyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC13ZWlnaHQ9ImJvbGQiPkI8L3RleHQ+CiAgPHRleHQgeD0iMTUwIiB5PSIxNTUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMiIgZmlsbD0iIzMzMyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC13ZWlnaHQ9ImJvbGQiPkM8L3RleHQ+CiAgPHRleHQgeD0iMTUwIiB5PSIyNSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE2IiBmaWxsPSIjZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXdlaWdodD0iYm9sZCI+0KLRgNC10YPQs9C+0LvRjNC90LjQutCrPC90ZXh0Pgo8L3N2Zz4=" 
+                 alt="Диаграмма треугольника с точками A, B, C" 
+                 width="300" height="200">
+            <p><em>Сложная диаграмма (300x200px) - ОБЯЗАТЕЛЬНО должна попасть в карточку!</em></p>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <div class="step-counter">Тест 3</div>
+        <h2>🎯 Маленькие изображения</h2>
+        
+        <p>Проверяем работу с <span class="highlight">небольшими изображениями</span> (которые раньше игнорировались).</p>
+        
+        <div style="display: flex; gap: 15px; justify-content: center; align-items: center; margin: 20px 0;">
+            <div style="text-align: center;">
+                <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMjUiIGZpbGw9IiNmZjYzNDciIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHRleHQgeD0iMzAiIHk9IjM1IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtd2VpZ2h0PSJib2xkIj4xPC90ZXh0Pgo8L3N2Zz4=" 
+                     alt="Шаг 1 процесса" 
+                     width="60" height="60">
+                <p><small>60x60px</small></p>
+            </div>
+            
+            <span style="font-size: 24px; color: #007acc;">→</span>
+            
+            <div style="text-align: center;">
+                <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMjUiIGZpbGw9IiMyOGE3NDUiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHRleHQgeD0iMzAiIHk9IjM1IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtd2VpZ2h0PSJib2xkIj4yPC90ZXh0Pgo8L3N2Zz4=" 
+                     alt="Шаг 2 процесса" 
+                     width="60" height="60">
+                <p><small>60x60px</small></p>
+            </div>
+            
+            <span style="font-size: 24px; color: #007acc;">→</span>
+            
+            <div style="text-align: center;">
+                <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMjUiIGZpbGw9IiM2YzY2ZjEiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHRleHQgeD0iMzAiIHk9IjM1IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtd2VpZ2h0PSJib2xkIj4zPC90ZXh0Pgo8L3N2Zz4=" 
+                     alt="Шаг 3 процесса" 
+                     width="60" height="60">
+                <p><small>60x60px</small></p>
+            </div>
+        </div>
+        
+        <p>Эти изображения размером 60x60px должны теперь <strong>включаться</strong> в анализ (понизили порог с 50px до 30px).</p>
+    </div>
+
+    <div class="debug-info success">
+        <strong>✅ Ожидаемые результаты:</strong><br>
+        • Система должна найти 6 изображений на странице<br>
+        • Все изображения должны иметь relevanceScore > 0.1<br>
+        • Финальный результат: 6 изображений<br>
+        • CreateCard должен получить pageContext с 6 изображениями<br>
+        • aiAgentService должен получить 6 изображений<br>
+        • Минимум 1 изображение должно попасть в финальные карточки
+    </div>
+
+    <div class="debug-info">
+        <strong>🔍 Пошаговая диагностика в консоли:</strong><br><br>
+        
+        <strong>Шаг 1 - PageContentExtractor:</strong><br>
+        <code>🔍 Найдено 6 изображений на странице</code><br>
+        <code>🖼️ Изображение 0: ... willInclude: true</code><br>
+        <code>📊 Relevance calculation: ... finalScore: 0.X</code><br>
+        <code>🎯 Финальный результат: 6 изображений</code><br><br>
+        
+        <strong>Шаг 2 - CreateCard компонент:</strong><br>
+        <code>📄 Extracted page content: images: 6</code><br>
+        <code>🖼️ Изображение 0: ... isRelevant: true</code><br><br>
+        
+        <strong>Шаг 3 - aiAgentService:</strong><br>
+        <code>📋 Page context: 6 images, 0 formulas, 0 code blocks</code><br>
+        <code>🖼️ Selected images available: 6</code><br>
+        <code>🎨 Step 6: Applying multimedia to quality cards</code><br>
+        <code>✅ Total images attached to cards: X/6</code><br><br>
+        
+        <strong>Шаг 4 - Финальные карточки:</strong><br>
+        <code>🃏 Карточка 0: ... hasAttachedImages: true</code><br>
+        <code>🃏 Карточка 0: ... attachedImagesCount: X</code>
+    </div>
+
+    <div class="debug-info warning">
+        <strong>🚨 Что делать при проблемах:</strong><br><br>
+        
+        <strong>Если "Найдено 0 изображений":</strong><br>
+        → Проблема в PageContentExtractor.extractImages()<br>
+        → Изображения не распознаются как валидные<br><br>
+        
+        <strong>Если "Selected images available: 0":</strong><br>
+        → PageContentExtractor работает, но результат не передается<br>
+        → Проблема в CreateCard.tsx передаче pageContext<br><br>
+        
+        <strong>Если "Total images attached: 0/6":</strong><br>
+        → Изображения теряются в aiAgentService<br>
+        → Должна сработать аварийная логика<br><br>
+        
+        <strong>Если "hasAttachedImages: false":</strong><br>
+        → Изображения не попадают в финальные карточки<br>
+        → Критическая ошибка в convertToStoredCards()
+    </div>
+
+    <div class="test-section" style="background: #f0f8ff; border: 3px solid #007acc;">
+        <div class="step-counter">ТЕСТ</div>
+        <h2>🚀 Готовы начать тест?</h2>
+        
+        <p style="font-size: 18px; font-weight: bold; color: #007acc;">
+            1. Откройте консоль (F12)<br>
+            2. Выделите ВСЁ содержимое страницы (Ctrl+A)<br>
+            3. Создайте карточки через расширение<br>
+            4. Следите за логами в консоли<br>
+            5. Проверьте финальные карточки
+        </p>
+        
+        <div style="text-align: center; margin: 20px 0;">
+            <div style="background: #007acc; color: white; padding: 15px 30px; border-radius: 25px; display: inline-block; font-size: 16px; font-weight: bold;">
+                🎯 НАЧИНАЙТЕ ТЕСТ СЕЙЧАС!
+            </div>
+        </div>
+    </div>
+
+</body>
+</html> 

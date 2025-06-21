@@ -22,7 +22,8 @@ import Loader from './Loader';
 import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo, createValidatedLinguisticInfoEnhanced, createTranscription } from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
 import UniversalCardCreator from './UniversalCardCreator';
-import { createAIAgentService } from '../services/aiAgentService';
+import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
+import { PageContentExtractor } from '../services/pageContentExtractor';
 
 // Добавляем интерфейс для типов общих карточек
 interface GeneralCardTemplate {
@@ -5101,8 +5102,51 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             // Создаем AI Agent Service
             const aiAgentService = createAIAgentService(aiService, apiKey);
             
-            // Используем AI-агенты для создания карточек
-            const createdCards = await aiAgentService.createCardsFromText(text, abortSignal);
+            // Извлекаем контент страницы для анализа
+            let pageContext: PageContentContext | undefined;
+            
+            try {
+                // Пытаемся найти элемент с выделенным текстом
+                const selection = window.getSelection();
+                let selectionElement: Element | undefined;
+                
+                if (selection && selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE 
+                        ? range.commonAncestorContainer as Element
+                        : range.commonAncestorContainer.parentElement || undefined;
+                }
+                
+                // Извлекаем контент страницы асинхронно для загрузки внешних изображений
+                pageContext = await PageContentExtractor.extractPageContentAsync(text, selectionElement);
+                
+                console.log('📄 Extracted page content:', {
+                    images: pageContext.pageImages.length,
+                    formulas: pageContext.formulas.length,
+                    codeBlocks: pageContext.codeBlocks.length,
+                    links: pageContext.links.length,
+                    metadata: pageContext.metadata,
+                    selectedText: text.substring(0, 100) + '...'
+                });
+                
+                // Детальное логирование найденных изображений
+                pageContext.pageImages.forEach((img, index) => {
+                    console.log(`🖼️ Изображение ${index}:`, {
+                        src: img.src,
+                        alt: img.alt,
+                        relevanceScore: img.relevanceScore,
+                        isRelevant: img.relevanceScore > 0.3,
+                        hasBase64: !!img.base64
+                    });
+                });
+                
+            } catch (extractError) {
+                console.warn('Failed to extract page content, proceeding without multimedia:', extractError);
+                pageContext = undefined;
+            }
+
+            // Используем AI-агенты для создания карточек с поддержкой мультимедиа
+            const createdCards = await aiAgentService.createCardsFromText(text, pageContext, abortSignal);
             
             // Check if cancelled after creation
             if (abortSignal.aborted) {
@@ -5111,6 +5155,25 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             }
             
             console.log(`🎉 AI Agents created ${createdCards.length} cards successfully`);
+            
+            // Логируем финальные карточки для отладки
+            createdCards.forEach((card: any, index: number) => {
+                console.log(`🃏 Карточка ${index}:`, {
+                    front: card.front,
+                    backPreview: card.back.substring(0, 200) + '...',
+                    hasAttachedImages: !!card.attachedImages && card.attachedImages.length > 0,
+                    attachedImagesCount: card.attachedImages?.length || 0,
+                    multimedia: card.multimedia,
+                    hasImageInBack: card.back.includes('[IMAGE:') || card.back.includes('!['),
+                    hasFormulaInBack: card.back.includes('[FORMULA:') || card.back.includes('$$'),
+                    hasCodeInBack: card.back.includes('[CODE:') || card.back.includes('```')
+                });
+                
+                // Показываем полный back для первой карточки
+                if (index === 0) {
+                    console.log(`🃏 Полный back карточки 0:`, card.back);
+                }
+            });
             
             // НЕ сохраняем карточки автоматически, а показываем предварительный просмотр
             setPreviewCards(createdCards);
@@ -5238,8 +5301,27 @@ Original text: ${text}`;
             
             recreationPrompt += `\n\nPlease create an improved version based on the feedback.`;
 
+            // Извлекаем контент страницы для анализа (если возможно)
+            let pageContext: PageContentContext | undefined;
+            try {
+                const selection = window.getSelection();
+                let selectionElement: Element | undefined;
+                
+                if (selection && selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE 
+                        ? range.commonAncestorContainer as Element
+                        : range.commonAncestorContainer.parentElement || undefined;
+                }
+                
+                pageContext = await PageContentExtractor.extractPageContentAsync(text, selectionElement);
+            } catch (extractError) {
+                console.warn('Failed to extract page content for recreation:', extractError);
+                pageContext = undefined;
+            }
+
             // Recreate single card
-            const recreatedCards = await aiAgentService.createCardsFromText(recreationPrompt);
+            const recreatedCards = await aiAgentService.createCardsFromText(recreationPrompt, pageContext);
             
             if (recreatedCards.length > 0) {
                 // Replace the current card with the recreated one
@@ -6089,8 +6171,8 @@ Original text: ${text}`;
                                         back={previewCards[currentPreviewIndex].back || null}
                                         translation={null}
                                         examples={[]}
-                                        imageUrl={null}
-                                        image={null}
+                                        imageUrl={previewCards[currentPreviewIndex].imageUrl || null}
+                                        image={previewCards[currentPreviewIndex].image || null}
                                         linguisticInfo=""
                                         transcription={null}
                                         onNewImage={() => {}}

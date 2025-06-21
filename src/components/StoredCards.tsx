@@ -23,6 +23,47 @@ interface StoredCardsProps {
 
 type CardFilterType = 'all' | 'not_exported' | 'exported';
 
+// Функция для рендеринга простого Markdown (изображения, формулы, код)
+const renderMarkdownContent = (content: string): string => {
+    let html = content;
+    
+    // Конвертируем изображения из Markdown в HTML
+    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+        // Улучшенная логика для alt текста
+        const displayAlt = alt && alt !== 'Изображение' && alt !== 'Image' ? alt : '';
+        
+        return `<div style="text-align: center; margin: 6px 0;">
+            <img src="${src}" alt="${displayAlt}" style="max-width: 100%; max-height: 120px; height: auto; border-radius: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); display: block; margin: 0 auto;" />
+            ${displayAlt ? `<div style="font-size: 9px; color: #6B7280; margin-top: 2px; font-style: italic;">${displayAlt}</div>` : ''}
+        </div>`;
+    });
+    
+    // Конвертируем LaTeX формулы
+    html = html.replace(/\$\$([^$]+)\$\$/g, (match, formula) => {
+        return `<div style="text-align: center; margin: 8px 0; padding: 6px; background: #F8FAFC; border-radius: 4px; font-family: serif; font-size: 12px;">
+            <strong>Формула:</strong> ${formula}
+        </div>`;
+    });
+    
+    // Конвертируем блоки кода
+    html = html.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, language, code) => {
+        return `<div style="margin: 8px 0;">
+            <div style="background: #2D2D2D; color: #F8F8F2; padding: 8px; border-radius: 4px; font-family: monospace; overflow-x: auto; white-space: pre; font-size: 11px;">
+                ${language ? `<div style="color: #6B7280; margin-bottom: 4px; font-size: 9px;">${language}</div>` : ''}
+                ${code}
+            </div>
+        </div>`;
+    });
+    
+    // Конвертируем инлайн код
+    html = html.replace(/`([^`]+)`/g, '<code style="background: #F3F4F6; padding: 1px 3px; border-radius: 2px; font-family: monospace; font-size: 11px;">$1</code>');
+    
+    // Конвертируем переносы строк
+    html = html.replace(/\n/g, '<br />');
+    
+    return html;
+};
+
 const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
     const tabAware = useTabAware();
@@ -533,7 +574,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
                 {/* Secondary content - shows translation for Language Learning, back for General */}
                 {(card.translation || card.back) && (
-                    <p style={{ 
+                    <div style={{ 
                         color: '#374151', 
                         fontSize: '13px', 
                         marginBottom: '8px',
@@ -542,11 +583,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     }}>
                         {card.mode === Modes.LanguageLearning 
                             ? card.translation 
-                            : (card.back && card.back.length > 150 
-                                ? card.back.substring(0, 150) + '...' 
-                                : card.back)
+                            : (card.back && (
+                                <div dangerouslySetInnerHTML={{
+                                    __html: renderMarkdownContent(
+                                        card.back.length > 150 
+                                            ? card.back.substring(0, 150) + '...' 
+                                            : card.back
+                                    )
+                                }} />
+                            ))
                         }
-                    </p>
+                    </div>
                 )}
 
                 {/* Examples - only for Language Learning mode */}

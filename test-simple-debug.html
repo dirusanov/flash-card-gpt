@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 Быстрая диагностика</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+            background: #f8f9fa;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        .highlight {
+            background: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .image-box {
+            text-align: center;
+            background: #e3f2fd;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .debug-steps {
+            background: #f3e5f5;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🚀 Диагностика ошибки join() и изображений</h1>
+        
+        <div class="highlight">
+            <strong>⚠️ ВАЖНО:</strong> Откройте консоль (F12) ПЕРЕД тестом!
+        </div>
+
+        <h2>📝 Простой тест</h2>
+        <p>Этот текст содержит <strong>важные концепты</strong> для изучения с помощью карточек. Система должна создать карточки и обязательно включить изображение ниже.</p>
+        
+        <div class="image-box">
+            <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iIzQyODVmNCIgcng9IjEwIi8+CiAgPHRleHQgeD0iMTAwIiB5PSI1NSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE2IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC13ZWlnaHQ9ImJvbGQiPtCi0LXRgdGC0L7QstC+0LUg0LjQt9C+0LHRgNCw0LbQtdC90LjQtTwvdGV4dD4KPC9zdmc+" 
+                 alt="Тестовая диаграмма для проверки системы" 
+                 width="200" height="100"
+                 style="border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+            <p><em>Это изображение ДОЛЖНО попасть в карточку!</em></p>
+        </div>
+
+        <p>Система должна автоматически обнаружить это изображение и включить его в одну из создаваемых карточек.</p>
+    </div>
+
+    <div class="card">
+        <h2>🔍 Что смотреть в консоли:</h2>
+        
+        <div class="debug-steps">
+            <strong>Шаг 1 - PageContentExtractor:</strong><br>
+            ✅ "🔍 Найдено 1 изображений на странице"<br>
+            ✅ "🖼️ Изображение 0: ... willInclude: true"<br>
+            ✅ "📊 Relevance calculation: ... finalScore: 0.X"<br>
+            ✅ "🎯 Финальный результат: 1 изображений"<br><br>
+            
+            <strong>Шаг 2 - CreateCard:</strong><br>
+            ✅ "📄 Extracted page content: images: 1"<br>
+            ✅ "🖼️ Изображение 0: ... isRelevant: true"<br><br>
+            
+            <strong>Шаг 3 - aiAgentService:</strong><br>
+            ✅ "📋 Page context: 1 images, 0 formulas, 0 code blocks"<br>
+            ✅ "🖼️ Selected images available: 1"<br>
+            ✅ "🎨 Step 6: Applying multimedia to quality cards"<br>
+            ✅ "✅ Total images attached to cards: 1/1"<br><br>
+            
+            <strong>Шаг 4 - Результат:</strong><br>
+            ✅ "🃏 Карточка 0: ... hasAttachedImages: true"<br>
+            ✅ "🃏 Карточка 0: ... attachedImagesCount: 1"
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🚨 Диагностика ошибок:</h2>
+        
+        <h3>❌ "Cannot read properties of undefined (reading 'join')"</h3>
+        <p><strong>Исправлено:</strong> Добавлены проверки массивов с <code>?.join()</code> и fallback значения.</p>
+        
+        <h3>❌ "No images found in pageContext"</h3>
+        <p><strong>Проверка:</strong> PageContentExtractor не находит изображения или они не передаются.</p>
+        
+        <h3>❌ "Total images attached: 0/1"</h3>
+        <p><strong>Решение:</strong> Активирована аварийная логика для принудительного включения изображений.</p>
+    </div>
+
+    <div class="card" style="background: #e8f5e8; border: 2px solid #28a745;">
+        <h2>🚀 НАЧАТЬ ТЕСТ</h2>
+        <p style="font-size: 18px; font-weight: bold; color: #28a745;">
+            1. Выделите ВСЁ содержимое страницы (Ctrl+A)<br>
+            2. Создайте карточки через расширение<br>
+            3. Проверьте консоль по шагам выше<br>
+            4. Убедитесь что изображение добавлено к карточке
+        </p>
+    </div>
+
+</body>
+</html> 

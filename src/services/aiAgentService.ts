@@ -74,6 +74,16 @@ export interface GeneratedCard {
     imagePrompt?: string;
     concept?: string;
     qualityScore?: number;
+    multimedia?: {
+        images?: number[];
+        formulas?: number[];
+        code?: number[];
+    };
+    attachedImages?: PageImage[];
+    attachedFormulas?: FormulaElement[];
+    attachedCode?: CodeBlock[];
+    image?: string | null;
+    imageUrl?: string | null;
 }
 
 export interface ValidationResult {
@@ -84,6 +94,126 @@ export interface ValidationResult {
     suggestions: string[];
     improvedCards?: GeneratedCard[];
     finalRecommendation: string;
+}
+
+export interface PageContentContext {
+    selectedText: string;
+    pageImages: PageImage[];
+    formulas: FormulaElement[];
+    codeBlocks: CodeBlock[];
+    links: LinkElement[];
+    metadata: PageMetadata;
+}
+
+export interface PageImage {
+    src: string;
+    alt: string;
+    title?: string;
+    width?: number;
+    height?: number;
+    isNearText: boolean;
+    relevanceScore: number;
+    base64?: string;
+}
+
+export interface FormulaElement {
+    text: string;
+    type: 'latex' | 'mathml' | 'inline' | 'block';
+    isNearText: boolean;
+    relevanceScore: number;
+}
+
+export interface CodeBlock {
+    code: string;
+    language?: string;
+    isNearText: boolean;
+    relevanceScore: number;
+}
+
+export interface LinkElement {
+    url: string;
+    text: string;
+    isNearText: boolean;
+    relevanceScore: number;
+}
+
+export interface PageMetadata {
+    url: string;
+    title: string;
+    domain: string;
+    language: string;
+    hasImages: boolean;
+    hasFormulas: boolean;
+    hasCode: boolean;
+}
+
+export interface ContentEnhancement {
+    shouldIncludeImages: boolean;
+    selectedImages: PageImage[];
+    shouldIncludeFormulas: boolean;
+    selectedFormulas: FormulaElement[];
+    shouldIncludeCode: boolean;
+    selectedCode: CodeBlock[];
+    reasoning: string;
+}
+
+export interface TextAnalysis {
+    textLength: number;
+    complexity: 'simple' | 'medium' | 'advanced';
+    mainTopics: TopicInfo[];
+    estimatedCards: number;
+    learningObjectives: string[];
+    hasMultimedia: boolean;
+    multimediaTypes: string[];
+    priority: 'high' | 'medium' | 'low';
+    reasoning: string;
+}
+
+export interface TopicInfo {
+    name: string;
+    importance: 'critical' | 'important' | 'useful' | 'optional';
+    complexity: 'simple' | 'medium' | 'advanced';
+    estimatedCards: number;
+    needsMultimedia: boolean;
+    multimediaTypes: string[];
+    subtopics: string[];
+}
+
+export interface CardPlan {
+    totalCards: number;
+    cardSpecs: CardSpec[];
+    multimediaDistribution: MultimediaDistribution;
+    learningFlow: string[];
+    reasoning: string;
+}
+
+export interface CardSpec {
+    id: string;
+    type: 'concept' | 'definition' | 'example' | 'application' | 'comparison' | 'formula' | 'code';
+    topic: string;
+    priority: 'high' | 'medium' | 'low';
+    difficulty: 'easy' | 'medium' | 'hard';
+    needsMultimedia: boolean;
+    multimediaTypes: string[];
+    estimatedLength: 'short' | 'medium' | 'long';
+    description: string;
+}
+
+export interface MultimediaDistribution {
+    totalImages: number;
+    totalFormulas: number;
+    totalCode: number;
+    assignments: MultimediaAssignment[];
+    userSelectedImages: number[];
+    reasoning: string;
+}
+
+export interface MultimediaAssignment {
+    cardId: string;
+    imageIndices: number[];
+    formulaIndices: number[];
+    codeIndices: number[];
+    reasoning: string;
 }
 
 // Главный класс для управления AI агентами
@@ -120,17 +250,64 @@ export class AIAgentService {
             questionQuality: {
                 name: 'Question Quality',
                 role: 'Контролер качества вопросов',
-                systemPrompt: `Ты - Question Quality Agent, эксперт по оценке качества образовательных вопросов.
-                Твоя задача - проверять каждый вопрос на актуальность, полезность и качество.
-                Ты отфильтровываешь глупые, бесполезные или некачественные вопросы.`,
+                systemPrompt: `Ты - Question Quality Agent, строгий эксперт по оценке качества образовательных вопросов.
+
+ТВОЯ ЗАДАЧА: 
+Отфильтровывать некачественные карточки и пропускать только действительно полезные.
+
+КРИТЕРИИ ОТКЛОНЕНИЯ (isWorthwhile: false):
+1. ДУБЛИРОВАНИЕ - вопрос и ответ содержат одинаковые ключевые слова
+2. ОЧЕВИДНОСТЬ - ответ прямо содержится в вопросе
+3. ТАВТОЛОГИЯ - ответ повторяет вопрос другими словами
+4. БЕСПОЛЕЗНОСТЬ - не добавляет понимания темы
+5. НЕТОЧНОСТЬ - неправильная или неполная информация
+
+ПРИМЕРЫ ПЛОХИХ КАРТОЧЕК (ОТКЛОНЯЙ):
+❌ "Какой вид хищных млекопитающих представляет собой лев?" → "Лев - вид хищных млекопитающих" (ДУБЛИРОВАНИЕ)
+❌ "Что такое HTML?" → "HTML - это HTML" (ТАВТОЛОГИЯ)
+❌ "Где живут пингвины?" → "Пингвины живут в Антарктиде" (СЛИШКОМ ПРОСТОЕ)
+
+ПРИМЕРЫ ХОРОШИХ КАРТОЧЕК (ПРИНИМАЙ):
+✅ "Почему львы единственные социальные кошки?" → "Объяснение эволюционных причин и преимуществ прайда"
+✅ "Как структура HTML влияет на SEO?" → "Конкретные технические детали и примеры"
+
+СТРОГИЕ ТРЕБОВАНИЯ:
+- qualityScore < 6 → isWorthwhile: false
+- Любое дублирование ключевых слов → балл -3
+- Отсутствие образовательной ценности → isWorthwhile: false
+- Неточная информация → isWorthwhile: false
+
+БУДЬ СТРОГИМ! Лучше отклонить сомнительную карточку, чем пропустить бесполезную.`,
                 execute: this.executeQuestionQuality.bind(this)
             },
             cardGenerator: {
                 name: 'Card Generator',
                 role: 'Генератор карточек',
-                systemPrompt: `Ты - Card Generator Agent, эксперт по созданию качественных образовательных карточек.
-                Твоя задача - создавать карточки на основе инструкций от Supervisor и анализа от Content Analyzer.
-                Ты создаешь вопросы которые помогают понять и запомнить ключевую информацию.`,
+                systemPrompt: `Ты - Card Generator Agent, эксперт по созданию высококачественных образовательных карточек.
+
+ТВОЯ ГЛАВНАЯ ЗАДАЧА:
+Создавать карточки, которые действительно помогают понять и запомнить материал.
+
+ПРИНЦИПЫ КАЧЕСТВЕННЫХ КАРТОЧЕК:
+1. ИЗБЕГАЙ ОЧЕВИДНОГО - не создавай карточки где ответ содержится в вопросе
+2. СОЗДАВАЙ ПОНИМАНИЕ - вопросы должны проверять понимание, а не механическое запоминание
+3. БУДЬ КОНКРЕТНЫМ - избегай расплывчатых формулировок
+4. ДОБАВЛЯЙ КОНТЕКСТ - объясняй "почему" и "как", а не только "что"
+5. РАЗНООБРАЗЬ ТИПЫ - определения, примеры, применение, сравнения
+
+ПЛОХИЕ ПРИМЕРЫ (НЕ ДЕЛАЙ ТАК):
+❌ "Какой вид хищных млекопитающих представляет собой лев?" → "Лев - вид хищных млекопитающих"
+❌ "Что такое фотосинтез?" → "Фотосинтез - это процесс фотосинтеза"
+
+ХОРОШИЕ ПРИМЕРЫ:
+✅ "К какому семейству относится лев и какие особенности это определяют?" → "Лев относится к семейству кошачьих. Основные особенности: втяжные когти, клыки для захвата добычи, бинокулярное зрение для охоты, гибкое тело для прыжков"
+✅ "Почему львы живут прайдами, в отличие от других больших кошек?" → "Львы - единственные социальные большие кошки. Прайд помогает: совместно охотиться на крупную добычу, защищать территорию, воспитывать потомство"
+
+ОБЯЗАТЕЛЬНЫЕ ТРЕБОВАНИЯ:
+- Каждый вопрос должен проверять ПОНИМАНИЕ, а не память
+- Ответы должны быть информативными и обучающими
+- Избегай дублирования слов из вопроса в ответе
+- Добавляй примеры и контекст где возможно`,
                 execute: this.executeCardGenerator.bind(this)
             },
             validator: {
@@ -140,14 +317,100 @@ export class AIAgentService {
                 Твоя задача - провести комплексную оценку всех карточек и при необходимости улучшить их.
                 Ты следишь за тем, чтобы карточки были максимально полезны для изучения.`,
                 execute: this.executeValidator.bind(this)
+            },
+            pageContentAnalyzer: {
+                name: 'Page Content Analyzer',
+                role: 'Анализатор мультимедийного контента страницы',
+                systemPrompt: `Ты - Page Content Analyzer Agent, эксперт по анализу веб-страниц и мультимедийного контента.
+                Твоя задача - интеллектуально определить, какие элементы страницы (изображения, формулы, код) 
+                должны быть включены в образовательную карточку для лучшего понимания материала.
+                Ты принимаешь решения на основе контекста и релевантности контента.`,
+                execute: this.executePageContentAnalyzer.bind(this)
+            },
+            contentEnhancer: {
+                name: 'Content Enhancer',
+                role: 'Интеллектуальный улучшатель контента карточек',
+                systemPrompt: `Ты - Content Enhancer Agent, эксперт по созданию богатого мультимедийного образовательного контента.
+                Твоя главная задача - для КАЖДОЙ карточки ИНДИВИДУАЛЬНО определить, какой мультимедиа контент действительно поможет её пониманию.
+                НЕ добавляй контент "на всякий случай" - только если он ПРЯМО СВЯЗАН с темой конкретной карточки.
+                
+                ПРИНЦИПЫ РАБОТЫ:
+                1. Анализируй тему каждой карточки отдельно
+                2. Добавляй контент только при высокой релевантности (>7/10)
+                3. Предпочитай качество количеству
+                4. Учитывай контекст: теория, практика, математика, программирование`,
+                execute: this.executeContentEnhancer.bind(this)
+            },
+            cardContentMatcher: {
+                name: 'Card Content Matcher',
+                role: 'Аналитик соответствия контента карточкам',
+                systemPrompt: `Ты - Card Content Matcher Agent, эксперт по анализу соответствия мультимедиа контента конкретным образовательным карточкам.
+                Твоя задача - точно определить, какой контент подходит к каждой карточке, основываясь на семантическом анализе и образовательной ценности.`,
+                execute: this.executeCardContentMatcher.bind(this)
+            },
+            textAnalyst: {
+                name: 'Text Analyst',
+                role: 'Аналитик текста и планировщик обучения',
+                systemPrompt: `Ты - Text Analyst Agent, эксперт по глубокому анализу образовательного текста.
+                
+                ТВОЯ ГЛАВНАЯ ЗАДАЧА:
+                1. Анализируй размер и сложность текста
+                2. Определи основные темы и подтемы
+                3. Оцени, сколько карточек ДЕЙСТВИТЕЛЬНО нужно для понимания
+                4. Приоритизируй темы по важности
+                5. Учитывай наличие мультимедиа контента
+                
+                ПРИНЦИПЫ:
+                - Большой текст ≠ много карточек (только важные концепты)
+                - Качество > количества
+                - Фокус на ключевых знаниях для понимания темы
+                - Если есть изображения - ОБЯЗАТЕЛЬНО включай их в планирование`,
+                execute: this.executeTextAnalyst.bind(this)
+            },
+            cardPlanner: {
+                name: 'Card Planner',
+                role: 'Планировщик структуры карточек',
+                systemPrompt: `Ты - Card Planner Agent, эксперт по планированию оптимальной структуры образовательных карточек.
+                
+                ТВОЯ ЗАДАЧА:
+                1. Получи анализ от Text Analyst
+                2. Создай детальный план карточек
+                3. Определи тип каждой карточки (концепт, пример, применение, сравнение)
+                4. Спланируй распределение мультимедиа контента
+                5. Оптимизируй количество карточек для эффективного обучения
+                
+                ТИПЫ КАРТОЧЕК:
+                - Основные концепты (с изображениями/схемами)
+                - Формулы и определения (с формулами)
+                - Примеры применения (с кодом/диаграммами)
+                - Сравнения и связи
+                - Практические вопросы`,
+                execute: this.executeCardPlanner.bind(this)
+            },
+            multimediaAssigner: {
+                name: 'Multimedia Assigner',
+                role: 'Распределитель мультимедиа контента',
+                systemPrompt: `Ты - Multimedia Assigner Agent, эксперт по интеллектуальному распределению мультимедиа контента.
+                
+                ОСОБОЕ ВНИМАНИЕ К ИЗОБРАЖЕНИЯМ:
+                - Если пользователь выделил изображение - оно ДОЛЖНО попасть в карточку
+                - Изображения помогают лучше запомнить материал
+                - Каждое изображение должно иметь четкую образовательную цель
+                
+                ТВОЯ ЗАДАЧА:
+                1. Анализируй план карточек от Card Planner
+                2. Точно определи, какой мультимедиа контент к какой карточке подходит
+                3. ПРИОРИТЕТ: выделенные пользователем изображения
+                4. Обеспечь максимальную образовательную ценность`,
+                execute: this.executeMultimediaAssigner.bind(this)
             }
         };
     }
 
-    // Основной метод - orchestrator workflow
-    async createCardsFromText(text: string, abortSignal?: AbortSignal): Promise<StoredCard[]> {
+    // Основной метод - улучшенный orchestrator workflow с интеллектуальным анализом
+    async createCardsFromText(text: string, pageContext?: PageContentContext, abortSignal?: AbortSignal): Promise<StoredCard[]> {
         try {
-            console.log('🚀 AI Agent Workflow: Starting intelligent card creation');
+            console.log('🚀 AI Agent Workflow: Starting intelligent card creation with advanced analysis');
             
             // Создаем контекст workflow
             const context: WorkflowContext = {
@@ -162,51 +425,101 @@ export class AIAgentService {
                 }
             };
 
+            // Добавляем контекст страницы если есть
+            if (pageContext) {
+                context.previousResults.pageContext = pageContext;
+                console.log(`📋 Page context: ${pageContext.pageImages?.length || 0} images, ${pageContext.formulas?.length || 0} formulas, ${pageContext.codeBlocks?.length || 0} code blocks`);
+                
+                // Детальная информация об изображениях
+                if (pageContext.pageImages && pageContext.pageImages.length > 0) {
+                    console.log('🖼️ Selected images details:');
+                    pageContext.pageImages.forEach((img, i) => {
+                        console.log(`  ${i + 1}. "${img.alt || 'No alt'}" - ${img.src?.substring(0, 50) || 'No src'}...`);
+                        console.log(`      base64 available: ${!!img.base64}, relevance: ${img.relevanceScore}`);
+                    });
+                } else {
+                    console.log('⚠️ No images found in pageContext');
+                }
+            } else {
+                console.log('⚠️ No pageContext provided - no multimedia content available');
+            }
+
             // Check if cancelled before starting
             if (abortSignal?.aborted) {
                 throw new Error('AI card creation was cancelled by user');
             }
 
-            // Шаг 1: Supervisor анализирует и планирует
-            console.log('🧠 Step 1: Supervisor planning');
-            context.currentStep = 'supervisor_planning';
-            const supervisorDecision = await this.agents.supervisor.execute(text, context);
-            context.previousResults.supervisor = supervisorDecision;
+            // Шаг 1: Text Analyst - глубокий анализ текста и планирование
+            console.log('📊 Step 1: Deep text analysis and learning strategy');
+            context.currentStep = 'text_analysis';
+            const textAnalysis = await this.agents.textAnalyst.execute({ text, pageContext }, context);
+            context.previousResults.textAnalysis = textAnalysis;
+            context.metadata.topic = textAnalysis.mainTopics[0]?.name || 'Общая тема';
+            
+            console.log(`📋 Text analysis: ${textAnalysis.estimatedCards} cards recommended for ${textAnalysis.mainTopics.length} topics`);
 
-            // Check if cancelled after supervisor
+            // Check if cancelled after text analysis
             if (abortSignal?.aborted) {
                 throw new Error('AI card creation was cancelled by user');
             }
 
-            // Шаг 2: Content Analyzer анализирует контент
-            console.log('📊 Step 2: Content analysis');
-            context.currentStep = 'content_analysis';
-            const contentAnalysis = await this.agents.contentAnalyzer.execute(text, context);
-            context.previousResults.contentAnalysis = contentAnalysis;
-            context.metadata.topic = contentAnalysis.mainTopic;
+            // Шаг 2: Card Planner - планирование структуры карточек
+            console.log('🎯 Step 2: Card structure planning');
+            context.currentStep = 'card_planning';
+            const cardPlan = await this.agents.cardPlanner.execute({
+                textAnalysis,
+                originalText: text,
+                pageContext
+            }, context);
+            context.previousResults.cardPlan = cardPlan;
+            
+            console.log(`📋 Card plan: ${cardPlan.totalCards} cards planned with multimedia distribution`);
 
-            // Check if cancelled after content analysis
+            // Check if cancelled after card planning
             if (abortSignal?.aborted) {
                 throw new Error('AI card creation was cancelled by user');
             }
 
-            // Шаг 3: Card Generator создает карточки
-            console.log('🎯 Step 3: Card generation');
+            // Шаг 3: Multimedia Assigner - точное распределение мультимедиа
+            let multimediaDistribution: MultimediaDistribution | null = null;
+            if (pageContext && (pageContext.pageImages.length > 0 || pageContext.formulas.length > 0 || pageContext.codeBlocks.length > 0)) {
+                console.log('🎨 Step 3: Intelligent multimedia assignment');
+                context.currentStep = 'multimedia_assignment';
+                multimediaDistribution = await this.agents.multimediaAssigner.execute({
+                    cardPlan,
+                    pageContext,
+                    originalText: text
+                }, context);
+                context.previousResults.multimediaDistribution = multimediaDistribution;
+                
+                console.log(`🎨 Multimedia assigned: ${multimediaDistribution?.assignments?.length || 0} assignments created`);
+            }
+
+            // Check if cancelled after multimedia assignment
+            if (abortSignal?.aborted) {
+                throw new Error('AI card creation was cancelled by user');
+            }
+
+            // Шаг 4: Card Generator создает карточки по плану
+            console.log('🎯 Step 4: Structured card generation');
             context.currentStep = 'card_generation';
             const generatedCards = await this.agents.cardGenerator.execute({
                 text,
-                analysis: contentAnalysis,
-                instructions: supervisorDecision.instructions.cardGenerator
+                cardPlan,
+                multimediaDistribution,
+                textAnalysis
             }, context);
             context.previousResults.generatedCards = generatedCards;
+
+            console.log(`🎯 Generated ${generatedCards.length} cards based on plan`);
 
             // Check if cancelled after card generation
             if (abortSignal?.aborted) {
                 throw new Error('AI card creation was cancelled by user');
             }
 
-            // Шаг 4: Question Quality проверяет каждый вопрос
-            console.log('🔍 Step 4: Question quality check');
+            // Шаг 5: Question Quality проверяет каждый вопрос
+            console.log('🔍 Step 5: Question quality validation');
             context.currentStep = 'quality_check';
             const qualityResults: QuestionQuality[] = [];
             for (const card of generatedCards) {
@@ -219,29 +532,178 @@ export class AIAgentService {
             }
             context.previousResults.qualityResults = qualityResults;
 
-            // Фильтруем карточки по качеству
-            const qualityCards = generatedCards.filter((card: GeneratedCard, index: number) => 
-                qualityResults[index].isWorthwhile && qualityResults[index].qualityScore >= 7
-            );
+            // Фильтруем карточки по качеству - СТРОГИЙ ФИЛЬТР
+            const qualityCards = generatedCards.filter((card: GeneratedCard, index: number) => {
+                const quality = qualityResults[index];
+                const passed = quality.isWorthwhile && 
+                              quality.qualityScore >= 6 && 
+                              quality.relevanceScore >= 6;
+                
+                if (!passed) {
+                    console.log(`❌ Card ${index + 1} rejected: Q=${quality.qualityScore}, R=${quality.relevanceScore}, W=${quality.isWorthwhile}`);
+                    console.log(`   Reason: ${quality.reasoning}`);
+                    console.log(`   Issues: ${quality.issues.join(', ')}`);
+                }
+                
+                return passed;
+            });
 
-            console.log(`✅ Quality filter: ${qualityCards.length}/${generatedCards.length} cards passed`);
+            console.log(`✅ Quality filter: ${qualityCards.length}/${generatedCards.length} cards passed strict quality check`);
+            
+            // Если все карточки отклонены, создаем одну качественную карточку как fallback
+            if (qualityCards.length === 0 && generatedCards.length > 0) {
+                console.log('🚨 All cards rejected by quality filter! Creating fallback quality card');
+                const fallbackCard: GeneratedCard = {
+                    front: `Какие ключевые концепты раскрывает данный материал?`,
+                    back: `Материал раскрывает следующие концепты: ${text.substring(0, 200)}... (требует дополнительного анализа для создания более конкретных вопросов)`,
+                    tags: [context.metadata.topic || 'общее'],
+                    difficulty: 'medium',
+                    concept: 'Общий анализ материала'
+                };
+                qualityCards.push(fallbackCard);
+                console.log('✅ Fallback card created to ensure user gets at least one card');
+            }
 
-            // Check if cancelled before validation
+            // Check if cancelled before final processing
             if (abortSignal?.aborted) {
                 throw new Error('AI card creation was cancelled by user');
             }
 
-            // Шаг 5: Validator проводит финальную проверку
-            console.log('🔬 Step 5: Final validation');
+            // Шаг 6: Применение мультимедиа к прошедшим проверку карточкам
+            let enhancedCards = qualityCards;
+            
+            // Проверяем, есть ли выделенные изображения
+            const hasSelectedImages = pageContext && pageContext.pageImages && pageContext.pageImages.length > 0;
+            console.log(`🖼️ Selected images available: ${hasSelectedImages ? pageContext?.pageImages.length : 0}`);
+            
+            if (hasSelectedImages) {
+                console.log('🎨 Step 6: Applying multimedia to quality cards');
+                
+                if (multimediaDistribution && multimediaDistribution.assignments.length > 0) {
+                    // Используем новую логику распределения
+                    console.log('📊 Using intelligent multimedia distribution');
+                    enhancedCards = qualityCards.map((card: GeneratedCard, index: number) => {
+                        const cardId = cardPlan.cardSpecs[index]?.id;
+                        const assignment = multimediaDistribution?.assignments.find(a => a.cardId === cardId);
+                        
+                        if (assignment) {
+                            const enhancedCard = { ...card };
+                            
+                            // Добавляем изображения
+                            if (assignment.imageIndices.length > 0) {
+                                enhancedCard.attachedImages = assignment.imageIndices
+                                    .map(idx => pageContext?.pageImages[idx])
+                                    .filter(Boolean) as PageImage[];
+                            }
+                            
+                            // Добавляем формулы
+                            if (assignment.formulaIndices.length > 0) {
+                                enhancedCard.attachedFormulas = assignment.formulaIndices
+                                    .map(idx => pageContext?.formulas[idx])
+                                    .filter(Boolean) as FormulaElement[];
+                            }
+                            
+                            // Добавляем код
+                            if (assignment.codeIndices.length > 0) {
+                                enhancedCard.attachedCode = assignment.codeIndices
+                                    .map(idx => pageContext?.codeBlocks[idx])
+                                    .filter(Boolean) as CodeBlock[];
+                            }
+                            
+                            console.log(`🎨 Card ${index + 1}: added ${assignment.imageIndices.length} images, ${assignment.formulaIndices.length} formulas, ${assignment.codeIndices.length} code blocks`);
+                            
+                            // Копируем первое изображение в поля image/imageUrl для предпросмотра
+                            if (enhancedCard.attachedImages && enhancedCard.attachedImages.length > 0) {
+                                const primaryImage = enhancedCard.attachedImages[0];
+                                if (primaryImage.base64) {
+                                    enhancedCard.image = primaryImage.base64;
+                                    console.log('📱 Установлено image для предпросмотра карточки', index + 1);
+                                } else if (primaryImage.src) {
+                                    enhancedCard.imageUrl = primaryImage.src;
+                                    console.log('📱 Установлено imageUrl для предпросмотра карточки', index + 1);
+                                }
+                            }
+                            
+                            return enhancedCard;
+                        }
+                        
+                        return card;
+                    });
+                } else {
+                    // КРИТИЧНО: Fallback логика - обязательно добавляем выделенные изображения
+                    console.log('🚨 No multimedia distribution found, using fallback logic to ensure images are included');
+                    console.log(`🖼️ Forcing inclusion of ${pageContext?.pageImages.length} selected images`);
+                    
+                    // Добавляем ВСЕ изображения к первой карточке как fallback
+                    if (enhancedCards.length > 0 && pageContext?.pageImages.length > 0) {
+                        const primaryImage = pageContext.pageImages[0];
+                        enhancedCards[0] = {
+                            ...enhancedCards[0],
+                            attachedImages: pageContext.pageImages,
+                            image: primaryImage.base64 || null,
+                            imageUrl: primaryImage.src || null
+                        };
+                        console.log(`🎯 FALLBACK: Added all ${pageContext.pageImages.length} images to first card`);
+                        console.log('📱 FALLBACK: Установлено image/imageUrl для предпросмотра первой карточки');
+                    }
+                    
+                    // Если есть несколько карточек, распределяем изображения
+                    if (enhancedCards.length > 1 && pageContext?.pageImages.length > 1) {
+                        const imagesPerCard = Math.ceil(pageContext.pageImages.length / enhancedCards.length);
+                                                 enhancedCards = enhancedCards.map((card: GeneratedCard, index: number) => {
+                            const startIdx = index * imagesPerCard;
+                            const endIdx = Math.min(startIdx + imagesPerCard, pageContext.pageImages.length);
+                            const cardImages = pageContext.pageImages.slice(startIdx, endIdx);
+                            
+                            if (cardImages.length > 0) {
+                                console.log(`🎯 FALLBACK: Added ${cardImages.length} images to card ${index + 1}`);
+                                const primaryImage = cardImages[0];
+                                return {
+                                    ...card,
+                                    attachedImages: cardImages,
+                                    image: primaryImage.base64 || null,
+                                    imageUrl: primaryImage.src || null
+                                };
+                            }
+                            return card;
+                        });
+                    }
+                }
+                
+                // Проверяем, что изображения действительно добавлены
+                const totalAttachedImages = enhancedCards.reduce((total: number, card: GeneratedCard) => 
+                    total + (card.attachedImages?.length || 0), 0);
+                console.log(`✅ Total images attached to cards: ${totalAttachedImages}/${pageContext?.pageImages.length || 0}`);
+                
+                if (totalAttachedImages === 0 && pageContext?.pageImages.length > 0) {
+                    console.log('🚨 CRITICAL: No images were attached despite having selected images!');
+                    console.log('🎯 Emergency fallback: Adding all images to all cards');
+                    enhancedCards = enhancedCards.map((card: GeneratedCard, index: number) => {
+                        const primaryImage = pageContext.pageImages[0];
+                        return {
+                            ...card,
+                            attachedImages: pageContext.pageImages,
+                            image: primaryImage.base64 || null,
+                            imageUrl: primaryImage.src || null
+                        };
+                    });
+                    console.log(`🎯 Emergency: Added ${pageContext.pageImages.length} images to ${enhancedCards.length} cards`);
+                }
+            } else {
+                console.log('ℹ️ No selected images to apply');
+            }
+
+            // Шаг 7: Validator проводит финальную проверку
+            console.log('🔬 Step 7: Final validation');
             context.currentStep = 'final_validation';
             const validationResult = await this.agents.validator.execute({
-                cards: qualityCards,
+                cards: enhancedCards,
                 originalText: text,
                 context
             }, context);
 
             // Выбираем финальные карточки
-            const finalCards = validationResult.improvedCards || qualityCards;
+            const finalCards = validationResult.improvedCards || enhancedCards;
             
             console.log(`🎉 Workflow completed: ${finalCards.length} high-quality cards created`);
             console.log(`📈 Overall score: ${validationResult.overallScore}/100`);
@@ -368,43 +830,123 @@ JSON ответ:
         }
     }
 
-    // Card Generator Agent - создает карточки
+    // Card Generator Agent - создает карточки по плану
     private async executeCardGenerator(input: any, context: WorkflowContext): Promise<GeneratedCard[]> {
-        const { text, analysis, instructions } = input;
+        // Поддерживаем как новый, так и старый интерфейс
+        const { text, cardPlan, textAnalysis, multimediaDistribution, analysis, instructions } = input;
 
-        const prompt = `Ты - Card Generator Agent. Создай высококачественные образовательные карточки.
+        // Определяем используемый интерфейс
+        const useNewInterface = cardPlan && textAnalysis;
+        
+        let prompt: string;
+        
+        if (useNewInterface) {
+            prompt = `Ты - Card Generator Agent. Создай высококачественные образовательные карточки ТОЧНО по плану.
 
 ТЕКСТ: "${text}"
 
-АНАЛИЗ КОНТЕНТА:
-- Тема: ${analysis.mainTopic}
-- Ключевые понятия: ${analysis.concepts.map((c: ConceptInfo) => c.name).join(', ')}
-- Цели обучения: ${analysis.learningObjectives.join(', ')}
-- Сложность: ${analysis.complexity}
+АНАЛИЗ ТЕКСТА:
+- Основные темы: ${textAnalysis.mainTopics.map((t: any) => t.name).join(', ')}
+- Рекомендуемые карточки: ${textAnalysis.estimatedCards}
+- Сложность: ${textAnalysis.complexity}
+- Мультимедиа доступно: ${textAnalysis.hasMultimedia ? 'ДА' : 'НЕТ'}
 
-ИНСТРУКЦИИ ОТ SUPERVISOR: ${instructions}
+ПЛАН КАРТОЧЕК (СЛЕДУЙ ТОЧНО):
+${cardPlan.cardSpecs.map((spec: any, i: number) => `
+Карточка ${i + 1} (${spec.id}):
+- Тип: ${spec.type}
+- Тема: ${spec.topic}
+- Приоритет: ${spec.priority}
+- Сложность: ${spec.difficulty}
+- Описание: ${spec.description}
+- Нужен мультимедиа: ${spec.needsMultimedia ? 'ДА' : 'НЕТ'}
+`).join('')}
 
-ПРИНЦИПЫ КАЧЕСТВЕННЫХ КАРТОЧЕК:
-1. Один вопрос - один концепт
-2. Четкие, конкретные вопросы
-3. Полные, точные ответы
-4. Практическая применимость
-5. Прогрессивная сложность
+КРИТИЧЕСКИЕ ТРЕБОВАНИЯ К КАЧЕСТВУ:
+1. НИКОГДА НЕ ДУБЛИРУЙ ключевые слова из вопроса в ответе
+2. Вопросы должны проверять ПОНИМАНИЕ, не память
+3. Ответы должны быть ИНФОРМАТИВНЫМИ и ОБУЧАЮЩИМИ
+4. Добавляй КОНТЕКСТ и ОБЪЯСНЕНИЯ
+5. Избегай ОЧЕВИДНЫХ вопросов
 
-СОЗДАЙ КАРТОЧКИ ДЛЯ КАЖДОГО ВАЖНОГО КОНЦЕПТА.
+ПЛОХИЕ ПРИМЕРЫ (НЕ ДЕЛАЙ ТАК):
+❌ "Что такое лев?" → "Лев - это лев"
+❌ "Какой вид млекопитающих лев?" → "Лев - вид хищных млекопитающих"
+❌ "Где живут львы?" → "Львы живут в Африке"
+
+ХОРОШИЕ ПРИМЕРЫ:
+✅ "Почему львы единственные социальные большие кошки?" → "Львы живут прайдами для совместной охоты на крупную добычу, защиты территории и воспитания потомства. Другие большие кошки (тигры, леопарды) - одиночки"
+✅ "Какие адаптации помогают львам охотиться в группе?" → "Специализация ролей: самки-охотницы используют скрытность и координацию, самцы защищают прайд. Развитая коммуникация через рык и жесты"
+
+ТВОЯ ЗАДАЧА:
+1. Создай РОВНО ${cardPlan.totalCards} карточек по плану
+2. Каждая карточка должна соответствовать своему CardSpec
+3. НЕ добавляй мультимедиа сейчас - это будет сделано отдельно
+4. Сосредоточься на качественном содержании
+5. ПРОВЕРЬ каждую карточку на дублирование слов
 
 JSON ответ:
 {
   "cards": [
     {
-      "front": "Четкий вопрос",
-      "back": "Полный ответ",
+      "front": "Вопрос для карточки 1 (БЕЗ дублирования ключевых слов из ответа)",
+      "back": "Информативный ответ с контекстом и объяснениями",
+      "tags": ["${textAnalysis.mainTopics[0]?.name || 'общее'}"],
+      "difficulty": "medium",
+      "concept": "${cardPlan.cardSpecs[0]?.topic || 'концепт'}"
+    }
+  ]
+}`;
+        } else {
+            // Старый интерфейс для обратной совместимости
+            prompt = `Ты - Card Generator Agent. Создай высококачественные образовательные карточки.
+
+ТЕКСТ: "${text}"
+
+АНАЛИЗ КОНТЕНТА:
+- Тема: ${analysis?.mainTopic || 'Общая тема'}
+- Ключевые понятия: ${analysis?.concepts?.map((c: ConceptInfo) => c.name).join(', ') || 'Основные концепты'}
+- Цели обучения: ${analysis?.learningObjectives?.join(', ') || 'Изучение материала'}
+- Сложность: ${analysis?.complexity || 'medium'}
+
+ИНСТРУКЦИИ: ${instructions || 'Создай качественные образовательные карточки'}
+
+КРИТИЧЕСКИЕ ТРЕБОВАНИЯ К КАЧЕСТВУ:
+1. НИКОГДА НЕ ДУБЛИРУЙ ключевые слова из вопроса в ответе
+2. Вопросы должны проверять ПОНИМАНИЕ, не память
+3. Ответы должны быть ИНФОРМАТИВНЫМИ и ОБУЧАЮЩИМИ
+4. Добавляй КОНТЕКСТ и ОБЪЯСНЕНИЯ
+5. Избегай ОЧЕВИДНЫХ вопросов
+
+ПЛОХИЕ ПРИМЕРЫ (НЕ ДЕЛАЙ ТАК):
+❌ "Что такое HTML?" → "HTML - это HTML"
+❌ "Какой язык программирования Python?" → "Python - язык программирования"
+❌ "Где используется JavaScript?" → "JavaScript используется в веб-разработке"
+
+ХОРОШИЕ ПРИМЕРЫ:
+✅ "Почему Python считается подходящим для начинающих программистов?" → "Python имеет простой синтаксис, близкий к английскому языку, автоматическое управление памятью, богатую стандартную библиотеку и активное сообщество"
+✅ "Какие преимущества дает использование JavaScript на сервере?" → "Node.js позволяет использовать один язык для фронтенда и бэкенда, имеет высокую производительность благодаря V8, большую экосистему npm пакетов"
+
+ПРИНЦИПЫ КАЧЕСТВЕННЫХ КАРТОЧЕК:
+1. Один вопрос - один концепт
+2. Четкие, конкретные вопросы БЕЗ дублирования
+3. Полные, точные ответы с контекстом
+4. Практическая применимость
+5. Прогрессивная сложность
+
+JSON ответ:
+{
+  "cards": [
+    {
+      "front": "Четкий вопрос БЕЗ дублирования ключевых слов",
+      "back": "Полный информативный ответ с объяснениями",
       "tags": ["тег1"],
       "difficulty": "medium",
       "concept": "Название концепта"
     }
   ]
 }`;
+        }
 
         try {
             const response = await this.aiService.createChatCompletion(this.apiKey, [
@@ -426,48 +968,54 @@ JSON ответ:
 
     // Question Quality Agent - проверяет качество вопросов
     private async executeQuestionQuality(card: GeneratedCard, context: WorkflowContext): Promise<QuestionQuality> {
-        const prompt = `Ты - Question Quality Agent. Оцени качество образовательного вопроса.
+        const prompt = `Ты - Question Quality Agent. СТРОГО оцени качество образовательного вопроса.
 
-КАРТОЧКА:
+КАРТОЧКА ДЛЯ АНАЛИЗА:
 Вопрос: "${card.front}"
 Ответ: "${card.back}"
 Концепт: ${card.concept || 'не указан'}
 
-ОРИГИНАЛЬНЫЙ ТЕКСТ: "${context.originalText}"
+ОРИГИНАЛЬНЫЙ ТЕКСТ: "${context.originalText.substring(0, 500)}..."
 
-КРИТЕРИИ ОЦЕНКИ (0-10 баллов):
-1. КАЧЕСТВО ВОПРОСА:
-   - Ясность формулировки
-   - Однозначность
-   - Педагогическая ценность
+КРИТИЧЕСКИЙ АНАЛИЗ:
+1. ПРОВЕРЬ НА ДУБЛИРОВАНИЕ:
+   - Есть ли одинаковые ключевые слова в вопросе и ответе?
+   - Повторяет ли ответ формулировку вопроса?
 
-2. РЕЛЕВАНТНОСТЬ:
-   - Соответствие тексту
-   - Важность для понимания темы
-   - Практическая значимость
+2. ПРОВЕРЬ ОБРАЗОВАТЕЛЬНУЮ ЦЕННОСТЬ:
+   - Учит ли что-то новое?
+   - Проверяет ли понимание, а не память?
+   - Добавляет ли контекст и объяснения?
 
-3. УРОВЕНЬ СЛОЖНОСТИ:
-   - Соответствие контексту
-   - Познавательная нагрузка
-   - Обучающий потенциал
+3. ПРОВЕРЬ КАЧЕСТВО ФОРМУЛИРОВКИ:
+   - Ясен ли вопрос?
+   - Полон ли ответ?
+   - Есть ли конкретные детали?
 
-ОТКЛОНИ ВОПРОС ЕСЛИ:
-- Слишком простой/очевидный
-- Не связан с текстом
-- Плохо сформулирован
-- Не несет образовательной ценности
+ШКАЛА ОЦЕНКИ:
+- 9-10: Отличная карточка, учит и проверяет понимание
+- 7-8: Хорошая карточка с небольшими недостатками
+- 5-6: Посредственная карточка, требует улучшений
+- 3-4: Плохая карточка, серьезные проблемы
+- 1-2: Очень плохая карточка, бесполезна
+
+АВТОМАТИЧЕСКОЕ ОТКЛОНЕНИЕ (isWorthwhile: false) ЕСЛИ:
+- Вопрос содержит те же ключевые слова что и ответ
+- Ответ просто переформулирует вопрос
+- Качество меньше 6 баллов
+- Нет образовательной ценности
 
 JSON ответ:
 {
   "question": "${card.front}",
   "answer": "${card.back}",
-  "qualityScore": 8,
-  "relevanceScore": 9,
-  "difficultyScore": 7,
-  "issues": ["проблема если есть"],
-  "improvements": ["как улучшить"],
-  "isWorthwhile": true,
-  "reasoning": "Подробное объяснение оценки"
+  "qualityScore": 3,
+  "relevanceScore": 4,
+  "difficultyScore": 2,
+  "issues": ["Дублирование ключевых слов", "Ответ повторяет вопрос", "Нет образовательной ценности"],
+  "improvements": ["Переформулировать вопрос", "Добавить контекст в ответ", "Сделать вопрос более конкретным"],
+  "isWorthwhile": false,
+  "reasoning": "Карточка отклонена из-за дублирования: вопрос 'Какой вид хищных млекопитающих представляет собой лев?' и ответ 'Лев - вид хищных млекопитающих' содержат одинаковые слова. Нет образовательной ценности."
 }`;
 
         try {
@@ -540,6 +1088,706 @@ JSON ответ:
             console.error('Validator error:', error);
             return this.createFallbackValidation(cards);
         }
+    }
+
+    // Page Content Analyzer Agent - анализирует мультимедийный контент страницы
+    private async executePageContentAnalyzer(input: any, context: WorkflowContext): Promise<ContentEnhancement> {
+        const { text, pageContext } = input;
+
+        const prompt = `Ты - Page Content Analyzer Agent. Проанализируй страницу и определи, какие элементы помогут в обучении.
+
+ВЫДЕЛЕННЫЙ ТЕКСТ: "${text}"
+
+КОНТЕНТ СТРАНИЦЫ:
+Изображения (${pageContext.pageImages.length}):
+${pageContext.pageImages.map((img: PageImage, i: number) => `${i + 1}. ${img.alt || 'Без описания'} (${img.isNearText ? 'рядом с текстом' : 'далеко от текста'})`).join('\n')}
+
+Формулы (${pageContext.formulas.length}):
+${pageContext.formulas.map((formula: FormulaElement, i: number) => `${i + 1}. ${formula.text} (${formula.type})`).join('\n')}
+
+Код (${pageContext.codeBlocks.length}):
+${pageContext.codeBlocks.map((code: CodeBlock, i: number) => `${i + 1}. ${code.language || 'unknown'}: ${code.code.substring(0, 100)}...`).join('\n')}
+
+ТВОЯ ЗАДАЧА:
+1. Определи, какие изображения релевантны для понимания текста
+2. Определи, какие формулы важны для объяснения
+3. Определи, какие блоки кода нужны для примеров
+4. Обоснуй каждое решение
+
+КРИТЕРИИ ОТБОРА:
+- Изображения: диаграммы, схемы, иллюстрации концептов
+- Формулы: математические выражения, связанные с текстом
+- Код: примеры, алгоритмы, упомянутые в тексте
+
+JSON ответ:
+{
+  "shouldIncludeImages": true,
+  "selectedImages": [0, 2],
+  "shouldIncludeFormulas": false,
+  "selectedFormulas": [],
+  "shouldIncludeCode": true,
+  "selectedCode": [0],
+  "reasoning": "Изображение 1 и 3 иллюстрируют основные концепты. Код показывает практическое применение."
+}`;
+
+        try {
+            const response = await this.aiService.createChatCompletion(this.apiKey, [
+                { role: 'system', content: this.agents.pageContentAnalyzer.systemPrompt },
+                { role: 'user', content: prompt }
+            ]);
+
+            if (!response?.content) {
+                throw new Error('No response from page content analyzer agent');
+            }
+
+            const result = this.parseJSONResponse(response.content, 'pageContentAnalyzer');
+            
+            // Преобразуем индексы в объекты
+            const selectedImages = result.selectedImages?.map((index: number) => pageContext.pageImages[index]).filter(Boolean) || [];
+            const selectedFormulas = result.selectedFormulas?.map((index: number) => pageContext.formulas[index]).filter(Boolean) || [];
+            const selectedCode = result.selectedCode?.map((index: number) => pageContext.codeBlocks[index]).filter(Boolean) || [];
+
+            return {
+                shouldIncludeImages: result.shouldIncludeImages || false,
+                selectedImages,
+                shouldIncludeFormulas: result.shouldIncludeFormulas || false,
+                selectedFormulas,
+                shouldIncludeCode: result.shouldIncludeCode || false,
+                selectedCode,
+                reasoning: result.reasoning || 'No reasoning provided'
+            };
+        } catch (error) {
+            console.error('Page content analyzer error:', error);
+            return this.createFallbackContentEnhancement();
+        }
+    }
+
+    // Content Enhancer Agent - интегрирует мультимедиа в карточки
+    private async executeContentEnhancer(input: any, context: WorkflowContext): Promise<{ enhancedCards: GeneratedCard[] }> {
+        const { cards, contentEnhancement, originalText, contentMatches } = input;
+
+        // Используем результаты анализа соответствия если они есть
+        const useMatching = contentMatches && contentMatches.cardMatches && contentMatches.cardMatches.length > 0;
+        
+        const prompt = `Ты - Content Enhancer Agent. Улучши карточки на основе ТОЧНОГО анализа соответствия контента.
+
+${useMatching ? 'СПЕЦИАЛЬНЫЕ ИНСТРУКЦИИ: Используй ТОЧНЫЕ РЕЗУЛЬТАТЫ анализа соответствия - добавляй контент только к тем карточкам, где это прямо указано.' : 'ОБЩИЕ ИНСТРУКЦИИ: Анализируй каждую карточку индивидуально.'}
+
+ОРИГИНАЛЬНЫЙ ТЕКСТ: "${originalText}"
+
+КАРТОЧКИ (${cards.length}):
+${cards.map((card: GeneratedCard, i: number) => `
+Карточка ${i + 1}:
+Вопрос: ${card.front}
+Ответ: ${card.back}
+Тема: ${this.extractCardTopic(card.front, card.back)}
+${useMatching ? `Рекомендованный контент: ${this.getMatchedContentForCard(i, contentMatches)}` : ''}
+`).join('')}
+
+ДОСТУПНЫЙ КОНТЕНТ:
+${contentEnhancement.shouldIncludeImages ? `Изображения (${contentEnhancement.selectedImages.length}):
+${contentEnhancement.selectedImages.map((img: PageImage, i: number) => `${i + 1}. "${img.alt || 'без описания'}" (релевантность: ${img.relevanceScore}/10)`).join('\n')}` : 'Изображения: отсутствуют'}
+
+${contentEnhancement.shouldIncludeFormulas ? `Формулы (${contentEnhancement.selectedFormulas.length}):
+${contentEnhancement.selectedFormulas.map((formula: FormulaElement, i: number) => `${i + 1}. "${formula.text}" (релевантность: ${formula.relevanceScore}/10)`).join('\n')}` : 'Формулы: отсутствуют'}
+
+${contentEnhancement.shouldIncludeCode ? `Код (${contentEnhancement.selectedCode.length}):
+${contentEnhancement.selectedCode.map((code: CodeBlock, i: number) => `${i + 1}. ${code.language || 'text'}: "${code.code.substring(0, 60)}..." (релевантность: ${code.relevanceScore}/10)`).join('\n')}` : 'Код: отсутствует'}
+
+${useMatching ? `
+РЕЗУЛЬТАТЫ АНАЛИЗА СООТВЕТСТВИЯ:
+${contentMatches.cardMatches.map((match: any) => `
+Карточка ${match.cardIndex + 1}:
+- Изображения: [${match.relevantImages.join(', ')}]
+- Формулы: [${match.relevantFormulas.join(', ')}] 
+- Код: [${match.relevantCode.join(', ')}]
+- Обоснование: ${match.reasoning}
+`).join('')}
+
+СТРОГО СЛЕДУЙ РЕЗУЛЬТАТАМ АНАЛИЗА! Добавляй контент только к указанным карточкам.` : `
+ПРАВИЛА САМОСТОЯТЕЛЬНОГО АНАЛИЗА:
+1. Анализируй каждую карточку отдельно
+2. Добавляй контент только при релевантности ≥8/10
+3. Учитывай тематику: математика→формулы, код→программирование, процессы→схемы
+4. НЕ добавляй контент "на всякий случай"`}
+
+JSON ответ:
+{
+  "enhancedCards": [
+    {
+      "front": "Что такое фотосинтез?",
+      "back": "Фотосинтез - это процесс преобразования углекислого газа и воды в глюкозу с помощью солнечного света.\n\n[IMAGE:0]\n\nХимическая формула: [FORMULA:0]",
+      "multimedia": {
+        "images": [0],
+        "formulas": [0], 
+        "code": []
+      },
+      "reasoning": "Добавил схему фотосинтеза и химическую формулу, так как они прямо иллюстрируют процесс"
+    },
+    {
+      "front": "Какие факторы влияют на скорость фотосинтеза?",
+      "back": "Температура, освещенность, концентрация CO2 и доступность воды влияют на скорость фотосинтеза.",
+      "multimedia": {
+        "images": [],
+        "formulas": [],
+        "code": []
+      },
+      "reasoning": "Эта карточка о факторах - не нужен мультимедиа контент, текст достаточно ясен"
+    }
+  ]
+}
+
+ВАЖНО: Используй плейсхолдеры [IMAGE:N], [FORMULA:N], [CODE:N] только когда контент ДЕЙСТВИТЕЛЬНО нужен для этой конкретной карточки.`;
+
+        try {
+            const response = await this.aiService.createChatCompletion(this.apiKey, [
+                { role: 'system', content: this.agents.contentEnhancer.systemPrompt },
+                { role: 'user', content: prompt }
+            ]);
+
+            if (!response?.content) {
+                throw new Error('No response from content enhancer agent');
+            }
+
+            const result = this.parseJSONResponse(response.content, 'contentEnhancer');
+            console.log('🎨 Content enhancer parsed result:', result);
+            
+            // Обрабатываем результат и заменяем плейсхолдеры на реальный контент
+            const enhancedCards = result.enhancedCards?.map((card: any, cardIndex: number) => {
+                let enhancedBack = card.back;
+                
+                console.log(`🔧 Обработка карточки ${cardIndex + 1}: ${card.front}`);
+                console.log(`📋 Мультимедиа для карточки:`, card.multimedia);
+                
+                // Ищем и заменяем все плейсхолдеры изображений
+                const imageMatches = enhancedBack.match(/\[IMAGE:(\d+)\]/g);
+                if (imageMatches) {
+                    console.log(`🔍 Найдены плейсхолдеры изображений в карточке ${cardIndex + 1}:`, imageMatches);
+                    imageMatches.forEach((match: string) => {
+                        const indexMatch = match.match(/\[IMAGE:(\d+)\]/);
+                        if (indexMatch) {
+                            const imageIndex = parseInt(indexMatch[1]);
+                            const image = contentEnhancement.selectedImages[imageIndex];
+                            console.log(`🔄 Замена ${match} на изображение ${imageIndex} в карточке ${cardIndex + 1}:`, image?.src || 'НЕ НАЙДЕНО');
+                            if (image) {
+                                // Используем base64 если доступно, иначе используем URL
+                                const imageSrc = image.base64 || image.src;
+                                console.log(`🖼️ Используем ${image.base64 ? 'base64' : 'URL'} для изображения в карточке ${cardIndex + 1}`);
+                                
+                                // Улучшенная логика для alt текста
+                                const altText = image.alt && image.alt.trim() !== '' ? image.alt : '';
+                                
+                                // Улучшенное форматирование изображения с минимальными отступами
+                                enhancedBack = enhancedBack.replace(
+                                    match,
+                                    `\n![${altText}](${imageSrc})\n`
+                                );
+                            } else {
+                                console.warn(`⚠️ Изображение с индексом ${imageIndex} не найдено в selectedImages`);
+                                // Удаляем некорректный плейсхолдер
+                                enhancedBack = enhancedBack.replace(match, '');
+                            }
+                        }
+                    });
+                }
+                
+                // Ищем и заменяем все плейсхолдеры формул
+                const formulaMatches = enhancedBack.match(/\[FORMULA:(\d+)\]/g);
+                if (formulaMatches) {
+                    console.log(`🔍 Найдены плейсхолдеры формул в карточке ${cardIndex + 1}:`, formulaMatches);
+                    formulaMatches.forEach((match: string) => {
+                        const indexMatch = match.match(/\[FORMULA:(\d+)\]/);
+                        if (indexMatch) {
+                            const formulaIndex = parseInt(indexMatch[1]);
+                            const formula = contentEnhancement.selectedFormulas[formulaIndex];
+                            console.log(`🔄 Замена ${match} на формулу ${formulaIndex} в карточке ${cardIndex + 1}:`, formula?.text || 'НЕ НАЙДЕНО');
+                            if (formula) {
+                                enhancedBack = enhancedBack.replace(
+                                    match,
+                                    `\n$$${formula.text}$$\n`
+                                );
+                            } else {
+                                console.warn(`⚠️ Формула с индексом ${formulaIndex} не найдена в selectedFormulas`);
+                                // Удаляем некорректный плейсхолдер
+                                enhancedBack = enhancedBack.replace(match, '');
+                            }
+                        }
+                    });
+                }
+                
+                // Ищем и заменяем все плейсхолдеры кода
+                const codeMatches = enhancedBack.match(/\[CODE:(\d+)\]/g);
+                if (codeMatches) {
+                    console.log(`🔍 Найдены плейсхолдеры кода в карточке ${cardIndex + 1}:`, codeMatches);
+                    codeMatches.forEach((match: string) => {
+                        const indexMatch = match.match(/\[CODE:(\d+)\]/);
+                        if (indexMatch) {
+                            const codeIndex = parseInt(indexMatch[1]);
+                            const code = contentEnhancement.selectedCode[codeIndex];
+                            console.log(`🔄 Замена ${match} на код ${codeIndex} в карточке ${cardIndex + 1}:`, code?.code?.substring(0, 30) || 'НЕ НАЙДЕНО');
+                            if (code) {
+                                enhancedBack = enhancedBack.replace(
+                                    match,
+                                    `\n\`\`\`${code.language || ''}\n${code.code}\n\`\`\`\n`
+                                );
+                            } else {
+                                console.warn(`⚠️ Код с индексом ${codeIndex} не найден в selectedCode`);
+                                // Удаляем некорректный плейсхолдер
+                                enhancedBack = enhancedBack.replace(match, '');
+                            }
+                        }
+                    });
+                }
+                
+                // Очищаем лишние переносы строк
+                enhancedBack = enhancedBack.replace(/\n{3,}/g, '\n\n');
+                
+                console.log(`✅ Карточка ${cardIndex + 1} обработана. Мультимедиа:`, {
+                    images: card.multimedia?.images?.length || 0,
+                    formulas: card.multimedia?.formulas?.length || 0,
+                    code: card.multimedia?.code?.length || 0
+                });
+                
+                return {
+                    ...card,
+                    back: enhancedBack,
+                    multimedia: card.multimedia,
+                    // Сохраняем только релевантные мультимедиа данные для этой карточки
+                    attachedImages: card.multimedia?.images?.map((idx: number) => contentEnhancement.selectedImages[idx]).filter(Boolean) || [],
+                    attachedFormulas: card.multimedia?.formulas?.map((idx: number) => contentEnhancement.selectedFormulas[idx]).filter(Boolean) || [],
+                    attachedCode: card.multimedia?.code?.map((idx: number) => contentEnhancement.selectedCode[idx]).filter(Boolean) || []
+                };
+            }) || cards;
+
+            console.log(`🎉 Content Enhancement завершен. Обработано ${enhancedCards.length} карточек`);
+            return { enhancedCards };
+        } catch (error) {
+            console.error('Content enhancer error:', error);
+            return { enhancedCards: cards };
+        }
+    }
+
+    // Card Content Matcher Agent - точно определяет какой контент подходит к каждой карточке
+    private async executeCardContentMatcher(input: any, context: WorkflowContext): Promise<any> {
+        const { cards, contentEnhancement, originalText } = input;
+
+        const prompt = `Ты - Card Content Matcher Agent. Проанализируй каждую карточку и точно определи, какой мультимедиа контент ей подходит.
+
+ОРИГИНАЛЬНЫЙ ТЕКСТ: "${originalText}"
+
+КАРТОЧКИ ДЛЯ АНАЛИЗА (${cards.length}):
+${cards.map((card: GeneratedCard, i: number) => `
+Карточка ${i + 1}:
+Вопрос: ${card.front}
+Ответ: ${card.back}
+Тема: ${this.extractCardTopic(card.front, card.back)}
+`).join('')}
+
+ДОСТУПНЫЙ КОНТЕНТ:
+${contentEnhancement.shouldIncludeImages ? `Изображения (${contentEnhancement.selectedImages.length}):
+${contentEnhancement.selectedImages.map((img: PageImage, i: number) => `${i + 1}. Alt: "${img.alt || 'без описания'}" | Релевантность: ${img.relevanceScore}/10`).join('\n')}` : 'Изображения: отсутствуют'}
+
+${contentEnhancement.shouldIncludeFormulas ? `Формулы (${contentEnhancement.selectedFormulas.length}):
+${contentEnhancement.selectedFormulas.map((formula: FormulaElement, i: number) => `${i + 1}. "${formula.text}" | Релевантность: ${formula.relevanceScore}/10`).join('\n')}` : 'Формулы: отсутствуют'}
+
+${contentEnhancement.shouldIncludeCode ? `Код (${contentEnhancement.selectedCode.length}):
+${contentEnhancement.selectedCode.map((code: CodeBlock, i: number) => `${i + 1}. ${code.language || 'text'}: "${code.code.substring(0, 80)}..." | Релевантность: ${code.relevanceScore}/10`).join('\n')}` : 'Код: отсутствует'}
+
+ПРАВИЛА АНАЛИЗА:
+1. Для каждой карточки определи степень соответствия (0-10) каждого элемента контента
+2. Элемент добавляется к карточке только при соответствии ≥ 8/10
+3. Учитывай тематику: математика→формулы, программирование→код, процессы→схемы
+4. НЕ добавляй контент если он не добавляет образовательной ценности
+5. Приоритет: специфичность > общность
+
+JSON ответ:
+{
+  "cardMatches": [
+    {
+      "cardIndex": 0,
+      "relevantImages": [0],
+      "relevantFormulas": [],
+      "relevantCode": [],
+      "reasoning": "Изображение 1 прямо иллюстрирует концепт из вопроса"
+    },
+    {
+      "cardIndex": 1,
+      "relevantImages": [],
+      "relevantFormulas": [0],
+      "relevantCode": [],
+      "reasoning": "Формула 1 объясняет математическую зависимость из ответа"
+    }
+  ]
+}`;
+
+        try {
+            const response = await this.aiService.createChatCompletion(this.apiKey, [
+                { role: 'system', content: this.agents.cardContentMatcher.systemPrompt },
+                { role: 'user', content: prompt }
+            ]);
+
+            if (!response?.content) {
+                throw new Error('No response from card content matcher agent');
+            }
+
+            const result = this.parseJSONResponse(response.content, 'cardContentMatcher');
+            console.log('🎯 Card content matcher result:', result);
+            
+            return result;
+        } catch (error) {
+            console.error('Card content matcher error:', error);
+            return { cardMatches: [] };
+        }
+    }
+
+    // Вспомогательный метод для извлечения темы карточки
+    private extractCardTopic(front: string, back: string): string {
+        // Простая эвристика для определения темы карточки
+        const text = (front + ' ' + back).toLowerCase();
+        
+        if (text.includes('формула') || text.includes('уравнение') || text.includes('математ')) return 'математика';
+        if (text.includes('код') || text.includes('программ') || text.includes('алгоритм')) return 'программирование';
+        if (text.includes('схема') || text.includes('диаграмма') || text.includes('процесс')) return 'схематика';
+        if (text.includes('история') || text.includes('дата') || text.includes('событие')) return 'история';
+        if (text.includes('определение') || text.includes('понятие') || text.includes('термин')) return 'теория';
+        
+        return 'общая';
+    }
+
+    // Text Analyst Agent - глубокий анализ текста и планирование обучения
+    private async executeTextAnalyst(input: any, context: WorkflowContext): Promise<TextAnalysis> {
+        const { text, pageContext } = input;
+        
+        const hasImages = pageContext?.pageImages?.length > 0;
+        const hasFormulas = pageContext?.formulas?.length > 0;
+        const hasCode = pageContext?.codeBlocks?.length > 0;
+        
+        const prompt = `Ты - Text Analyst Agent. Проведи глубокий анализ текста и определи оптимальную стратегию обучения.
+
+ТЕКСТ ДЛЯ АНАЛИЗА (${text.length} символов):
+"${text}"
+
+ДОСТУПНЫЙ МУЛЬТИМЕДИА КОНТЕНТ:
+- Изображения: ${hasImages ? pageContext.pageImages.length : 0} ${hasImages ? '(ЕСТЬ - обязательно учти!)' : ''}
+- Формулы: ${hasFormulas ? pageContext.formulas.length : 0}
+- Код: ${hasCode ? pageContext.codeBlocks.length : 0}
+
+ТВОЯ ЗАДАЧА:
+1. Определи основные темы и их важность
+2. Оцени сложность материала
+3. ТОЧНО определи сколько карточек ДЕЙСТВИТЕЛЬНО нужно (не переборщи!)
+4. Учти мультимедиа контент в планировании
+5. Приоритизируй темы
+
+ПРИНЦИПЫ:
+- Большой текст ≠ много карточек
+- Фокус на ключевых концептах для понимания
+- Если есть изображения - они ДОЛЖНЫ быть использованы
+- Качество > количество
+
+JSON ответ:
+{
+  "textLength": ${text.length},
+  "complexity": "medium",
+  "mainTopics": [
+    {
+      "name": "Основная тема",
+      "importance": "critical",
+      "complexity": "medium",
+      "estimatedCards": 2,
+      "needsMultimedia": true,
+      "multimediaTypes": ["images"],
+      "subtopics": ["подтема1", "подтема2"]
+    }
+  ],
+  "estimatedCards": 3,
+  "learningObjectives": ["понять X", "запомнить Y"],
+  "hasMultimedia": ${hasImages || hasFormulas || hasCode},
+  "multimediaTypes": [${hasImages ? '"images"' : ''}${hasFormulas ? ', "formulas"' : ''}${hasCode ? ', "code"' : ''}],
+  "priority": "high",
+  "reasoning": "Объяснение стратегии"
+}`;
+
+        try {
+            const response = await this.aiService.createChatCompletion(this.apiKey, [
+                { role: 'system', content: this.agents.textAnalyst.systemPrompt },
+                { role: 'user', content: prompt }
+            ]);
+
+            if (!response?.content) {
+                throw new Error('No response from text analyst agent');
+            }
+
+            const result = this.parseJSONResponse(response.content, 'textAnalyst');
+            console.log('📋 Text analysis result:', result);
+            
+            return result;
+        } catch (error) {
+            console.error('Text analyst error:', error);
+            return {
+                textLength: text.length,
+                complexity: this.estimateComplexity(text),
+                mainTopics: [{
+                    name: 'Основная тема',
+                    importance: 'important' as const,
+                    complexity: 'medium' as const,
+                    estimatedCards: Math.min(5, Math.ceil(text.length / 1000)),
+                    needsMultimedia: hasImages || hasFormulas || hasCode,
+                    multimediaTypes: [
+                        ...(hasImages ? ['images'] : []),
+                        ...(hasFormulas ? ['formulas'] : []),
+                        ...(hasCode ? ['code'] : [])
+                    ],
+                    subtopics: []
+                }],
+                estimatedCards: Math.min(5, Math.ceil(text.length / 1000)),
+                learningObjectives: ['Понимание основных концептов'],
+                hasMultimedia: hasImages || hasFormulas || hasCode,
+                multimediaTypes: [
+                    ...(hasImages ? ['images'] : []),
+                    ...(hasFormulas ? ['formulas'] : []),
+                    ...(hasCode ? ['code'] : [])
+                ],
+                priority: 'medium' as const,
+                reasoning: 'Fallback analysis due to error'
+            };
+        }
+    }
+
+    // Card Planner Agent - планирование структуры карточек
+    private async executeCardPlanner(input: any, context: WorkflowContext): Promise<CardPlan> {
+        const { textAnalysis, originalText, pageContext } = input;
+        
+        const prompt = `Ты - Card Planner Agent. Создай детальный план карточек на основе анализа текста.
+
+АНАЛИЗ ТЕКСТА:
+Основные темы: ${textAnalysis.mainTopics?.map((t: any) => `${t.name} (важность: ${t.importance})`).join(', ') || 'Основные темы'}
+Рекомендуемое количество карточек: ${textAnalysis.estimatedCards}
+Сложность: ${textAnalysis.complexity}
+Есть мультимедиа: ${textAnalysis.hasMultimedia ? 'ДА' : 'НЕТ'}
+Типы мультимедиа: ${textAnalysis.multimediaTypes?.join(', ') || 'нет типов'}
+
+ДОСТУПНЫЙ КОНТЕНТ:
+${pageContext?.pageImages?.length > 0 ? `- Изображения: ${pageContext.pageImages.length} (ПРИОРИТЕТ - пользователь выделил!)` : ''}
+${pageContext?.formulas?.length > 0 ? `- Формулы: ${pageContext.formulas.length}` : ''}
+${pageContext?.codeBlocks?.length > 0 ? `- Код: ${pageContext.codeBlocks.length}` : ''}
+
+ТВОЯ ЗАДАЧА:
+1. Создай точный план каждой карточки
+2. Определи тип карточки (концепт, пример, формула, код)
+3. Спланируй распределение мультимедиа
+4. Оптимизируй для эффективного обучения
+5. ОБЯЗАТЕЛЬНО включи изображения если они есть
+
+ТИПЫ КАРТОЧЕК:
+- concept: основные понятия (с изображениями/схемами)
+- definition: определения терминов
+- formula: формулы и уравнения (с формулами)
+- code: примеры кода (с кодом)
+- example: практические примеры
+- application: применение знаний
+
+JSON ответ:
+{
+  "totalCards": 3,
+  "cardSpecs": [
+    {
+      "id": "card_1",
+      "type": "concept",
+      "topic": "Основное понятие",
+      "priority": "high",
+      "difficulty": "medium",
+      "needsMultimedia": true,
+      "multimediaTypes": ["images"],
+      "estimatedLength": "medium",
+      "description": "Карточка объясняет основной концепт с использованием схемы"
+    }
+  ],
+  "multimediaDistribution": {
+    "totalImages": ${pageContext?.pageImages?.length || 0},
+    "totalFormulas": ${pageContext?.formulas?.length || 0},
+    "totalCode": ${pageContext?.codeBlocks?.length || 0},
+    "assignments": [],
+    "userSelectedImages": [0, 1],
+    "reasoning": "Распределение мультимедиа"
+  },
+  "learningFlow": ["card_1", "card_2", "card_3"],
+  "reasoning": "Объяснение плана"
+}`;
+
+        try {
+            const response = await this.aiService.createChatCompletion(this.apiKey, [
+                { role: 'system', content: this.agents.cardPlanner.systemPrompt },
+                { role: 'user', content: prompt }
+            ]);
+
+            if (!response?.content) {
+                throw new Error('No response from card planner agent');
+            }
+
+            const result = this.parseJSONResponse(response.content, 'cardPlanner');
+            console.log('📋 Card plan result:', result);
+            
+            return result;
+        } catch (error) {
+            console.error('Card planner error:', error);
+            // Fallback plan
+            const estimatedCards = Math.min(textAnalysis.estimatedCards, 5);
+            return {
+                totalCards: estimatedCards,
+                                 cardSpecs: Array.from({ length: estimatedCards }, (_, i: number) => ({
+                    id: `card_${i + 1}`,
+                    type: 'concept' as const,
+                    topic: `Тема ${i + 1}`,
+                    priority: 'medium' as const,
+                    difficulty: 'medium' as const,
+                    needsMultimedia: textAnalysis.hasMultimedia,
+                    multimediaTypes: textAnalysis.multimediaTypes || [],
+                    estimatedLength: 'medium' as const,
+                    description: `Карточка ${i + 1}`
+                })),
+                multimediaDistribution: {
+                    totalImages: pageContext?.pageImages?.length || 0,
+                    totalFormulas: pageContext?.formulas?.length || 0,
+                    totalCode: pageContext?.codeBlocks?.length || 0,
+                    assignments: [],
+                    userSelectedImages: pageContext?.pageImages?.map((_: any, i: number) => i) || [],
+                    reasoning: 'Fallback distribution'
+                },
+                                 learningFlow: Array.from({ length: estimatedCards }, (_: any, i: number) => `card_${i + 1}`),
+                reasoning: 'Fallback plan due to error'
+            };
+        }
+    }
+
+    // Multimedia Assigner Agent - распределение мультимедиа контента
+    private async executeMultimediaAssigner(input: any, context: WorkflowContext): Promise<MultimediaDistribution> {
+        const { cardPlan, pageContext, originalText } = input;
+        
+        const prompt = `Ты - Multimedia Assigner Agent. Точно распредели мультимедиа контент по карточкам.
+
+ПЛАН КАРТОЧЕК:
+${cardPlan.cardSpecs.map((spec: any, i: number) => `
+Карточка ${i + 1} (${spec.id}):
+- Тип: ${spec.type}
+- Тема: ${spec.topic}
+- Нужен мультимедиа: ${spec.needsMultimedia ? 'ДА' : 'НЕТ'}
+- Типы: ${spec.multimediaTypes?.join(', ') || 'нет типов'}
+- Описание: ${spec.description}
+`).join('')}
+
+ДОСТУПНЫЙ МУЛЬТИМЕДИА:
+${pageContext?.pageImages?.length > 0 ? `
+ИЗОБРАЖЕНИЯ (${pageContext.pageImages.length}) - ПРИОРИТЕТ:
+${pageContext.pageImages.map((img: any, i: number) => `${i}. "${img.alt || 'без описания'}" (релевантность: ${img.relevanceScore}/10)`).join('\n')}
+` : 'Изображения: нет'}
+
+${pageContext?.formulas?.length > 0 ? `
+ФОРМУЛЫ (${pageContext.formulas.length}):
+${pageContext.formulas.map((formula: any, i: number) => `${i}. "${formula.text}" (тип: ${formula.type})`).join('\n')}
+` : 'Формулы: нет'}
+
+${pageContext?.codeBlocks?.length > 0 ? `
+КОД (${pageContext.codeBlocks.length}):
+${pageContext.codeBlocks.map((code: any, i: number) => `${i}. ${code.language || 'text'}: "${code.code.substring(0, 60)}..."`).join('\n')}
+` : 'Код: нет'}
+
+ОСОБЫЕ ТРЕБОВАНИЯ:
+- Если пользователь выделил изображение - оно ДОЛЖНО попасть в карточку
+- Каждое изображение должно иметь четкую образовательную цель
+- Распределяй контент только при высокой релевантности (≥8/10)
+- Один элемент мультимедиа может использоваться в нескольких карточках если это оправдано
+
+JSON ответ:
+{
+  "totalImages": ${pageContext?.pageImages?.length || 0},
+  "totalFormulas": ${pageContext?.formulas?.length || 0},
+  "totalCode": ${pageContext?.codeBlocks?.length || 0},
+  "assignments": [
+    {
+      "cardId": "card_1",
+      "imageIndices": [0],
+      "formulaIndices": [],
+      "codeIndices": [],
+      "reasoning": "Изображение 0 прямо иллюстрирует концепт карточки"
+    }
+  ],
+  "userSelectedImages": [${pageContext?.pageImages?.map((_: unknown, i: number) => i).join(', ') || ''}],
+  "reasoning": "Объяснение распределения"
+}`;
+
+        try {
+            const response = await this.aiService.createChatCompletion(this.apiKey, [
+                { role: 'system', content: this.agents.multimediaAssigner.systemPrompt },
+                { role: 'user', content: prompt }
+            ]);
+
+            if (!response?.content) {
+                throw new Error('No response from multimedia assigner agent');
+            }
+
+            const result = this.parseJSONResponse(response.content, 'multimediaAssigner');
+            console.log('🎯 Multimedia assignment result:', result);
+            
+            return result;
+        } catch (error) {
+            console.error('Multimedia assigner error:', error);
+            // Fallback assignment - assign all images to first cards
+            const assignments: MultimediaAssignment[] = [];
+            const imageCount = pageContext?.pageImages?.length || 0;
+            const formulaCount = pageContext?.formulas?.length || 0;
+            const codeCount = pageContext?.codeBlocks?.length || 0;
+            
+            cardPlan.cardSpecs.forEach((spec: any, i: number) => {
+                const assignment: MultimediaAssignment = {
+                    cardId: spec.id,
+                    imageIndices: [],
+                    formulaIndices: [],
+                    codeIndices: [],
+                    reasoning: 'Fallback assignment'
+                };
+                
+                // Distribute images evenly, prioritizing first cards
+                if (spec.needsMultimedia && Array.isArray(spec.multimediaTypes) && spec.multimediaTypes.includes('images') && imageCount > 0) {
+                    const imagesPerCard = Math.ceil(imageCount / cardPlan.cardSpecs.length);
+                    const startIdx = i * imagesPerCard;
+                    const endIdx = Math.min(startIdx + imagesPerCard, imageCount);
+                    assignment.imageIndices = Array.from({ length: endIdx - startIdx }, (_, j) => startIdx + j);
+                }
+                
+                assignments.push(assignment);
+            });
+            
+            return {
+                totalImages: imageCount,
+                totalFormulas: formulaCount,
+                totalCode: codeCount,
+                assignments,
+                                 userSelectedImages: Array.from({ length: imageCount }, (_: unknown, i: number) => i),
+                reasoning: 'Fallback distribution due to error'
+            };
+        }
+    }
+
+    // Вспомогательный метод для получения рекомендованного контента для карточки
+    private getMatchedContentForCard(cardIndex: number, contentMatches: any): string {
+        if (!contentMatches || !contentMatches.cardMatches) return 'нет рекомендаций';
+        
+        const match = contentMatches.cardMatches.find((m: any) => m.cardIndex === cardIndex);
+        if (!match) return 'нет соответствий';
+        
+        const parts = [];
+        if (match.relevantImages && Array.isArray(match.relevantImages) && match.relevantImages.length > 0) {
+            parts.push(`изображения [${match.relevantImages.join(', ')}]`);
+        }
+        if (match.relevantFormulas && Array.isArray(match.relevantFormulas) && match.relevantFormulas.length > 0) {
+            parts.push(`формулы [${match.relevantFormulas.join(', ')}]`);
+        }
+        if (match.relevantCode && Array.isArray(match.relevantCode) && match.relevantCode.length > 0) {
+            parts.push(`код [${match.relevantCode.join(', ')}]`);
+        }
+        
+        return parts.length > 0 ? parts.join(', ') : 'нет подходящего контента';
     }
 
     // Вспомогательные методы
@@ -639,21 +1887,60 @@ JSON ответ:
         };
     }
 
+    private createFallbackContentEnhancement(): ContentEnhancement {
+        return {
+            shouldIncludeImages: false,
+            selectedImages: [],
+            shouldIncludeFormulas: false,
+            selectedFormulas: [],
+            shouldIncludeCode: false,
+            selectedCode: [],
+            reasoning: 'Fallback - no multimedia content analysis'
+        };
+    }
+
     // Конвертация в StoredCard
     private convertToStoredCards(cards: GeneratedCard[], originalText: string): StoredCard[] {
-        return cards.map((card, index) => ({
-            id: `ai_agent_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`,
-            mode: Modes.GeneralTopic,
-            front: card.front,
-            back: card.back,
-            text: originalText,
-            createdAt: new Date(),
-            exportStatus: 'not_exported' as const,
-            ...(card.tags && { tags: card.tags }),
-            ...(card.difficulty && { difficulty: card.difficulty }),
-            ...(card.concept && { concept: card.concept }),
-            ...(card.qualityScore && { qualityScore: card.qualityScore })
-        }));
+        return cards.map((card, index) => {
+            const baseCard: any = {
+                id: `ai_agent_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`,
+                mode: Modes.GeneralTopic,
+                front: card.front,
+                back: card.back,
+                text: originalText,
+                createdAt: new Date(),
+                exportStatus: 'not_exported' as const,
+                ...(card.tags && { tags: card.tags }),
+                ...(card.difficulty && { difficulty: card.difficulty }),
+                ...(card.concept && { concept: card.concept }),
+                ...(card.qualityScore && { qualityScore: card.qualityScore })
+            };
+
+            // Добавляем мультимедиа данные если есть
+            if (card.attachedImages && card.attachedImages.length > 0) {
+                // Используем первое изображение как основное
+                const primaryImage = card.attachedImages[0];
+                if (primaryImage.base64) {
+                    baseCard.image = primaryImage.base64;
+                    console.log('💾 Сохранено изображение в base64 формате для карточки:', baseCard.id);
+                } else if (primaryImage.src) {
+                    baseCard.imageUrl = primaryImage.src;
+                    console.log('💾 Сохранена ссылка на изображение для карточки:', baseCard.id);
+                }
+            }
+
+            // Также копируем изображения из существующих полей card.image и card.imageUrl
+            if (card.image) {
+                baseCard.image = card.image;
+                console.log('💾 Скопировано изображение из card.image для карточки:', baseCard.id);
+            }
+            if (card.imageUrl) {
+                baseCard.imageUrl = card.imageUrl;
+                console.log('💾 Скопирована ссылка из card.imageUrl для карточки:', baseCard.id);
+            }
+
+            return baseCard;
+        });
     }
 }
 

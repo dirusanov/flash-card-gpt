@@ -37,6 +37,47 @@ interface ResultDisplayProps {
     hideActionButtons?: boolean; // Hide action buttons in preview mode
 }
 
+// Функция для рендеринга простого Markdown (изображения, формулы, код)
+const renderMarkdownContent = (content: string): string => {
+    let html = content;
+    
+    // Конвертируем изображения из Markdown в HTML
+    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+        // Улучшенная логика для alt текста
+        const displayAlt = alt && alt !== 'Изображение' && alt !== 'Image' ? alt : '';
+        
+        return `<div style="text-align: center; margin: 4px 0;">
+            <img src="${src}" alt="${displayAlt}" style="max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: block; margin: 0 auto;" />
+            ${displayAlt ? `<div style="font-size: 11px; color: #6B7280; margin-top: 2px; font-style: italic;">${displayAlt}</div>` : ''}
+        </div>`;
+    });
+    
+    // Конвертируем LaTeX формулы
+    html = html.replace(/\$\$([^$]+)\$\$/g, (match, formula) => {
+        return `<div style="text-align: center; margin: 12px 0; padding: 8px; background: #F8FAFC; border-radius: 6px; font-family: serif;">
+            <strong>Формула:</strong> ${formula}
+        </div>`;
+    });
+    
+    // Конвертируем блоки кода
+    html = html.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, language, code) => {
+        return `<div style="margin: 12px 0;">
+            <div style="background: #2D2D2D; color: #F8F8F2; padding: 12px; border-radius: 6px; font-family: monospace; overflow-x: auto; white-space: pre; font-size: 13px;">
+                ${language ? `<div style="color: #6B7280; margin-bottom: 8px; font-size: 11px;">${language}</div>` : ''}
+                ${code}
+            </div>
+        </div>`;
+    });
+    
+    // Конвертируем инлайн код
+    html = html.replace(/`([^`]+)`/g, '<code style="background: #F3F4F6; padding: 2px 4px; border-radius: 3px; font-family: monospace; font-size: 13px;">$1</code>');
+    
+    // Конвертируем переносы строк
+    html = html.replace(/\n/g, '<br />');
+    
+    return html;
+};
+
 const ResultDisplay: React.FC<ResultDisplayProps> = (
         { 
             front, 
@@ -615,9 +656,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     margin: 0,
                                     whiteSpace: 'pre-wrap',
                                     wordWrap: 'break-word'
-                                }}>
-                                    {back}
-                                </div>
+                                }}
+                                dangerouslySetInnerHTML={{
+                                    __html: renderMarkdownContent(back || '')
+                                }}
+                                />
                             )}
                             
                             {isEditMode && (
