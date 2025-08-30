@@ -107,7 +107,7 @@ export const translateText = async (
       : basePrompt;
     
     const body = {
-      model: 'gpt-5-nano',
+      model: 'gpt-3.5-turbo',
       messages: [
         {
           role: 'system',
@@ -219,7 +219,7 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
   ];
 
   const body = {
-    model: 'gpt-5-nano',
+    model: 'gpt-3.5-turbo',
     messages: promptMessages,
 
   };
@@ -327,7 +327,7 @@ export const isAbstract = async (
   ];
 
   const body = {
-    model: 'gpt-5-nano',
+    model: 'gpt-3.5-turbo',
     messages: promptMessages,
 
   };
@@ -413,7 +413,7 @@ export const getDescriptionImage = async (
   ];
 
   const body = {
-    model: 'gpt-5-nano',
+    model: 'gpt-3.5-turbo',
     messages: promptMessages,
 
   };
@@ -484,6 +484,7 @@ const getImageUrlRequest = async (
       : description;
       
     const response = await openai.images.generate({
+      model: 'dall-e-2',
       prompt: finalDescription,
       n: 1,
       size: '512x512',
@@ -630,7 +631,7 @@ const getLangaugeNameText = async (
     }
   
   const body = {
-    model: 'gpt-5-nano',
+    model: 'gpt-3.5-turbo',
     messages: [
       { role: 'system', content: 'You are langauage expert' },
       {
@@ -707,7 +708,7 @@ export const generateAnkiFront = async (
   const langauage = await getLangaugeNameText(apiKey, text);
 
   const body = {
-    model: 'gpt-5-nano',
+    model: 'gpt-3.5-turbo',
     messages: [
       {
         role: 'system',
@@ -774,7 +775,7 @@ export const generateAnkiBack = async (
   const langauage = await getLangaugeNameText(apiKey, text);
 
   const body = {
-    model: 'gpt-5-nano',
+    model: 'gpt-3.5-turbo',
     messages: [
       {
         role: 'system',
