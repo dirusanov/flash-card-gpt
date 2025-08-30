@@ -6,6 +6,7 @@ import Loader from './Loader';
 import '../styles/grammarStyles.css';
 import '../styles/transcriptionStyles.css';
 import GrammarCard from './grammar/GrammarCard';
+import { getLoadingMessage, getDetailedLoadingMessage, type LoadingMessage, type DetailedLoadingMessage } from '../services/loadingMessages';
 
 interface ResultDisplayProps {
     front: string | null
@@ -35,6 +36,7 @@ interface ResultDisplayProps {
     setExamples?: (examples: Array<[string, string | null]>) => void;
     setLinguisticInfo?: (info: string) => void;
     hideActionButtons?: boolean; // Hide action buttons in preview mode
+    createdAt?: Date; // Add creation time support
 }
 
 // Функция для рендеринга простого Markdown (изображения, формулы, код)
@@ -79,23 +81,23 @@ const renderMarkdownContent = (content: string): string => {
 };
 
 const ResultDisplay: React.FC<ResultDisplayProps> = (
-        { 
-            front, 
+        {
+            front,
             back,
-            translation, 
-            examples, 
+            translation,
+            examples,
             imageUrl,
             image,
             linguisticInfo,
             transcription,
-            onNewImage, 
-            onNewExamples, 
+            onNewImage,
+            onNewExamples,
             onAccept,
             onViewSavedCards,
             onCancel,
-            mode = Modes.LanguageLearning, 
-            loadingNewImage, 
-            loadingNewExamples, 
+            mode = Modes.LanguageLearning,
+            loadingNewImage,
+            loadingNewExamples,
             loadingAccept,
             loadingGetResult = false,
             shouldGenerateImage = true,
@@ -106,7 +108,8 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             setBack,
             setExamples,
             setLinguisticInfo,
-            hideActionButtons = false
+            hideActionButtons = false,
+            createdAt
         }
     ) => {
     
@@ -118,6 +121,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
     const [expandedExamples, setExpandedExamples] = useState(true);
     const [expandedLinguistics, setExpandedLinguistics] = useState(true);
 
+    // Loading messages states
+    const [currentImageLoadingMessage, setCurrentImageLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
+    const [currentExamplesLoadingMessage, setCurrentExamplesLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
+    const [currentAcceptLoadingMessage, setCurrentAcceptLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
+
     // Синхронизируем локальные состояния с пропсами
     useEffect(() => {
         setLocalTranslation(translation || '');
@@ -126,6 +134,31 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
     useEffect(() => {
         setLocalBack(back || '');
     }, [back]);
+
+    // Update loading messages based on loading states
+    useEffect(() => {
+        if (loadingNewImage) {
+            setCurrentImageLoadingMessage(getDetailedLoadingMessage('GENERATING_IMAGE', 1));
+        } else {
+            setCurrentImageLoadingMessage(null);
+        }
+    }, [loadingNewImage]);
+
+    useEffect(() => {
+        if (loadingNewExamples) {
+            setCurrentExamplesLoadingMessage(getDetailedLoadingMessage('GENERATING_EXAMPLES', 1));
+        } else {
+            setCurrentExamplesLoadingMessage(null);
+        }
+    }, [loadingNewExamples]);
+
+    useEffect(() => {
+        if (loadingAccept) {
+            setCurrentAcceptLoadingMessage(getDetailedLoadingMessage('SAVING_TO_ANKI', 1));
+        } else {
+            setCurrentAcceptLoadingMessage(null);
+        }
+    }, [loadingAccept]);
 
     useEffect(() => {
         setLinguisticInfoValue(linguisticInfo || '');
@@ -272,9 +305,12 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#3B82F6')}
                 >
                     <FaSave size={14} />
-                    {loadingAccept ? 
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
+                    {loadingAccept ?
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+        <Loader type="spinner" size="small" inline color="#ffffff" />
+        <span style={{ fontSize: '12px', fontWeight: '500' }}>
+            {currentAcceptLoadingMessage?.currentStepTitle || currentAcceptLoadingMessage?.title || 'Saving'}
+        </span>
     </div> : (isSaved ? 'Save & Finish Editing' : 'Finish Editing')}
                 </button>
             );
@@ -417,40 +453,64 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                 ? '3px solid #3B82F6' 
                 : '3px solid transparent'
         }}>
-            {/* Status indicator - improved and more intuitive */}
+            {/* Status indicator with creation time - improved and more intuitive */}
             <div style={{ 
                 fontSize: '10px', 
                 color: '#9CA3AF', 
                 marginBottom: '12px', 
                 textAlign: 'right',
                 display: 'flex',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
                 gap: '4px',
-                padding: '4px 8px',
+                padding: '6px 8px',
                 backgroundColor: isEditMode ? '#EFF6FF' : (isSaved ? '#ECFDF5' : '#F9FAFB'),
                 borderRadius: '4px',
                 border: isEditMode ? '1px solid #DBEAFE' : (isSaved ? '1px solid #D1FAE5' : '1px solid #F3F4F6')
             }}>
-                <span style={{
-                    display: 'inline-block',
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    backgroundColor: isEditMode ? '#3B82F6' : (isSaved 
-                        ? '#10B981'
-                        : '#6B7280')
-                }}></span>
-                <strong style={{
-                    color: isEditMode ? '#1E40AF' : (isSaved 
-                        ? '#059669'
-                        : '#4B5563')
-                }}>{isEditMode 
-                    ? 'Editing' 
-                    : (isSaved 
-                        ? 'Saved to Collection'
-                        : 'New - Not Saved Yet')}
-                </strong>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                }}>
+                    <span style={{
+                        display: 'inline-block',
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        backgroundColor: isEditMode ? '#3B82F6' : (isSaved 
+                            ? '#10B981'
+                            : '#6B7280')
+                    }}></span>
+                    <strong style={{
+                        color: isEditMode ? '#1E40AF' : (isSaved 
+                            ? '#059669'
+                            : '#4B5563')
+                    }}>{isEditMode 
+                        ? 'Editing' 
+                        : (isSaved 
+                            ? 'Saved to Collection'
+                            : 'New - Not Saved Yet')}
+                    </strong>
+                </div>
+                {/* Creation time */}
+                <div style={{
+                    fontSize: '9px',
+                    color: '#9CA3AF',
+                    fontStyle: 'italic',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px'
+                }}>
+                    <span>📅</span>
+                    {(createdAt || new Date()).toLocaleString('ru-RU', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    })}
+                </div>
             </div>
 
             {/* Кнопка редактирования/сохранения - показывается вверху карточки */}
@@ -1079,9 +1139,12 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             onMouseOver={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#D97706')}
                             onMouseOut={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#F59E0B')}
                         >
-                            {loadingNewImage ? 
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader type="spinner" size="small" inline color="#ffffff" text="Generating" />
+                            {loadingNewImage ?
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+        <Loader type="spinner" size="small" inline color="#ffffff" />
+        <span style={{ fontSize: '12px', fontWeight: '500' }}>
+            {currentImageLoadingMessage?.currentStepTitle || currentImageLoadingMessage?.title || 'Generating'}
+        </span>
     </div> : 'New Image'}
                         </button>
                     )}
@@ -1105,9 +1168,12 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             onMouseOver={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#D97706')}
                             onMouseOut={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#F59E0B')}
                         >
-                            {loadingNewExamples ? 
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader type="spinner" size="small" inline color="#ffffff" text="Loading" />
+                            {loadingNewExamples ?
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+        <Loader type="spinner" size="small" inline color="#ffffff" />
+        <span style={{ fontSize: '12px', fontWeight: '500' }}>
+            {currentExamplesLoadingMessage?.currentStepTitle || currentExamplesLoadingMessage?.title || 'Loading'}
+        </span>
     </div> : 'New Examples'}
                         </button>
                     )}

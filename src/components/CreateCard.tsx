@@ -8,14 +8,16 @@ import { RootState } from "../store";
 import { setDeckId } from "../store/actions/decks";
 import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription } from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
-import { generateAnkiBack, generateAnkiFront, getDescriptionImage, getExamples, translateText, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown } from "../services/openaiApi";
+import { getDescriptionImage, getExamples, translateText, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown } from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setImageGenerationMode } from "../store/actions/settings";
 import { Modes } from "../constants";
 import ResultDisplay from "./ResultDisplay";
+import { getLoadingMessage, getDetailedLoadingMessage, type LoadingMessage, type DetailedLoadingMessage } from '../services/loadingMessages';
+import { setGlobalProgressCallback, getGlobalApiTracker } from '../services/apiTracker';
 import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 import useErrorNotification from './useErrorHandler';
-import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit } from 'react-icons/fa';
+import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit, FaClock } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
@@ -178,7 +180,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [loadingNewImage, setLoadingNewImage] = useState(false);
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
     const [loadingAccept, setLoadingAccept] = useState(false);
+    const [currentLoadingMessage, setCurrentLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
+    const [currentProgress, setCurrentProgress] = useState({ completed: 0, total: 0 });
     const [isEdited, setIsEdited] = useState(false);
+    const [elapsedTime, setElapsedTime] = useState(0);
+    const timerRef = useRef<NodeJS.Timeout | null>(null);
     const [isNewSubmission, setIsNewSubmission] = useState(true);
     const [explicitlySaved, setExplicitlySaved] = useState(false);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
@@ -311,6 +317,43 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         { code: 'zh', name: '中文' },
         { code: 'ar', name: 'العربية' },
     ];
+
+    // Timer effect for CreateCard
+    useEffect(() => {
+        console.log('🔄 Loading state changed:', {
+            loadingGetResult,
+            isProcessingCustomInstruction,
+            loadingNewImage,
+            loadingNewExamples
+        });
+
+        if (loadingGetResult) {
+            console.log('⏱️ Starting timer for card creation');
+            setElapsedTime(0);
+            timerRef.current = setInterval(() => {
+                setElapsedTime(prev => prev + 1);
+            }, 1000);
+        } else {
+            if (timerRef.current) {
+                console.log('⏱️ Stopping timer for card creation');
+                clearInterval(timerRef.current);
+                timerRef.current = null;
+            }
+        }
+
+        return () => {
+            if (timerRef.current) {
+                clearInterval(timerRef.current);
+            }
+        };
+    }, [loadingGetResult, isProcessingCustomInstruction, loadingNewImage, loadingNewExamples]);
+
+    // Format elapsed time
+    const formatElapsedTime = (seconds: number): string => {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    };
 
     // Track changes to card data
     useEffect(() => {
@@ -498,7 +541,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 customInstruction.toLowerCase().includes('предложение')) {
 
                 // Generate new examples based on instructions
+                console.log('📚 Starting examples generation...');
                 const newExamples = await aiService.getExamples(apiKey, text, translateToLanguage, true, customInstruction);
+                console.log('📚 Examples generation completed');
                 tabAware.setExamples(newExamples);
             } else if (customInstruction.toLowerCase().includes('translat') ||
                 customInstruction.toLowerCase().includes('перевод')) {
@@ -513,7 +558,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Always use custom instructions for both translation and examples
                 // This should ensure instructions are always applied
                 const translatedText = await aiService.translateText(apiKey, text, translateToLanguage, customInstruction);
+                console.log('📚 Starting examples generation (combined)...');
                 const newExamples = await aiService.getExamples(apiKey, text, translateToLanguage, true, customInstruction);
+                console.log('📚 Examples generation completed (combined)');
 
                 if (shouldGenerateImage) {
                     const descriptionImage = await aiService.getDescriptionImage(apiKey, text, customInstruction);
@@ -545,6 +592,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.error('Error applying custom instructions:', error);
             showError(error instanceof Error ? error.message : "Failed to apply custom instructions");
         } finally {
+            console.log('📝 Custom instruction processing completed');
             setIsProcessingCustomInstruction(false);
         }
     };
@@ -1184,6 +1232,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         tabAware.setTranscription('');
 
         setLoadingGetResult(true);
+        setCurrentLoadingMessage(null);
+
+        // Reset global API tracker and set progress callback
+        const globalTracker = getGlobalApiTracker();
+        globalTracker.reset();
+
+        setGlobalProgressCallback((update) => {
+            console.log(`🔄 Progress update: ${update.completed}/${update.total} - ${update.message.title}`);
+            setCurrentLoadingMessage(update.message);
+            setCurrentProgress({ completed: update.completed, total: update.total });
+
+            // REMOVED: Auto-hide logic moved to finally block to prevent conflicts
+            // The loading will be hidden in the finally block of the main function
+        });
+
         setOriginalSelectedText(text);
 
         // Clear any previous errors
@@ -1243,14 +1306,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             } catch (translationError) {
                 if (abortSignal.aborted) {
                     console.log('Translation cancelled by user');
-                    return; // Exit silently if cancelled
+                    throw new Error('Translation cancelled by user');
                 }
                 
                 // Check if this is a quota error and stop immediately
                 if (translationError instanceof Error && isQuotaError(translationError)) {
                     console.error('Quota error detected, stopping card creation:', translationError.message);
                     showError(translationError.message);
-                    return; // Stop all processing immediately
+                    throw translationError; // Throw to reach finally block
                 }
                 
                 console.error('Translation failed:', translationError);
@@ -1291,14 +1354,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             } catch (examplesError) {
                 if (abortSignal.aborted) {
                     console.log('Examples generation cancelled by user');
-                    return; // Exit silently if cancelled
+                    throw new Error('Examples generation cancelled by user');
                 }
                 
                 // Check if this is a quota error and stop immediately
                 if (examplesError instanceof Error && isQuotaError(examplesError)) {
                     console.error('Quota error detected, stopping card creation:', examplesError.message);
                     showError(examplesError.message);
-                    return; // Stop all processing immediately
+                    throw examplesError; // Throw to reach finally block
                 }
                 
                 console.error('Examples generation failed:', examplesError);
@@ -1331,14 +1394,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             } catch (flashcardError) {
                 if (abortSignal.aborted) {
                     console.log('Flashcard creation cancelled by user');
-                    return; // Exit silently if cancelled
+                    throw new Error('Flashcard creation cancelled by user');
                 }
                 
                 // Check if this is a quota error and stop immediately
                 if (flashcardError instanceof Error && isQuotaError(flashcardError)) {
                     console.error('Quota error detected, stopping card creation:', flashcardError.message);
                     showError(flashcardError.message);
-                    return; // Stop all processing immediately
+                    throw flashcardError; // Throw to reach finally block
                 }
                 
                 console.error('Flashcard creation failed:', flashcardError);
@@ -1464,7 +1527,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 if (linguisticError instanceof Error && isQuotaError(linguisticError)) {
                     console.error('Quota error detected, stopping card creation:', linguisticError.message);
                     showError(linguisticError.message);
-                    return; // Stop all processing immediately
+                    throw linguisticError; // Throw to reach finally block
                 }
                 
                 console.error('Linguistic info generation failed:', linguisticError);
@@ -1520,7 +1583,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 if (transcriptionError instanceof Error && isQuotaError(transcriptionError)) {
                     console.error('Quota error detected, stopping card creation:', transcriptionError.message);
                     showError(transcriptionError.message);
-                    return; // Stop all processing immediately
+                    throw transcriptionError; // Throw to reach finally block
                 }
                 
                 console.error('Transcription generation failed:', transcriptionError);
@@ -1575,7 +1638,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     if (imageError instanceof Error && isQuotaError(imageError)) {
                         console.error('Quota error detected, stopping card creation:', imageError.message);
                         showError(imageError.message);
-                        return; // Stop all processing immediately
+                        throw imageError; // Throw to reach finally block
                     }
                     
                     console.error('Image generation failed:', imageError);
@@ -1601,6 +1664,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 setShowResult(true);
                 setShowModal(true);
                 setIsNewSubmission(true);
+                
+                // Hide loading when content is ready and visible
+                setTimeout(() => {
+                    console.log('🎯 Content is ready - hiding loading');
+                    setLoadingGetResult(false);
+                    setCurrentLoadingMessage(null);
+                    setCurrentProgress({ completed: 0, total: 0 });
+                }, 500); // Short delay to ensure UI updates
             } else {
                 throw new Error("Failed to create card: No data was successfully generated. Please check your API key and try again.");
             }
@@ -1608,15 +1679,18 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Check if this is a cancellation
             if (abortSignal.aborted) {
                 console.log('Card generation was cancelled by user');
-                return; // Exit silently
+                throw new Error('Operation cancelled by user');
             }
             
             // Check if this is a quota error
             if (error instanceof Error && isQuotaError(error)) {
                 console.error('Quota error detected in main catch:', error.message);
                 showError(error.message);
-                setShowResult(false);
-                setShowModal(false);
+                // Hide loading on quota errors
+                setLoadingGetResult(false);
+                setCurrentLoadingMessage(null);
+                setCurrentProgress({ completed: 0, total: 0 });
+                // Don't close modal for quota errors - user might want to try again
                 return;
             }
             
@@ -1624,10 +1698,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             showError(error instanceof Error
                 ? `${error.message}`
                 : "Failed to create card. Please check your API key and try again.");
-            setShowResult(false);
-            setShowModal(false);
-        } finally {
+            
+            // Hide loading on errors
             setLoadingGetResult(false);
+            setCurrentLoadingMessage(null);
+            setCurrentProgress({ completed: 0, total: 0 });
+            // Don't close modal on errors - keep it open so user can retry
+        } finally {
+            // Don't force hide loading in finally block - let it complete naturally
+            // Only reset card generation state and clear abort controller
             
             // Reset card generation state to enable navigation buttons
             tabAware.setIsGeneratingCard(false);
@@ -2403,6 +2482,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         onCancel={handleCancel}
                         loadingNewImage={loadingNewImage}
                         loadingNewExamples={loadingNewExamples}
+                        createdAt={new Date()}
                         loadingAccept={loadingAccept}
                         loadingGetResult={loadingGetResult}
                         shouldGenerateImage={shouldGenerateImage}
@@ -2724,7 +2804,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     if (error instanceof Error && isQuotaError(error)) {
                         console.error('Quota error detected, stopping multiple cards creation:', error.message);
                         showError(error.message);
-                        return; // Stop all processing immediately
+                        throw error; // Throw to reach finally block
                     }
                     
                     console.error(`Error creating card for "${option}":`, error);
@@ -2811,7 +2891,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Check if this is a cancellation
             if (abortSignal.aborted) {
                 console.log('Multiple cards creation was cancelled by user');
-                return; // Exit silently
+                throw new Error('Operation cancelled by user');
             }
             
             // Check if this is a quota error
@@ -2824,14 +2904,43 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.error('Error processing selected options:', error);
             showError(error instanceof Error ? error.message : "Failed to create cards. Please try again.");
         } finally {
-            setLoadingGetResult(false);
-            
-            // Reset card generation state to enable navigation buttons  
-            tabAware.setIsGeneratingCard(false);
-            
-            // Очищаем карту выбранных опций
-            setSelectedOptionsMap({});
-            
+            console.log('🎯 Multiple cards creation finally block reached');
+
+            // Use the same smart loading management as main function
+            setTimeout(() => {
+                console.log('⏳ Checking for pending operations in multiple cards creation...');
+
+                const tracker = getGlobalApiTracker();
+                const trackerStats = tracker.getStats();
+                const hasPendingRequests = trackerStats.inProgress > 0;
+
+                console.log('📊 Multiple cards tracker stats:', trackerStats);
+
+                if (!hasPendingRequests) {
+                    console.log('✅ No pending operations in multiple cards - hiding loader');
+                    setLoadingGetResult(false);
+
+                    // Reset card generation state to enable navigation buttons
+                    tabAware.setIsGeneratingCard(false);
+
+                    // Очищаем карту выбранных опций
+                    setSelectedOptionsMap({});
+                } else {
+                    console.log('⏸️ Keeping loader visible for multiple cards - operations still running');
+                    // Wait a bit longer for multiple cards
+                    setTimeout(() => {
+                        console.log('⏳ Final check for multiple cards...');
+                        const finalCheckStats = tracker.getStats();
+                        if (finalCheckStats.inProgress === 0) {
+                            console.log('✅ Multiple cards operations completed - hiding loader');
+                            setLoadingGetResult(false);
+                            tabAware.setIsGeneratingCard(false);
+                            setSelectedOptionsMap({});
+                        }
+                    }, 3000);
+                }
+            }, 1000);
+
             // Clear abort controller
             abortControllerRef.current = null;
         }
@@ -5272,7 +5381,55 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             showError(`Card creation error: ${errorMessage}`, 'error');
         } finally {
-            setLoadingGetResult(false);
+            console.log('🎯 Main card creation function finally block reached');
+            // Add delay to prevent window disappearing too quickly
+            // Use a longer delay and check for any pending operations
+            setTimeout(() => {
+                console.log('⏳ Checking for pending operations before hiding loader...');
+
+                // Check if there are any pending operations by looking at API tracker
+                const tracker = getGlobalApiTracker();
+                const trackerStats = tracker.getStats();
+                const hasPendingRequests = trackerStats.inProgress > 0;
+
+                console.log('📊 Tracker stats:', trackerStats);
+                console.log('🔄 Has pending requests:', hasPendingRequests);
+
+                // Also check local loading states
+                const hasLocalOperations = isProcessingCustomInstruction || loadingNewImage || loadingNewExamples;
+
+                console.log('🏠 Local loading states:', {
+                    isProcessingCustomInstruction,
+                    loadingNewImage,
+                    loadingNewExamples,
+                    hasLocalOperations
+                });
+
+                // Only hide loader if no operations are running
+                if (!hasPendingRequests && !hasLocalOperations) {
+                    console.log('✅ No pending operations - hiding loader');
+                    setLoadingGetResult(false);
+                    setCurrentLoadingMessage(null);
+                    setCurrentProgress({ completed: 0, total: 0 });
+                } else {
+                    console.log('⏸️ Keeping loader visible - operations still running');
+                    // If there are still pending operations, wait a bit longer
+                    setTimeout(() => {
+                        console.log('⏳ Second check after additional delay...');
+                        const secondCheckStats = tracker.getStats();
+                        const stillHasPending = secondCheckStats.inProgress > 0;
+
+                        if (!stillHasPending && !isProcessingCustomInstruction && !loadingNewImage && !loadingNewExamples) {
+                            console.log('✅ Second check passed - hiding loader');
+                            setLoadingGetResult(false);
+                            setCurrentLoadingMessage(null);
+                            setCurrentProgress({ completed: 0, total: 0 });
+                        } else {
+                            console.log('⏸️ Still has pending operations - keeping loader');
+                        }
+                    }, 2000);
+                }
+            }, 1500); // Longer initial delay
             abortControllerRef.current = null;
         }
     }, [text, aiService, apiKey, showError]);
@@ -5456,40 +5613,134 @@ Original text: ${text}`;
             position: 'relative'
         }}>
             {loadingGetResult && (
-                <div style={{
+                <div className="loading-overlay" style={{
                     position: 'absolute',
                     top: 0,
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                    backdropFilter: 'blur(4px)',
                     zIndex: 10,
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '20px',
-                    padding: '0 20px'
+                    padding: '0 20px',
+                    borderRadius: '12px',
+                    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
                 }}>
-                    <Loader type="spinner" size="large" color="#3B82F6" 
-                        text={mode === Modes.GeneralTopic ? "Creating cards with AI agents..." : "Creating your Anki card..."} />
                     <div style={{
-                        backgroundColor: '#F3F4F6',
-                        padding: '10px 16px',
-                        borderRadius: '8px',
-                        fontSize: '13px',
-                        color: '#4B5563',
-                        maxWidth: '90%',
-                        textAlign: 'center',
-                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '12px'
                     }}>
-                        {mode === Modes.GeneralTopic
-                            ? "🤖 Text Analysis → 🔍 Card Creation → ✅ Quality Validation"
-                            : isMultipleCards
-                                ? "We're creating multiple cards from your selected options..."
-                                : "We're analyzing your text and generating learning materials"}
+                        <Loader type="spinner" size="large" color={currentLoadingMessage?.color || '#3B82F6'} />
+                        {currentLoadingMessage && (
+                            <div style={{
+                                fontSize: '20px',
+                                opacity: 0.8
+                            }}>
+                                {currentLoadingMessage.icon}
+                            </div>
+                        )}
                     </div>
-                    
+                    <div style={{
+                        textAlign: 'center',
+                        color: '#374151',
+                        maxWidth: '400px'
+                    }}>
+                        <div style={{
+                            fontSize: '18px',
+                            fontWeight: '600',
+                            marginBottom: '8px',
+                            color: currentLoadingMessage?.color || '#1f2937'
+                        }}>
+                            {currentLoadingMessage?.currentStepTitle || currentLoadingMessage?.title || "Starting..."}
+                        </div>
+                        <div style={{
+                            fontSize: '14px',
+                            color: '#6b7280',
+                            lineHeight: '1.5'
+                        }}>
+                            {currentLoadingMessage?.currentStepSubtitle || currentLoadingMessage?.subtitle || "Preparing your request..."}
+                        </div>
+                        {currentProgress.total > 0 && (
+                            <div style={{
+                                fontSize: '12px',
+                                color: '#9CA3AF',
+                                marginTop: '8px',
+                                fontWeight: '500'
+                            }}>
+                                {currentProgress.completed} of {currentProgress.total} requests completed
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Progress indicator */}
+                    <div style={{
+                        width: '280px',
+                        height: '8px',
+                        backgroundColor: '#f3f4f6',
+                        borderRadius: '4px',
+                        overflow: 'hidden',
+                        marginTop: '12px',
+                        boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.1)'
+                    }}>
+                        <div style={{
+                            height: '100%',
+                            width: `${currentProgress.total > 0 ? Math.max(5, (currentProgress.completed / currentProgress.total) * 100) : 15}%`, // Real progress
+                            background: `linear-gradient(90deg, ${currentLoadingMessage?.color || '#3B82F6'} 0%, ${currentLoadingMessage?.color || '#3B82F6'}dd 50%, ${currentLoadingMessage?.color || '#3B82F6'} 100%)`,
+                            borderRadius: '4px',
+                            transition: 'width 0.6s ease-out, background 0.3s ease-in-out',
+                            boxShadow: `0 0 10px ${currentLoadingMessage?.color || '#3B82F6'}40`,
+                            position: 'relative' as const,
+                            overflow: 'hidden' as const
+                        }}>
+                            {/* Shimmer effect */}
+                            <div style={{
+                                position: 'absolute' as const,
+                                top: 0,
+                                left: '-100%',
+                                width: '100%',
+                                height: '100%',
+                                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
+                                animation: 'shimmer 2s infinite'
+                            }} />
+                        </div>
+                    </div>
+
+                    {/* Timer display */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        marginTop: '16px',
+                        padding: '8px 16px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                        borderRadius: '20px',
+                        border: `1px solid ${currentLoadingMessage?.color || '#3B82F6'}20`,
+                        boxShadow: `0 0 15px ${currentLoadingMessage?.color || '#3B82F6'}20`
+                    }}>
+                        <FaClock style={{
+                            color: currentLoadingMessage?.color || '#3B82F6',
+                            fontSize: '14px',
+                            animation: 'pulse 2s ease-in-out infinite'
+                        }} />
+                        <span style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: currentLoadingMessage?.color || '#3B82F6',
+                            fontFamily: 'monospace',
+                            letterSpacing: '1px'
+                        }}>
+                            {formatElapsedTime(elapsedTime)}
+                        </span>
+                    </div>
+
                     {/* Cancel button in the loader */}
                     <button
                         onClick={handleCancel}
@@ -6263,6 +6514,7 @@ Original text: ${text}`;
                                         loadingNewImage={false}
                                         loadingNewExamples={false}
                                         loadingAccept={loadingAccept}
+                                        createdAt={new Date()}
                                         mode={Modes.GeneralTopic}
                                         shouldGenerateImage={false}
                                         isSaved={savedCardIndices.has(currentPreviewIndex)}
@@ -6708,8 +6960,22 @@ Original text: ${text}`;
                     {renderErrorNotification()}
                 </div>
             </div>
+            <style>
+                {`
+                    @keyframes shimmer {
+                        0% {
+                            left: -100%;
+                        }
+                        100% {
+                            left: 100%;
+                        }
+                    }
+                `}
+            </style>
         </div>
     );
 };
+
+
 
 export default CreateCard;

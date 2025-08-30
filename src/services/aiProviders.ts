@@ -3,6 +3,7 @@ import { ModelProvider } from '../store/reducers/settings';
 import { OpenAI } from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources';
 import { TranscriptionResult } from './aiServiceFactory';
+import { getGlobalApiTracker } from './apiTracker';
 
 /**
  * Интерфейс для работы с AI-провайдерами
@@ -147,12 +148,25 @@ Keep the description under 50 words and make sure it is purely descriptive witho
     translateToLanguage: string = 'ru',
     customPrompt: string = ''
   ): Promise<string | null> {
+    // Track API request
+    const tracker = getGlobalApiTracker();
+    const requestId = tracker.startRequest(
+      'Translating text',
+      `Converting your text to ${translateToLanguage}`,
+      '🌍',
+      '#3B82F6'
+    );
+
     try {
+      tracker.setInProgress(requestId);
       const basePrompt = this.getPrompts().translate(text, translateToLanguage);
       const finalPrompt = customPrompt ? `${basePrompt}. ${customPrompt}` : basePrompt;
       
       const response = await this.sendRequest(finalPrompt);
-      if (!response) return null;
+      if (!response) {
+        tracker.errorRequest(requestId);
+        return null;
+      }
       
       // Очистка ответа
       let cleanedTranslation = this.extractPlainText(response);
@@ -230,9 +244,11 @@ Keep the description under 50 words and make sure it is purely descriptive witho
       console.log('Original translation:', response);
       console.log('Cleaned translation:', cleanedTranslation);
       
+      tracker.completeRequest(requestId);
       return cleanedTranslation;
     } catch (error) {
       console.error('Error during translation:', error);
+      tracker.errorRequest(requestId);
       throw error;
     }
   }
@@ -247,7 +263,17 @@ Keep the description under 50 words and make sure it is purely descriptive witho
     customPrompt: string = '',
     sourceLanguage?: string
   ): Promise<Array<[string, string | null]>> {
+    // Track API request
+    const tracker = getGlobalApiTracker();
+    const requestId = tracker.startRequest(
+      'Creating example sentences',
+      `Generating helpful examples for "${word}"`,
+      '💡',
+      '#F59E0B'
+    );
+
     try {
+      tracker.setInProgress(requestId);
       const basePrompt = this.getPrompts().examples(word, sourceLanguage);
       const finalPrompt = customPrompt 
         ? `${basePrompt} ${customPrompt.replace(/\{word\}/g, word)}` 
@@ -331,12 +357,16 @@ Keep the description under 50 words and make sure it is purely descriptive witho
       }
       
       if (resultExamples.length === 0) {
-        throw new Error("Could not generate examples. Please try again with a different word or check your API key.");
+        console.warn("No examples were generated, but continuing with card creation");
+        tracker.completeRequest(requestId); // Mark as complete even without examples
+        return []; // Return empty array instead of throwing error
       }
       
+      tracker.completeRequest(requestId);
       return resultExamples;
     } catch (error) {
       console.error('Error getting examples:', error);
+      tracker.errorRequest(requestId);
       throw error;
     }
   }
@@ -348,7 +378,17 @@ Keep the description under 50 words and make sure it is purely descriptive witho
     word: string,
     customInstructions: string = ''
   ): Promise<string> {
+    // Track API request
+    const tracker = getGlobalApiTracker();
+    const requestId = tracker.startRequest(
+      'Crafting image description',
+      `Creating detailed prompt for "${word}" visualization`,
+      '🎨',
+      '#EC4899'
+    );
+
     try {
+      tracker.setInProgress(requestId);
       const basePrompt = this.getPrompts().imageDescription(word);
       const finalPrompt = customInstructions 
         ? `${basePrompt} ${customInstructions}` 
@@ -357,13 +397,16 @@ Keep the description under 50 words and make sure it is purely descriptive witho
       const response = await this.sendRequest(finalPrompt);
       
       if (!response) {
+        tracker.errorRequest(requestId);
         throw new Error("Failed to generate image description. Please try again.");
       }
       
       const description = this.extractPlainText(response);
+      tracker.completeRequest(requestId);
       return description || response;
     } catch (error) {
       console.error('Error generating image description:', error);
+      tracker.errorRequest(requestId);
       throw error;
     }
   }
@@ -374,7 +417,17 @@ Keep the description under 50 words and make sure it is purely descriptive witho
   public async generateAnkiFront(
     text: string
   ): Promise<string | null> {
+    // Track API request
+    const tracker = getGlobalApiTracker();
+    const requestId = tracker.startRequest(
+      'Creating question',
+      'Crafting an effective question for your flashcard',
+      '❓',
+      '#10B981'
+    );
+
     try {
+      tracker.setInProgress(requestId);
       // Теперь возвращаем только само слово, произношение будет в отдельном блоке транскрипции
       const prompt = `For the word or phrase "${text}", provide ONLY the word itself without any pronunciation or additional formatting.
 Just return the clean word/phrase as it should appear on the front of an Anki card.
@@ -385,6 +438,7 @@ Your response should contain ONLY the word/phrase, no pronunciation, no IPA, no 
       const response = await this.sendRequest(prompt);
       
       if (!response) {
+        tracker.errorRequest(requestId);
         return text; // Fallback to original text
       }
       
@@ -404,9 +458,11 @@ Your response should contain ONLY the word/phrase, no pronunciation, no IPA, no 
       
       console.log('Front card response:', cleanedResponse);
       
+      tracker.completeRequest(requestId);
       return cleanedResponse || text; // Fallback to original text if empty
     } catch (error) {
       console.error('Error generating Anki front:', error);
+      tracker.errorRequest(requestId);
       return text; // Fallback to original text
     }
   }
@@ -419,20 +475,34 @@ Your response should contain ONLY the word/phrase, no pronunciation, no IPA, no 
     sourceLanguage: string,
     userLanguage: string
   ): Promise<TranscriptionResult | null> {
+    // Track API request
+    const tracker = getGlobalApiTracker();
+    const requestId = tracker.startRequest(
+      'Creating transcription',
+      `Generating pronunciation for "${text}"`,
+      '🔤',
+      '#8B5CF6'
+    );
+
     try {
+      tracker.setInProgress(requestId);
       // Создаем промпт для получения транскрипций
       const prompt = this.createTranscriptionPrompt(text, sourceLanguage, userLanguage);
       
       const response = await this.sendRequest(prompt);
       
       if (!response) {
+        tracker.errorRequest(requestId);
         return null;
       }
       
       // Парсим ответ для извлечения транскрипций
-      return this.parseTranscriptionResponse(response);
+      const result = this.parseTranscriptionResponse(response);
+      tracker.completeRequest(requestId);
+      return result;
     } catch (error) {
       console.error('Error creating transcription:', error);
+      tracker.errorRequest(requestId);
       return null;
     }
   }
@@ -529,7 +599,17 @@ export class OpenAIProvider extends BaseAIProvider {
   
   // Дополнительный метод для получения изображения, специфичный для OpenAI
   public async getImageUrl(description: string): Promise<string | null> {
+    // Track API request
+    const tracker = getGlobalApiTracker();
+    const requestId = tracker.startRequest(
+      'Generating image',
+      'Creating beautiful illustration with AI',
+      '🖼️',
+      '#6366F1'
+    );
+
     try {
+      tracker.setInProgress(requestId);
       const response = await this.openai.images.generate({
         model: "dall-e-3",
         prompt: description,
@@ -537,9 +617,16 @@ export class OpenAIProvider extends BaseAIProvider {
         size: "1024x1024",
       });
       
-      return response.data?.[0]?.url || null;
+      const imageUrl = response.data?.[0]?.url || null;
+      if (imageUrl) {
+        tracker.completeRequest(requestId);
+      } else {
+        tracker.errorRequest(requestId);
+      }
+      return imageUrl;
     } catch (error) {
       console.error('Error generating image with OpenAI:', error);
+      tracker.errorRequest(requestId);
       throw error;
     }
   }
@@ -583,7 +670,17 @@ export class OpenAIProvider extends BaseAIProvider {
     apiKey: string, 
     messages: Array<{role: string, content: string}>
   ): Promise<{content: string} | null> {
+    // Track API request
+    const tracker = getGlobalApiTracker();
+    const requestId = tracker.startRequest(
+      'Creating grammar reference',
+      'Generating detailed grammar and linguistic information',
+      '📚',
+      '#9C27B0'
+    );
+
     try {
+      tracker.setInProgress(requestId);
       const formattedMessages: ChatCompletionMessageParam[] = messages.map(msg => ({
         role: msg.role as 'user' | 'system' | 'assistant',
         content: msg.content
@@ -596,12 +693,15 @@ export class OpenAIProvider extends BaseAIProvider {
       
       const content = response.choices[0]?.message?.content?.trim() || '';
       if (!content) {
+        tracker.errorRequest(requestId);
         return null;
       }
       
+      tracker.completeRequest(requestId);
       return { content };
     } catch (error) {
       console.error('Error in OpenAI chat completion:', error);
+      tracker.errorRequest(requestId);
       throw error;
     }
   }
@@ -698,7 +798,17 @@ export class GroqProvider extends BaseAIProvider {
     apiKey: string,
     messages: Array<{role: string, content: string}>
   ): Promise<{content: string} | null> {
+    // Track API request
+    const tracker = getGlobalApiTracker();
+    const requestId = tracker.startRequest(
+      'Creating grammar reference',
+      'Generating detailed grammar and linguistic information',
+      '📚',
+      '#9C27B0'
+    );
+
     try {
+      tracker.setInProgress(requestId);
       if (!this.apiKey) {
         throw new Error("Groq API key is missing. Please check your settings.");
       }
@@ -725,12 +835,15 @@ export class GroqProvider extends BaseAIProvider {
       const content = data.choices?.[0]?.message?.content?.trim() ?? '';
       
       if (!content) {
+        tracker.errorRequest(requestId);
         return null;
       }
       
+      tracker.completeRequest(requestId);
       return { content };
     } catch (error) {
       console.error('Error in Groq chat completion:', error);
+      tracker.errorRequest(requestId);
       throw error;
     }
   }

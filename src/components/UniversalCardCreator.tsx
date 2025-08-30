@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
 import { setFront, setBack, setText, setImageUrl, setCurrentCardId, saveCardToStorage } from '../store/actions/cards';
@@ -6,9 +6,18 @@ import { getAIService, getApiKeyForProvider } from '../services/aiServiceFactory
 import { ModelProvider } from '../store/reducers/settings';
 import { Modes } from '../constants';
 import { StoredCard } from '../store/reducers/cards';
-import { FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaBrain, FaCheck, FaArrowRight } from 'react-icons/fa';
+import { FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaBrain, FaCheck, FaArrowRight, FaClock } from 'react-icons/fa';
 import useErrorNotification from './useErrorHandler';
 import Loader from './Loader';
+import {
+  LOADING_MESSAGES,
+  getLoadingMessage,
+  getDetailedLoadingMessage,
+  LoadingProgressTracker,
+  type LoadingMessage,
+  type DetailedLoadingMessage
+} from '../services/loadingMessages';
+import { setGlobalProgressCallback, getGlobalApiTracker } from '../services/apiTracker';
 
 // Интерфейс для типов общих карточек
 interface GeneralCardTemplate {
@@ -91,6 +100,11 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
     const [generatedCard, setGeneratedCard] = useState<{ front: string; back: string } | null>(null);
     const [customPrompt, setCustomPrompt] = useState('');
     const [showCustomPrompt, setShowCustomPrompt] = useState(false);
+    const [currentLoadingMessage, setCurrentLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
+    const [generationStep, setGenerationStep] = useState<string>('');
+    const [currentProgress, setCurrentProgress] = useState({ completed: 0, total: 0 });
+    const [elapsedTime, setElapsedTime] = useState(0);
+    const timerRef = useRef<NodeJS.Timeout | null>(null);
 
     // Redux selectors
     const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
@@ -108,6 +122,34 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
         groqApiKey
     ), [modelProvider, openAiKey, groqApiKey]);
 
+    // Timer effect
+    useEffect(() => {
+        if (isGenerating) {
+            setElapsedTime(0);
+            timerRef.current = setInterval(() => {
+                setElapsedTime(prev => prev + 1);
+            }, 1000);
+        } else {
+            if (timerRef.current) {
+                clearInterval(timerRef.current);
+                timerRef.current = null;
+            }
+        }
+
+        return () => {
+            if (timerRef.current) {
+                clearInterval(timerRef.current);
+            }
+        };
+    }, [isGenerating]);
+
+    // Format elapsed time
+    const formatElapsedTime = (seconds: number): string => {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    };
+
     // Function to generate a card from template
     const generateCard = useCallback(async (template: GeneralCardTemplate, customPrompt?: string) => {
         if (!inputText.trim()) {
@@ -116,12 +158,24 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
         }
 
         setIsGenerating(true);
+        setCurrentLoadingMessage(null);
+        setGenerationStep('');
+
+        // Reset global API tracker and set progress callback
+        const globalTracker = getGlobalApiTracker();
+        globalTracker.reset();
+
+        setGlobalProgressCallback((update) => {
+            setCurrentLoadingMessage(update.message);
+            setGenerationStep(`${update.completed} of ${update.total} requests`);
+            setCurrentProgress({ completed: update.completed, total: update.total });
+        });
         
-        try {
+                        try {
             const finalPrompt = customPrompt || template.prompt;
             const fullPrompt = `${finalPrompt}\n\nText: "${inputText}"\n\nProvide a clear, educational response that would work well as flashcard content. Be concise but informative.`;
-            
-            // Generate the card content
+
+            // Generate the card content (API tracker will handle progress automatically)
             const response = await aiService.translateText(fullPrompt, 'en');
             
             if (!response) {
@@ -177,13 +231,15 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
                 }
             }
 
-            // Generate image if enabled
+            // Generate image if enabled (API tracker will handle progress automatically)
             let imageUrl = null;
             if (shouldGenerateImage && imageGenerationMode !== 'off' && modelProvider !== ModelProvider.Groq) {
                 try {
+                    console.log('🖼️ Starting image generation...');
                     const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions);
                     if (imageDescription && aiService.getImageUrl) {
                         imageUrl = await aiService.getImageUrl(apiKey, imageDescription);
+                        console.log('🖼️ Image generation completed');
                     }
                 } catch (imageError) {
                     console.warn('Failed to generate image:', imageError);
@@ -193,7 +249,7 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
 
             const cardData = { front, back };
             setGeneratedCard(cardData);
-            
+
             // Update Redux state
             dispatch(setFront(front));
             dispatch(setBack(back));
@@ -206,7 +262,15 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
             console.error('Error generating card:', error);
             showError(`Failed to generate card: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
         } finally {
-            setIsGenerating(false);
+            console.log('🎯 Universal card creator finally block reached');
+            // Don't immediately reset everything to prevent window disappearing
+            setTimeout(() => {
+                console.log('✅ Universal card creator hiding loader');
+                setIsGenerating(false);
+                setCurrentLoadingMessage(null);
+                setGenerationStep('');
+                setCurrentProgress({ completed: 0, total: 0 });
+            }, 500); // Small delay to ensure smooth transition
         }
     }, [inputText, aiService, showError, dispatch, shouldGenerateImage, imageGenerationMode, imageInstructions, modelProvider]);
 
@@ -498,27 +562,149 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '16px',
-                    padding: '40px 20px'
+                    gap: '20px',
+                    padding: '40px 20px',
+                    background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0'
                 }}>
-                    <Loader type="spinner" size="large" color="#3B82F6" />
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '12px'
+                    }}>
+                        <Loader
+                            type="spinner"
+                            size="large"
+                            color={currentLoadingMessage?.color || '#3B82F6'}
+                        />
+                        {currentLoadingMessage && (
+                            <div style={{
+                                fontSize: '24px',
+                                opacity: 0.8
+                            }}>
+                                {currentLoadingMessage.icon}
+                            </div>
+                        )}
+                    </div>
+
                     <div style={{
                         textAlign: 'center',
-                        color: '#6B7280'
+                        color: '#374151',
+                        maxWidth: '400px'
                     }}>
                         <div style={{
-                            fontSize: '16px',
+                            fontSize: '18px',
                             fontWeight: '600',
-                            marginBottom: '4px'
+                            marginBottom: '8px',
+                            color: currentLoadingMessage?.color || '#1f2937'
                         }}>
-                            Generating your card...
+                            {currentLoadingMessage?.currentStepTitle || currentLoadingMessage?.title || 'Generating your card...'}
                         </div>
-                        <div style={{ fontSize: '14px' }}>
-                            AI is analyzing your text and creating the perfect flashcard
+                        <div style={{
+                            fontSize: '14px',
+                            color: '#6b7280',
+                            lineHeight: '1.5'
+                        }}>
+                            {currentLoadingMessage?.currentStepSubtitle || currentLoadingMessage?.subtitle || 'AI is analyzing your text and creating the perfect flashcard'}
+                        </div>
+                        {generationStep && (
+                            <div style={{
+                                fontSize: '12px',
+                                color: '#9ca3af',
+                                marginTop: '8px',
+                                fontStyle: 'italic'
+                            }}>
+                                {generationStep}
+                            </div>
+                        )}
+
+                        {/* Timer display */}
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            marginTop: '12px',
+                            padding: '8px 16px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                            borderRadius: '20px',
+                            border: `1px solid ${currentLoadingMessage?.color || '#3B82F6'}20`,
+                            boxShadow: `0 0 15px ${currentLoadingMessage?.color || '#3B82F6'}20`
+                        }}>
+                            <FaClock style={{
+                                color: currentLoadingMessage?.color || '#3B82F6',
+                                fontSize: '14px',
+                                animation: 'pulse 2s ease-in-out infinite'
+                            }} />
+                            <span style={{
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                color: currentLoadingMessage?.color || '#3B82F6',
+                                fontFamily: 'monospace',
+                                letterSpacing: '1px'
+                            }}>
+                                {formatElapsedTime(elapsedTime)}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Progress indicator */}
+                    <div style={{
+                        width: '240px',
+                        height: '8px',
+                        backgroundColor: '#e5e7eb',
+                        borderRadius: '4px',
+                        overflow: 'hidden',
+                        marginTop: '12px',
+                        boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.1)'
+                    }}>
+                        <div style={{
+                            height: '100%',
+                            width: `${currentProgress.total > 0 ? Math.max(5, (currentProgress.completed / currentProgress.total) * 100) : 10}%`, // Real progress
+                            background: `linear-gradient(90deg, ${currentLoadingMessage?.color || '#3B82F6'} 0%, ${currentLoadingMessage?.color || '#3B82F6'}dd 50%, ${currentLoadingMessage?.color || '#3B82F6'} 100%)`,
+                            borderRadius: '4px',
+                            transition: 'width 0.6s ease-out, background 0.3s ease-in-out',
+                            boxShadow: `0 0 10px ${currentLoadingMessage?.color || '#3B82F6'}40`,
+                            position: 'relative' as const,
+                            overflow: 'hidden' as const
+                        }}>
+                            {/* Shimmer effect */}
+                            <div style={{
+                                position: 'absolute' as const,
+                                top: 0,
+                                left: '-100%',
+                                width: '100%',
+                                height: '100%',
+                                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
+                                animation: 'shimmer 2s infinite'
+                            }} />
                         </div>
                     </div>
                 </div>
             )}
+
+            <style>
+                {`
+                    @keyframes progressPulse {
+                        0% { width: 20%; }
+                        50% { width: 80%; }
+                        100% { width: 20%; }
+                    }
+
+                    @keyframes pulse {
+                        0%, 100% {
+                            opacity: 1;
+                            transform: scale(1);
+                        }
+                        50% {
+                            opacity: 0.7;
+                            transform: scale(1.05);
+                        }
+                    }
+                `}
+            </style>
 
             {/* Generated card preview */}
             {generatedCard && !isGenerating && (
@@ -675,6 +861,18 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
                     </div>
                 </div>
             )}
+            <style>
+                {`
+                    @keyframes shimmer {
+                        0% {
+                            left: -100%;
+                        }
+                        100% {
+                            left: 100%;
+                        }
+                    }
+                `}
+            </style>
         </div>
     );
 };

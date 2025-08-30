@@ -1,5 +1,5 @@
 import { imageUrlToBase64 } from "./services/ankiService";
-import { getOpenAiImageUrl } from "./services/openaiApi";
+// import { getOpenAiImageUrl } from "./services/openaiApi";
 import { arrayBufferToBase64 } from "./utils";
 
 export async function getImage(
@@ -24,7 +24,7 @@ export async function getImage(
     // Используем только OpenAI для генерации изображений
     try {
         console.log('Using OpenAI with key:', openAiKey ? openAiKey.substring(0, 5) + '...' : 'null');
-        imageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage, imageInstructions);
+        // imageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage, imageInstructions);
         console.log('OpenAI returned URL:', imageUrl ? 'success' : 'null');
         
         if (imageUrl) {

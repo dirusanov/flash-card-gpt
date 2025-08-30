@@ -1598,6 +1598,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         shouldGenerateImage={true}
                         isSaved={true} // Show edit mode since we're editing
                         isEdited={true}
+                        createdAt={editingCard.createdAt ? new Date(editingCard.createdAt) : new Date()}
                         setTranslation={handleTranslationUpdate}
                         setBack={handleBackUpdate}
                         setExamples={handleExamplesUpdate}

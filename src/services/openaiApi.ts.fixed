@@ -79,8 +79,8 @@ export const translateText = async (
   // Track API request
   const tracker = getGlobalApiTracker();
   const requestId = tracker.startRequest(
-    'Translating text',
-    `Converting your text to ${translateToLanguage}`,
+    'translate',
+    `Translating text to ${translateToLanguage}`,
     '🌍',
     '#3B82F6'
   );
@@ -149,23 +149,6 @@ export const translateText = async (
   } catch (error) {
     console.error('Error during translation:', error);
     tracker.errorRequest(requestId);
-    
-    // Enhanced error handling to prevent window disappearing
-    if (error instanceof Error) {
-      // Check for abort signal
-      if (abortSignal?.aborted) {
-        throw new Error('Translation cancelled by user');
-      }
-      
-      // Check for quota errors
-      if (error.message.includes('quota') || error.message.includes('insufficient_quota')) {
-        throw new Error(error.message);
-      }
-      
-      // For other errors, add context
-      throw new Error(`Translation failed: ${error.message}`);
-    }
-    
     throw error; // Пробрасываем ошибку вверх, чтобы компонент мог ее обработать
   }
 };
@@ -181,8 +164,8 @@ export const getExamples = async (
   // Track API request
   const tracker = getGlobalApiTracker();
   const requestId = tracker.startRequest(
-    'Creating example sentences',
-    `Generating helpful examples for "${word}"`,
+    'generate-examples',
+    `Generating examples for "${word}"`,
     '💡',
     '#F59E0B'
   );
@@ -299,8 +282,8 @@ export const isAbstract = async (
   // Track API request
   const tracker = getGlobalApiTracker();
   const requestId = tracker.startRequest(
-    'Analyzing word type',
-    `Determining if "${word}" can be visualized`,
+    'analyze-word',
+    `Analyzing if "${word}" is abstract or concrete`,
     '🔍',
     '#8B5CF6'
   );
@@ -379,8 +362,8 @@ export const getDescriptionImage = async (
   // Track API request
   const tracker = getGlobalApiTracker();
   const requestId = tracker.startRequest(
-    'Crafting image description',
-    `Creating detailed prompt for "${word}" visualization`,
+    'create-image-description',
+    `Creating image description for "${word}"`,
     '🎨',
     '#EC4899'
   );
@@ -460,7 +443,6 @@ export const getDescriptionImage = async (
   tracker.errorRequest(requestId);
   throw error;
 }
-};
 
 const getImageUrlRequest = async (
   openai: OpenAI,
@@ -469,12 +451,12 @@ const getImageUrlRequest = async (
 ): Promise<string | null> => {
   // Track API request
   const tracker = getGlobalApiTracker();
-      const requestId = tracker.startRequest(
-      'Generating image',
-      `Creating beautiful illustration with AI`,
-      '🖼️',
-      '#6366F1'
-    );
+  const requestId = tracker.startRequest(
+    'generate-image',
+    `Generating image with DALL-E`,
+    '🖼️',
+    '#6366F1'
+  );
 
   try {
     tracker.setInProgress(requestId);
@@ -558,8 +540,8 @@ export const getOpenAiImageUrl = async (
     // Track API request
     const tracker = getGlobalApiTracker();
     const requestId = tracker.startRequest(
-      'Creating custom image',
-      `Generating visual for "${word}"`,
+      'generate-image',
+      `Generating image for "${word}"`,
       '🖼️',
       '#6366F1'
     );
@@ -600,7 +582,6 @@ export const getOpenAiImageUrl = async (
     tracker.errorRequest(requestId);
     throw error;
 }
-};
 
 const getLangaugeNameText = async (
   apiKey: string,
@@ -609,8 +590,8 @@ const getLangaugeNameText = async (
   // Track API request
   const tracker = getGlobalApiTracker();
   const requestId = tracker.startRequest(
-    'Detecting language',
-    `Identifying the language of your text`,
+    'detect-language',
+    `Detecting language of text`,
     '🔤',
     '#8B5CF6'
   );
@@ -684,8 +665,8 @@ export const generateAnkiFront = async (
   // Track API request
   const tracker = getGlobalApiTracker();
   const requestId = tracker.startRequest(
-    'Creating question',
-    `Crafting an effective question for your flashcard`,
+    'create-card',
+    `Generating question for card front`,
     '❓',
     '#10B981'
   );
@@ -751,8 +732,8 @@ export const generateAnkiBack = async (
   // Track API request
   const tracker = getGlobalApiTracker();
   const requestId = tracker.startRequest(
-    'Creating answer',
-    `Developing comprehensive answer for your card`,
+    'create-card',
+    `Generating answer for card back`,
     '📖',
     '#F59E0B'
   );
