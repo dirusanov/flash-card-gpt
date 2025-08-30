@@ -384,7 +384,7 @@ export const createTranscription = async (
   }
 };
 
-// Создаем функцию для получения лингвистического описания
+// Создаем функцию для получения качественного лингвистического описания с валидацией
 export async function createLinguisticInfo(
     aiService: AIService,
     apiKey: string,
@@ -393,11 +393,165 @@ export async function createLinguisticInfo(
     userLanguage: string = 'ru' // Добавляем параметр языка пользователя
 ): Promise<string | null> {
     try {
-        console.log(`Creating linguistic info for "${text}" in ${sourceLanguage}, interface: ${userLanguage}`);
+        console.log(`Creating validated linguistic info for "${text}" in ${sourceLanguage}, interface: ${userLanguage}`);
         
-        const prompt = createLinguisticPrompt(text, sourceLanguage, userLanguage);
+        // Используем новую функцию с валидацией
+        const result = await createValidatedLinguisticInfo(
+            aiService,
+            apiKey,
+            text,
+            sourceLanguage,
+            userLanguage
+        );
         
-        // Используем createChatCompletion вместо sendRequest
+        if (result) {
+            console.log(`Generated and validated linguistic info for "${text}"`);
+            return result;
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('Error creating linguistic info:', error);
+        return null;
+    }
+}
+
+// Простая функция для создания грамматической справки
+function createQualityLinguisticPrompt(text: string, sourceLanguage: string, userLanguage: string = 'ru'): string {
+    return `ЗАДАЧА: Создать ЭКСТРА-КРАТКУЮ грамматическую справку для "${text}" на языке ${userLanguage}.
+
+АБСОЛЮТНЫЕ ОГРАНИЧЕНИЯ:
+- СТРОГО 2-3 пункта максимум!
+- КАЖДЫЙ пункт: свой уникальный эмоджи + 1-2 слова
+- НЕ повторяй эмоджи!
+- НЕТ базовых форм, степеней, примеров, пояснений
+
+ОБЯЗАТЕЛЬНО:
+1. 📚 Часть речи: [всегда первый пункт]
+2. ОДНА самая важная характеристика с ДРУГИМ эмоджи
+
+ДОСТУПНЫЕ ЭМОДЖИ ДЛЯ 2-го ПУНКТА:
+- ⚥ Род: [мужской/женский/средний]
+- 📋 Число: [единственное/множественное] 
+- 🎯 Падеж: [именительный/винительный/творительный и т.д.]
+- ⏰ Время: [настоящее/прошедшее/будущее]
+
+ИДЕАЛЬНЫЕ ПРИМЕРЫ:
+"book" → "📚 Часть речи: существительное"
+"красивой" → "📚 Часть речи: прилагательное" + "⚥ Род: женский"
+"читали" → "📚 Часть речи: глагол" + "⏰ Время: прошедшее"
+
+СТРОГО ЗАПРЕЩЕНО:
+❌ Одинаковые эмоджи 📚 📚 📚
+❌ Базовые формы (lemma)
+❌ Степени сравнения  
+❌ Примеры и пояснения
+❌ Более 3 пунктов
+❌ Слова "Notes", "Number", "Case" на английском
+
+HTML ФОРМАТ:
+<div class="grammar-item">
+  <span class="icon-pos">[УНИКАЛЬНЫЙ эмоджи]</span> <strong>[название]:</strong> <span class="grammar-tag">[1-2 слова]</span>
+</div>
+
+КРИТИЧНО: МАКСИМУМ 3 СТРОКИ! РАЗНЫЕ ЭМОДЖИ!
+
+Создай справку для "${text}":`;
+}
+
+// Функция агента-валидатора для проверки и исправления справки
+function createValidatorPrompt(originalReference: string, word: string, userLanguage: string): string {
+    return `ЗАДАЧА: СТРОГО проверить и исправить справку для "${word}".
+
+ИСХОДНАЯ СПРАВКА:
+${originalReference}
+
+КРИТЕРИИ ОТКЛОНЕНИЯ:
+❌ СЛИШКОМ ДЛИННО - если более 3 строк
+❌ ПОВТОРЯЮЩИЕСЯ ЭМОДЖИ - 📚 📚 📚 (НЕДОПУСТИМО!)
+❌ ЛИШНЯЯ ИНФОРМАЦИЯ - lemma, degree, notes, examples
+❌ АНГЛИЙСКИЕ СЛОВА - "Number", "Case", "Part of speech" 
+❌ СЛОЖНЫЕ ТЕРМИНЫ - технические детали
+
+ЖЕСТКИЕ ТРЕБОВАНИЯ:
+✅ МАКСИМУМ 3 строки
+✅ УНИКАЛЬНЫЕ эмоджи для каждого пункта
+✅ Только 📚 Часть речи + максимум 2 характеристики
+✅ Термины на языке ${userLanguage}
+✅ НЕТ lemma, degree, notes, examples
+
+ДОСТУПНЫЕ ЭМОДЖИ:
+📚 Часть речи (только первый пункт)
+⚥ Род | 📋 Число | 🎯 Падеж | ⏰ Время | 🏠 Инфинитив
+
+ПРАВИЛЬНЫЕ ПРИМЕРЫ:
+ПЛОХО: "📚 Part of speech: adjective + 📚 Number: plural + 📚 Case: instrumental + 📚 Lemma: probable..."
+ХОРОШО: "📚 Часть речи: прилагательное + 📋 Число: множественное"
+
+ИНСТРУКЦИЯ:
+1. Если справка ИДЕАЛЬНА (максимум 3 строки, разные эмоджи, на ${userLanguage}) → ответь "СПРАВКА КОРРЕКТНА"
+2. Если справка ПЛОХАЯ → создай ПОЛНОСТЬЮ НОВУЮ версию в HTML формате
+
+ИСПРАВЬ справку:`;
+}
+
+// Агент-валидатор грамматической справки
+async function validateAndCorrectLinguisticInfo(
+    aiService: AIService,
+    apiKey: string,
+    originalReference: string,
+    word: string,
+    userLanguage: string = 'ru'
+): Promise<string> {
+    try {
+        console.log(`Validating linguistic reference for "${word}"`);
+        
+        const validatorPrompt = createValidatorPrompt(originalReference, word, userLanguage);
+        
+        const completion = await aiService.createChatCompletion(apiKey, [
+            {
+                role: "user",
+                content: validatorPrompt
+            }
+        ]);
+        
+        if (!completion || !completion.content) {
+            console.log('Validator failed, returning original reference');
+            return originalReference;
+        }
+        
+        const response = completion.content.trim();
+        
+        // Если агент сказал что справка корректна, возвращаем оригинал
+        if (response.includes('СПРАВКА КОРРЕКТНА') || response.includes('КОРРЕКТНА')) {
+            console.log('Reference validated as correct');
+            return originalReference;
+        }
+        
+        // Если агент предложил исправления, возвращаем их
+        console.log('Reference corrected by validator');
+        return response;
+        
+    } catch (error) {
+        console.error('Error in validator:', error);
+        return originalReference; // В случае ошибки возвращаем оригинал
+    }
+}
+
+// Обновленная функция создания справки с валидацией
+export async function createValidatedLinguisticInfo(
+    aiService: AIService,
+    apiKey: string,
+    text: string,
+    sourceLanguage: string,
+    userLanguage: string = 'ru'
+): Promise<string | null> {
+    try {
+        console.log(`Creating validated linguistic info for "${text}"`);
+        
+        // 1. Создаем первоначальную справку
+        const prompt = createQualityLinguisticPrompt(text, sourceLanguage, userLanguage);
+        
         const completion = await aiService.createChatCompletion(apiKey, [
             {
                 role: "user",
@@ -409,22 +563,27 @@ export async function createLinguisticInfo(
             return null;
         }
         
-        // Простая очистка HTML тегов, если нужно
-        let cleanedResponse = completion.content;
-        if (cleanedResponse.includes('<')) {
-            // Базовая очистка HTML, если есть теги
-            cleanedResponse = cleanedResponse;
-        }
+        const originalReference = completion.content.trim();
         
-        console.log('Generated linguistic info length:', cleanedResponse?.length || 0);
-        return cleanedResponse;
+        // 2. Проверяем и исправляем справку через валидатора
+        const validatedReference = await validateAndCorrectLinguisticInfo(
+            aiService,
+            apiKey,
+            originalReference,
+            text,
+            userLanguage
+        );
+        
+        console.log(`Final linguistic info for "${text}" created`);
+        return validatedReference;
+        
     } catch (error) {
-        console.error('Error creating linguistic info:', error);
+        console.error('Error creating validated linguistic info:', error);
         return null;
     }
 }
 
-// Вспомогательная функция для создания промпта с учетом особенностей языка
+// Старая вспомогательная функция для создания промпта с учетом особенностей языка  
 function createLinguisticPrompt(text: string, sourceLanguage: string, userLanguage: string = 'ru'): string {
     // Определяем язык интерфейса
     const getLanguageInstructions = (lang: string) => {
@@ -554,93 +713,31 @@ function createLinguisticPrompt(text: string, sourceLanguage: string, userLangua
     
     const langConfig = getLanguageInstructions(userLanguage);
     
-    const basePrompt = `You are a professional linguist creating grammar references for language learners.
+    const basePrompt = `Create a VERY BRIEF grammar reference for language learners.
 
-⚠️ CRITICAL LANGUAGE REQUIREMENTS ⚠️
-1. ONLY analyze the SOURCE TERM "${text}" in "${sourceLanguage}" language
-2. DO NOT analyze any translation - ONLY the ORIGINAL TERM
-3. ALL interface labels and grammatical terms MUST be in ${langConfig.name} ONLY
-4. Base forms of words should be in the source language "${sourceLanguage}"
-5. NEVER mix languages - use ONLY ${langConfig.name} throughout
+⚠️ REQUIREMENTS ⚠️
+1. Analyze ONLY the word "${text}" in ${sourceLanguage} language
+2. ALL labels must be in ${langConfig.name} language
+3. Maximum 2-3 essential grammar points only
+4. Keep each point to 1-2 words maximum
 
-${langConfig.name} LANGUAGE REQUIREMENTS:
-- Use ONLY ${langConfig.name} grammatical terms: ${langConfig.terms}
-- Use ONLY ${langConfig.name} gender terms: ${langConfig.gender}
-- Use ONLY ${langConfig.name} number terms: ${langConfig.number}
-- Use ONLY ${langConfig.name} tense terms: ${langConfig.tense}
-- Use ONLY ${langConfig.name} case terms: ${langConfig.case}
-- Use ONLY ${langConfig.name} person terms: ${langConfig.person}
+ALLOWED CATEGORIES (choose only most important):
+📚 ${langConfig.labels.partOfSpeech} (essential)
+⚥ ${langConfig.labels.gender} (only if significant)  
+📋 ${langConfig.labels.number} (only if not obvious)
 
-FORBIDDEN TERMS:
-❌ Never use: ${langConfig.forbidden}
-✅ Always use: ${langConfig.terms}
-
-USE EMOJI SYMBOLS FOR CATEGORIES:
-📚 For part of speech
-🏠 For root/base form (ONLY if current word is NOT in its base form)
-⚥ For gender
-📋 For number/form
-🎯 For case
-🕒 For tense/aspect
-👤 For person
-🎭 For mood
-🔄 For voice
-📐 For degree
-⚠️ For irregular forms
-
-HTML STRUCTURE:
+HTML FORMAT:
 <div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>${langConfig.labels.partOfSpeech}:</strong> <span class="grammar-tag tag-pos">[${langConfig.name} term]</span>
+  <span class="icon-pos">📚</span> <strong>${langConfig.labels.partOfSpeech}:</strong> <span class="grammar-tag">[brief term]</span>
 </div>
 
-EXAMPLE CORRECT OUTPUT (${langConfig.name} interface):
-<div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>${langConfig.labels.partOfSpeech}:</strong> <span class="grammar-tag tag-pos">${langConfig.terms.split(',')[0].trim()}</span>
-</div>
-<div class="grammar-item">
-  <span class="icon-root">🏠</span> <strong>${langConfig.labels.baseForm}:</strong> <span class="grammar-tag tag-root">[word in source language]</span>
-</div>
-<div class="grammar-item">
-  <span class="icon-gender">⚥</span> <strong>${langConfig.labels.gender}:</strong> <span class="grammar-tag tag-gender">${langConfig.gender.split(',')[0].trim()}</span>
-</div>
+RULES:
+- Gender only for singular nouns/adjectives when relevant
+- Skip obvious information (e.g., don't mention "singular" for clearly singular words)
+- Use shortest possible terms in ${langConfig.name}
+- Maximum 3 items total
 
-EXAMPLE WRONG OUTPUT (DO NOT DO THIS):
-❌ <strong>Part of speech:</strong> <span>Noun</span>
-❌ <strong>Gender:</strong> <span>Feminine</span>
-❌ <strong>Case:</strong> <span>Nominative</span>
-❌ <strong>Number/Form:</strong> <span>Singular</span>
-
-⚠️ CRITICAL GRAMMAR RULES for ${sourceLanguage.toUpperCase()}:
-1. **PLURAL FORMS**: If word is plural (e.g., ends in -и, -ы, -а in Russian), DO NOT include gender
-2. **GENDER ONLY FOR SINGULAR**: Gender specification only for singular nouns/adjectives
-3. **ALWAYS INCLUDE NUMBER**: Specify if word is singular or plural
-4. **INCLUDE CASE**: For languages with cases, always specify the case
-5. **PART OF SPEECH ACCURACY**: Ensure correct classification (noun/verb/adjective/etc.)
-
-EXAMPLES OF CORRECT ANALYSIS:
-✅ "заслуги" (Russian plural): Number: Plural, Case: Nominative, NO gender
-✅ "книга" (Russian singular): Gender: Feminine, Number: Singular, Case: Nominative  
-✅ "стол" (Russian singular): Gender: Masculine, Number: Singular, Case: Nominative
-
-EXAMPLES OF WRONG ANALYSIS:
-❌ "заслуги" + Gender: Masculine (plural can't have gender)
-❌ "столы" + Gender: Masculine (plural can't have gender)
-❌ Missing number specification
-❌ Missing case specification
-
-MANDATORY REQUIREMENTS:
-1. Maximum 4-6 grammar points
-2. Each tag content: maximum 3-4 words
-3. Include comprehensive grammatical information
-4. Use ONLY ${langConfig.name} language throughout
-5. Be thorough but concise
-6. Include base form ONLY if current word is NOT in its base form
-7. ALL labels and terms must be in ${langConfig.name} consistently
-8. **NEVER specify gender for plural forms**
-9. **ALWAYS specify number (singular/plural)**
-10. **ALWAYS specify case for languages that have cases**
-
-CRITICAL: Your response must be 100% in ${langConfig.name} for all grammatical terms and labels. No mixing of languages allowed.`;
+CRITICAL: Response must be in ${langConfig.name} language and extremely concise.`;
 
     return basePrompt;
 }
@@ -846,7 +943,7 @@ function createSpecializedValidationPrompt(
     linguisticInfo: string, 
     sourceLanguage: string, 
     userLanguage: string, 
-    validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency'
+    validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency' | 'completeness'
 ): string {
     const baseInfo = `
 ANALYSIS TARGET:
@@ -982,6 +1079,46 @@ CONFIDENCE: [0.0-1.0]
 ERRORS: [consistency errors only, or "None"]
 CORRECTIONS: [consistency corrections only, or "None"]`;
 
+        case 'completeness':
+            return `${baseInfo}
+
+📋 COMPLETENESS SPECIALIST VALIDATION
+
+You are a specialist in checking completeness of grammar information. Focus EXCLUSIVELY on whether essential information is provided:
+
+PRIMARY CHECKS:
+• **Essential Categories**: Are the most important grammatical features included?
+• **Missing Information**: What crucial details are missing for learners?
+• **Usefulness**: Is this enough for language learners to understand the word?
+• **Context Appropriateness**: Does this match the learner's needs?
+
+COMPLETENESS REQUIREMENTS for ${sourceLanguage.toUpperCase()}:
+• Part of Speech: MANDATORY for all words
+• For Nouns: Gender (if applicable), number if not obvious
+• For Verbs: Tense/form if not infinitive  
+• For Adjectives: Degree if comparative/superlative
+• For English: Usually part of speech is sufficient
+• For inflected languages: More morphological detail needed
+
+SPECIFIC CHECKS:
+✅ "another" (English) + "определитель" → INCOMPLETE (should add "неопределенный" or usage info)
+✅ "book" (English) + "существительное" → COMPLETE (sufficient for English)
+✅ "красивый" (Russian) + "прилагательное, мужской род" → COMPLETE
+❌ "books" (English) + "существительное" → INCOMPLETE (missing plural form info)
+
+CRITICAL EVALUATION:
+• Is this TOO brief to be helpful?
+• Are learners missing crucial information?
+• Should additional categories be included?
+
+IGNORE: Technical accuracy of provided info - focus ONLY on completeness.
+
+RESPONSE FORMAT:
+VALIDATION: [VALID/INVALID]
+CONFIDENCE: [0.0-1.0]
+ERRORS: [completeness issues only, or "None"]
+CORRECTIONS: [suggestions for missing info, or "None"]`;
+
         default:
             return createValidationPrompt(text, linguisticInfo, sourceLanguage, userLanguage);
     }
@@ -995,7 +1132,7 @@ async function runSpecializedValidator(
     linguisticInfo: string,
     sourceLanguage: string,
     userLanguage: string,
-    validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency'
+    validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency' | 'completeness'
 ): Promise<DetailedValidationResult> {
     try {
         console.log(`Running ${validatorType} validator for "${text}"`);
@@ -1088,11 +1225,12 @@ export async function runMultipleValidation(
 ): Promise<MultiValidationResult> {
     console.log(`Running multiple validation for "${text}"`);
     
-    const validators: Array<'morphology' | 'syntax' | 'semantics' | 'consistency'> = [
+    const validators: Array<'morphology' | 'syntax' | 'semantics' | 'consistency' | 'completeness'> = [
         'morphology',
         'syntax', 
         'semantics',
-        'consistency'
+        'consistency',
+        'completeness'
     ];
     
     // Запускаем всех валидаторов параллельно
@@ -1313,32 +1451,7 @@ export async function createValidatedLinguisticInfoAdvanced(
     };
 }
 
-// Оригинальная функция для обратной совместимости
-export async function createValidatedLinguisticInfo(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    sourceLanguage: string,
-    userLanguage: string = 'ru',
-    maxAttempts: number = 5
-): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number}> {
-    // Используем улучшенную функцию, но возвращаем результат в старом формате
-    const result = await createValidatedLinguisticInfoAdvanced(
-        aiService,
-        apiKey,
-        text,
-        sourceLanguage,
-        userLanguage,
-        maxAttempts,
-        false // Используем стандартную валидацию для обратной совместимости
-    );
-    
-    return {
-        linguisticInfo: result.linguisticInfo,
-        wasValidated: result.wasValidated,
-        attempts: result.attempts
-    };
-}
+
 
 // Новая функция с расширенной валидацией для опциональногоиспользования
 export async function createValidatedLinguisticInfoEnhanced(

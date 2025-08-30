@@ -72,14 +72,14 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             'Authorization': `Bearer ${apiKey}`
           };
           body = {
-            model: 'gpt-3.5-turbo',
+            model: 'gpt-5-nano',
             messages: [
               {
                 role: "user",
                 content: "Say hello"
               }
             ],
-            max_tokens: 10
+
           };
           break;
         case ModelProvider.Groq:
@@ -97,7 +97,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
                 content: "Say hello"
               }
             ],
-            max_tokens: 10
+
           };
           break;
       }

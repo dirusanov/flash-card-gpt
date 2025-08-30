@@ -92,7 +92,7 @@ export const translateText = async (
       : basePrompt;
     
     const body = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       messages: [
         {
           role: 'system',
@@ -100,7 +100,7 @@ export const translateText = async (
         },
         { role: 'user', content: `${text}` },
       ],
-      max_tokens: 900,
+
     };
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -172,9 +172,9 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
 
   try {
     const body = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       messages: promptMessages,
-      max_tokens: 3500,
+
     };
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -262,9 +262,9 @@ export const isAbstract = async (
 
   try {
     const body = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       messages: promptMessages,
-      max_tokens: 900,
+
     };
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -333,9 +333,9 @@ export const getDescriptionImage = async (
 
   try {
     const body = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       messages: promptMessages,
-      max_tokens: 100,
+
     };
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -511,7 +511,7 @@ const getLangaugeNameText = async (
   
   try {
     const body = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       messages: [
         { role: 'system', content: 'You are langauage expert' },
         {
@@ -519,7 +519,7 @@ const getLangaugeNameText = async (
           content: `What is the name of this language: ${text}. Give only name of this language in one word`,
         },
       ],
-      max_tokens: 600,
+
     };
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -569,7 +569,7 @@ export const generateAnkiFront = async (
 
   try {
     const body = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       messages: [
         {
           role: 'system',
@@ -580,7 +580,7 @@ export const generateAnkiFront = async (
           content: `Give a main question of this text: ${text}'. You answer should be in ${langauage}`,
         },
       ],
-      max_tokens: 80,
+
     };
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -617,7 +617,7 @@ export const generateAnkiBack = async (
 
   try {
     const body = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       messages: [
         {
           role: 'system',
@@ -629,7 +629,7 @@ export const generateAnkiBack = async (
                                 Text: '${text}'. You answer should be in ${langauage}. Key points should be competed and make sence`,
         },
       ],
-      max_tokens: 1500,
+
     };
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {

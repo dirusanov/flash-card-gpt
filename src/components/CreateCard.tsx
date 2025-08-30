@@ -1377,14 +1377,19 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         );
                     } else {
                         console.log('Using standard validation');
-                        result = await createValidatedLinguisticInfo(
+                        const linguisticResult = await createValidatedLinguisticInfo(
                             aiService,
                             apiKey,
                             text,
                             wordLanguage,
-                            translateToLanguage,
-                            5 // максимум 5 попыток
+                            translateToLanguage
                         );
+                        // Адаптируем к старому интерфейсу
+                        result = {
+                            linguisticInfo: linguisticResult,
+                            wasValidated: !!linguisticResult,
+                            attempts: 1
+                        };
                     }
 
                     if (result.linguisticInfo) {
@@ -1421,14 +1426,19 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             true // используем множественную валидацию
                         );
                     } else {
-                        result = await createValidatedLinguisticInfo(
+                        const linguisticResult = await createValidatedLinguisticInfo(
                             aiService,
                             apiKey,
                             text,
                             translateToLanguage, // В качестве исходного языка используем язык перевода
-                            translateToLanguage, // Для интерфейса тоже используем язык перевода
-                            3 // меньше попыток для fallback
+                            translateToLanguage // Для интерфейса тоже используем язык перевода
                         );
+                        // Адаптируем к старому интерфейсу
+                        result = {
+                            linguisticInfo: linguisticResult,
+                            wasValidated: !!linguisticResult,
+                            attempts: 1
+                        };
                     }
 
                     if (result.linguisticInfo) {
@@ -2553,14 +2563,19 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 true // используем множественную валидацию
                             );
                         } else {
-                            result = await createValidatedLinguisticInfo(
+                            const linguisticResult = await createValidatedLinguisticInfo(
                                 aiService,
                                 apiKey,
                                 option, // Используем текущую опцию, а не глобальный текст
                                 sourceLanguageForLinguistic,
-                                translateToLanguage,
-                                3 // меньше попыток для множественных карточек
+                                translateToLanguage
                             );
+                            // Адаптируем к старому интерфейсу
+                            result = {
+                                linguisticInfo: linguisticResult,
+                                wasValidated: !!linguisticResult,
+                                attempts: 1
+                            };
                         }
 
                         if (result.linguisticInfo) {
@@ -3986,13 +4001,56 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Добавим состояние для отслеживания нажатия кнопки Create Card
     const [createCardClicked, setCreateCardClicked] = useState(false);
 
+    // Офлайн определение языка по паттернам
+    const detectLanguageOffline = useCallback((text: string): string | null => {
+        const cleanText = text.trim().toLowerCase();
+        
+        // Русский: кириллица
+        if (/[а-яё]/i.test(cleanText)) return 'ru';
+        
+        // Английский: только латиница + английские слова
+        if (/^[a-z\s\.,!?\-'"]+$/i.test(cleanText)) {
+            const englishWords = ['the', 'and', 'is', 'in', 'to', 'of', 'a', 'for', 'with', 'on', 'at', 'by', 'from', 'this', 'that', 'it', 'he', 'she', 'they', 'we', 'you', 'was', 'were', 'are', 'have', 'has', 'had', 'can', 'will', 'would', 'could', 'should'];
+            const words = cleanText.split(/\s+/);
+            const englishMatches = words.filter(word => englishWords.includes(word.replace(/[^\w]/g, ''))).length;
+            if (englishMatches > 0 || words.length === 1) return 'en';
+        }
+        
+        // Испанский: латиница + специфичные символы
+        if (/[ñáéíóúü]/i.test(cleanText)) return 'es';
+        
+        // Французский: латиница + французские диакритики
+        if (/[àâäéèêëïîôöùûüÿç]/i.test(cleanText)) return 'fr';
+        
+        // Немецкий: латиница + немецкие символы
+        if (/[äöüß]/i.test(cleanText)) return 'de';
+        
+        // Итальянский: латиница + итальянские символы
+        if (/[àèéìíîòóù]/i.test(cleanText)) return 'it';
+        
+        return null;
+    }, []);
+
+    // Умное кэширование с паттернами
+    const getSmartCacheKey = useCallback((text: string): string => {
+        const cleanText = text.trim().toLowerCase();
+        // Создаем ключ на основе паттерна текста, а не точного содержания
+        const pattern = cleanText
+            .replace(/[а-яё]/g, 'C') // кириллица
+            .replace(/[a-z]/g, 'L')  // латиница
+            .replace(/[0-9]/g, 'N')  // цифры
+            .replace(/\s+/g, 'S')    // пробелы
+            .replace(/[^\w\s]/g, 'P') // пунктуация
+            .slice(0, 50); // первые 50 символов паттерна
+        
+        return `lang_pattern_${pattern}_${cleanText.length < 20 ? cleanText : cleanText.slice(0, 20)}`;
+    }, []);
+
     // Функция для автоматического определения языка
     const detectLanguage = useCallback(async (text: string) => {
         console.log('=== LANGUAGE DETECTION START ===');
         console.log('Input text:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
         console.log('Text length:', text.length);
-        console.log('Model provider:', modelProvider);
-        console.log('API key available:', modelProvider === ModelProvider.OpenAI ? !!openAiKey : !!groqApiKey);
         
         // Определяем язык, если есть текст
         if (!text || text.trim().length < 2) {
@@ -4000,25 +4058,37 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
-        // Кэширование: Проверяем, определяли ли мы уже язык для этого текста
-        const textHash = text.trim().toLowerCase().slice(0, 200); // Используем первые 200 символов для кэша
-        const cacheKey = `language_detection_${textHash}`;
-        const cachedResult = localStorage.getItem(cacheKey);
+        // 1. ОФЛАЙН определение (быстро и бесплатно)
+        const offlineDetected = detectLanguageOffline(text);
+        if (offlineDetected) {
+            console.log('Language detected offline:', offlineDetected);
+            setDetectedLanguage(offlineDetected);
+            updateSourceLanguage(offlineDetected);
+            
+            // Сохраняем в кэш для будущих запросов
+            const smartCacheKey = getSmartCacheKey(text);
+            localStorage.setItem(smartCacheKey, offlineDetected);
+            return;
+        }
+
+        // 2. УМНОЕ кэширование: проверяем по паттерну
+        const smartCacheKey = getSmartCacheKey(text);
+        const cachedResult = localStorage.getItem(smartCacheKey);
         
         if (cachedResult && detectedLanguage !== cachedResult) {
-            console.log('Using cached language detection result:', cachedResult);
+            console.log('Using smart cached language detection result:', cachedResult);
             setDetectedLanguage(cachedResult);
             updateSourceLanguage(cachedResult);
             return;
         }
 
-        // Если язык уже определен для этого текста, не определяем повторно
+        // 3. Если язык уже определен для текущего текста, не определяем повторно
         if (detectedLanguage && cachedResult === detectedLanguage) {
             console.log('Language already detected for this text:', detectedLanguage);
             return;
         }
 
-        // Check if quota is exceeded and skip API calls
+        // 4. Проверяем квоту и только тогда делаем API вызов (ЭКОНОМИЯ!)
         if (isQuotaExceededCached()) {
             console.log('Language detection skipped due to cached quota error');
             // Only show error if it hasn't been shown yet
@@ -4032,6 +4102,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
+        // 5. Проверим, не слишком ли часто мы делаем API вызовы (дополнительная защита)
+        const lastApiCall = localStorage.getItem('last_language_api_call');
+        const now = Date.now();
+        if (lastApiCall && (now - parseInt(lastApiCall)) < 2000) { // мин 2 секунды между API вызовами
+            console.log('Language detection API call skipped - too frequent calls');
+            return;
+        }
+
+        console.log('Making API call for language detection...');
+        localStorage.setItem('last_language_api_call', now.toString());
         setIsDetectingLanguage(true);
 
         try {
@@ -4057,7 +4137,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     
                     try {
                         const response = await openai.chat.completions.create({
-                            model: "gpt-3.5-turbo",
+                            model: "gpt-5-nano",
                             messages: [
                                 {
                                     role: "system",
@@ -4068,8 +4148,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
                                 }
                             ],
-                            temperature: 0.3,
-                            max_tokens: 10
+
+
                         });
 
                         detectedCode = response.choices[0].message.content?.trim().toLowerCase();
@@ -4122,8 +4202,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
                                 }
                             ],
-                            temperature: 0.3,
-                            max_tokens: 10
+
+
                         })
                     });
                     
@@ -4152,8 +4232,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     setDetectedLanguage(detectedCode);
                     localStorage.setItem('detected_language', detectedCode);
                     
-                    // Сохраняем результат в кэш
-                    localStorage.setItem(cacheKey, detectedCode);
+                    // Сохраняем в умный кэш для будущих похожих запросов
+                    const smartCacheKey = getSmartCacheKey(text);
+                    localStorage.setItem(smartCacheKey, detectedCode);
                     
                     // Сохраняем определенный язык в Redux
                     updateSourceLanguage(detectedCode);
@@ -4214,8 +4295,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     setDetectedLanguage(detectedLang);
                     localStorage.setItem('detected_language', detectedLang);
 
-                    // Сохраняем результат в кэш
-                    localStorage.setItem(cacheKey, detectedLang);
+                    // Сохраняем в умный кэш для будущих похожих запросов
+                    const smartCacheKey = getSmartCacheKey(text);
+                    localStorage.setItem(smartCacheKey, detectedLang);
 
                     // Сохраняем определенный язык в Redux
                     updateSourceLanguage(detectedLang);
@@ -4292,9 +4374,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     setDetectedLanguage(detectedLang);
                     localStorage.setItem('detected_language', detectedLang);
                     
-                    // Сохраняем результат в кэш (пересоздаем cacheKey для error handler)
-                    const errorCacheKey = `language_detection_${text.trim().toLowerCase().slice(0, 200)}`;
-                    localStorage.setItem(errorCacheKey, detectedLang);
+                    // Сохраняем в умный кэш для будущих похожих запросов
+                    const smartCacheKey = getSmartCacheKey(text);
+                    localStorage.setItem(smartCacheKey, detectedLang);
                     
                     updateSourceLanguage(detectedLang);
                 }
@@ -4327,12 +4409,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 return;
             }
 
-            // Всегда пытаемся определить язык для нового текста
-            // Используем debounce, чтобы не определять язык при каждом нажатии клавиши
+            // Используем увеличенный debounce для экономии API (1.5 секунды)
             const timer = setTimeout(() => {
                 console.log('Attempting to detect language for text:', text.substring(0, 50) + '...');
                 detectLanguage(text);
-            }, 500);
+            }, 1500);
 
             return () => clearTimeout(timer);
         }

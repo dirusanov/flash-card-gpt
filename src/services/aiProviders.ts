@@ -502,7 +502,7 @@ Provide ONLY the two lines as shown above, no additional text.`;
 export class OpenAIProvider extends BaseAIProvider {
   private openai: OpenAI;
   
-  constructor(apiKey: string, modelName: string = 'gpt-3.5-turbo') {
+  constructor(apiKey: string, modelName: string = 'gpt-5-nano') {
     super(apiKey, modelName);
     this.openai = new OpenAI({
       apiKey: apiKey,
@@ -637,7 +637,7 @@ export class GroqProvider extends BaseAIProvider {
               content: prompt
             }
           ],
-          max_tokens: options.max_tokens || 1000
+
         })
       });
       
@@ -712,7 +712,7 @@ export class GroqProvider extends BaseAIProvider {
         body: JSON.stringify({
           model: this.modelName,
           messages: messages,
-          max_tokens: 1000
+
         })
       });
       
@@ -746,12 +746,12 @@ export const createAIProvider = (
 ): AIProviderInterface => {
   switch (provider) {
     case ModelProvider.OpenAI:
-      return new OpenAIProvider(apiKey, modelName || 'gpt-3.5-turbo');
+      return new OpenAIProvider(apiKey, modelName || 'gpt-5-nano');
     
     case ModelProvider.Groq:
       return new GroqProvider(apiKey, modelName || 'llama3-8b-8192');
     
     default:
-      return new OpenAIProvider(apiKey, modelName || 'gpt-3.5-turbo');
+      return new OpenAIProvider(apiKey, modelName || 'gpt-5-nano');
   }
 }; 
