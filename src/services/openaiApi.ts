@@ -603,6 +603,63 @@ export const getOpenAiImageUrl = async (
 }
 };
 
+// ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: Прямая генерация изображения без дополнительных запросов
+export const getOptimizedImageUrl = async (
+  openai: OpenAI,
+  apiKey: string,
+  word: string,
+  customInstructions: string = ''
+): Promise<string | null> => {
+    // Track API request
+    const tracker = getGlobalApiTracker();
+    const requestId = tracker.startRequest(
+      'Creating optimized image',
+      `Fast generation for "${word}"`,
+      '🖼️',
+      '#6366F1'
+    );
+
+    try {
+        if (!apiKey) {
+          tracker.errorRequest(requestId);
+          throw new Error("OpenAI API key is missing. Please check your settings.");
+        }
+
+        tracker.setInProgress(requestId);
+
+        // Check if we recently got a quota exceeded error
+        if (isQuotaExceededCached()) {
+          tracker.errorRequest(requestId);
+          throw new Error(quotaExceededCache!.message);
+        }
+    
+        // Умный промпт, который работает как для абстрактных, так и для конкретных понятий
+        let optimizedPrompt = `Create a high-quality, clear image representing "${word}".`;
+        
+        // Добавляем контекст в зависимости от типа слова
+        if (/^[A-Z]/.test(word) || word.length > 15) {
+          // Вероятно абстрактное понятие или длинная фраза
+          optimizedPrompt = `Create a symbolic, artistic illustration that clearly represents the concept of "${word}". Use clear visual metaphors and symbols.`;
+        } else {
+          // Вероятно конкретный объект
+          optimizedPrompt = `Create a photorealistic image of "${word}" with good lighting and clear details on a neutral background.`;
+        }
+        
+        if (customInstructions) {
+          optimizedPrompt += ` ${customInstructions}`;
+        }
+
+        const result = await getImageUrlRequest(openai, optimizedPrompt, '');
+        tracker.completeRequest(requestId);
+        return result;
+        
+    } catch (error) {
+        console.error('Error during optimized image generation:', error);
+        tracker.errorRequest(requestId);
+        throw error;
+    }
+};
+
 const getLangaugeNameText = async (
   apiKey: string,
   text: string

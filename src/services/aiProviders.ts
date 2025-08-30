@@ -32,6 +32,11 @@ export interface AIProviderInterface {
     description: string
   ) => Promise<string | null>;
   
+  getOptimizedImageUrl?: (
+    word: string,
+    customInstructions?: string
+  ) => Promise<string | null>;
+  
   generateAnkiFront: (
     text: string
   ) => Promise<string | null>;
@@ -627,6 +632,18 @@ export class OpenAIProvider extends BaseAIProvider {
     } catch (error) {
       console.error('Error generating image with OpenAI:', error);
       tracker.errorRequest(requestId);
+      throw error;
+    }
+  }
+
+  // НОВАЯ ОПТИМИЗИРОВАННАЯ функция для быстрой генерации изображений
+  public async getOptimizedImageUrl(word: string, customInstructions: string = ''): Promise<string | null> {
+    const { getOptimizedImageUrl } = await import('./openaiApi');
+    
+    try {
+      return await getOptimizedImageUrl(this.openai, this.apiKey, word, customInstructions);
+    } catch (error) {
+      console.error('Error generating optimized image:', error);
       throw error;
     }
   }

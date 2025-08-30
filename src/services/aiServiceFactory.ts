@@ -1,6 +1,42 @@
 import { ModelProvider } from '../store/reducers/settings';
 import { AIProviderInterface, createAIProvider } from './aiProviders';
 
+// Функция для быстрого retry с backoff для критически важных API вызовов
+const retryWithBackoff = async <T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 2,
+  baseDelay: number = 1000
+): Promise<T> => {
+  let lastError: Error;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error as Error;
+      
+      // Не ретраим для quota ошибок или отмены операции
+      if (lastError.message.includes('quota') || 
+          lastError.message.includes('cancelled') ||
+          lastError.message.includes('aborted')) {
+        throw lastError;
+      }
+      
+      // Если это последняя попытка, бросаем ошибку
+      if (attempt === maxRetries) {
+        throw lastError;
+      }
+      
+      // Exponential backoff: 1s, 2s
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms delay`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError!;
+};
+
 // Типы данных для унификации ответов от разных провайдеров
 export interface FlashcardContent {
   front: string | null;
@@ -83,6 +119,12 @@ export interface AIService {
   getImageUrl?: (
     apiKey: string,
     description: string
+  ) => Promise<string | null>;
+  
+  getOptimizedImageUrl?: (
+    apiKey: string,
+    word: string,
+    customInstructions?: string
   ) => Promise<string | null>;
   
   generateAnkiFront: (
@@ -168,6 +210,15 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
     ): Promise<string | null> => {
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.getImageUrl ? aiProvider.getImageUrl(description) : null;
+    },
+
+    getOptimizedImageUrl: async (
+      apiKey: string,
+      word: string,
+      customInstructions?: string
+    ): Promise<string | null> => {
+      const aiProvider = createAIProvider(provider, apiKey);
+      return aiProvider.getOptimizedImageUrl ? aiProvider.getOptimizedImageUrl(word, customInstructions) : null;
     },
     
     generateAnkiFront: async (
@@ -382,6 +433,173 @@ export const createTranscription = async (
       ? error 
       : new Error("Failed to create transcription. Please check your API key and settings.");
   }
+};
+
+/**
+ * НОВАЯ ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: Параллельное создание всех компонентов карточки
+ * Значительно ускоряет процесс за счет параллельных API вызовов
+ */
+export const createCardComponentsParallel = async (
+  service: AIService,
+  apiKey: string,
+  text: string,
+  translateToLanguage: string,
+  customPrompt?: string,
+  sourceLanguage?: string,
+  shouldGenerateImage: boolean = false,
+  abortSignal?: AbortSignal,
+  imageGenerationMode?: 'off' | 'smart' | 'always'
+): Promise<{
+  translation?: TranslationResult;
+  examples?: ExampleItem[];
+  flashcard?: FlashcardContent;
+  linguisticInfo?: string;
+  imageUrl?: string;
+  errors: Array<{component: string; error: string}>;
+}> => {
+  const startTime = Date.now();
+  console.log('🚀 Starting parallel card component creation...');
+  
+  const errors: Array<{component: string; error: string}> = [];
+  
+  // Создаем массив промисов для параллельного выполнения
+  const promises = [];
+  
+  // 1. Перевод (всегда выполняется) - с быстрым retry
+  promises.push(
+    retryWithBackoff(() => 
+      createTranslation(service, apiKey, text, translateToLanguage, customPrompt, sourceLanguage, abortSignal)
+    )
+      .then(result => ({ type: 'translation', result }))
+      .catch(error => ({ type: 'translation', error: error.message }))
+  );
+  
+  // 2. Примеры (параллельно с переводом)
+  promises.push(
+    createExamples(service, apiKey, text, translateToLanguage, true, customPrompt, sourceLanguage, abortSignal)
+      .then(result => ({ type: 'examples', result }))
+      .catch(error => ({ type: 'examples', error: error.message }))
+  );
+  
+  // 3. Flashcard (параллельно)
+  promises.push(
+    createFlashcard(service, apiKey, text, abortSignal)
+      .then(result => ({ type: 'flashcard', result }))
+      .catch(error => ({ type: 'flashcard', error: error.message }))
+  );
+  
+  // 4. Лингвистическая информация (параллельно, быстрая версия)
+  if (sourceLanguage) {
+    promises.push(
+      createFastLinguisticInfo(service, apiKey, text, sourceLanguage, translateToLanguage)
+        .then(result => ({ type: 'linguisticInfo', result: result.linguisticInfo }))
+        .catch(error => ({ type: 'linguisticInfo', error: error.message }))
+    );
+  }
+  
+  // 5. Изображение (только если запрошено) - с поддержкой Smart режима
+  if (shouldGenerateImage && imageGenerationMode !== 'off') {
+    // Функция для Smart анализа
+    const shouldGenerateImageForText = async (textToAnalyze: string): Promise<{ shouldGenerate: boolean; reason: string }> => {
+      if (!textToAnalyze || textToAnalyze.trim().length === 0) {
+        return { shouldGenerate: false, reason: "No text provided" };
+      }
+
+      try {
+        const prompt = `Analyze this word/phrase and determine if a visual image would be helpful for language learning: "${textToAnalyze}"
+
+Consider these criteria:
+- Concrete objects, animals, places, foods, tools, vehicles = YES
+- Abstract concepts, emotions, actions, grammar terms = NO
+- People, professions, activities that can be visualized = YES
+- Numbers, prepositions, conjunctions, abstract ideas = NO
+
+Respond with ONLY "YES" or "NO" followed by a brief reason (max 10 words).
+Format: "YES - concrete object that can be visualized" or "NO - abstract concept"`;
+
+        const response = await service.createChatCompletion(apiKey, [
+          { role: "user", content: prompt }
+        ]);
+
+        if (response && response.content) {
+          const result = response.content.trim();
+          const shouldGenerate = result.toUpperCase().startsWith('YES');
+          const reason = result.includes(' - ') ? result.split(' - ')[1] : 'AI analysis';
+          
+          console.log(`🤖 Smart image analysis for "${textToAnalyze}": ${shouldGenerate ? 'YES' : 'NO'} - ${reason}`);
+          return { shouldGenerate, reason };
+        }
+
+        return { shouldGenerate: false, reason: "AI analysis failed" };
+      } catch (error) {
+        console.error('Error analyzing text for image generation:', error);
+        return { shouldGenerate: false, reason: "Analysis error" };
+      }
+    };
+
+    // Создаем промис для генерации изображения с Smart анализом
+    const imagePromise = async () => {
+      let shouldGenerate = imageGenerationMode === 'always';
+      let analysisReason = '';
+
+      // Для Smart режима выполняем анализ
+      if (imageGenerationMode === 'smart') {
+        try {
+          const analysis = await shouldGenerateImageForText(text);
+          shouldGenerate = analysis.shouldGenerate;
+          analysisReason = analysis.reason;
+        } catch (error) {
+          console.error('Error in Smart analysis:', error);
+          shouldGenerate = false;
+          analysisReason = 'Analysis failed';
+        }
+      }
+
+      if (shouldGenerate) {
+        if (service.getOptimizedImageUrl) {
+          // Используем быструю оптимизированную версию (1 запрос вместо 3)
+          return await service.getOptimizedImageUrl(apiKey, text);
+        } else if (service.getImageUrl) {
+          // Fallback к обычной версии
+          return await service.getImageUrl(apiKey, text);
+        }
+      } else if (imageGenerationMode === 'smart') {
+        console.log(`🚫 No image needed for "${text}": ${analysisReason}`);
+      }
+      
+      return null;
+    };
+
+    promises.push(
+      imagePromise()
+        .then(result => ({ type: 'imageUrl', result }))
+        .catch(error => ({ type: 'imageUrl', error: error.message }))
+    );
+  }
+  
+  // Выполняем все запросы параллельно
+  const results = await Promise.all(promises);
+  
+  // Обрабатываем результаты
+  const finalResult: any = { errors };
+  
+  for (const result of results) {
+    if (abortSignal?.aborted) {
+      throw new Error('Card creation was cancelled by user');
+    }
+    
+    if ('error' in result) {
+      errors.push({ component: result.type, error: result.error });
+    } else {
+      finalResult[result.type] = result.result;
+    }
+  }
+  
+  const duration = Date.now() - startTime;
+  console.log(`⚡ Parallel card creation completed in ${duration}ms`);
+  console.log(`📊 Success: ${Object.keys(finalResult).length - 1}/${promises.length}, Errors: ${errors.length}`);
+  
+  return finalResult;
 };
 
 // Создаем функцию для получения качественного лингвистического описания с валидацией
@@ -1439,6 +1657,42 @@ export async function createValidatedLinguisticInfoEnhanced(
         maxAttempts,
         useMultipleValidators
     );
+}
+
+// СУПЕР-БЫСТРАЯ ФУНКЦИЯ: только 1 запрос, без валидации
+export async function createFastLinguisticInfo(
+    aiService: AIService,
+    apiKey: string,
+    text: string,
+    sourceLanguage: string,
+    userLanguage: string = 'ru'
+): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number}> {
+    try {
+        console.log(`Creating fast linguistic info for "${text}" (1 request only)`);
+
+        // Создаем улучшенный промпт, который сразу выдает качественную справку
+        const prompt = createQualityLinguisticPrompt(text, sourceLanguage, userLanguage);
+
+        const completion = await aiService.createChatCompletion(apiKey, [
+            {
+                role: "user",
+                content: prompt
+            }
+        ]);
+
+        if (!completion || !completion.content) {
+            console.log('Failed to generate linguistic info');
+            return { linguisticInfo: null, wasValidated: false, attempts: 1 };
+        }
+
+        const linguisticInfo = completion.content.trim();
+        console.log('Fast linguistic info created successfully');
+
+        return { linguisticInfo, wasValidated: false, attempts: 1 };
+    } catch (error) {
+        console.error('Error creating fast linguistic info:', error);
+        return { linguisticInfo: null, wasValidated: false, attempts: 1 };
+    }
 }
 
 // ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: максимум 2 запроса, менее строгий валидатор

@@ -150,6 +150,43 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
         return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
     };
 
+    // Smart image generation function
+    const shouldGenerateImageForText = useCallback(async (text: string): Promise<{ shouldGenerate: boolean; reason: string }> => {
+        if (!text || text.trim().length === 0) {
+            return { shouldGenerate: false, reason: "No text provided" };
+        }
+
+        try {
+            const prompt = `Analyze this word/phrase and determine if a visual image would be helpful for language learning: "${text}"
+
+Consider these criteria:
+- Concrete objects, animals, places, foods, tools, vehicles = YES
+- Abstract concepts, emotions, actions, grammar terms = NO
+- People, professions, activities that can be visualized = YES
+- Numbers, prepositions, conjunctions, abstract ideas = NO
+
+Respond with ONLY "YES" or "NO" followed by a brief reason (max 10 words).
+Format: "YES - concrete object that can be visualized" or "NO - abstract concept"`;
+
+            const response = await aiService.createChatCompletion(apiKey, [
+                { role: "user", content: prompt }
+            ]);
+
+            if (response && response.content) {
+                const result = response.content.trim();
+                const shouldGenerate = result.toUpperCase().startsWith('YES');
+                const reason = result.includes(' - ') ? result.split(' - ')[1] : 'AI analysis';
+                
+                return { shouldGenerate, reason };
+            }
+
+            return { shouldGenerate: false, reason: "AI analysis failed" };
+        } catch (error) {
+            console.error('Error analyzing text for image generation:', error);
+            return { shouldGenerate: false, reason: "Analysis error" };
+        }
+    }, [aiService, apiKey]);
+
     // Function to generate a card from template
     const generateCard = useCallback(async (template: GeneralCardTemplate, customPrompt?: string) => {
         if (!inputText.trim()) {
@@ -235,11 +272,27 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
             let imageUrl = null;
             if (shouldGenerateImage && imageGenerationMode !== 'off' && modelProvider !== ModelProvider.Groq) {
                 try {
-                    console.log('🖼️ Starting image generation...');
-                    const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions);
-                    if (imageDescription && aiService.getImageUrl) {
-                        imageUrl = await aiService.getImageUrl(apiKey, imageDescription);
-                        console.log('🖼️ Image generation completed');
+                    let shouldGenerate = imageGenerationMode === 'always';
+                    let analysisReason = '';
+
+                    // For smart mode, check if image would be helpful
+                    if (imageGenerationMode === 'smart') {
+                        const analysis = await shouldGenerateImageForText(inputText);
+                        shouldGenerate = analysis.shouldGenerate;
+                        analysisReason = analysis.reason;
+                        
+                        console.log(`🤖 Smart image analysis for "${inputText}": ${shouldGenerate ? 'YES' : 'NO'} - ${analysisReason}`);
+                    }
+
+                    if (shouldGenerate) {
+                        console.log('🖼️ Starting image generation...');
+                        const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions);
+                        if (imageDescription && aiService.getImageUrl) {
+                            imageUrl = await aiService.getImageUrl(apiKey, imageDescription);
+                            console.log('🖼️ Image generation completed');
+                        }
+                    } else if (imageGenerationMode === 'smart') {
+                        console.log(`🚫 No image needed for "${inputText}": ${analysisReason}`);
                     }
                 } catch (imageError) {
                     console.warn('Failed to generate image:', imageError);

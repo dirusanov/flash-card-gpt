@@ -194,6 +194,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
     const imageGenerationMode = useSelector((state: RootState) => state.settings.imageGenerationMode);
     const [showAISettings, setShowAISettings] = useState(false);
+
+    // Initialize shouldGenerateImage based on current imageGenerationMode
+    React.useEffect(() => {
+        if (imageGenerationMode === 'smart' || imageGenerationMode === 'always') {
+            if (!shouldGenerateImage) {
+                console.log(`🔧 Initializing: Setting shouldGenerateImage=true for ${imageGenerationMode} mode`);
+                dispatch(setShouldGenerateImage(true));
+            }
+        }
+    }, [imageGenerationMode, shouldGenerateImage, dispatch]);
     const [showImageSettings, setShowImageSettings] = useState(false);
     const [localAIInstructions, setLocalAIInstructions] = useState(aiInstructions);
     const [localImageInstructions, setLocalImageInstructions] = useState(imageInstructions);
@@ -1268,7 +1278,33 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Определяем язык исходного текста для API запросов
             const sourceLanguageForSubmit = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
 
-            // Track which operations completed successfully to give better error messages
+            // НОВЫЙ ПАРАЛЛЕЛЬНЫЙ РЕЖИМ - получаем все компоненты карточки одновременно
+            console.log('🚀 Using parallel card creation for maximum speed...');
+            
+            const { createCardComponentsParallel } = await import('../services/aiServiceFactory');
+            
+            const startTime = Date.now();
+            const result = await createCardComponentsParallel(
+                aiService,
+                apiKey,
+                text,
+                translateToLanguage,
+                aiInstructions,
+                sourceLanguageForSubmit || undefined,
+                shouldGenerateImage,
+                abortSignal,
+                imageGenerationMode
+            );
+            
+            const duration = Date.now() - startTime;
+            console.log(`⚡ Parallel card creation completed in ${duration}ms`);
+
+            // Check if cancelled after parallel creation
+            if (abortSignal.aborted) {
+                throw new Error('Generation cancelled by user');
+            }
+
+            // Обработка результатов
             let completedOperations = {
                 translation: false,
                 examples: false,
@@ -1277,353 +1313,87 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 linguisticInfo: false
             };
 
-            try {
-                // Check if cancelled before starting translation
-                if (abortSignal.aborted) {
-                    throw new Error('Generation cancelled by user');
-                }
+            // Устанавливаем полученные результаты
+            if (result.translation?.translated) {
+                tabAware.setTranslation(result.translation.translated);
+                completedOperations.translation = true;
+            }
 
-                // 1. Get translation
-                const translation = await createTranslation(
-                    aiService,
-                    apiKey,
-                    text,
-                    translateToLanguage,
-                    aiInstructions,
-                    sourceLanguageForSubmit || undefined, // Передаем информацию о языке исходного текста или undefined
-                    abortSignal
+            if (result.examples && result.examples.length > 0) {
+                const formattedExamples = result.examples.map(example =>
+                    [example.original, example.translated] as [string, string | null]
                 );
-
-                // Check if cancelled after translation
-                if (abortSignal.aborted) {
-                    throw new Error('Generation cancelled by user');
-                }
-
-                if (translation.translated) {
-                    tabAware.setTranslation(translation.translated);
-                    completedOperations.translation = true;
-                }
-            } catch (translationError) {
-                if (abortSignal.aborted) {
-                    console.log('Translation cancelled by user');
-                    throw new Error('Translation cancelled by user');
-                }
-                
-                // Check if this is a quota error and stop immediately
-                if (translationError instanceof Error && isQuotaError(translationError)) {
-                    console.error('Quota error detected, stopping card creation:', translationError.message);
-                    showError(translationError.message);
-                    throw translationError; // Throw to reach finally block
-                }
-                
-                console.error('Translation failed:', translationError);
-                throw new Error(`Translation failed: ${translationError instanceof Error ? translationError.message : "Unknown error"}`);
+                tabAware.setExamples(formattedExamples);
+                completedOperations.examples = true;
             }
 
-            try {
-                // Check if cancelled before starting examples
-                if (abortSignal.aborted) {
-                    throw new Error('Generation cancelled by user');
-                }
-
-                // 2. Get examples
-                const examplesResult = await createExamples(
-                    aiService,
-                    apiKey,
-                    text,
-                    translateToLanguage,
-                    true,
-                    aiInstructions,
-                    sourceLanguageForSubmit || undefined, // Преобразуем string | null в string | undefined
-                    abortSignal
-                );
-
-                // Check if cancelled after examples
-                if (abortSignal.aborted) {
-                    throw new Error('Generation cancelled by user');
-                }
-
-                if (examplesResult && examplesResult.length > 0) {
-                    // Convert to old format for compatibility with existing code
-                    const formattedExamples = examplesResult.map(example =>
-                        [example.original, example.translated] as [string, string | null]
-                    );
-                    tabAware.setExamples(formattedExamples);
-                    completedOperations.examples = true;
-                }
-            } catch (examplesError) {
-                if (abortSignal.aborted) {
-                    console.log('Examples generation cancelled by user');
-                    throw new Error('Examples generation cancelled by user');
-                }
-                
-                // Check if this is a quota error and stop immediately
-                if (examplesError instanceof Error && isQuotaError(examplesError)) {
-                    console.error('Quota error detected, stopping card creation:', examplesError.message);
-                    showError(examplesError.message);
-                    throw examplesError; // Throw to reach finally block
-                }
-                
-                console.error('Examples generation failed:', examplesError);
-                // Continue if translation worked but examples failed
-                if (completedOperations.translation) {
-                    showError(`Examples generation failed: ${examplesError instanceof Error ? examplesError.message : "Unknown error"}. Continuing with translation only.`, 'warning');
-                } else {
-                    throw new Error(`Examples generation failed: ${examplesError instanceof Error ? examplesError.message : "Unknown error"}`);
-                }
+            if (result.flashcard?.front) {
+                tabAware.setFront(result.flashcard.front);
+                completedOperations.flashcard = true;
             }
 
-            try {
-                // Check if cancelled before starting flashcard
-                if (abortSignal.aborted) {
-                    throw new Error('Generation cancelled by user');
-                }
-
-                // 3. Create flashcard
-                const flashcard = await createFlashcard(aiService, apiKey, text, abortSignal);
-
-                // Check if cancelled after flashcard
-                if (abortSignal.aborted) {
-                    throw new Error('Generation cancelled by user');
-                }
-
-                if (flashcard.front) {
-                    tabAware.setFront(flashcard.front);
-                    completedOperations.flashcard = true;
-                }
-            } catch (flashcardError) {
-                if (abortSignal.aborted) {
-                    console.log('Flashcard creation cancelled by user');
-                    throw new Error('Flashcard creation cancelled by user');
-                }
-                
-                // Check if this is a quota error and stop immediately
-                if (flashcardError instanceof Error && isQuotaError(flashcardError)) {
-                    console.error('Quota error detected, stopping card creation:', flashcardError.message);
-                    showError(flashcardError.message);
-                    throw flashcardError; // Throw to reach finally block
-                }
-                
-                console.error('Flashcard creation failed:', flashcardError);
-                // Continue if at least translation worked
-                if (completedOperations.translation) {
-                    showError(`Flashcard creation failed: ${flashcardError instanceof Error ? flashcardError.message : "Unknown error"}. Continuing with available data.`, 'warning');
-                } else {
-                    throw new Error(`Flashcard creation failed: ${flashcardError instanceof Error ? flashcardError.message : "Unknown error"}`);
-                }
+            if (result.linguisticInfo) {
+                tabAware.setLinguisticInfo(result.linguisticInfo);
+                completedOperations.linguisticInfo = true;
             }
 
-            try {
-                // 3.5 Создание лингвистической информации с итеративной валидацией
-                // Определяем язык источника: автоопределенный или выбранный вручную
-                const wordLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+            if (result.imageUrl) {
+                tabAware.setImageUrl(result.imageUrl);
+                completedOperations.image = true;
+            }
 
-                console.log(`Creating validated linguistic info using source language: ${wordLanguage || 'unknown'} for text: "${text.substring(0, 20)}...", user language: ${translateToLanguage}`);
-
-
-                // Если есть язык источника - используем его
-                if (wordLanguage) {
-                    let result;
-                    
-                    console.log('Using optimized linguistic info creation (max 2 requests)');
-                    result = await createOptimizedLinguisticInfo(
-                        aiService,
-                        apiKey,
-                        text,
-                        wordLanguage,
-                        translateToLanguage
-                    );
-
-                    if (result.linguisticInfo) {
-                        tabAware.setLinguisticInfo(result.linguisticInfo);
-                        completedOperations.linguisticInfo = true;
-
-                        // Показываем уведомления пользователю
-                        if (result.wasValidated) {
-                            // Грамматическая справка создана и проверена
-                        } else {
-                            showError('⚠️ Grammar reference created but not fully validated', 'warning');
-                        }
+            // Обработка ошибок
+            if (result.errors.length > 0) {
+                console.warn('Some components failed:', result.errors);
+                
+                // Показываем предупреждения для неудачных компонентов
+                for (const error of result.errors) {
+                    if (error.component === 'translation') {
+                        // Перевод критичен - показываем ошибку
+                        showError(`Translation failed: ${error.error}`, 'error');
                     } else {
-                        console.warn(`Failed to generate linguistic info after ${result.attempts} attempts`);
-                        showError('Failed to generate grammar reference', 'warning');
+                        // Другие компоненты - показываем предупреждения
+                        showError(`${error.component} generation failed: ${error.error}`, 'warning');
                     }
-                } else {
-                    // Используем язык перевода как запасной вариант для источника
-                    console.warn(`No source language detected. Using target language (${translateToLanguage}) as fallback for source`);
-                    
-                    let result;
-                    
-                    console.log('Using optimized linguistic info creation (fallback mode, max 2 requests)');
-                    result = await createOptimizedLinguisticInfo(
-                        aiService,
-                        apiKey,
-                        text,
-                        translateToLanguage, // В качестве исходного языка используем язык перевода
-                        translateToLanguage // Для интерфейса тоже используем язык перевода
-                    );
-
-                    if (result.linguisticInfo) {
-                        tabAware.setLinguisticInfo(result.linguisticInfo);
-                        completedOperations.linguisticInfo = true;
-
-                        if (result.wasValidated) {
-                            // Грамматическая справка создана и проверена (fallback mode)
-                        } else {
-                            showError('⚠️ Grammar reference created but not fully validated (fallback mode)', 'warning');
-                        }
-                    } else {
-                        console.warn(`Failed to generate linguistic info after ${result.attempts} attempts`);
-                        showError('Failed to generate grammar reference', 'warning');
-                    }
-                }
-            } catch (linguisticError) {
-                // Check if this is a quota error and stop immediately
-                if (linguisticError instanceof Error && isQuotaError(linguisticError)) {
-                    console.error('Quota error detected, stopping card creation:', linguisticError.message);
-                    showError(linguisticError.message);
-                    throw linguisticError; // Throw to reach finally block
-                }
-                console.error('Error in linguistic info creation:', linguisticError);
-                showError('Failed to create grammar reference', 'warning');
-            }
-
-            // Продолжаем с доступными данными
-            if (completedOperations.translation) {
-                console.log('Continuing with available data after linguistic info generation');
-            }
-
-            // 3.7 Создание транскрипции
-            try {
-                const sourceLanguageForTranscription = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
-
-                if (sourceLanguageForTranscription) {
-                    console.log(`Creating transcription using source language: ${sourceLanguageForTranscription}, user language: ${translateToLanguage}`);
-
-                    const transcriptionResult = await createTranscription(
-                        aiService,
-                        apiKey,
-                        text,
-                        sourceLanguageForTranscription,
-                        translateToLanguage
-                    );
-
-                    if (transcriptionResult) {
-                        // Получаем название языка пользователя через AI
-                        const languageName = await getLanguageName(translateToLanguage);
-
-                        // Создаем красивую HTML-разметку для транскрипции
-                        const transcriptionHtml = [
-                            transcriptionResult.userLanguageTranscription &&
-                            `<div class="transcription-item user-lang">
-                                    <span class="transcription-label">${languageName}:</span>
-                                    <span class="transcription-text">${transcriptionResult.userLanguageTranscription}</span>
-                                </div>`,
-                            transcriptionResult.ipaTranscription &&
-                            `<div class="transcription-item ipa">
-                                    <span class="transcription-label">IPA:</span>
-                                    <span class="transcription-text">${transcriptionResult.ipaTranscription}</span>
-                                </div>`
-                        ].filter(Boolean).join('\n');
-
-                        if (transcriptionHtml) {
-                            tabAware.setTranscription(transcriptionHtml);
-                            console.log('Transcription created successfully');
-                        }
-                    }
-                } else {
-                    console.warn('No source language available for transcription');
-                }
-            } catch (transcriptionError) {
-                // Check if this is a quota error and stop immediately
-                if (transcriptionError instanceof Error && isQuotaError(transcriptionError)) {
-                    console.error('Quota error detected, stopping card creation:', transcriptionError.message);
-                    showError(transcriptionError.message);
-                    throw transcriptionError; // Throw to reach finally block
                 }
                 
-                console.error('Transcription generation failed:', transcriptionError);
-                // Transcription is not critical - continue with the card creation
-            }
-
-            // 4. Generate image if needed and supported
-            if (imageGenerationMode !== 'off' && isImageGenerationAvailable()) {
-                try {
-                    let shouldGenerate = imageGenerationMode === 'always';
-                    let analysisReason = '';
-
-                    // For smart mode, check if image would be helpful
-                    if (imageGenerationMode === 'smart') {
-                        const analysis = await shouldGenerateImageForText(text);
-                        shouldGenerate = analysis.shouldGenerate;
-                        analysisReason = analysis.reason;
-                        
-                        console.log(`Smart image analysis for "${text}": ${shouldGenerate ? 'YES' : 'NO'} - ${analysisReason}`);
-                    }
-
-                    if (shouldGenerate) {
-                        const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions);
-
-                        if (modelProvider === ModelProvider.OpenAI) {
-                            const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
-
-                            if (imageUrl) {
-                                console.log('*** HANDLE SUBMIT: Setting imageUrl in Redux:', imageUrl.substring(0, 50));
-                                tabAware.setImageUrl(imageUrl);
-                            }
-                            if (imageBase64) {
-                                console.log('*** HANDLE SUBMIT: Setting image (base64) in Redux:', imageBase64.substring(0, 50));
-                                tabAware.setImage(imageBase64);
-                            }
-                            completedOperations.image = true;
-                            
-                            if (imageGenerationMode === 'smart') {
-                                // Skip showing notification about successful image generation
-                                // showError(`Image generated: ${analysisReason}`, 'info');
-                            }
-                        } else {
-                            // Skip image for providers that don't support it
-                            console.log('Image generation not supported for this provider');
-                        }
-                    } else if (imageGenerationMode === 'smart') {
-                        // Skip showing notification for abstract concepts in smart mode
-                        // showError(`No image needed: ${analysisReason}`, 'info');
-                    }
-                } catch (imageError) {
-                    // Check if this is a quota error and stop immediately
-                    if (imageError instanceof Error && isQuotaError(imageError)) {
-                        console.error('Quota error detected, stopping card creation:', imageError.message);
-                        showError(imageError.message);
-                        throw imageError; // Throw to reach finally block
-                    }
-                    
-                    console.error('Image generation failed:', imageError);
-                    // Image errors are not critical - continue with the card creation
-                    if (completedOperations.translation || completedOperations.examples) {
-                        showError(`Image generation failed: ${imageError instanceof Error ? imageError.message : "Unknown error"}. Continuing without image.`, 'warning');
-                    }
+                // Если перевод не удался, останавливаем создание карточки
+                if (!completedOperations.translation) {
+                    throw new Error('Translation failed - cannot create card without translation');
                 }
             }
 
-            // Ensure this is treated as a brand new card
-            tabAware.setCurrentCardId(null);
+            // Проверяем есть ли критически важные компоненты
+            if (!completedOperations.translation) {
+                throw new Error("Translation failed - cannot create card without translation");
+            }
 
-            // Важно: очищаем статус сохранения для новой карточки
+            console.log('Parallel card creation completed with:', completedOperations);
+
+            // Показываем результат только если есть перевод
+            setShowResult(true);
+            
+            // IMPORTANT: Only set explicitly saved to false AFTER successful creation
             setExplicitlySaved(false);
-            setExplicitlySavedIds([]);
             localStorage.removeItem('explicitly_saved');
-            localStorage.removeItem('current_card_id');
-            console.log('Created new single card - reset all saved statuses');
+            
+            console.log('Setting showResult to true after successful parallel card creation');
+            
+            // Generate a unique ID for this card
+            const cardId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            tabAware.setCurrentCardId(cardId);
+            
+            console.log('Created card with ID:', cardId);
 
             // Show modal if we have at least some data
-            if (completedOperations.translation || completedOperations.examples || completedOperations.flashcard) {
+            if (completedOperations.translation) {
                 setShowResult(true);
                 setShowModal(true);
                 setIsNewSubmission(true);
                 
                 // Hide loading when content is ready and visible
                 setTimeout(() => {
-                    console.log('🎯 Content is ready - hiding loading');
+                    console.log('🎯 Parallel content is ready - hiding loading');
                     setLoadingGetResult(false);
                     setCurrentLoadingMessage(null);
                     setCurrentProgress({ completed: 0, total: 0 });
@@ -5070,6 +4840,21 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     const handleImageModeChange = (mode: 'off' | 'smart' | 'always') => {
         dispatch(setImageGenerationMode(mode));
         
+        // Автоматически включаем shouldGenerateImage для Smart и Always режимов
+        if (mode === 'smart' || mode === 'always') {
+            console.log(`🔧 Automatically enabling shouldGenerateImage for ${mode} mode`);
+            dispatch(setShouldGenerateImage(true));
+            
+            // Дополнительная проверка - убеждаемся, что состояние действительно изменилось
+            setTimeout(() => {
+                console.log(`🔍 Verification: shouldGenerateImage should now be true for ${mode} mode`);
+            }, 100);
+        } else if (mode === 'off') {
+            // При выключении режима также выключаем общий переключатель
+            console.log('🔧 Disabling shouldGenerateImage for off mode');
+            dispatch(setShouldGenerateImage(false));
+        }
+        
         // If switching to 'always' mode and we have text, try to generate an image
         if (mode === 'always' && text && isImageGenerationAvailable()) {
             handleNewImage();
@@ -5600,16 +5385,7 @@ Original text: ${text}`;
                         }}>
                             {currentLoadingMessage?.currentStepSubtitle || currentLoadingMessage?.subtitle || "Preparing your request..."}
                         </div>
-                        {currentProgress.total > 0 && (
-                            <div style={{
-                                fontSize: '12px',
-                                color: '#9CA3AF',
-                                marginTop: '8px',
-                                fontWeight: '500'
-                            }}>
-                                {currentProgress.completed} of {currentProgress.total} requests completed
-                            </div>
-                        )}
+
                     </div>
 
                     {/* Progress indicator */}
