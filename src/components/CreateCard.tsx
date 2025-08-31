@@ -96,23 +96,65 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 to { opacity: 1; }
             }
             @keyframes slideUp {
-                from { 
+                from {
                     opacity: 0;
                     transform: translateY(30px) scale(0.95);
                 }
-                to { 
+                to {
                     opacity: 1;
                     transform: translateY(0) scale(1);
                 }
             }
             @keyframes slideIn {
-                from { 
+                from {
                     opacity: 0;
                     transform: translateX(-20px);
                 }
-                to { 
+                to {
                     opacity: 1;
                     transform: translateX(0);
+                }
+            }
+            @keyframes glowPulse {
+                0%, 100% {
+                    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+                    transform: scale(1);
+                }
+                50% {
+                    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+                    transform: scale(1.02);
+                }
+            }
+            @keyframes modeSwitch {
+                0% {
+                    transform: scale(1);
+                    opacity: 0.8;
+                }
+                50% {
+                    transform: scale(1.01);
+                    opacity: 1;
+                }
+                100% {
+                    transform: scale(1);
+                    opacity: 1;
+                }
+            }
+            @keyframes instantSlide {
+                0% {
+                    transform: translateX(-10px);
+                    opacity: 0;
+                }
+                100% {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+            @keyframes smoothGlow {
+                0%, 100% {
+                    boxShadow: 0 0 0 0 rgba(59, 130, 246, 0.3);
+                }
+                50% {
+                    boxShadow: 0 0 0 8px rgba(59, 130, 246, 0);
                 }
             }
         `;
@@ -148,10 +190,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const toggleMode = useCallback(() => {
         const newMode = mode === Modes.LanguageLearning ? Modes.GeneralTopic : Modes.LanguageLearning;
         dispatch(setMode(newMode));
-        
+
         // Save the new mode to localStorage
         localStorage.setItem('selected_mode', newMode);
-        
+
         // Clear form data when switching modes
         dispatch(setText(''));
         dispatch(setFront(''));
@@ -163,7 +205,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setLinguisticInfo(''));
         dispatch(setTranscription(''));
         dispatch(setCurrentCardId(null));
-        
+
         // Reset general card state
         setSelectedTemplate(null);
         setCustomPrompt('');
@@ -173,6 +215,60 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setCreatedCards([]);
         setCurrentCardIndex(0);
     }, [mode, dispatch]);
+
+    // Function to switch to specific mode
+    const switchToMode = useCallback((targetMode: string) => {
+        if (mode !== targetMode) {
+            dispatch(setMode(targetMode));
+            localStorage.setItem('selected_mode', targetMode);
+
+            // Clear form data when switching modes
+            dispatch(setText(''));
+            dispatch(setFront(''));
+            dispatch(setBack(null));
+            dispatch(setTranslation(null));
+            dispatch(setExamples([]));
+            dispatch(setImage(null));
+            dispatch(setImageUrl(null));
+            dispatch(setLinguisticInfo(''));
+            dispatch(setTranscription(''));
+            dispatch(setCurrentCardId(null));
+
+            // Reset general card state
+            setSelectedTemplate(null);
+            setCustomPrompt('');
+            setShowTemplateModal(false);
+            setShowResult(false);
+            setIsMultipleCards(false);
+            setCreatedCards([]);
+            setCurrentCardIndex(0);
+        }
+    }, [mode, dispatch]);
+
+    // Keyboard shortcuts handler
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            // Check if user pressed Tab + L for Language Learning mode
+            if (event.key === 'l' || event.key === 'L') {
+                if (event.ctrlKey || event.metaKey) {
+                    event.preventDefault();
+                    switchToMode(Modes.LanguageLearning);
+                }
+            }
+            // Check if user pressed Tab + G for General Cards mode
+            else if (event.key === 'g' || event.key === 'G') {
+                if (event.ctrlKey || event.metaKey) {
+                    event.preventDefault();
+                    switchToMode(Modes.GeneralTopic);
+                }
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [switchToMode]);
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
@@ -2096,7 +2192,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         cursor: currentCardIndex === 0 ? 'not-allowed' : 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: '8px',
+                                        gap: '6px',
                                         flex: 1
                                     }}
                                 >
@@ -2128,7 +2224,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         cursor: currentCardIndex === createdCards.length - 1 ? 'not-allowed' : 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: '8px',
+                                        gap: '6px',
                                         flex: 1,
                                         justifyContent: 'flex-end'
                                     }}
@@ -2164,7 +2260,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: '8px',
+                                    gap: '6px',
                                     marginBottom: '12px',
                                     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                                 }}
@@ -2187,7 +2283,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                             <>
                                                 Save {createdCards.length - explicitlySavedIds.length} Remaining Cards
                                                 <span style={{
-                                                    fontSize: '12px',
+                                                    fontSize: '11px',
                                                     backgroundColor: 'rgba(255,255,255,0.25)',
                                                     borderRadius: '4px',
                                                     padding: '1px 6px',
@@ -4388,7 +4484,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     <span>{currentSourceLanguage.name}</span>
                                     {isAutoDetectLanguage && (
                                         <span style={{
-                                            fontSize: '12px',
+                                            fontSize: '11px',
                                             color: '#10B981',
                                             backgroundColor: '#ECFDF5',
                                             padding: '2px 6px',
@@ -5583,59 +5679,201 @@ Original text: ${text}`;
                         borderRadius: '8px',
                         marginBottom: '8px'
                     }}>
+                        {/* Modern Segmented Control Mode Switcher */}
                         <div style={{
                             display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            color: mode === Modes.LanguageLearning ? '#3B82F6' : '#6B7280',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            transition: 'color 0.2s ease'
+                            width: '100%',
+                            backgroundColor: '#F3F4F6',
+                            borderRadius: '16px',
+                            padding: '4px',
+                            position: 'relative',
+                            border: '1px solid #E5E7EB',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease',
+                            animation: 'instantSlide 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                            transform: 'translateZ(0)', // Hardware acceleration
+                            willChange: 'box-shadow',
+                            minHeight: '42px'
                         }}>
-                            <FaGraduationCap />
-                            Language Learning
-                        </div>
-                        
-                        <button
-                            onClick={toggleMode}
-                            style={{
-                                position: 'relative',
-                                width: '48px',
-                                height: '24px',
-                                backgroundColor: mode === Modes.GeneralTopic ? '#3B82F6' : '#CBD5E1',
-                                borderRadius: '12px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                transition: 'background-color 0.2s ease',
-                                outline: 'none'
-                            }}
-                            title={`Switch to ${mode === Modes.LanguageLearning ? 'General Cards' : 'Language Learning'}`}
-                        >
+                            {/* Active background indicator */}
                             <div style={{
                                 position: 'absolute',
-                                top: '2px',
-                                left: mode === Modes.GeneralTopic ? '26px' : '2px',
-                                width: '20px',
-                                height: '20px',
-                                backgroundColor: '#ffffff',
-                                borderRadius: '50%',
-                                transition: 'left 0.2s ease',
-                                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
+                                top: '4px',
+                                left: mode === Modes.LanguageLearning ? '4px' : 'calc(50% + 2px)',
+                                width: 'calc(50% - 4px)',
+                                height: 'calc(100% - 8px)',
+                                backgroundColor: '#FFFFFF',
+                                borderRadius: '10px',
+                                transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease',
+                                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+                                border: '2px solid #3B82F6',
+                                willChange: 'left, box-shadow'
                             }} />
-                        </button>
-                        
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            color: mode === Modes.GeneralTopic ? '#3B82F6' : '#6B7280',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            transition: 'color 0.2s ease'
-                        }}>
-                            <FaBrain />
-                            General Cards
+
+                            {/* Language Learning Mode Button */}
+                            <button
+                                onClick={() => mode !== Modes.LanguageLearning && toggleMode()}
+                                disabled={mode === Modes.LanguageLearning}
+                                style={{
+                                    flex: 1,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                    padding: '10px 6px',
+                                    backgroundColor: 'transparent',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    cursor: mode === Modes.LanguageLearning ? 'default' : 'pointer',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    position: 'relative',
+                                    zIndex: 2,
+                                    outline: 'none',
+                                    transform: 'translateZ(0)', // Hardware acceleration
+                                    willChange: 'transform, filter, box-shadow',
+                                    minHeight: '42px'
+                                }}
+                                onMouseOver={(e) => {
+                                    if (mode !== Modes.LanguageLearning) {
+                                        e.currentTarget.style.transform = 'translateY(-1px) scale(1.01)';
+                                        e.currentTarget.style.filter = 'brightness(1.03)';
+                                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.1)';
+                                    }
+                                }}
+                                onMouseOut={(e) => {
+                                    if (mode !== Modes.LanguageLearning) {
+                                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                                        e.currentTarget.style.filter = 'brightness(1)';
+                                        e.currentTarget.style.boxShadow = 'none';
+                                    }
+                                }}
+                                title="Language Learning - Create cards for vocabulary, grammar, and translation"
+                            >
+                                <FaGraduationCap
+                                    size={18}
+                                    style={{
+                                        color: mode === Modes.LanguageLearning ? '#3B82F6' : '#6B7280',
+                                        transition: 'color 0.2s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s ease, transform 0.2s ease',
+                                        filter: mode === Modes.LanguageLearning ? 'drop-shadow(0 2px 6px rgba(59, 130, 246, 0.3))' : 'none',
+                                        transform: mode === Modes.LanguageLearning ? 'scale(1.06)' : 'scale(1)',
+                                        transformOrigin: 'center',
+                                        willChange: 'color, filter, transform'
+                                    }}
+                                />
+                                <span style={{
+                                    fontSize: '11px',
+                                    fontWeight: mode === Modes.LanguageLearning ? '700' : '500',
+                                    color: mode === Modes.LanguageLearning ? '#1E40AF' : '#6B7280',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    textAlign: 'center',
+                                    lineHeight: '1.2',
+                                    opacity: mode === Modes.LanguageLearning ? 1 : 0.8,
+                                    willChange: 'color, opacity, font-weight'
+                                }}>
+                                    Language<br/>Learning
+                                </span>
+                                {mode === Modes.LanguageLearning && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '-2px',
+                                        right: '-2px',
+                                        width: '8px',
+                                        height: '8px',
+                                        backgroundColor: '#10B981',
+                                        borderRadius: '50%',
+                                        border: '2px solid #FFFFFF',
+                                        animation: 'pulse 1.5s ease-in-out infinite',
+                                        boxShadow: '0 0 8px rgba(16, 185, 129, 0.6), 0 1px 2px rgba(0, 0, 0, 0.1)',
+                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                        willChange: 'opacity'
+                                    }} />
+                                )}
+                            </button>
+
+                            {/* General Cards Mode Button */}
+                            <button
+                                onClick={() => mode !== Modes.GeneralTopic && toggleMode()}
+                                disabled={mode === Modes.GeneralTopic}
+                                style={{
+                                    flex: 1,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                    padding: '10px 6px',
+                                    backgroundColor: 'transparent',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    cursor: mode === Modes.GeneralTopic ? 'default' : 'pointer',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    position: 'relative',
+                                    zIndex: 2,
+                                    outline: 'none',
+                                    transform: 'translateZ(0)', // Hardware acceleration
+                                    willChange: 'transform, filter, box-shadow',
+                                    minHeight: '42px'
+                                }}
+                                onMouseOver={(e) => {
+                                    if (mode !== Modes.GeneralTopic) {
+                                        e.currentTarget.style.transform = 'translateY(-1px) scale(1.01)';
+                                        e.currentTarget.style.filter = 'brightness(1.03)';
+                                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.1)';
+                                    }
+                                }}
+                                onMouseOut={(e) => {
+                                    if (mode !== Modes.GeneralTopic) {
+                                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                                        e.currentTarget.style.filter = 'brightness(1)';
+                                        e.currentTarget.style.boxShadow = 'none';
+                                    }
+                                }}
+                                title="General Cards - Create various types of educational cards (Q&A, definitions, summaries, etc.)"
+                            >
+                                <FaBrain
+                                    size={18}
+                                    style={{
+                                        color: mode === Modes.GeneralTopic ? '#3B82F6' : '#6B7280',
+                                        transition: 'color 0.2s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s ease, transform 0.2s ease',
+                                        filter: mode === Modes.GeneralTopic ? 'drop-shadow(0 2px 6px rgba(59, 130, 246, 0.3))' : 'none',
+                                        transform: mode === Modes.GeneralTopic ? 'scale(1.06)' : 'scale(1)',
+                                        transformOrigin: 'center',
+                                        willChange: 'color, filter, transform'
+                                    }}
+                                />
+                                <span style={{
+                                    fontSize: '11px',
+                                    fontWeight: mode === Modes.GeneralTopic ? '700' : '500',
+                                    color: mode === Modes.GeneralTopic ? '#1E40AF' : '#6B7280',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    textAlign: 'center',
+                                    lineHeight: '1.2',
+                                    opacity: mode === Modes.GeneralTopic ? 1 : 0.8,
+                                    willChange: 'color, opacity, font-weight'
+                                }}>
+                                    General<br/>Cards
+                                </span>
+                                {mode === Modes.GeneralTopic && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '-2px',
+                                        right: '-2px',
+                                        width: '8px',
+                                        height: '8px',
+                                        backgroundColor: '#10B981',
+                                        borderRadius: '50%',
+                                        border: '2px solid #FFFFFF',
+                                        animation: 'pulse 1.5s ease-in-out infinite',
+                                        boxShadow: '0 0 8px rgba(16, 185, 129, 0.6), 0 1px 2px rgba(0, 0, 0, 0.1)',
+                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                        willChange: 'opacity'
+                                    }} />
+                                )}
+                            </button>
                         </div>
+
+
                     </div>
 
                     {mode === Modes.LanguageLearning && (
@@ -5689,7 +5927,7 @@ Original text: ${text}`;
                                             border: 'none',
                                             backgroundColor: imageGenerationMode === 'off' ? '#FFFFFF' : 'transparent',
                                             color: imageGenerationMode === 'off' ? '#111827' : '#6B7280',
-                                            fontSize: '12px',
+                                            fontSize: '11px',
                                             fontWeight: imageGenerationMode === 'off' ? '600' : '500',
                                             cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
                                             transition: 'all 0.2s ease',
@@ -5716,7 +5954,7 @@ Original text: ${text}`;
                                             border: 'none',
                                             backgroundColor: imageGenerationMode === 'smart' ? '#FFFFFF' : 'transparent',
                                             color: imageGenerationMode === 'smart' ? '#111827' : '#6B7280',
-                                            fontSize: '12px',
+                                            fontSize: '11px',
                                             fontWeight: imageGenerationMode === 'smart' ? '600' : '500',
                                             cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
                                             transition: 'all 0.2s ease',
@@ -5743,7 +5981,7 @@ Original text: ${text}`;
                                             border: 'none',
                                             backgroundColor: imageGenerationMode === 'always' ? '#FFFFFF' : 'transparent',
                                             color: imageGenerationMode === 'always' ? '#111827' : '#6B7280',
-                                            fontSize: '12px',
+                                            fontSize: '11px',
                                             fontWeight: imageGenerationMode === 'always' ? '600' : '500',
                                             cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
                                             transition: 'all 0.2s ease',
@@ -5781,7 +6019,7 @@ Original text: ${text}`;
 
                                 {!isImageGenerationAvailable() && (
                                     <div style={{
-                                        fontSize: '12px',
+                                        fontSize: '11px',
                                         color: '#EF4444',
                                         backgroundColor: '#FEF2F2',
                                         padding: '6px 8px',
@@ -5843,7 +6081,7 @@ Original text: ${text}`;
                             }}>
                                 <FaLightbulb style={{ color: '#F59E0B' }} />
                                 <span style={{
-                                    fontSize: '12px',
+                                    fontSize: '11px',
                                     color: '#92400E',
                                     fontWeight: '500'
                                 }}>
@@ -5859,7 +6097,7 @@ Original text: ${text}`;
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        gap: '8px',
+                                        gap: '6px',
                                         width: '100%',
                                         padding: '8px 10px',
                                         backgroundColor: text.trim() && !loadingGetResult ? '#2563EB' : '#E5E7EB',
@@ -6580,7 +6818,7 @@ Original text: ${text}`;
                                 <div style={{
                                     display: 'flex',
                                     alignItems: 'flex-start',
-                                    gap: '8px',
+                                    gap: '6px',
                                     fontSize: '13px',
                                     color: '#666666',
                                     lineHeight: '1.5'
