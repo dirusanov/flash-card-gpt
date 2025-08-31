@@ -1810,26 +1810,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
-        // If the card is not saved but has content, offer to save it
+        // If the card is not saved but has content, clear data without asking
         // Только для режима одной карточки и только если есть содержимое
         if (showResult && !isSaved && !isEdited && translation && !isMultipleCards) {
-            const shouldSave = window.confirm('Would you like to save this card to your collection?');
-            if (shouldSave) {
-                handleAccept();
-            } else {
-                // If user decides not to save, clear ALL data including images
-                console.log('User chose not to save, clearing all card data');
-                dispatch(setText(''));
-                dispatch(setTranslation(''));
-                dispatch(setExamples([]));
-                dispatch(setImage(null));
-                dispatch(setImageUrl(null));
-                dispatch(setFront(''));
-                dispatch(setBack(null));
-                dispatch(setLinguisticInfo(''));
-                dispatch(setTranscription(''));
-                setShowResult(false);
-            }
+            // Clear ALL data including images when closing without saving
+            console.log('Closing without saving, clearing all card data');
+            dispatch(setText(''));
+            dispatch(setTranslation(''));
+            dispatch(setExamples([]));
+            dispatch(setImage(null));
+            dispatch(setImageUrl(null));
+            dispatch(setFront(''));
+            dispatch(setBack(null));
+            dispatch(setLinguisticInfo(''));
+            dispatch(setTranscription(''));
+            setShowResult(false);
         } else if (!isSaved) {
             // If not saved, clear ALL data including images when closing
             console.log('Card not saved, clearing all data');
