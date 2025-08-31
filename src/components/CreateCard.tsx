@@ -664,8 +664,23 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         try {
             setLoadingAccept(true);
 
-            // Перед сохранением всех карточек, сохраняем текущее состояние текущей карточки
-            saveCurrentCardState();
+            // Создаем обновленную копию массива карточек с актуальными данными текущей карточки
+            const cardsToSave = [...createdCards];
+            if (cardsToSave[currentCardIndex]) {
+                // Обновляем текущую карточку актуальными данными из Redux
+                cardsToSave[currentCardIndex] = {
+                    ...cardsToSave[currentCardIndex],
+                    text,
+                    translation,
+                    examples,
+                    image,
+                    imageUrl,
+                    front,
+                    back: back || null,
+                    linguisticInfo: linguisticInfo || '',
+                    transcription: transcription || ''
+                };
+            }
 
             let successCount = 0;
             let errorCount = 0;
@@ -675,11 +690,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Keep track of saved card IDs to update our explicit save tracking
             const newExplicitlySavedIds: string[] = [...explicitlySavedIds];
 
-            console.log('Starting to save cards. Total cards:', createdCards.length, 'Already saved:', explicitlySavedIds.length);
+            console.log('Starting to save cards. Total cards:', cardsToSave.length, 'Already saved:', explicitlySavedIds.length);
+            console.log('Cards to save:', cardsToSave.map(c => ({ id: c.id, text: c.text?.substring(0, 30) })));
 
-            // Save each card in the createdCards array
-            for (let i = 0; i < createdCards.length; i++) {
-                const card = createdCards[i];
+            // Save each card in the cardsToSave array
+            for (let i = 0; i < cardsToSave.length; i++) {
+                const card = cardsToSave[i];
 
                 // Skip cards that are already in our explicitly saved list to avoid double saving
                 if (explicitlySavedIds.includes(card.id)) {
@@ -691,10 +707,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 try {
                     console.log(`Saving card #${i} (${card.id}) from multi-card set`);
 
-                    // Check if this card already exists in storage
+                    // Check if this card already exists in storage by ID only
                     const existingCardIndex = storedCards.findIndex(
-                        (storedCard) => storedCard.id === card.id ||
-                            (storedCard.text === card.text && storedCard.mode === card.mode)
+                        (storedCard) => storedCard.id === card.id
                     );
 
                     if (existingCardIndex === -1) {
@@ -729,12 +744,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Update our tracking of explicitly saved cards
             setExplicitlySavedIds(newExplicitlySavedIds);
 
+            // Обновляем состояние карточек с сохраненными данными
+            setCreatedCards(cardsToSave);
+
             // Ensure the current card is marked as explicitly saved
             setExplicitlySaved(true);
             localStorage.setItem('explicitly_saved', 'true');
 
             // Also update the currentCardId to match current card
-            const currentCard = createdCards[currentCardIndex];
+            const currentCard = cardsToSave[currentCardIndex];
             if (currentCard && currentCard.id) {
                 dispatch(setCurrentCardId(currentCard.id));
                 localStorage.setItem('current_card_id', currentCard.id);
@@ -2468,7 +2486,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
 
                     // 5. Сохраняем карточку
-                    const cardId = Date.now().toString() + '_' + newCards.length;
+                    const cardId = `general_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${newCards.length}`;
 
                     const cardData: StoredCard = {
                         id: cardId,

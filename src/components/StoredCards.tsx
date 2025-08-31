@@ -387,7 +387,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             const langLearningCards: CardLangLearning[] = [];
             const generalTopicCards: CardGeneral[] = [];
 
-            selectedCardsData.forEach(card => {
+            // Process cards one by one to handle async image processing
+            for (const card of selectedCardsData) {
                 if (card.mode === Modes.LanguageLearning && card.translation) {
                     // Process image data for Anki
                     let processedImageBase64 = null;
@@ -423,27 +424,62 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     });
                     
                     langLearningCards.push(ankiCard);
-                } else if (card.mode === Modes.GeneralTopic && card.front && card.back) {
+                } else if (card.mode === Modes.GeneralTopic && (card.front || card.text) && (card.back || card.text)) {
                     // Process image data for GeneralTopic cards too
                     let processedImageBase64 = null;
-                    if (card.image) {
-                        // Extract the base64 part if it has a data URI prefix
-                        if (card.image.startsWith('data:')) {
+                    
+                    // Check both image and imageUrl fields
+                    let imageSource = card.image || card.imageUrl;
+                    
+                    if (imageSource) {
+                        if (imageSource.startsWith('data:')) {
+                            // Handle data URI format
                             const base64Prefix = 'base64,';
-                            const prefixIndex = card.image.indexOf(base64Prefix);
+                            const prefixIndex = imageSource.indexOf(base64Prefix);
                             if (prefixIndex !== -1) {
-                                processedImageBase64 = card.image.substring(prefixIndex + base64Prefix.length);
+                                processedImageBase64 = imageSource.substring(prefixIndex + base64Prefix.length);
                             } else {
-                                processedImageBase64 = card.image;
+                                processedImageBase64 = imageSource;
+                            }
+                        } else if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
+                            // Handle URL - need to fetch and convert to base64
+                            try {
+                                console.log(`Fetching image from URL for card ${card.id}: ${imageSource}`);
+                                const response = await fetch(imageSource);
+                                if (response.ok) {
+                                    const blob = await response.blob();
+                                    const base64Data = await new Promise<string>((resolve) => {
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => {
+                                            const result = reader.result as string;
+                                            // Extract base64 part
+                                            const base64Prefix = 'base64,';
+                                            const prefixIndex = result.indexOf(base64Prefix);
+                                            if (prefixIndex !== -1) {
+                                                resolve(result.substring(prefixIndex + base64Prefix.length));
+                                            } else {
+                                                resolve(result);
+                                            }
+                                        };
+                                        reader.readAsDataURL(blob);
+                                    });
+                                    processedImageBase64 = base64Data;
+                                    console.log(`Successfully converted URL to base64 for card ${card.id}`);
+                                } else {
+                                    console.warn(`Failed to fetch image from URL for card ${card.id}: ${response.status}`);
+                                }
+                            } catch (error) {
+                                console.error(`Error fetching image from URL for card ${card.id}:`, error);
                             }
                         } else {
-                            processedImageBase64 = card.image;
+                            // Assume it's already base64 data
+                            processedImageBase64 = imageSource;
                         }
                     }
 
                     const generalCard = {
-                        front: card.front,
-                        back: card.back,
+                        front: card.front || card.text || 'No content',
+                        back: card.back || card.text || 'No content',
                         text: card.text,
                         image_base64: processedImageBase64
                     };
@@ -453,12 +489,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         text: card.text,
                         hasImage: !!processedImageBase64,
                         imageLength: processedImageBase64?.length,
-                        imagePreview: processedImageBase64?.substring(0, 30)
+                        imagePreview: processedImageBase64?.substring(0, 30),
+                        originalImageSource: imageSource?.substring(0, 50),
+                        hadImageField: !!card.image,
+                        hadImageUrlField: !!card.imageUrl,
+                        usedField: card.image ? 'image' : card.imageUrl ? 'imageUrl' : 'none'
                     });
                     
                     generalTopicCards.push(generalCard);
                 }
-            });
+            }
 
             // Save language learning cards
             if (langLearningCards.length > 0) {
@@ -2106,14 +2146,69 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     });
                 }
                 else if (card.mode === Modes.GeneralTopic) {
-                    const front = (card.front || '').trim();
-                    const back = (card.back || '').trim();
+                    const front = (card.front || card.text || 'No content').trim();
+                    let back = (card.back || card.text || '').trim();
+                    
+                    // Add image to back if exists
+                    if (card.image) {
+                        // The image is already in base64 format, but may start with data:image/png;base64, or similar prefix
+                        let imageData = card.image;
+                        
+                        // Extract the actual base64 data if it has a prefix
+                        if (imageData.startsWith('data:')) {
+                            const base64Prefix = 'base64,';
+                            const prefixIndex = imageData.indexOf(base64Prefix);
+                            if (prefixIndex !== -1) {
+                                // Extract just the base64 part without the prefix
+                                const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
+                                // Add image to back content
+                                back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                            } else {
+                                // Fallback if prefix structure is unexpected
+                                back += `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                            }
+                        } else {
+                            // If it's already just base64 data, use it directly
+                            back += `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        }
+                    } else if (card.imageUrl) {
+                        // ImageUrl might be a base64 string or a URL
+                        let imageUrl = card.imageUrl;
+                        
+                        if (imageUrl.startsWith('data:')) {
+                            // Extract the actual base64 data if it has a prefix
+                            const base64Prefix = 'base64,';
+                            const prefixIndex = imageUrl.indexOf(base64Prefix);
+                            if (prefixIndex !== -1) {
+                                // Extract just the base64 part without the prefix
+                                const rawBase64 = imageUrl.substring(prefixIndex + base64Prefix.length);
+                                // Add image to back content
+                                back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                            } else {
+                                // Fallback if prefix structure is unexpected
+                                back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                            }
+                        } else if (imageUrl.startsWith('http')) {
+                            // For remote URLs, just use as is
+                            back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        } else {
+                            // If it's already just base64 data, use it directly
+                            back += `<div><img src="data:image/jpeg;base64,${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
+                        }
+                    }
                     
                     // Clean the content to avoid tab/newline issues
                     const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
                     const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
                     
                     exportContent += `${cleanFront}\t${cleanBack}\n`;
+                    
+                    console.log(`Exported General Topic card ${index}:`, {
+                        front: cleanFront.substring(0, 50),
+                        backLength: cleanBack.length,
+                        hasImage: !!(card.image || card.imageUrl),
+                        imageSource: card.image ? 'image field' : card.imageUrl ? 'imageUrl field' : 'none'
+                    });
                 }
             });
 

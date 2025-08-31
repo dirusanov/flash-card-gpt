@@ -121,7 +121,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 imageUrlPreview: newCard.imageUrl?.substring(0, 50)
             });
             
-            const existingCard = state.storedCards.find(card => card.text === newCard.text);
+            // Check for existing card by ID only, not by text
+            const existingCard = state.storedCards.find(card => card.id === newCard.id);
             
             if (existingCard) {
                 newState.storedCards = state.storedCards.map(card => 
@@ -129,10 +130,11 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                         { ...newCard, id: existingCard.id } : 
                         card
                 );
-                console.log('Updated existing card with text:', newCard.text);
+                console.log('Updated existing card with ID:', newCard.id, 'text:', newCard.text);
             } else {
                 newState.storedCards = [...state.storedCards, newCard];
-                console.log('Added new card:', newCard.text);
+                console.log('Added new card with ID:', newCard.id, 'text:', newCard.text);
+                console.log('Total stored cards after addition:', newState.storedCards.length);
             }
             break;
         case UPDATE_CARD_EXPORT_STATUS:
