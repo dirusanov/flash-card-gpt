@@ -26,6 +26,7 @@
     "https://api.openai.com/*",
     "https://api-inference.huggingface.co/*",
     "https://oaidalleapiprodscus.blob.core.windows.net/*",
+    "https://cdn.jsdelivr.net/*",
     "https://*/*"
   ],
   "devtools_page": "devtools.html",

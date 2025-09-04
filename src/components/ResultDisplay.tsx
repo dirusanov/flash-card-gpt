@@ -5,6 +5,8 @@ import { Modes } from "../constants";
 import Loader from './Loader';
 import '../styles/grammarStyles.css';
 import '../styles/transcriptionStyles.css';
+import { processLatexInContent } from '../utils/katexRenderer';
+import MathContentRenderer from './MathContentRenderer';
 import GrammarCard from './grammar/GrammarCard';
 import { getLoadingMessage, getDetailedLoadingMessage, type LoadingMessage, type DetailedLoadingMessage } from '../services/loadingMessages';
 
@@ -54,12 +56,8 @@ const renderMarkdownContent = (content: string): string => {
         </div>`;
     });
     
-    // Конвертируем LaTeX формулы
-    html = html.replace(/\$\$([^$]+)\$\$/g, (match, formula) => {
-        return `<div style="text-align: center; margin: 12px 0; padding: 8px; background: #F8FAFC; border-radius: 6px; font-family: serif;">
-            <strong>Формула:</strong> ${formula}
-        </div>`;
-    });
+    // Обрабатываем LaTeX формулы с помощью KaTeX
+    html = processLatexInContent(html);
     
     // Конвертируем блоки кода
     html = html.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, language, code) => {
@@ -709,17 +707,15 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     margin: 0
                                 }}>{translation}</p>
                             ) : (
-                                <div style={{
-                                    color: '#111827',
-                                    fontSize: '14px',
-                                    lineHeight: '1.6',
-                                    margin: 0,
-                                    whiteSpace: 'pre-wrap',
-                                    wordWrap: 'break-word'
-                                }}
-                                dangerouslySetInnerHTML={{
-                                    __html: renderMarkdownContent(back || '')
-                                }}
+                                <MathContentRenderer
+                                    content={back || ''}
+                                    enableAI={true}
+                                    style={{
+                                        color: '#111827',
+                                        fontSize: '14px',
+                                        lineHeight: '1.6',
+                                        margin: 0
+                                    }}
                                 />
                             )}
                             

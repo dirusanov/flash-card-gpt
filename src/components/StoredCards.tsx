@@ -16,6 +16,8 @@ import { getDescriptionImage } from "../services/openaiApi";
 import { getImage } from '../apiUtils';
 import { OpenAI } from 'openai';
 import ResultDisplay from './ResultDisplay';
+import { processLatexInContent } from '../utils/katexRenderer';
+import MathContentRenderer from './MathContentRenderer';
 
 interface StoredCardsProps {
     onBackClick: () => void;
@@ -38,12 +40,8 @@ const renderMarkdownContent = (content: string): string => {
         </div>`;
     });
     
-    // Конвертируем LaTeX формулы
-    html = html.replace(/\$\$([^$]+)\$\$/g, (match, formula) => {
-        return `<div style="text-align: center; margin: 8px 0; padding: 6px; background: #F8FAFC; border-radius: 4px; font-family: serif; font-size: 12px;">
-            <strong>Формула:</strong> ${formula}
-        </div>`;
-    });
+    // Обрабатываем LaTeX формулы с помощью KaTeX
+    html = processLatexInContent(html);
     
     // Конвертируем блоки кода
     html = html.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, language, code) => {
@@ -597,7 +595,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
         // Unified display logic for both modes
         return (
-            <div style={{ padding: '8px' }}>
+            <div className="card-content" style={{ padding: '8px' }}>
                 {/* Main content - shows text for Language Learning, front for General */}
                 {(card.text || card.front) && (
                     <p style={{ 
@@ -624,13 +622,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         {card.mode === Modes.LanguageLearning 
                             ? card.translation 
                             : (card.back && (
-                                <div dangerouslySetInnerHTML={{
-                                    __html: renderMarkdownContent(
-                                        card.back.length > 150 
-                                            ? card.back.substring(0, 150) + '...' 
-                                            : card.back
-                                    )
-                                }} />
+                                <MathContentRenderer
+                                    content={card.back.length > 150 
+                                        ? card.back.substring(0, 150) + '...' 
+                                        : card.back
+                                    }
+                                    enableAI={true}
+                                    style={{
+                                        fontSize: '13px',
+                                        color: '#374151'
+                                    }}
+                                />
                             ))
                         }
                     </div>

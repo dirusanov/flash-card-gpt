@@ -290,6 +290,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
     const imageGenerationMode = useSelector((state: RootState) => state.settings.imageGenerationMode);
     const [showAISettings, setShowAISettings] = useState(false);
+    const [fastMode, setFastMode] = useState(true); // По умолчанию используем быстрый режим
 
     // Initialize shouldGenerateImage based on current imageGenerationMode
     React.useEffect(() => {
@@ -5162,8 +5163,10 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 pageContext = undefined;
             }
 
-            // Используем AI-агенты для создания карточек с поддержкой мультимедиа
-            const createdCards = await aiAgentService.createCardsFromText(text, pageContext, abortSignal);
+            // Выбираем метод генерации в зависимости от режима
+            const createdCards = fastMode
+                ? await aiAgentService.createCardsFromTextFast(text, pageContext, abortSignal)
+                : await aiAgentService.createCardsFromText(text, pageContext, abortSignal);
             
             // Check if cancelled after creation
             if (abortSignal.aborted) {
@@ -6088,6 +6091,65 @@ Original text: ${text}`;
                                     AI analyzes text, creates cards and validates results
                                 </span>
                             </div>
+
+                            {/* Переключатель режима генерации */}
+                            {!loadingGetResult && (
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '8px 12px',
+                                    backgroundColor: '#F3F4F6',
+                                    borderRadius: '6px',
+                                    border: '1px solid #D1D5DB',
+                                    marginTop: '8px'
+                                }}>
+                                    <span style={{
+                                        fontSize: '12px',
+                                        fontWeight: '500',
+                                        color: '#374151'
+                                    }}>
+                                        Режим генерации:
+                                    </span>
+                                    <div style={{
+                                        display: 'flex',
+                                        gap: '4px'
+                                    }}>
+                                        <button
+                                            onClick={() => setFastMode(true)}
+                                            style={{
+                                                padding: '4px 8px',
+                                                fontSize: '11px',
+                                                fontWeight: fastMode ? '600' : '500',
+                                                backgroundColor: fastMode ? '#10B981' : '#F9FAFB',
+                                                color: fastMode ? '#ffffff' : '#6B7280',
+                                                border: `1px solid ${fastMode ? '#10B981' : '#D1D5DB'}`,
+                                                borderRadius: '4px',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            ⚡ Быстрый
+                                        </button>
+                                        <button
+                                            onClick={() => setFastMode(false)}
+                                            style={{
+                                                padding: '4px 8px',
+                                                fontSize: '11px',
+                                                fontWeight: !fastMode ? '600' : '500',
+                                                backgroundColor: !fastMode ? '#2563EB' : '#F9FAFB',
+                                                color: !fastMode ? '#ffffff' : '#6B7280',
+                                                border: `1px solid ${!fastMode ? '#2563EB' : '#D1D5DB'}`,
+                                                borderRadius: '4px',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            🎯 Детальный
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
 
                             {!loadingGetResult && (
                                 <button

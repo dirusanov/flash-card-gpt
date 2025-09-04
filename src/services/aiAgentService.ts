@@ -221,11 +221,13 @@ export class AIAgentService {
     private aiService: AIService;
     private apiKey: string;
     private agents: { [key: string]: AIAgent };
+    private cache: Map<string, { cards: GeneratedCard[], timestamp: number }>;
 
     constructor(aiService: AIService, apiKey: string) {
         this.aiService = aiService;
         this.apiKey = apiKey;
         this.agents = this.initializeAgents();
+        this.cache = new Map();
     }
 
     // Инициализация всех агентов
@@ -409,6 +411,251 @@ export class AIAgentService {
                 3. ПРИОРИТЕТ: выделенные пользователем изображения
                 4. Обеспечь максимальную образовательную ценность`,
                 execute: this.executeMultimediaAssigner.bind(this)
+            }
+        };
+    }
+
+    // Вспомогательные методы для кэширования
+    private getCacheKey(text: string, mode: string): string {
+        const hash = this.simpleHash(text + mode);
+        return `${hash}_${mode}`;
+    }
+
+    private simpleHash(str: string): string {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        return Math.abs(hash).toString(36);
+    }
+
+    private getCachedResult(cacheKey: string): GeneratedCard[] | null {
+        const cached = this.cache.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp) < 30 * 60 * 1000) { // 30 минут
+            console.log('⚡ CACHE HIT: Using cached cards for this text');
+            return cached.cards;
+        }
+        return null;
+    }
+
+    private setCachedResult(cacheKey: string, cards: GeneratedCard[]): void {
+        // Ограничиваем размер кэша до 10 элементов
+        if (this.cache.size >= 10) {
+            const firstKey = this.cache.keys().next().value;
+            this.cache.delete(firstKey);
+        }
+        this.cache.set(cacheKey, { cards, timestamp: Date.now() });
+    }
+
+    // 🚀 НОВЫЙ ОПТИМИЗИРОВАННЫЙ МЕТОД - объединение шагов для скорости
+    async createCardsFromTextFast(text: string, pageContext?: PageContentContext, abortSignal?: AbortSignal): Promise<StoredCard[]> {
+        try {
+            console.log('⚡ FAST AI Agent Workflow: Optimized card creation with parallel processing');
+
+            // Проверяем кэш
+            const cacheKey = this.getCacheKey(text, 'fast');
+            const cachedCards = this.getCachedResult(cacheKey);
+            if (cachedCards) {
+                console.log('⚡ CACHE HIT: Returning cached cards instantly');
+                return this.convertToStoredCards(cachedCards, text);
+            }
+
+            // Создаем контекст workflow
+            const context: WorkflowContext = {
+                originalText: text,
+                currentStep: 'fast_processing',
+                previousResults: {},
+                metadata: {
+                    textLength: text.length,
+                    language: this.detectLanguage(text),
+                    topic: '',
+                    complexity: this.estimateComplexity(text)
+                }
+            };
+
+            // Добавляем контекст страницы если есть
+            if (pageContext) {
+                context.previousResults.pageContext = pageContext;
+                console.log(`📋 Page context: ${pageContext.pageImages?.length || 0} images, ${pageContext.formulas?.length || 0} formulas, ${pageContext.codeBlocks?.length || 0} code blocks`);
+            }
+
+            // Check if cancelled before starting
+            if (abortSignal?.aborted) {
+                throw new Error('AI card creation was cancelled by user');
+            }
+
+            // ОПТИМИЗАЦИЯ: Комбинированный анализ + генерация в одном API вызове
+            console.log('⚡ FAST: Combined analysis and generation in single API call');
+            const combinedResult = await this.executeFastCombinedProcess(text, pageContext, context, abortSignal);
+            let finalCards = combinedResult.cards;
+
+            // ОПТИМИЗАЦИЯ: Параллельная проверка качества (только для небольшого количества карточек)
+            if (finalCards.length <= 3 && !abortSignal?.aborted) {
+                console.log('⚡ FAST: Parallel quality validation');
+                finalCards = await this.executeFastQualityValidation(finalCards, context, abortSignal);
+            }
+
+            // ОПТИМИЗАЦИЯ: Быстрое применение мультимедиа
+            if (pageContext && pageContext.pageImages && pageContext.pageImages.length > 0 && !abortSignal?.aborted) {
+                console.log('⚡ FAST: Fast multimedia application');
+                finalCards = this.applyMultimediaFast(finalCards, pageContext);
+            }
+
+            console.log(`🎉 FAST Workflow completed: ${finalCards.length} cards created in reduced time`);
+
+            // Сохраняем результат в кэш
+            this.setCachedResult(cacheKey, finalCards);
+
+            return this.convertToStoredCards(finalCards, text);
+
+        } catch (error) {
+            console.error('❌ Error in fast AI agent workflow:', error);
+            // Fallback to simple approach
+            return this.createCardsFromText(text, pageContext, abortSignal);
+        }
+    }
+
+    // Быстрый комбинированный процесс: анализ + генерация в одном API вызове
+    private async executeFastCombinedProcess(
+        text: string,
+        pageContext: PageContentContext | undefined,
+        context: WorkflowContext,
+        abortSignal?: AbortSignal
+    ): Promise<{ cards: GeneratedCard[], analysis: any }> {
+
+        const hasMultimedia = pageContext && (pageContext.pageImages?.length > 0 || pageContext.formulas?.length > 0 || pageContext.codeBlocks?.length > 0);
+
+        const fastPrompt = `Ты - БЫСТРЫЙ ГЕНЕРАТОР КАРТОЧЕК. Создай качественные карточки за ОДИН API вызов:
+
+ТЕКСТ: "${text}"
+
+${hasMultimedia ? `МУЛЬТИМЕДИА: ${pageContext?.pageImages?.length || 0} изображений` : 'МУЛЬТИМЕДИА: нет'}
+
+СОЗДАЙ 2-4 КАРТОЧКИ:
+- Каждая проверяет ПОНИМАНИЕ, не память
+- Конкретные вопросы без дублирования слов в ответе
+- Информативные ответы с объяснениями
+- Разные типы: определения, примеры, применение
+
+JSON:
+{
+  "cards": [
+    {
+      "front": "Конкретный вопрос",
+      "back": "Информативный ответ с объяснениями",
+      "difficulty": "medium",
+      "concept": "Название концепта"
+    }
+  ]
+}`;
+
+        try {
+            const response = await this.aiService.createChatCompletion(this.apiKey, [
+                { role: 'system', content: 'Ты - быстрый генератор качественных образовательных карточек. Фокус на скорости и качестве.' },
+                { role: 'user', content: fastPrompt }
+            ]);
+
+            if (!response?.content) {
+                throw new Error('No response from fast process');
+            }
+
+            const result = this.parseJSONResponse(response.content, 'fastCombined');
+
+            if (!result.cards || !Array.isArray(result.cards) || result.cards.length === 0) {
+                throw new Error('No cards generated');
+            }
+
+            console.log(`⚡ FAST: Generated ${result.cards.length} cards in single API call`);
+            return result;
+
+        } catch (error) {
+            console.error('Fast combined process error:', error);
+            return this.createFallbackCardsSimple(text);
+        }
+    }
+
+    // Быстрая параллельная проверка качества
+    private async executeFastQualityValidation(
+        cards: GeneratedCard[],
+        context: WorkflowContext,
+        abortSignal?: AbortSignal
+    ): Promise<GeneratedCard[]> {
+
+        const qualityPromises = cards.map(card =>
+            this.agents.questionQuality.execute(card, context)
+        );
+
+        try {
+            const qualityResults = await Promise.all(qualityPromises);
+
+            const qualityCards = cards.filter((card: GeneratedCard, index: number) => {
+                const quality = qualityResults[index];
+                return quality.isWorthwhile && quality.qualityScore >= 5;
+            });
+
+            console.log(`⚡ FAST Quality: ${qualityCards.length}/${cards.length} cards passed`);
+            return qualityCards.length > 0 ? qualityCards : cards;
+
+        } catch (error) {
+            console.error('Fast quality validation error:', error);
+            return cards;
+        }
+    }
+
+    // Быстрое применение мультимедиа
+    private applyMultimediaFast(cards: GeneratedCard[], pageContext?: PageContentContext): GeneratedCard[] {
+        if (!pageContext?.pageImages?.length) return cards;
+
+        const images = pageContext.pageImages!;
+        const imagesPerCard = Math.ceil(images.length / cards.length);
+
+        return cards.map((card: GeneratedCard, index: number) => {
+            const startIdx = index * imagesPerCard;
+            const endIdx = Math.min(startIdx + imagesPerCard, images.length);
+            const cardImages = images.slice(startIdx, endIdx);
+
+            if (cardImages.length > 0) {
+                const primaryImage = cardImages[0];
+                return {
+                    ...card,
+                    attachedImages: cardImages,
+                    image: primaryImage.base64 || null,
+                    imageUrl: primaryImage.src || null
+                };
+            }
+            return card;
+        });
+    }
+
+    // Простой fallback для быстрой генерации
+    private createFallbackCardsSimple(text: string): { cards: GeneratedCard[], analysis: any } {
+        const cards: GeneratedCard[] = [
+            {
+                front: `Что является основной темой этого текста?`,
+                back: `Основная тема: ${text.substring(0, 150)}${text.length > 150 ? '...' : ''}`,
+                difficulty: 'medium',
+                concept: 'Основная тема'
+            }
+        ];
+
+        if (text.length > 200) {
+            cards.push({
+                front: `Какие ключевые аспекты обсуждаются?`,
+                back: `Ключевые аспекты: ${text.substring(150, 350)}${text.length > 350 ? '...' : ''}`,
+                difficulty: 'medium',
+                concept: 'Ключевые аспекты'
+            });
+        }
+
+        return {
+            cards,
+            analysis: {
+                mainTopic: 'Общий анализ',
+                complexity: 'medium',
+                estimatedCards: cards.length,
+                hasMultimedia: false
             }
         };
     }

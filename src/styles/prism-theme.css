@@ -1,0 +1,158 @@
+/* Prism.js ChatGPT-inspired theme */
+
+/* Base code block styles */
+pre[class*="language-"] {
+  background: #1e293b;
+  color: #f1f5f9;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+code[class*="language-"] {
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  padding: 0;
+}
+
+/* Token colors - ChatGPT inspired */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #64748b;
+  font-style: italic;
+}
+
+.token.punctuation {
+  color: #94a3b8;
+}
+
+.token.property,
+.token.tag,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #f472b6;
+}
+
+.token.boolean,
+.token.number {
+  color: #fbbf24;
+  font-weight: 500;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: #34d399;
+}
+
+.token.operator,
+.token.entity,
+.token.url {
+  color: #60a5fa;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.function,
+.token.class-name {
+  color: #a78bfa;
+}
+
+.token.keyword {
+  color: #fb7185;
+  font-weight: 500;
+}
+
+.token.regex,
+.token.important {
+  color: #f59e0b;
+}
+
+.token.variable {
+  color: #60a5fa;
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+.token.entity {
+  cursor: help;
+}
+
+/* Line highlighting */
+.line-highlight {
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+
+/* Command line styles */
+.command-line-prompt {
+  border-right: 1px solid #64748b;
+  display: block;
+  float: left;
+  font-size: 100%;
+  letter-spacing: -1px;
+  margin-right: 1em;
+  pointer-events: none;
+  text-align: right;
+  user-select: none;
+  vertical-align: middle;
+  width: 5em;
+}
+
+.command-line-prompt > span:before {
+  color: #64748b;
+  content: '$';
+  display: block;
+  padding-right: 0.8em;
+}
+
+.command-line-prompt > span[data-user]:before {
+  content: '[' attr(data-user) '@' attr(data-host) '] $';
+}
+
+.command-line-prompt > span[data-prompt]:before {
+  content: attr(data-prompt);
+}
+
+/* Diff highlighting */
+pre.diff-highlight > code .token.deleted:not(.prefix) {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: inherit;
+}
+
+pre.diff-highlight > code .token.inserted:not(.prefix) {
+  background-color: rgba(34, 197, 94, 0.1);
+  color: inherit;
+}
+
+pre > code.diff-highlight .token.deleted:not(.prefix) {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: inherit;
+}
+
+pre > code.diff-highlight .token.inserted:not(.prefix) {
+  background-color: rgba(34, 197, 94, 0.1);
+  color: inherit;
+}
+

@@ -1,0 +1,345 @@
+/* Rich Markdown Styles - ChatGPT Inspired */
+
+/* Math Renderer Styles */
+.math-renderer {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.math-display {
+  text-align: center;
+  margin: 16px 0;
+  padding: 12px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+.math-inline {
+  display: inline-block;
+  padding: 2px 4px;
+  background: #f8fafc;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.95em;
+}
+
+/* Code Block Styles */
+.code-block-container {
+  margin: 16px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e2e8f0;
+}
+
+.code-block-header {
+  background: #f8fafc;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.code-block-language {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.code-block {
+  margin: 0;
+  padding: 16px;
+  background: #1e293b;
+  color: #f1f5f9;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.code-block.no-language {
+  border-radius: 8px;
+}
+
+.code-block code {
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Inline Code Styles */
+.inline-code {
+  background: #f1f5f9;
+  color: #334155;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.85em;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* Markdown Image Styles */
+.markdown-image {
+  text-align: center;
+  margin: 16px 0;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.markdown-image img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  display: block;
+  margin: 0 auto;
+}
+
+.image-caption {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #64748b;
+  font-style: italic;
+  text-align: center;
+}
+
+/* Markdown Link Styles */
+.markdown-link {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.markdown-link:hover {
+  color: #1d4ed8;
+  border-bottom-color: #1d4ed8;
+}
+
+/* Markdown Heading Styles */
+.markdown-heading {
+  margin: 20px 0 12px 0;
+  color: #1e293b;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.heading-1 {
+  font-size: 24px;
+  border-bottom: 2px solid #e2e8f0;
+  padding-bottom: 8px;
+}
+
+.heading-2 {
+  font-size: 20px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 6px;
+}
+
+.heading-3 {
+  font-size: 18px;
+  color: #334155;
+}
+
+.heading-4 {
+  font-size: 16px;
+  color: #475569;
+}
+
+.heading-5 {
+  font-size: 14px;
+  color: #64748b;
+}
+
+.heading-6 {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* Markdown List Styles */
+.markdown-list-item {
+  margin: 8px 0;
+  padding-left: 20px;
+  position: relative;
+  line-height: 1.6;
+}
+
+.markdown-list-item:before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #64748b;
+  font-weight: bold;
+}
+
+/* Markdown Quote Styles */
+.markdown-quote {
+  margin: 16px 0;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-left: 4px solid #3b82f6;
+  border-radius: 0 6px 6px 0;
+  color: #475569;
+  font-style: italic;
+  position: relative;
+}
+
+.markdown-quote:before {
+  content: '"';
+  position: absolute;
+  left: -12px;
+  top: -8px;
+  font-size: 48px;
+  color: #3b82f6;
+  opacity: 0.3;
+  font-family: serif;
+}
+
+/* Markdown Table Styles */
+.markdown-table {
+  width: 100%;
+  margin: 16px 0;
+  border-collapse: collapse;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e2e8f0;
+}
+
+.markdown-table th {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  font-weight: 600;
+  color: #1e293b;
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.markdown-table td {
+  background: #ffffff;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #475569;
+}
+
+.markdown-table tr:hover td {
+  background: #f8fafc;
+}
+
+.markdown-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Rich Markdown Renderer Container */
+.rich-markdown-renderer {
+  line-height: 1.6;
+  color: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.rich-markdown-renderer p {
+  margin: 12px 0;
+}
+
+.rich-markdown-renderer .markdown-text {
+  white-space: pre-wrap;
+}
+
+/* Responsive Design */
+@media (max-width: 640px) {
+  .code-block {
+    font-size: 12px;
+    padding: 12px;
+  }
+
+  .code-block-header {
+    padding: 6px 10px;
+  }
+
+  .markdown-heading {
+    font-size: 18px;
+  }
+
+  .heading-1 {
+    font-size: 20px;
+  }
+
+  .heading-2 {
+    font-size: 18px;
+  }
+
+  .math-display {
+    padding: 8px;
+    margin: 12px 0;
+  }
+}
+
+/* Prism.js Theme Override for ChatGPT-like appearance */
+.code-block .token.comment,
+.code-block .token.prolog,
+.code-block .token.doctype,
+.code-block .token.cdata {
+  color: #64748b;
+}
+
+.code-block .token.punctuation {
+  color: #94a3b8;
+}
+
+.code-block .token.property,
+.code-block .token.tag,
+.code-block .token.constant,
+.code-block .token.symbol,
+.code-block .token.deleted {
+  color: #f472b6;
+}
+
+.code-block .token.boolean,
+.code-block .token.number {
+  color: #fbbf24;
+}
+
+.code-block .token.selector,
+.code-block .token.attr-name,
+.code-block .token.string,
+.code-block .token.char,
+.code-block .token.builtin,
+.code-block .token.inserted {
+  color: #34d399;
+}
+
+.code-block .token.operator,
+.code-block .token.entity,
+.code-block .token.url,
+.code-block .token.variable {
+  color: #60a5fa;
+}
+
+.code-block .token.atrule,
+.code-block .token.attr-value,
+.code-block .token.function,
+.code-block .token.class-name {
+  color: #a78bfa;
+}
+
+.code-block .token.keyword {
+  color: #fb7185;
+}
+
+.code-block .token.regex,
+.code-block .token.important {
+  color: #f59e0b;
+}
