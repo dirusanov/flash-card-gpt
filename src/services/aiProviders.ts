@@ -55,7 +55,13 @@ export interface AIProviderInterface {
   // Method to create chat completion - needed for grammar reference
   createChatCompletion?: (
     apiKey: string,
-    messages: Array<{role: string, content: string}>
+    messages: Array<{role: string, content: string}>,
+    trackingInfo?: {
+      title?: string;
+      subtitle?: string; 
+      icon?: string;
+      color?: string;
+    }
   ) => Promise<{content: string} | null>;
 
   // Method to create transcription in user language and IPA
@@ -685,15 +691,21 @@ export class OpenAIProvider extends BaseAIProvider {
   // Added createChatCompletion implementation
   public async createChatCompletion(
     apiKey: string, 
-    messages: Array<{role: string, content: string}>
+    messages: Array<{role: string, content: string}>,
+    trackingInfo?: {
+      title?: string;
+      subtitle?: string; 
+      icon?: string;
+      color?: string;
+    }
   ): Promise<{content: string} | null> {
-    // Track API request
+    // Track API request with custom or default tracking info
     const tracker = getGlobalApiTracker();
     const requestId = tracker.startRequest(
-      'Creating grammar reference',
-      'Generating detailed grammar and linguistic information',
-      '📚',
-      '#9C27B0'
+      trackingInfo?.title || 'Generating content',
+      trackingInfo?.subtitle || 'AI is processing your request',
+      trackingInfo?.icon || '🤖',
+      trackingInfo?.color || '#3B82F6'
     );
 
     try {
@@ -813,15 +825,21 @@ export class GroqProvider extends BaseAIProvider {
   // Added createChatCompletion implementation for Groq
   public async createChatCompletion(
     apiKey: string,
-    messages: Array<{role: string, content: string}>
+    messages: Array<{role: string, content: string}>,
+    trackingInfo?: {
+      title?: string;
+      subtitle?: string; 
+      icon?: string;
+      color?: string;
+    }
   ): Promise<{content: string} | null> {
-    // Track API request
+    // Track API request with custom or default tracking info
     const tracker = getGlobalApiTracker();
     const requestId = tracker.startRequest(
-      'Creating grammar reference',
-      'Generating detailed grammar and linguistic information',
-      '📚',
-      '#9C27B0'
+      trackingInfo?.title || 'Generating content',
+      trackingInfo?.subtitle || 'AI is processing your request',
+      trackingInfo?.icon || '🤖',
+      trackingInfo?.color || '#3B82F6'
     );
 
     try {

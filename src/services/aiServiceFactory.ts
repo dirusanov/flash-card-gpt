@@ -137,7 +137,13 @@ export interface AIService {
 
   createChatCompletion: (
     apiKey: string,
-    messages: Array<{role: string, content: string}>
+    messages: Array<{role: string, content: string}>,
+    trackingInfo?: {
+      title?: string;
+      subtitle?: string; 
+      icon?: string;
+      color?: string;
+    }
   ) => Promise<{content: string} | null>;
 
   createTranscription: (
@@ -242,11 +248,17 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
 
     createChatCompletion: async (
       apiKey: string,
-      messages: Array<{role: string, content: string}>
+      messages: Array<{role: string, content: string}>,
+      trackingInfo?: {
+        title?: string;
+        subtitle?: string; 
+        icon?: string;
+        color?: string;
+      }
     ): Promise<{content: string} | null> => {
       const aiProvider = createAIProvider(provider, apiKey);
       if (aiProvider.createChatCompletion) {
-        return aiProvider.createChatCompletion(apiKey, messages);
+        return aiProvider.createChatCompletion(apiKey, messages, trackingInfo);
       }
       console.error("createChatCompletion not implemented in the provider");
       return null;
@@ -1714,7 +1726,12 @@ export async function createOptimizedLinguisticInfo(
                 role: "user",
                 content: prompt
             }
-        ]);
+        ], {
+            title: 'Creating grammar reference',
+            subtitle: 'Generating detailed grammar and linguistic information',
+            icon: '📚',
+            color: '#9C27B0'
+        });
 
         if (!completion || !completion.content) {
             console.log('Failed to generate initial linguistic info');
@@ -1732,7 +1749,12 @@ export async function createOptimizedLinguisticInfo(
                 role: "user",
                 content: validatorPrompt
             }
-        ]);
+        ], {
+            title: 'Validating grammar reference',
+            subtitle: 'Checking and improving linguistic information',
+            icon: '🔍',
+            color: '#9C27B0'
+        });
 
         if (!validatorCompletion || !validatorCompletion.content) {
             console.log('Validator failed, returning initial reference');

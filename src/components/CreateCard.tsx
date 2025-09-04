@@ -13,7 +13,7 @@ import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructi
 import { Modes } from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import { getLoadingMessage, getDetailedLoadingMessage, type LoadingMessage, type DetailedLoadingMessage } from '../services/loadingMessages';
-import { setGlobalProgressCallback, getGlobalApiTracker } from '../services/apiTracker';
+import { setGlobalProgressCallback, getGlobalApiTracker, resetGlobalApiTracker } from '../services/apiTracker';
 import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 import useErrorNotification from './useErrorHandler';
@@ -214,6 +214,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setIsMultipleCards(false);
         setCreatedCards([]);
         setCurrentCardIndex(0);
+
+        // Clear API tracker state to prevent Language Learning UI from persisting
+        resetGlobalApiTracker();
     }, [mode, dispatch]);
 
     // Function to switch to specific mode
@@ -242,6 +245,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setIsMultipleCards(false);
             setCreatedCards([]);
             setCurrentCardIndex(0);
+
+            // Clear API tracker state to prevent Language Learning UI from persisting
+            resetGlobalApiTracker();
         }
     }, [mode, dispatch]);
 
@@ -1393,8 +1399,26 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Определяем язык исходного текста для API запросов
             const sourceLanguageForSubmit = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
 
-            // НОВЫЙ ПАРАЛЛЕЛЬНЫЙ РЕЖИМ - получаем все компоненты карточки одновременно
-            console.log('🚀 Using parallel card creation for maximum speed...');
+            // Check mode before creating components
+            if (mode !== Modes.LanguageLearning) {
+                // For General mode, skip Language Learning components
+                console.log('🧠 General mode - skipping Language Learning components...');
+                
+                // Just create simple flashcard without translation/grammar
+                const { createFlashcard } = await import('../services/aiServiceFactory');
+                const flashcardResult = await createFlashcard(aiService, apiKey, text, abortSignal);
+                
+                if (flashcardResult && flashcardResult.front) {
+                    tabAware.setFront(flashcardResult.front);
+                }
+                
+                // For General mode, we're done - return early
+                setShowResult(true);
+                return;
+            }
+            
+            // НОВЫЙ ПАРАЛЛЕЛЬНЫЙ РЕЖИМ - получаем все компоненты карточки одновременно (только для Language Learning)
+            console.log('🚀 Using parallel card creation for Language Learning mode...');
             
             const { createCardComponentsParallel } = await import('../services/aiServiceFactory');
             
@@ -2348,6 +2372,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         if (selectedOptions.length === 0) {
             showError("Please select at least one text option", "warning");
+            return;
+        }
+
+        // Check mode - for General mode, use simpler card creation
+        if (mode !== Modes.LanguageLearning) {
+            showError("Multiple card creation is only available in Language Learning mode", "warning");
             return;
         }
 

@@ -282,6 +282,14 @@ export const setGlobalProgressCallback = (callback: (update: ProgressUpdate) => 
 };
 
 /**
+ * Reset global API tracker
+ */
+export const resetGlobalApiTracker = (): void => {
+  const tracker = getGlobalApiTracker();
+  tracker.reset();
+};
+
+/**
  * Helper functions for common operations
  */
 export const trackApiRequest = {
