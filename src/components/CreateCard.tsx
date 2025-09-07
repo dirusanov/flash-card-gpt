@@ -296,7 +296,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
     const imageGenerationMode = useSelector((state: RootState) => state.settings.imageGenerationMode);
     const [showAISettings, setShowAISettings] = useState(false);
-    const [fastMode, setFastMode] = useState(true); // По умолчанию используем быстрый режим
 
     // Initialize shouldGenerateImage based on current imageGenerationMode
     React.useEffect(() => {
@@ -1401,15 +1400,55 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Check mode before creating components
             if (mode !== Modes.LanguageLearning) {
-                // For General mode, skip Language Learning components
-                console.log('🧠 General mode - skipping Language Learning components...');
+                // For General mode, use FAST AI agent workflow for complete cards
+                console.log('🚀 General mode - using fast AI agent workflow for complete cards...');
                 
-                // Just create simple flashcard without translation/grammar
-                const { createFlashcard } = await import('../services/aiServiceFactory');
-                const flashcardResult = await createFlashcard(aiService, apiKey, text, abortSignal);
-                
-                if (flashcardResult && flashcardResult.front) {
-                    tabAware.setFront(flashcardResult.front);
+                try {
+                    // Extract page context for multimedia
+                    let pageContext: PageContentContext | undefined;
+                    try {
+                        const { PageContentExtractor } = await import('../services/pageContentExtractor');
+                        pageContext = PageContentExtractor.extractPageContent(text);
+                        console.log(`📋 General mode: Extracted page context with ${pageContext?.pageImages?.length || 0} images`);
+                    } catch (extractError) {
+                        console.warn('Failed to extract page content for General mode:', extractError);
+                        pageContext = undefined;
+                    }
+
+                    // Create AI Agent Service instance
+                    const aiAgentService = createAIAgentService(aiService, apiKey);
+                    
+                    // Use fast AI agent workflow for complete cards
+                    const createdCards = await aiAgentService.createCardsFromTextFast(text, pageContext, abortSignal);
+                    
+                    if (createdCards && createdCards.length > 0) {
+                        const firstCard = createdCards[0];
+                        // Set the first created card data
+                        if (firstCard.front) {
+                            tabAware.setFront(firstCard.front);
+                        }
+                        if (firstCard.back) {
+                            tabAware.setBack(firstCard.back);
+                        }
+                        if (firstCard.image) {
+                            tabAware.setImage(firstCard.image);
+                        }
+                        if (firstCard.imageUrl) {
+                            tabAware.setImageUrl(firstCard.imageUrl);
+                        }
+                        
+                        console.log(`✅ General mode: Created ${createdCards.length} cards with fast workflow`);
+                    }
+                } catch (error) {
+                    console.error('❌ Error in General mode fast workflow:', error);
+                    // Fallback to simple mode if fast workflow fails
+                    console.log('🔄 Falling back to simple flashcard creation...');
+                    const { createFlashcard } = await import('../services/aiServiceFactory');
+                    const flashcardResult = await createFlashcard(aiService, apiKey, text, abortSignal);
+                    
+                    if (flashcardResult && flashcardResult.front) {
+                        tabAware.setFront(flashcardResult.front);
+                    }
                 }
                 
                 // For General mode, we're done - return early
@@ -5193,10 +5232,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 pageContext = undefined;
             }
 
-            // Выбираем метод генерации в зависимости от режима
-            const createdCards = fastMode
-                ? await aiAgentService.createCardsFromTextFast(text, pageContext, abortSignal)
-                : await aiAgentService.createCardsFromText(text, pageContext, abortSignal);
+            // Всегда используем быстрый режим генерации для максимальной скорости
+            const createdCards = await aiAgentService.createCardsFromTextFast(text, pageContext, abortSignal);
             
             // Check if cancelled after creation
             if (abortSignal.aborted) {
@@ -5418,8 +5455,8 @@ Original text: ${text}`;
                 pageContext = undefined;
             }
 
-            // Recreate single card
-            const recreatedCards = await aiAgentService.createCardsFromText(recreationPrompt, pageContext);
+            // Recreate single card using fast mode
+            const recreatedCards = await aiAgentService.createCardsFromTextFast(recreationPrompt, pageContext);
             
             if (recreatedCards.length > 0) {
                 // Replace the current card with the recreated one
@@ -6122,64 +6159,6 @@ Original text: ${text}`;
                                 </span>
                             </div>
 
-                            {/* Переключатель режима генерации */}
-                            {!loadingGetResult && (
-                                <div style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    padding: '8px 12px',
-                                    backgroundColor: '#F3F4F6',
-                                    borderRadius: '6px',
-                                    border: '1px solid #D1D5DB',
-                                    marginTop: '8px'
-                                }}>
-                                    <span style={{
-                                        fontSize: '12px',
-                                        fontWeight: '500',
-                                        color: '#374151'
-                                    }}>
-                                        Режим генерации:
-                                    </span>
-                                    <div style={{
-                                        display: 'flex',
-                                        gap: '4px'
-                                    }}>
-                                        <button
-                                            onClick={() => setFastMode(true)}
-                                            style={{
-                                                padding: '4px 8px',
-                                                fontSize: '11px',
-                                                fontWeight: fastMode ? '600' : '500',
-                                                backgroundColor: fastMode ? '#10B981' : '#F9FAFB',
-                                                color: fastMode ? '#ffffff' : '#6B7280',
-                                                border: `1px solid ${fastMode ? '#10B981' : '#D1D5DB'}`,
-                                                borderRadius: '4px',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s'
-                                            }}
-                                        >
-                                            ⚡ Быстрый
-                                        </button>
-                                        <button
-                                            onClick={() => setFastMode(false)}
-                                            style={{
-                                                padding: '4px 8px',
-                                                fontSize: '11px',
-                                                fontWeight: !fastMode ? '600' : '500',
-                                                backgroundColor: !fastMode ? '#2563EB' : '#F9FAFB',
-                                                color: !fastMode ? '#ffffff' : '#6B7280',
-                                                border: `1px solid ${!fastMode ? '#2563EB' : '#D1D5DB'}`,
-                                                borderRadius: '4px',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s'
-                                            }}
-                                        >
-                                            🎯 Детальный
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
 
                             {!loadingGetResult && (
                                 <button

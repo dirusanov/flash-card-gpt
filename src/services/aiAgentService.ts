@@ -512,8 +512,8 @@ export class AIAgentService {
 
         } catch (error) {
             console.error('❌ Error in fast AI agent workflow:', error);
-            // Fallback to simple approach
-            return this.createCardsFromText(text, pageContext, abortSignal);
+            // Больше не используем fallback к медленному методу - всегда быстрый режим
+            throw error;
         }
     }
 
@@ -527,26 +527,34 @@ export class AIAgentService {
 
         const hasMultimedia = pageContext && (pageContext.pageImages?.length > 0 || pageContext.formulas?.length > 0 || pageContext.codeBlocks?.length > 0);
 
-        const fastPrompt = `Ты - БЫСТРЫЙ ГЕНЕРАТОР КАРТОЧЕК. Создай качественные карточки за ОДИН API вызов:
+        const fastPrompt = `Ты - БЫСТРЫЙ ГЕНЕРАТОР КАРТОЧЕК ДЛЯ ВЫДЕЛЕННОГО ТЕКСТА. Создай качественные карточки ТОЛЬКО ПО ВЫДЕЛЕННОМУ ТЕКСТУ:
 
-ТЕКСТ: "${text}"
+ВЫДЕЛЕННЫЙ ТЕКСТ: "${text}"
 
-${hasMultimedia ? `МУЛЬТИМЕДИА: ${pageContext?.pageImages?.length || 0} изображений` : 'МУЛЬТИМЕДИА: нет'}
+${hasMultimedia ? `ДОСТУПНЫЕ ИЗОБРАЖЕНИЯ: ${pageContext?.pageImages?.length || 0} шт (ОБЯЗАТЕЛЬНО включи если они релевантны!)` : 'МУЛЬТИМЕДИА: отсутствует'}
 
-СОЗДАЙ 2-4 КАРТОЧКИ:
-- Каждая проверяет ПОНИМАНИЕ, не память
-- Конкретные вопросы без дублирования слов в ответе
-- Информативные ответы с объяснениями
-- Разные типы: определения, примеры, применение
+ПРАВИЛА СОЗДАНИЯ КАРТОЧЕК:
+1. ТОЛЬКО по выделенному тексту - не придумывай новые концепты
+2. КАЖДАЯ карточка должна быть основана на реальном содержании выделенного текста
+3. НЕ создавай вопросы типа "Что такое..." если это не объяснено в тексте
+4. Добавляй только РЕЛЕВАНТНЫЕ изображения из доступных
+5. Максимум 3 карточки - фокус на качестве, не количестве
 
-JSON:
+ТИПЫ КАРТОЧЕК (только по существу):
+- ФАКТЫ: конкретные факты из текста
+- ОПРЕДЕЛЕНИЯ: объяснения терминов из текста
+- ПРОЦЕССЫ: шаги или последовательности из текста
+- ПРИМЕРЫ: конкретные примеры из текста
+
+JSON ОТВЕТ:
 {
   "cards": [
     {
-      "front": "Конкретный вопрос",
-      "back": "Информативный ответ с объяснениями",
+      "front": "Вопрос ТОЛЬКО по содержанию выделенного текста",
+      "back": "Ответ на основе текста + контекст если нужно",
       "difficulty": "medium",
-      "concept": "Название концепта"
+      "concept": "Тема из выделенного текста",
+      "tags": ["выделенный_текст"]
     }
   ]
 }`;
@@ -576,83 +584,278 @@ JSON:
         }
     }
 
-    // Быстрая параллельная проверка качества
+    // Быстрая параллельная проверка качества с учетом выделенного текста
     private async executeFastQualityValidation(
         cards: GeneratedCard[],
         context: WorkflowContext,
         abortSignal?: AbortSignal
     ): Promise<GeneratedCard[]> {
 
-        const qualityPromises = cards.map(card =>
-            this.agents.questionQuality.execute(card, context)
-        );
+        const originalText = context.originalText?.toLowerCase() || '';
 
-        try {
-            const qualityResults = await Promise.all(qualityPromises);
+        const qualityCards = cards.filter((card: GeneratedCard) => {
+            const cardText = (card.front + ' ' + card.back).toLowerCase();
 
-            const qualityCards = cards.filter((card: GeneratedCard, index: number) => {
-                const quality = qualityResults[index];
-                return quality.isWorthwhile && quality.qualityScore >= 5;
-            });
+            // ПРОВЕРКА 1: Карточка должна быть основана на выделенном тексте
+            const hasTextRelation = this.checkTextRelation(cardText, originalText);
+            if (!hasTextRelation) {
+                console.log('❌ Карточка отклонена: не соответствует выделенному тексту', card.front);
+                return false;
+            }
 
-            console.log(`⚡ FAST Quality: ${qualityCards.length}/${cards.length} cards passed`);
-            return qualityCards.length > 0 ? qualityCards : cards;
+            // ПРОВЕРКА 2: Наличие тавтологии (дублирования ключевых слов)
+            const hasTautology = this.checkTautology(card.front, card.back);
+            if (hasTautology) {
+                console.log('❌ Карточка отклонена: тавтология', card.front);
+                return false;
+            }
 
-        } catch (error) {
-            console.error('Fast quality validation error:', error);
-            return cards;
-        }
+            // ПРОВЕРКА 3: Образовательная ценность
+            const hasEducationalValue = this.checkEducationalValue(card.front, card.back);
+            if (!hasEducationalValue) {
+                console.log('❌ Карточка отклонена: нет образовательной ценности', card.front);
+                return false;
+            }
+
+            return true;
+        });
+
+        console.log(`⚡ FAST Quality: ${qualityCards.length}/${cards.length} cards passed validation`);
+        return qualityCards.length > 0 ? qualityCards : cards;
     }
 
-    // Быстрое применение мультимедиа
+    // Проверка соответствия карточки выделенному тексту
+    private checkTextRelation(cardText: string, originalText: string): boolean {
+        // Разбиваем текст на слова и ключевые фразы
+        const originalWords = originalText.split(/\s+/).filter(word => word.length > 2);
+        const cardWords = cardText.split(/\s+/).filter(word => word.length > 2);
+
+        // Проверяем наличие общих значимых слов
+        const commonWords = originalWords.filter(word =>
+            cardWords.some(cardWord => cardWord.includes(word) || word.includes(cardWord))
+        );
+
+        // Карточка должна содержать хотя бы 2 общих слова с выделенным текстом
+        const hasEnoughCommonWords = commonWords.length >= 2;
+
+        // Или содержать ключевую фразу из оригинального текста
+        const hasKeyPhrase = originalWords.some(word =>
+            word.length > 5 && cardText.includes(word)
+        );
+
+        return hasEnoughCommonWords || hasKeyPhrase;
+    }
+
+    // Проверка на тавтологию
+    private checkTautology(front: string, back: string): boolean {
+        const frontWords = front.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+        const backWords = back.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+
+        // Проверяем дублирование ключевых слов
+        const duplicates = frontWords.filter(word =>
+            backWords.some(backWord => backWord.includes(word) && word !== backWord)
+        );
+
+        return duplicates.length > frontWords.length * 0.3; // >30% дублирования
+    }
+
+    // Проверка образовательной ценности
+    private checkEducationalValue(front: string, back: string): boolean {
+        // Карточка должна содержать новую информацию
+        const frontLength = front.trim().length;
+        const backLength = back.trim().length;
+
+        // Ответ должен быть информативнее вопроса
+        if (backLength < frontLength * 1.5) {
+            return false;
+        }
+
+        // Избегаем вопросов типа "Что такое X?" с ответом "X это X"
+        const questionWords = front.toLowerCase();
+        const answerWords = back.toLowerCase();
+
+        if (questionWords.includes('что такое') && answerWords.includes('это')) {
+            const questionParts = questionWords.split('что такое')[1]?.trim();
+            if (questionParts && answerWords.includes(questionParts.split(' ')[0])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Быстрое применение мультимедиа с учетом релевантности
     private applyMultimediaFast(cards: GeneratedCard[], pageContext?: PageContentContext): GeneratedCard[] {
         if (!pageContext?.pageImages?.length) return cards;
 
         const images = pageContext.pageImages!;
-        const imagesPerCard = Math.ceil(images.length / cards.length);
+        console.log(`🎨 Применение мультимедиа: ${images.length} изображений для ${cards.length} карточек`);
 
         return cards.map((card: GeneratedCard, index: number) => {
-            const startIdx = index * imagesPerCard;
-            const endIdx = Math.min(startIdx + imagesPerCard, images.length);
-            const cardImages = images.slice(startIdx, endIdx);
+            // Находим наиболее релевантные изображения для этой карточки
+            const relevantImages = this.findRelevantImagesForCard(card, images);
 
-            if (cardImages.length > 0) {
-                const primaryImage = cardImages[0];
+            if (relevantImages.length > 0) {
+                const primaryImage = relevantImages[0];
+                console.log(`🖼️ Карточка ${index + 1} "${card.front.substring(0, 30)}...": ${relevantImages.length} релевантных изображений`);
+
                 return {
                     ...card,
-                    attachedImages: cardImages,
+                    attachedImages: relevantImages,
                     image: primaryImage.base64 || null,
                     imageUrl: primaryImage.src || null
                 };
             }
+
+            console.log(`📄 Карточка ${index + 1} "${card.front.substring(0, 30)}...": нет подходящих изображений`);
             return card;
         });
     }
 
-    // Простой fallback для быстрой генерации
-    private createFallbackCardsSimple(text: string): { cards: GeneratedCard[], analysis: any } {
-        const cards: GeneratedCard[] = [
-            {
-                front: `Что является основной темой этого текста?`,
-                back: `Основная тема: ${text.substring(0, 150)}${text.length > 150 ? '...' : ''}`,
-                difficulty: 'medium',
-                concept: 'Основная тема'
-            }
-        ];
+    // Поиск релевантных изображений для карточки
+    private findRelevantImagesForCard(card: GeneratedCard, images: PageImage[]): PageImage[] {
+        const cardText = (card.front + ' ' + card.back + ' ' + (card.concept || '')).toLowerCase();
+        const cardWords = cardText.split(/\s+/).filter(word => word.length > 2);
 
-        if (text.length > 200) {
+        // Оцениваем релевантность каждого изображения
+        const scoredImages = images.map(image => {
+            const altText = (image.alt || '').toLowerCase();
+            const titleText = (image.title || '').toLowerCase();
+
+            let score = 0;
+            let matches = 0;
+
+            // Проверяем совпадения слов в alt тексте
+            cardWords.forEach(word => {
+                if (altText.includes(word)) {
+                    score += 3; // Высокий вес для alt текста
+                    matches++;
+                }
+                if (titleText.includes(word)) {
+                    score += 2; // Средний вес для title
+                    matches++;
+                }
+            });
+
+            // Проверяем семантическую близость ключевых терминов
+            const keyTerms = this.extractKeyTerms(cardText);
+            keyTerms.forEach(term => {
+                if (altText.includes(term.toLowerCase())) {
+                    score += 5; // Очень высокий вес для ключевых терминов
+                    matches++;
+                }
+            });
+
+            // Учитываем уже рассчитанную релевантность из pageContext
+            score += (image.relevanceScore || 0) * 2;
+
+            // Бонус за близость к выделенному тексту
+            if (image.isNearText) {
+                score += 2;
+            }
+
+            return {
+                image,
+                score,
+                matches
+            };
+        });
+
+        // Сортируем по релевантности и возвращаем топ изображений
+        const relevantImages = scoredImages
+            .filter(item => item.score > 2) // Минимальный порог релевантности
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 2) // Максимум 2 изображения на карточку
+            .map(item => item.image);
+
+        return relevantImages;
+    }
+
+    // Извлечение ключевых терминов из текста карточки
+    private extractKeyTerms(text: string): string[] {
+        const words = text.split(/\s+/);
+        const terms: string[] = [];
+
+        // Ищем существительные (простая эвристика)
+        for (let i = 0; i < words.length; i++) {
+            const word = words[i].toLowerCase();
+
+            // Пропускаем короткие слова и стоп-слова
+            if (word.length < 4) continue;
+            if (['что', 'как', 'для', 'это', 'при', 'для', 'или', 'из', 'на', 'по', 'от', 'до'].includes(word)) continue;
+
+            // Добавляем слово как потенциальный термин
+            if (!terms.includes(word)) {
+                terms.push(word);
+            }
+
+            // Ищем биграммы (два слова подряд)
+            if (i < words.length - 1) {
+                const nextWord = words[i + 1].toLowerCase();
+                if (nextWord.length > 2 && !['и', 'а', 'но', 'или', 'из', 'на', 'по', 'от', 'до'].includes(nextWord)) {
+                    const bigram = `${word} ${nextWord}`;
+                    if (bigram.length > 6 && !terms.includes(bigram)) {
+                        terms.push(bigram);
+                    }
+                }
+            }
+        }
+
+        return terms.slice(0, 5); // Ограничиваем до 5 ключевых терминов
+    }
+
+    // Простой fallback для быстрой генерации по выделенному тексту
+    private createFallbackCardsSimple(text: string): { cards: GeneratedCard[], analysis: any } {
+        const cards: GeneratedCard[] = [];
+
+        // Извлекаем ключевые предложения из выделенного текста
+        const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
+
+        if (sentences.length > 0) {
+            // Первая карточка - о ключевом факте или концепте
+            const firstSentence = sentences[0].trim();
+            if (firstSentence.length > 20) {
+                cards.push({
+                    front: `Какой ключевой момент содержится в выделенном тексте?`,
+                    back: firstSentence,
+                    difficulty: 'medium',
+                    concept: 'Ключевой момент',
+                    tags: ['выделенный_текст']
+                });
+            }
+        }
+
+        if (sentences.length > 1) {
+            // Вторая карточка - о связи или следствии
+            const secondSentence = sentences[1].trim();
+            if (secondSentence.length > 20 && secondSentence !== sentences[0].trim()) {
+                cards.push({
+                    front: `Что следует из выделенного текста?`,
+                    back: secondSentence,
+                    difficulty: 'medium',
+                    concept: 'Связь идей',
+                    tags: ['выделенный_текст']
+                });
+            }
+        }
+
+        // Если не удалось создать карточки из предложений, создаем общую карточку
+        if (cards.length === 0) {
             cards.push({
-                front: `Какие ключевые аспекты обсуждаются?`,
-                back: `Ключевые аспекты: ${text.substring(150, 350)}${text.length > 350 ? '...' : ''}`,
+                front: `Что важно в этом выделенном тексте?`,
+                back: text.substring(0, 200) + (text.length > 200 ? '...' : ''),
                 difficulty: 'medium',
-                concept: 'Ключевые аспекты'
+                concept: 'Выделенный контент',
+                tags: ['выделенный_текст']
             });
         }
+
+        console.log(`⚠️ Fallback: созданы ${cards.length} простые карточки из выделенного текста`);
 
         return {
             cards,
             analysis: {
-                mainTopic: 'Общий анализ',
+                mainTopic: 'Выделенный текст',
                 complexity: 'medium',
                 estimatedCards: cards.length,
                 hasMultimedia: false
@@ -660,334 +863,6 @@ JSON:
         };
     }
 
-    // Основной метод - улучшенный orchestrator workflow с интеллектуальным анализом
-    async createCardsFromText(text: string, pageContext?: PageContentContext, abortSignal?: AbortSignal): Promise<StoredCard[]> {
-        try {
-            console.log('🚀 AI Agent Workflow: Starting intelligent card creation with advanced analysis');
-            
-            // Создаем контекст workflow
-            const context: WorkflowContext = {
-                originalText: text,
-                currentStep: 'initialization',
-                previousResults: {},
-                metadata: {
-                    textLength: text.length,
-                    language: this.detectLanguage(text),
-                    topic: '',
-                    complexity: this.estimateComplexity(text)
-                }
-            };
-
-            // Добавляем контекст страницы если есть
-            if (pageContext) {
-                context.previousResults.pageContext = pageContext;
-                console.log(`📋 Page context: ${pageContext.pageImages?.length || 0} images, ${pageContext.formulas?.length || 0} formulas, ${pageContext.codeBlocks?.length || 0} code blocks`);
-                
-                // Детальная информация об изображениях
-                if (pageContext.pageImages && pageContext.pageImages.length > 0) {
-                    console.log('🖼️ Selected images details:');
-                    pageContext.pageImages.forEach((img, i) => {
-                        console.log(`  ${i + 1}. "${img.alt || 'No alt'}" - ${img.src?.substring(0, 50) || 'No src'}...`);
-                        console.log(`      base64 available: ${!!img.base64}, relevance: ${img.relevanceScore}`);
-                    });
-                } else {
-                    console.log('⚠️ No images found in pageContext');
-                }
-            } else {
-                console.log('⚠️ No pageContext provided - no multimedia content available');
-            }
-
-            // Check if cancelled before starting
-            if (abortSignal?.aborted) {
-                throw new Error('AI card creation was cancelled by user');
-            }
-
-            // Шаг 1: Text Analyst - глубокий анализ текста и планирование
-            console.log('📊 Step 1: Deep text analysis and learning strategy');
-            context.currentStep = 'text_analysis';
-            const textAnalysis = await this.agents.textAnalyst.execute({ text, pageContext }, context);
-            context.previousResults.textAnalysis = textAnalysis;
-            context.metadata.topic = textAnalysis.mainTopics[0]?.name || 'Общая тема';
-            
-            console.log(`📋 Text analysis: ${textAnalysis.estimatedCards} cards recommended for ${textAnalysis.mainTopics.length} topics`);
-
-            // Check if cancelled after text analysis
-            if (abortSignal?.aborted) {
-                throw new Error('AI card creation was cancelled by user');
-            }
-
-            // Шаг 2: Card Planner - планирование структуры карточек
-            console.log('🎯 Step 2: Card structure planning');
-            context.currentStep = 'card_planning';
-            const cardPlan = await this.agents.cardPlanner.execute({
-                textAnalysis,
-                originalText: text,
-                pageContext
-            }, context);
-            context.previousResults.cardPlan = cardPlan;
-            
-            console.log(`📋 Card plan: ${cardPlan.totalCards} cards planned with multimedia distribution`);
-
-            // Check if cancelled after card planning
-            if (abortSignal?.aborted) {
-                throw new Error('AI card creation was cancelled by user');
-            }
-
-            // Шаг 3: Multimedia Assigner - точное распределение мультимедиа
-            let multimediaDistribution: MultimediaDistribution | null = null;
-            if (pageContext && (pageContext.pageImages.length > 0 || pageContext.formulas.length > 0 || pageContext.codeBlocks.length > 0)) {
-                console.log('🎨 Step 3: Intelligent multimedia assignment');
-                context.currentStep = 'multimedia_assignment';
-                multimediaDistribution = await this.agents.multimediaAssigner.execute({
-                    cardPlan,
-                    pageContext,
-                    originalText: text
-                }, context);
-                context.previousResults.multimediaDistribution = multimediaDistribution;
-                
-                console.log(`🎨 Multimedia assigned: ${multimediaDistribution?.assignments?.length || 0} assignments created`);
-            }
-
-            // Check if cancelled after multimedia assignment
-            if (abortSignal?.aborted) {
-                throw new Error('AI card creation was cancelled by user');
-            }
-
-            // Шаг 4: Card Generator создает карточки по плану
-            console.log('🎯 Step 4: Structured card generation');
-            context.currentStep = 'card_generation';
-            const generatedCards = await this.agents.cardGenerator.execute({
-                text,
-                cardPlan,
-                multimediaDistribution,
-                textAnalysis
-            }, context);
-            context.previousResults.generatedCards = generatedCards;
-
-            console.log(`🎯 Generated ${generatedCards.length} cards based on plan`);
-
-            // Check if cancelled after card generation
-            if (abortSignal?.aborted) {
-                throw new Error('AI card creation was cancelled by user');
-            }
-
-            // Шаг 5: Question Quality проверяет каждый вопрос
-            console.log('🔍 Step 5: Question quality validation');
-            context.currentStep = 'quality_check';
-            const qualityResults: QuestionQuality[] = [];
-            for (const card of generatedCards) {
-                // Check if cancelled during quality checks
-                if (abortSignal?.aborted) {
-                    throw new Error('AI card creation was cancelled by user');
-                }
-                const qualityCheck = await this.agents.questionQuality.execute(card, context);
-                qualityResults.push(qualityCheck);
-            }
-            context.previousResults.qualityResults = qualityResults;
-
-            // Фильтруем карточки по качеству - ОПТИМИЗИРОВАННЫЙ ФИЛЬТР
-            const qualityCards = generatedCards.filter((card: GeneratedCard, index: number) => {
-                const quality = qualityResults[index];
-                const passed = quality.isWorthwhile && 
-                              quality.qualityScore >= 5 && 
-                              quality.relevanceScore >= 5;
-                
-                if (!passed) {
-                    console.log(`❌ Card ${index + 1} rejected: Q=${quality.qualityScore}, R=${quality.relevanceScore}, W=${quality.isWorthwhile}`);
-                    console.log(`   Reason: ${quality.reasoning}`);
-                    console.log(`   Issues: ${quality.issues.join(', ')}`);
-                }
-                
-                return passed;
-            });
-
-            console.log(`✅ Quality filter: ${qualityCards.length}/${generatedCards.length} cards passed optimized quality check`);
-            
-            // Если все карточки отклонены, создаем одну качественную карточку как fallback
-            if (qualityCards.length === 0 && generatedCards.length > 0) {
-                console.log('🚨 All cards rejected by quality filter! Creating fallback quality card');
-                const fallbackCard: GeneratedCard = {
-                    front: `Какие ключевые концепты раскрывает данный материал?`,
-                    back: `Материал раскрывает следующие концепты: ${text.substring(0, 200)}... (требует дополнительного анализа для создания более конкретных вопросов)`,
-                    tags: [context.metadata.topic || 'общее'],
-                    difficulty: 'medium',
-                    concept: 'Общий анализ материала'
-                };
-                qualityCards.push(fallbackCard);
-                console.log('✅ Fallback card created to ensure user gets at least one card');
-            }
-
-            // Check if cancelled before final processing
-            if (abortSignal?.aborted) {
-                throw new Error('AI card creation was cancelled by user');
-            }
-
-            // Шаг 6: Применение мультимедиа к прошедшим проверку карточкам
-            let enhancedCards = qualityCards;
-            
-            // Проверяем, есть ли выделенные изображения
-            const hasSelectedImages = pageContext && pageContext.pageImages && pageContext.pageImages.length > 0;
-            console.log(`🖼️ Selected images available: ${hasSelectedImages ? pageContext?.pageImages.length : 0}`);
-            
-            if (hasSelectedImages) {
-                console.log('🎨 Step 6: Applying multimedia to quality cards');
-                
-                if (multimediaDistribution && multimediaDistribution.assignments.length > 0) {
-                    // Используем новую логику распределения
-                    console.log('📊 Using intelligent multimedia distribution');
-                    enhancedCards = qualityCards.map((card: GeneratedCard, index: number) => {
-                        const cardId = cardPlan.cardSpecs[index]?.id;
-                        const assignment = multimediaDistribution?.assignments.find(a => a.cardId === cardId);
-                        
-                        if (assignment) {
-                            const enhancedCard = { ...card };
-                            
-                            // Добавляем изображения
-                            if (assignment.imageIndices.length > 0) {
-                                enhancedCard.attachedImages = assignment.imageIndices
-                                    .map(idx => pageContext?.pageImages[idx])
-                                    .filter(Boolean) as PageImage[];
-                            }
-                            
-                            // Добавляем формулы
-                            if (assignment.formulaIndices.length > 0) {
-                                enhancedCard.attachedFormulas = assignment.formulaIndices
-                                    .map(idx => pageContext?.formulas[idx])
-                                    .filter(Boolean) as FormulaElement[];
-                            }
-                            
-                            // Добавляем код
-                            if (assignment.codeIndices.length > 0) {
-                                enhancedCard.attachedCode = assignment.codeIndices
-                                    .map(idx => pageContext?.codeBlocks[idx])
-                                    .filter(Boolean) as CodeBlock[];
-                            }
-                            
-                            console.log(`🎨 Card ${index + 1}: added ${assignment.imageIndices.length} images, ${assignment.formulaIndices.length} formulas, ${assignment.codeIndices.length} code blocks`);
-                            
-                            // Копируем первое изображение в поля image/imageUrl для предпросмотра
-                            if (enhancedCard.attachedImages && enhancedCard.attachedImages.length > 0) {
-                                const primaryImage = enhancedCard.attachedImages[0];
-                                if (primaryImage.base64) {
-                                    enhancedCard.image = primaryImage.base64;
-                                    console.log('📱 Установлено image для предпросмотра карточки', index + 1);
-                                } else if (primaryImage.src) {
-                                    enhancedCard.imageUrl = primaryImage.src;
-                                    console.log('📱 Установлено imageUrl для предпросмотра карточки', index + 1);
-                                }
-                            }
-                            
-                            return enhancedCard;
-                        }
-                        
-                        return card;
-                    });
-                } else {
-                    // КРИТИЧНО: Fallback логика - обязательно добавляем выделенные изображения
-                    console.log('🚨 No multimedia distribution found, using fallback logic to ensure images are included');
-                    console.log(`🖼️ Forcing inclusion of ${pageContext?.pageImages.length} selected images`);
-                    
-                    // Добавляем ВСЕ изображения к первой карточке как fallback
-                    if (enhancedCards.length > 0 && pageContext?.pageImages.length > 0) {
-                        const primaryImage = pageContext.pageImages[0];
-                        enhancedCards[0] = {
-                            ...enhancedCards[0],
-                            attachedImages: pageContext.pageImages,
-                            image: primaryImage.base64 || null,
-                            imageUrl: primaryImage.src || null
-                        };
-                        console.log(`🎯 FALLBACK: Added all ${pageContext.pageImages.length} images to first card`);
-                        console.log('📱 FALLBACK: Установлено image/imageUrl для предпросмотра первой карточки');
-                    }
-                    
-                    // Если есть несколько карточек, распределяем изображения
-                    if (enhancedCards.length > 1 && pageContext?.pageImages.length > 1) {
-                        const imagesPerCard = Math.ceil(pageContext.pageImages.length / enhancedCards.length);
-                                                 enhancedCards = enhancedCards.map((card: GeneratedCard, index: number) => {
-                            const startIdx = index * imagesPerCard;
-                            const endIdx = Math.min(startIdx + imagesPerCard, pageContext.pageImages.length);
-                            const cardImages = pageContext.pageImages.slice(startIdx, endIdx);
-                            
-                            if (cardImages.length > 0) {
-                                console.log(`🎯 FALLBACK: Added ${cardImages.length} images to card ${index + 1}`);
-                                const primaryImage = cardImages[0];
-                                return {
-                                    ...card,
-                                    attachedImages: cardImages,
-                                    image: primaryImage.base64 || null,
-                                    imageUrl: primaryImage.src || null
-                                };
-                            }
-                            return card;
-                        });
-                    }
-                }
-                
-                // Проверяем, что изображения действительно добавлены
-                const totalAttachedImages = enhancedCards.reduce((total: number, card: GeneratedCard) => 
-                    total + (card.attachedImages?.length || 0), 0);
-                console.log(`✅ Total images attached to cards: ${totalAttachedImages}/${pageContext?.pageImages.length || 0}`);
-                
-                if (totalAttachedImages === 0 && pageContext?.pageImages.length > 0) {
-                    console.log('🚨 CRITICAL: No images were attached despite having selected images!');
-                    console.log('🎯 Emergency fallback: Adding all images to all cards');
-                    enhancedCards = enhancedCards.map((card: GeneratedCard, index: number) => {
-                        const primaryImage = pageContext.pageImages[0];
-                        return {
-                            ...card,
-                            attachedImages: pageContext.pageImages,
-                            image: primaryImage.base64 || null,
-                            imageUrl: primaryImage.src || null
-                        };
-                    });
-                    console.log(`🎯 Emergency: Added ${pageContext.pageImages.length} images to ${enhancedCards.length} cards`);
-                }
-            } else {
-                console.log('ℹ️ No selected images to apply');
-            }
-
-            // Шаг 7: Быстрая финальная проверка (только если есть серьезные проблемы)
-            let finalCards = enhancedCards;
-            
-            // Проводим валидацию только если карточек мало или есть признаки проблем
-            const needsValidation = enhancedCards.length < 2 || 
-                                  enhancedCards.some((card: GeneratedCard) => 
-                                    card.front.length < 10 || card.back.length < 20);
-            
-            if (needsValidation) {
-                console.log('🔬 Step 7: Quick final validation (detected potential issues)');
-                context.currentStep = 'final_validation';
-                try {
-                    const validationResult = await this.agents.validator.execute({
-                        cards: enhancedCards,
-                        originalText: text,
-                        context
-                    }, context);
-                    
-                    // Применяем улучшения только если они значительны
-                    if (validationResult.improvedCards && 
-                        validationResult.overallScore > 80) {
-                        finalCards = validationResult.improvedCards;
-                        console.log(`🔧 Applied validator improvements (score: ${validationResult.overallScore})`);
-                    } else {
-                        console.log(`⏭️ Skipped validator improvements (score: ${validationResult.overallScore})`);
-                    }
-                } catch (error) {
-                    console.log('⚠️ Validator failed, using cards as-is:', error);
-                }
-            } else {
-                console.log('⏭️ Step 7: Skipped validation - cards appear good quality');
-            }
-            
-            console.log(`🎉 Workflow completed: ${finalCards.length} high-quality cards created`);
-
-            return this.convertToStoredCards(finalCards, text);
-
-        } catch (error) {
-            console.error('❌ Error in AI agent workflow:', error);
-            throw error;
-        }
-    }
 
     // Supervisor Agent - управляет процессом
     private async executeSupervisor(text: string, context: WorkflowContext): Promise<SupervisorDecision> {
