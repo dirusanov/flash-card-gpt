@@ -25,6 +25,7 @@ import { getAIService, getApiKeyForProvider, createTranslation, createExamples, 
 import { ModelProvider } from '../store/reducers/settings';
 import UniversalCardCreator from './UniversalCardCreator';
 import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
+import { imageUrlToBase64 } from '../services/ankiService';
 import { PageContentExtractor } from '../services/pageContentExtractor';
 
 // Добавляем интерфейс для типов общих карточек
@@ -186,13 +187,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const mode = useSelector((state: RootState) => state.settings.mode);
     const [originalSelectedText, setOriginalSelectedText] = useState('');
 
-    // Function to toggle between modes
-    const toggleMode = useCallback(() => {
-        const newMode = mode === Modes.LanguageLearning ? Modes.GeneralTopic : Modes.LanguageLearning;
-        dispatch(setMode(newMode));
+    const enforceLanguageMode = useCallback(() => {
+        localStorage.setItem('selected_mode', Modes.LanguageLearning);
 
-        // Save the new mode to localStorage
-        localStorage.setItem('selected_mode', newMode);
+        if (mode === Modes.LanguageLearning) {
+            return;
+        }
+
+        dispatch(setMode(Modes.LanguageLearning));
 
         // Clear form data when switching modes
         dispatch(setText(''));
@@ -219,53 +221,50 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         resetGlobalApiTracker();
     }, [mode, dispatch]);
 
-    // Function to switch to specific mode
-    const switchToMode = useCallback((targetMode: string) => {
-        if (mode !== targetMode) {
-            dispatch(setMode(targetMode));
-            localStorage.setItem('selected_mode', targetMode);
+    // Function to toggle between modes (now always enforces Language Learning)
+    const toggleMode = useCallback(() => {
+        enforceLanguageMode();
+    }, [enforceLanguageMode]);
 
-            // Clear form data when switching modes
-            dispatch(setText(''));
-            dispatch(setFront(''));
-            dispatch(setBack(null));
-            dispatch(setTranslation(null));
-            dispatch(setExamples([]));
-            dispatch(setImage(null));
-            dispatch(setImageUrl(null));
-            dispatch(setLinguisticInfo(''));
-            dispatch(setTranscription(''));
-            dispatch(setCurrentCardId(null));
+    // Function to switch to specific mode now enforces Language Learning
+    const switchToMode = useCallback((_targetMode: string) => {
+        enforceLanguageMode();
+    }, [enforceLanguageMode]);
 
-            // Reset general card state
-            setSelectedTemplate(null);
-            setCustomPrompt('');
-            setShowTemplateModal(false);
-            setShowResult(false);
-            setIsMultipleCards(false);
-            setCreatedCards([]);
-            setCurrentCardIndex(0);
+    const normalizeImageForStorage = useCallback(async (
+        rawImage: string | null | undefined,
+        rawImageUrl: string | null | undefined
+    ): Promise<{ image: string | null; imageUrl: string | null }> => {
+        let normalizedImage = rawImage && rawImage.trim() !== '' ? rawImage : null;
+        let normalizedImageUrl = rawImageUrl && rawImageUrl.trim() !== '' ? rawImageUrl : null;
 
-            // Clear API tracker state to prevent Language Learning UI from persisting
-            resetGlobalApiTracker();
+        const isDataUrl = normalizedImage ? normalizedImage.startsWith('data:image') : false;
+
+        if ((!normalizedImage || !isDataUrl) && normalizedImageUrl) {
+            try {
+                const converted = await imageUrlToBase64(normalizedImageUrl);
+                if (converted) {
+                    normalizedImage = converted;
+                    normalizedImageUrl = null;
+                }
+            } catch (conversionError) {
+                console.error('Failed to convert image URL to base64:', conversionError);
+            }
         }
-    }, [mode, dispatch]);
+
+        return {
+            image: normalizedImage,
+            imageUrl: normalizedImageUrl
+        };
+    }, []);
 
     // Keyboard shortcuts handler
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            // Check if user pressed Tab + L for Language Learning mode
             if (event.key === 'l' || event.key === 'L') {
                 if (event.ctrlKey || event.metaKey) {
                     event.preventDefault();
                     switchToMode(Modes.LanguageLearning);
-                }
-            }
-            // Check if user pressed Tab + G for General Cards mode
-            else if (event.key === 'g' || event.key === 'G') {
-                if (event.ctrlKey || event.metaKey) {
-                    event.preventDefault();
-                    switchToMode(Modes.GeneralTopic);
                 }
             }
         };
@@ -926,29 +925,42 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 console.log('Saving current card from multi-card set:', currentCard.id);
 
+                const normalizedCurrent = await normalizeImageForStorage(currentCard.image ?? null, currentCard.imageUrl ?? null);
+                const cardToPersist = {
+                    ...currentCard,
+                    image: normalizedCurrent.image,
+                    imageUrl: normalizedCurrent.imageUrl
+                };
+
+                setCreatedCards(prevCards => {
+                    const updatedCards = [...prevCards];
+                    updatedCards[currentCardIndex] = cardToPersist;
+                    return updatedCards;
+                });
+
                 // Check if this card already exists in storage
                 const existingCardIndex = storedCards.findIndex(
-                    (storedCard) => storedCard.id === currentCard.id ||
-                        (storedCard.text === currentCard.text && storedCard.mode === currentCard.mode)
+                    (storedCard) => storedCard.id === cardToPersist.id ||
+                        (storedCard.text === cardToPersist.text && storedCard.mode === cardToPersist.mode)
                 );
 
                 if (existingCardIndex === -1) {
                     // Card is not saved yet - сохраняем ТОЛЬКО текущую карточку
-                    tabAware.saveCardToStorage(currentCard);
-                    console.log(`Saved new card: ${currentCard.id}`);
+                    tabAware.saveCardToStorage(cardToPersist);
+                    console.log(`Saved new card: ${cardToPersist.id}`);
                 } else {
                     // Update existing card - обновляем ТОЛЬКО текущую карточку
-                    tabAware.updateStoredCard(currentCard);
-                    console.log(`Updated existing card: ${currentCard.id}`);
+                    tabAware.updateStoredCard(cardToPersist);
+                    console.log(`Updated existing card: ${cardToPersist.id}`);
                 }
 
                 // IMPORTANT: Only mark the CURRENT card as explicitly saved
                 // This ensures only the current card shows "Saved to Collection"
                 setExplicitlySavedIds(prev => {
-                    if (prev.includes(currentCard.id)) {
+                    if (prev.includes(cardToPersist.id)) {
                         return prev;
                     }
-                    const newIds = [...prev, currentCard.id];
+                    const newIds = [...prev, cardToPersist.id];
                     console.log('Updated explicitly saved IDs:', newIds);
                     return newIds;
                 });
@@ -957,8 +969,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 dispatch(loadStoredCards());
 
                 // Set current card's ID for reference
-                tabAware.setCurrentCardId(currentCard.id);
-                localStorage.setItem('current_card_id', currentCard.id);
+                tabAware.setCurrentCardId(cardToPersist.id);
+                localStorage.setItem('current_card_id', cardToPersist.id);
 
                 // Update UI state for the current card only
                 setExplicitlySaved(true);
@@ -994,6 +1006,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Use text as fallback if originalSelectedText is missing
                 const cardText = originalSelectedText || text;
 
+                const { image: normalizedImage, imageUrl: normalizedImageUrl } = await normalizeImageForStorage(image, imageUrl);
+
+                if (normalizedImage && normalizedImage !== image) {
+                    tabAware.setImage(normalizedImage);
+                    tabAware.setImageUrl(null);
+                } else if (!normalizedImage && normalizedImageUrl !== imageUrl) {
+                    tabAware.setImageUrl(normalizedImageUrl);
+                }
+
                 const cardData = {
                     id: cardId,
                     mode,
@@ -1003,8 +1024,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     linguisticInfo, // Добавляем лингвистическое описание
                     transcription: transcription || '',
                     // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
-                    image: image, // base64 данные (постоянные, приоритет)
-                    imageUrl: imageUrl, // URL как резерв
+                    image: normalizedImage, // base64 данные (постоянные, приоритет)
+                    imageUrl: normalizedImageUrl, // URL как резерв
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
@@ -1047,6 +1068,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Use text as fallback if originalSelectedText is missing
                 const cardText = originalSelectedText || text || '';
 
+                const { image: normalizedImage, imageUrl: normalizedImageUrl } = await normalizeImageForStorage(image, imageUrl);
+
+                if (normalizedImage && normalizedImage !== image) {
+                    tabAware.setImage(normalizedImage);
+                    tabAware.setImageUrl(null);
+                } else if (!normalizedImage && normalizedImageUrl !== imageUrl) {
+                    tabAware.setImageUrl(normalizedImageUrl);
+                }
+
                 const cardData = {
                     id: cardId,
                     mode,
@@ -1058,8 +1088,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     linguisticInfo, // Добавляем лингвистическое описание
                     transcription: transcription || '',
                     // Сохраняем оба типа изображений для надежности
-                    image: image,
-                    imageUrl: imageUrl,
+                    image: normalizedImage,
+                    imageUrl: normalizedImageUrl,
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
@@ -1196,14 +1226,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, [handleTextSelection]);
 
     useEffect(() => {
-        // Initialize mode from localStorage if available
-        const savedMode = localStorage.getItem('selected_mode');
-        if (savedMode) {
-            dispatch(setMode(savedMode as Modes));
-        } else {
-            // Only set default if no saved mode exists
-            dispatch(setMode(Modes.LanguageLearning));
-        }
+        // Always enforce Language Learning mode and update persisted selection
+        localStorage.setItem('selected_mode', Modes.LanguageLearning);
+        dispatch(setMode(Modes.LanguageLearning));
 
         if (text && translation && examples.length > 0) {
             setShowResult(true);
@@ -1323,12 +1348,22 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         e.preventDefault();
         if (!text.trim()) return;
 
+        let detectedLanguageForSubmit = detectedLanguage;
+
+        if (isAutoDetectLanguage) {
+            try {
+                const detectionResult = await detectLanguage(text);
+                if (detectionResult) {
+                    detectedLanguageForSubmit = detectionResult;
+                }
+            } catch (languageError) {
+                console.error('Language detection failed before submission:', languageError);
+            }
+        }
+
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
-
-        // Установить флаг, что кнопка Create Card была нажата
-        setCreateCardClicked(true);
 
         // Set card generation state to true to disable navigation buttons
         tabAware.setIsGeneratingCard(true);
@@ -1389,14 +1424,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.log("API Key available:", Boolean(apiKey));
             console.log("Model Name (if Groq):", modelProvider === ModelProvider.Groq ? groqModelName : 'N/A');
             console.log("AI Service:", Object.keys(aiService));
-            console.log("Source Language:", isAutoDetectLanguage ? detectedLanguage : sourceLanguage);
+            console.log("Source Language:", isAutoDetectLanguage ? detectedLanguageForSubmit : sourceLanguage);
 
             if (!apiKey) {
                 throw new Error(`API key for ${modelProvider} is missing. Please go to settings and add your API key.`);
             }
 
             // Определяем язык исходного текста для API запросов
-            const sourceLanguageForSubmit = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+            const sourceLanguageForSubmit = isAutoDetectLanguage 
+                ? detectedLanguageForSubmit
+                : sourceLanguage;
 
             // Check mode before creating components
             if (mode !== Modes.LanguageLearning) {
@@ -2465,10 +2502,23 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 localStorage.removeItem('explicitly_saved');
 
                 try {
-                    // 1. Получаем перевод
-                    const translation = await createTranslation(
-                        aiService,
-                        apiKey,
+                let detectedLanguageForOption = detectedLanguage;
+
+                if (isAutoDetectLanguage) {
+                    try {
+                        const detectionResult = await detectLanguage(option);
+                        if (detectionResult) {
+                            detectedLanguageForOption = detectionResult;
+                        }
+                    } catch (languageError) {
+                        console.error(`Language detection failed for option "${option}":`, languageError);
+                    }
+                }
+
+                // 1. Получаем перевод
+                const translation = await createTranslation(
+                    aiService,
+                    apiKey,
                         option,
                         translateToLanguage,
                         aiInstructions,
@@ -2488,7 +2538,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
 
                     // 2. Получаем примеры
-                    const sourceLanguageForExamples = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+                    const sourceLanguageForExamples = isAutoDetectLanguage ? detectedLanguageForOption : sourceLanguage;
                     const examplesResult = await createExamples(
                         aiService,
                         apiKey,
@@ -2527,7 +2577,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
 
                     // 3.5 Создаем лингвистическое описание конкретно для этого слова/фразы с итеративной валидацией
-                    const sourceLanguageForLinguistic = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+                    const sourceLanguageForLinguistic = isAutoDetectLanguage ? detectedLanguageForOption : sourceLanguage;
                     let generatedLinguisticInfo = "";
                     
                     // Проверяем настройку множественной валидации
@@ -2560,7 +2610,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // 3.7 Создание транскрипции для этой опции
                     let generatedTranscription = "";
                     try {
-                        const sourceLanguageForTranscription = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
+                        const sourceLanguageForTranscription = isAutoDetectLanguage ? detectedLanguageForOption : sourceLanguage;
 
                         if (sourceLanguageForTranscription) {
                             console.log(`Creating transcription for "${option}" using source language: ${sourceLanguageForTranscription}, user language: ${translateToLanguage}`);
@@ -2671,15 +2721,22 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         exportStatus: 'not_exported' as const
                     };
 
+                    const normalizedCard = await normalizeImageForStorage(cardData.image ?? null, cardData.imageUrl ?? null);
+                    const finalizedCard: StoredCard = {
+                        ...cardData,
+                        image: normalizedCard.image,
+                        imageUrl: normalizedCard.imageUrl
+                    };
+
                     // НЕ сохраняем карточку в хранилище здесь, а только добавляем в список для отображения
                     // dispatch(saveCardToStorage(cardData)); - УДАЛЕНО, чтобы предотвратить автоматическое сохранение
-                    console.log(`Created card ${cardData.id} but NOT saving to storage yet. Image info:`, {
-                        hasImage: !!cardData.image,
-                        hasImageUrl: !!cardData.imageUrl,
-                        imageLength: cardData.image?.length,
-                        imageUrlLength: cardData.imageUrl?.length
+                    console.log(`Created card ${finalizedCard.id} but NOT saving to storage yet. Image info:`, {
+                        hasImage: !!finalizedCard.image,
+                        hasImageUrl: !!finalizedCard.imageUrl,
+                        imageLength: finalizedCard.image?.length,
+                        imageUrlLength: finalizedCard.imageUrl?.length
                     });
-                    newCards.push(cardData);
+                    newCards.push(finalizedCard);
 
                 } catch (error) {
                     // Check if this is a quota error and stop immediately
@@ -3989,9 +4046,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         return null;
     }, [sourceLanguage, detectedLanguage]);
 
-    // Добавим состояние для отслеживания нажатия кнопки Create Card
-    const [createCardClicked, setCreateCardClicked] = useState(false);
-
     // Офлайн определение языка по паттернам
     const detectLanguageOffline = useCallback((text: string): string | null => {
         const cleanText = text.trim().toLowerCase();
@@ -4038,7 +4092,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, []);
 
     // Функция для автоматического определения языка
-    const detectLanguage = useCallback(async (text: string) => {
+    const detectLanguage = useCallback(async (text: string): Promise<string | null> => {
         console.log('=== LANGUAGE DETECTION START ===');
         console.log('Input text:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
         console.log('Text length:', text.length);
@@ -4046,20 +4100,37 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Определяем язык, если есть текст
         if (!text || text.trim().length < 2) {
             console.log('Text too short for language detection');
-            return;
+            return null;
         }
+
+        let detectedResult: string | null = null;
+
+        const recordDetection = (languageCode: string | null | undefined, context: string) => {
+            const normalized = (languageCode || '').trim().toLowerCase();
+            if (!normalized) {
+                return;
+            }
+
+            if (detectedLanguage !== normalized) {
+                console.log(`Setting detected language (${context}):`, normalized);
+                setDetectedLanguage(normalized);
+            }
+
+            localStorage.setItem('detected_language', normalized);
+
+            const smartCacheKey = getSmartCacheKey(text);
+            localStorage.setItem(smartCacheKey, normalized);
+
+            updateSourceLanguage(normalized);
+            detectedResult = normalized;
+        };
 
         // 1. ОФЛАЙН определение (быстро и бесплатно)
         const offlineDetected = detectLanguageOffline(text);
         if (offlineDetected) {
             console.log('Language detected offline:', offlineDetected);
-            setDetectedLanguage(offlineDetected);
-            updateSourceLanguage(offlineDetected);
-            
-            // Сохраняем в кэш для будущих запросов
-            const smartCacheKey = getSmartCacheKey(text);
-            localStorage.setItem(smartCacheKey, offlineDetected);
-            return;
+            recordDetection(offlineDetected, 'offline detection');
+            return detectedResult;
         }
 
         // 2. УМНОЕ кэширование: проверяем по паттерну
@@ -4068,15 +4139,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         
         if (cachedResult && detectedLanguage !== cachedResult) {
             console.log('Using smart cached language detection result:', cachedResult);
-            setDetectedLanguage(cachedResult);
-            updateSourceLanguage(cachedResult);
-            return;
+            recordDetection(cachedResult, 'smart cache');
+            return detectedResult;
         }
 
         // 3. Если язык уже определен для текущего текста, не определяем повторно
         if (detectedLanguage && cachedResult === detectedLanguage) {
             console.log('Language already detected for this text:', detectedLanguage);
-            return;
+            detectedResult = detectedLanguage;
+            return detectedLanguage;
         }
 
         // 4. Проверяем квоту и только тогда делаем API вызов (ЭКОНОМИЯ!)
@@ -4090,7 +4161,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     markQuotaNotificationShown();
                 }
             }
-            return;
+            return detectedLanguage ?? detectedResult;
         }
 
         // 5. Проверим, не слишком ли часто мы делаем API вызовы (дополнительная защита)
@@ -4098,7 +4169,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const now = Date.now();
         if (lastApiCall && (now - parseInt(lastApiCall)) < 2000) { // мин 2 секунды между API вызовами
             console.log('Language detection API call skipped - too frequent calls');
-            return;
+            return detectedLanguage ?? detectedResult;
         }
 
         console.log('Making API call for language detection...');
@@ -4123,7 +4194,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 throw new Error(cachedError);
                             }
                         }
-                        return;
+                        return detectedLanguage ?? detectedResult;
                     }
                     
                     try {
@@ -4171,7 +4242,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 throw new Error(cachedError);
                             }
                         }
-                        return;
+                        return detectedLanguage ?? detectedResult;
                     }
                     
                     // Используем Groq API для определения языка
@@ -4220,15 +4291,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Проверяем, является ли результат действительным языковым кодом
                 if (detectedCode && allLanguages.some(lang => lang.code === detectedCode)) {
                     console.log('Language successfully detected:', detectedCode);
-                    setDetectedLanguage(detectedCode);
-                    localStorage.setItem('detected_language', detectedCode);
-                    
-                    // Сохраняем в умный кэш для будущих похожих запросов
-                    const smartCacheKey = getSmartCacheKey(text);
-                    localStorage.setItem(smartCacheKey, detectedCode);
-                    
-                    // Сохраняем определенный язык в Redux
-                    updateSourceLanguage(detectedCode);
+                    recordDetection(detectedCode, 'API detection');
+                    return detectedResult;
                 } else {
                     console.log('Invalid or unrecognized language code:', detectedCode);
                 }
@@ -4283,15 +4347,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 if (detectedLang) {
                     console.log('Language detected using fallback method:', detectedLang);
-                    setDetectedLanguage(detectedLang);
-                    localStorage.setItem('detected_language', detectedLang);
-
-                    // Сохраняем в умный кэш для будущих похожих запросов
-                    const smartCacheKey = getSmartCacheKey(text);
-                    localStorage.setItem(smartCacheKey, detectedLang);
-
-                    // Сохраняем определенный язык в Redux
-                    updateSourceLanguage(detectedLang);
+                    recordDetection(detectedLang, 'fallback detection');
+                    return detectedResult;
                 }
             }
         } catch (error) {
@@ -4302,7 +4359,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 console.error('Quota error detected in language detection:', error.message);
                 showError(error.message);
                 markQuotaNotificationShown();
-                return;
+                return detectedLanguage ?? detectedResult;
             }
             
             // Проверяем, связана ли ошибка с API ключом
@@ -4362,53 +4419,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 if (detectedLang) {
                     console.log("Language detected using fallback method in error handler:", detectedLang);
-                    setDetectedLanguage(detectedLang);
-                    localStorage.setItem('detected_language', detectedLang);
-                    
-                    // Сохраняем в умный кэш для будущих похожих запросов
-                    const smartCacheKey = getSmartCacheKey(text);
-                    localStorage.setItem(smartCacheKey, detectedLang);
-                    
-                    updateSourceLanguage(detectedLang);
+                    recordDetection(detectedLang, 'fallback method in error handler');
+                    return detectedResult;
                 }
             }
         } finally {
             setIsDetectingLanguage(false);
             console.log('=== LANGUAGE DETECTION END ===');
         }
-    }, [openai, openAiKey, modelProvider, groqApiKey, groqModelName, dispatch, allLanguages]);
 
-    // Обновление определения языка при изменении текста
-    useEffect(() => {
-        // Определяем язык только в следующих случаях:
-        // 1. Режим автоопределения включен
-        // 2. Есть текст для анализа (минимум 2 символа)
-        // 3. Либо нет определенного языка, либо текст изменился значительно
-        if (text && text.trim().length > 2 && isAutoDetectLanguage) {
-            
-            // Check if quota is exceeded before starting language detection
-            if (isQuotaExceededCached()) {
-                console.log('Language detection skipped in useEffect due to cached quota error');
-                // Only show error if it hasn't been shown yet
-                if (shouldShowQuotaNotification()) {
-                    const cachedError = getCachedQuotaError();
-                    if (cachedError) {
-                        showError(cachedError);
-                        markQuotaNotificationShown();
-                    }
-                }
-                return;
-            }
-
-            // Используем увеличенный debounce для экономии API (1.5 секунды)
-            const timer = setTimeout(() => {
-                console.log('Attempting to detect language for text:', text.substring(0, 50) + '...');
-                detectLanguage(text);
-            }, 1500);
-
-            return () => clearTimeout(timer);
-        }
-    }, [text, detectLanguage, isAutoDetectLanguage]);
+        return detectedResult;
+    }, [openai, openAiKey, modelProvider, groqApiKey, groqModelName, detectLanguageOffline, getSmartCacheKey, updateSourceLanguage, detectedLanguage, showError, shouldShowQuotaNotification, getCachedQuotaError, markQuotaNotificationShown, cacheQuotaExceededError, setIsAutoDetectLanguage, allLanguages]);
 
     // Обработчик переключения между автоопределением и ручным выбором
     const toggleAutoDetect = () => {
@@ -4423,26 +4444,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 updateSourceLanguage(detectedLanguage);
             }
         } else {
-            // If turning on auto-detection, clear manual source language
+            // If turning on auto-detection, clear manual source language and pending detection value
             updateSourceLanguage('');
-            if (text) {
-                // Check if quota is exceeded before re-detecting language
-                if (isQuotaExceededCached()) {
-                    console.log('Language detection skipped in toggleAutoDetect due to cached quota error');
-                    // Only show error if it hasn't been shown yet
-                    if (shouldShowQuotaNotification()) {
-                        const cachedError = getCachedQuotaError();
-                        if (cachedError) {
-                            showError(cachedError);
-                            markQuotaNotificationShown();
-                        }
-                    }
-                    return;
-                }
-                
-                // And re-detect language of text
-                detectLanguage(text);
-            }
+            setDetectedLanguage(null);
+            localStorage.removeItem('detected_language');
         }
     };
 
@@ -5337,7 +5342,13 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         try {
             // Сохраняем все карточки в Redux store
             for (const card of previewCards) {
-                dispatch(saveCardToStorage(card));
+                const normalized = await normalizeImageForStorage(card.image ?? null, card.imageUrl ?? null);
+                const cardToSave = {
+                    ...card,
+                    image: normalized.image,
+                    imageUrl: normalized.imageUrl
+                };
+                dispatch(saveCardToStorage(cardToSave));
             }
             
             // Закрываем предварительный просмотр
@@ -5388,7 +5399,13 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             }
 
             // Save the current card to Redux store
-            dispatch(saveCardToStorage(currentCard));
+            const normalized = await normalizeImageForStorage(currentCard.image ?? null, currentCard.imageUrl ?? null);
+            const cardToSave = {
+                ...currentCard,
+                image: normalized.image,
+                imageUrl: normalized.imageUrl
+            };
+            dispatch(saveCardToStorage(cardToSave));
             
             // Mark this card as saved
             setSavedCardIndices(prev => new Set(prev).add(currentPreviewIndex));

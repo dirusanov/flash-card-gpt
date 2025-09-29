@@ -75,7 +75,7 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
         case SET_SELECTED_MODE:
             return {
                 ...state,
-                mode: action.payload,
+                mode: Modes.LanguageLearning,
             };
         case SET_TRANSLATE_TO_LANGUAGE:
             return {

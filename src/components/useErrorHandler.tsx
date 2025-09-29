@@ -73,8 +73,6 @@ const useErrorNotification = () => {
   
   // Render the notification component
   const renderErrorNotification = () => {
-    console.log('renderErrorNotification called:', { visible, error, isAnimating, type });
-    
     if (!visible || !error) return null;
     
     const getIconAndColor = () => {
