@@ -5,8 +5,6 @@ import App from '../../App';
 import { Provider } from 'react-redux';
 import { instantiateStore } from '../../store';
 
-import './content.styles.css';
-
 console.log('Content script works!');
 console.log('Must reload extension for modifications to take effect.');
 
@@ -409,4 +407,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Восстановление состояния при загрузке страницы уже обработано в StoreInitializer
-
