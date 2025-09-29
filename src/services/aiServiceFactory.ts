@@ -646,33 +646,71 @@ export async function createLinguisticInfo(
     }
 }
 
-// Оптимизированная функция для создания грамматической справки (макс 2 запроса)
-function createQualityLinguisticPrompt(text: string, sourceLanguage: string, userLanguage: string = 'ru'): string {
-    return `ЗАДАЧА: Создать КРАТКУЮ грамматическую справку для "${text}" на языке ${userLanguage}.
+/**
+ * Create a compact grammar brief prompt for any language.
+ * The resulting brief (the model's answer) MUST be written in sourceLanguage.
+ */
+export function createQualityLinguisticPrompt(
+  text: string,
+  sourceLanguage: string,
+): string {
+  return `TASK: Produce a VERY SHORT grammar brief for the expression "${text}".
+The brief MUST be written entirely in: ${sourceLanguage}.
 
-ТРЕБОВАНИЯ:
-- Максимум 2-3 пункта
-- Каждый пункт: уникальный эмоджи + 1-2 слова
-- Только существенная информация по существу
+CONSTRAINTS:
+- 1–2 bullet points only (2 max).
+- Each bullet: unique emoji + 1–2 words (no sentences).
+- Include ONLY essential information that is clearly applicable.
 
-ОБЯЗАТЕЛЬНО:
-1. 📚 Часть речи: [всегда первый пункт]
-2. Максимум ОДНА дополнительная характеристика (если релевантна)
+MANDATORY:
+1) First bullet is ALWAYS: "📚 Part of speech".
+2) Add AT MOST ONE extra characteristic IF relevant to "${text}".
 
-ДОСТУПНЫЕ ЭМОДЖИ:
-- ⚥ Род | 📋 Число | 🎯 Падеж | ⏰ Время
+ALLOWED EXTRA EMOJIS (pick at most one that really applies):
+- ⚥ Gender | 📋 Number | 🎯 Case | ⏰ Tense
 
-ПРИМЕРЫ:
-"book" → "📚 Часть речи: существительное"
-"красивой" → "📚 Часть речи: прилагательное" + "⚥ Род: женский"
+OUTPUT LANGUAGE:
+- All labels and values must be in ${sourceLanguage} (not transliterated, no translations to other languages).
 
-ФОРМАТ:
+FORMAT (exactly this HTML structure):
 <div class="grammar-item">
-  <span class="icon-pos">[эмоджи]</span> <strong>[название]:</strong> <span class="grammar-tag">[значение]</span>
+  <span class="icon-pos">[emoji]</span> <strong>[label]:</strong> <span class="grammar-tag">[value]</span>
 </div>
 
-Создай справку для "${text}":`;
+RULES:
+- If an extra characteristic is not applicable or uncertain, OMIT it (do not guess).
+- Keep values as concise tags (e.g., “существительное”, “женский”, “множественное”, “родительный”, “прошедшее”).
+- No additional text before or after the HTML blocks.
+
+Create the brief for "${text}":`;
 }
+
+export function createFormatPreservingTranslationPrompt(
+  text: string,
+  targetLanguage: string,
+  sourceLanguage?: string
+): string {
+  return `TASK: Translate the content into ${targetLanguage}${
+    sourceLanguage ? ` from ${sourceLanguage}` : ""
+  }.
+
+HARD REQUIREMENTS (DO NOT VIOLATE):
+- Preserve ALL original formatting EXACTLY (tags, attributes, classes, Markdown syntax, code blocks, inline code, links, whitespace, line breaks, punctuation, emojis).
+- Translate ONLY human-readable text nodes (labels/values/paragraphs), DO NOT modify:
+  * HTML/Markdown syntax
+  * Tag and attribute names/values
+  * Backticked/ fenced code
+  * URLs and IDs
+- Keep the same number of characters for all non-text syntax parts.
+- No extra comments or text before/after.
+
+INPUT:
+${text}
+
+OUTPUT:
+Return ONLY the translated content with formatting 100% unchanged, except for translated human-readable text.`;
+}
+
 
 // Упрощенный валидатор (менее строгий, только по существу)
 function createSimpleValidatorPrompt(originalReference: string, word: string, userLanguage: string): string {
@@ -747,8 +785,8 @@ export async function createValidatedLinguisticInfo(
         console.log(`Creating validated linguistic info for "${text}"`);
         
         // 1. Создаем первоначальную справку
-        const prompt = createQualityLinguisticPrompt(text, sourceLanguage, userLanguage);
-        
+        const prompt = createQualityLinguisticPrompt(text, sourceLanguage);
+
         const completion = await aiService.createChatCompletion(apiKey, [
             {
                 role: "user",
@@ -780,164 +818,6 @@ export async function createValidatedLinguisticInfo(
     }
 }
 
-// Старая вспомогательная функция для создания промпта с учетом особенностей языка  
-function createLinguisticPrompt(text: string, sourceLanguage: string, userLanguage: string = 'ru'): string {
-    // Определяем язык интерфейса
-    const getLanguageInstructions = (lang: string) => {
-        switch (lang) {
-            case 'ru':
-                return {
-                    name: 'RUSSIAN',
-                    terms: 'Глагол, Существительное, Прилагательное, Наречие',
-                    gender: 'Мужской, Женский, Средний',
-                    number: 'Единственное число, Множественное число',
-                    tense: 'Настоящее время, Прошедшее время, Будущее время',
-                    case: 'Именительный, Родительный, Дательный, Винительный, Творительный, Предложный',
-                    person: '1-е лицо, 2-е лицо, 3-е лицо',
-                    labels: {
-                        partOfSpeech: 'Часть речи',
-                        baseForm: 'Основная форма',
-                        gender: 'Род',
-                        number: 'Число',
-                        case: 'Падеж',
-                        tense: 'Время/Вид',
-                        person: 'Лицо/Число'
-                    },
-                    forbidden: 'Verb, Noun, Adjective, Present, Past, Masculine, Feminine, Singular, Plural'
-                };
-            case 'es':
-                return {
-                    name: 'SPANISH',
-                    terms: 'Verbo, Sustantivo, Adjetivo, Adverbio',
-                    gender: 'Masculino, Femenino, Neutro',
-                    number: 'Singular, Plural',
-                    tense: 'Presente, Pasado, Futuro',
-                    case: 'Nominativo, Genitivo, Dativo, Acusativo',
-                    person: '1ª persona, 2ª persona, 3ª persona',
-                    labels: {
-                        partOfSpeech: 'Categoría gramatical',
-                        baseForm: 'Forma base',
-                        gender: 'Género',
-                        number: 'Número',
-                        case: 'Caso',
-                        tense: 'Tiempo/Aspecto',
-                        person: 'Persona/Número'
-                    },
-                    forbidden: 'Verb, Noun, Adjective, Present, Past, Masculine, Feminine, Singular, Plural'
-                };
-            case 'fr':
-                return {
-                    name: 'FRENCH',
-                    terms: 'Verbe, Nom, Adjectif, Adverbe',
-                    gender: 'Masculin, Féminin, Neutre',
-                    number: 'Singulier, Pluriel',
-                    tense: 'Présent, Passé, Futur',
-                    case: 'Nominatif, Génitif, Datif, Accusatif',
-                    person: '1ère personne, 2ème personne, 3ème personne',
-                    labels: {
-                        partOfSpeech: 'Catégorie grammaticale',
-                        baseForm: 'Forme de base',
-                        gender: 'Genre',
-                        number: 'Nombre',
-                        case: 'Cas',
-                        tense: 'Temps/Aspect',
-                        person: 'Personne/Nombre'
-                    },
-                    forbidden: 'Verb, Noun, Adjective, Present, Past, Masculine, Feminine, Singular, Plural'
-                };
-            case 'de':
-                return {
-                    name: 'GERMAN',
-                    terms: 'Verb, Substantiv, Adjektiv, Adverb',
-                    gender: 'Maskulin, Feminin, Neutrum',
-                    number: 'Singular, Plural',
-                    tense: 'Präsens, Präteritum, Futur',
-                    case: 'Nominativ, Genitiv, Dativ, Akkusativ',
-                    person: '1. Person, 2. Person, 3. Person',
-                    labels: {
-                        partOfSpeech: 'Wortart',
-                        baseForm: 'Grundform',
-                        gender: 'Geschlecht',
-                        number: 'Numerus',
-                        case: 'Kasus',
-                        tense: 'Tempus/Aspekt',
-                        person: 'Person/Numerus'
-                    },
-                    forbidden: 'English terms like Verb, Noun, Present, Past, Masculine, Feminine'
-                };
-            case 'it':
-                return {
-                    name: 'ITALIAN',
-                    terms: 'Verbo, Sostantivo, Aggettivo, Avverbio',
-                    gender: 'Maschile, Femminile, Neutro',
-                    number: 'Singolare, Plurale',
-                    tense: 'Presente, Passato, Futuro',
-                    case: 'Nominativo, Genitivo, Dativo, Accusativo',
-                    person: '1ª persona, 2ª persona, 3ª persona',
-                    labels: {
-                        partOfSpeech: 'Categoria grammaticale',
-                        baseForm: 'Forma base',
-                        gender: 'Genere',
-                        number: 'Numero',
-                        case: 'Caso',
-                        tense: 'Tempo/Aspetto',
-                        person: 'Persona/Numero'
-                    },
-                    forbidden: 'Verb, Noun, Adjective, Present, Past, Masculine, Feminine, Singular, Plural'
-                };
-            default:
-                return {
-                    name: 'ENGLISH',
-                    terms: 'Verb, Noun, Adjective, Adverb',
-                    gender: 'Masculine, Feminine, Neuter',
-                    number: 'Singular, Plural',
-                    tense: 'Present, Past, Future',
-                    case: 'Nominative, Genitive, Dative, Accusative',
-                    person: '1st person, 2nd person, 3rd person',
-                    labels: {
-                        partOfSpeech: 'Part of speech',
-                        baseForm: 'Base form',
-                        gender: 'Gender',
-                        number: 'Number',
-                        case: 'Case',
-                        tense: 'Tense/Aspect',
-                        person: 'Person/Number'
-                    },
-                    forbidden: 'Russian, Spanish, French, German terms'
-                };
-        }
-    };
-    
-    const langConfig = getLanguageInstructions(userLanguage);
-    
-    const basePrompt = `Create a VERY BRIEF grammar reference for language learners.
-
-⚠️ REQUIREMENTS ⚠️
-1. Analyze ONLY the word "${text}" in ${sourceLanguage} language
-2. ALL labels must be in ${langConfig.name} language
-3. Maximum 2-3 essential grammar points only
-4. Keep each point to 1-2 words maximum
-
-ALLOWED CATEGORIES (choose only most important):
-📚 ${langConfig.labels.partOfSpeech} (essential)
-⚥ ${langConfig.labels.gender} (only if significant)  
-📋 ${langConfig.labels.number} (only if not obvious)
-
-HTML FORMAT:
-<div class="grammar-item">
-  <span class="icon-pos">📚</span> <strong>${langConfig.labels.partOfSpeech}:</strong> <span class="grammar-tag">[brief term]</span>
-</div>
-
-RULES:
-- Gender only for singular nouns/adjectives when relevant
-- Skip obvious information (e.g., don't mention "singular" for clearly singular words)
-- Use shortest possible terms in ${langConfig.name}
-- Maximum 3 items total
-
-CRITICAL: Response must be in ${langConfig.name} language and extremely concise.`;
-
-    return basePrompt;
-}
 
 // Функция для создания универсального промпта валидации
 function createValidationPrompt(text: string, linguisticInfo: string, sourceLanguage: string, userLanguage: string): string {
@@ -1488,189 +1368,6 @@ export async function runMultipleValidation(
     };
 }
 
-// Улучшенная функция создания и валидации с множественными агентами
-export async function createValidatedLinguisticInfoAdvanced(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    sourceLanguage: string,
-    userLanguage: string = 'ru',
-    maxAttempts: number = 5,
-    useMultipleValidators: boolean = true
-): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number; confidence?: number; validationDetails?: MultiValidationResult}> {
-    let attempts = 0;
-    let currentLinguisticInfo: string | null = null;
-    let lastValidationDetails: MultiValidationResult | undefined;
-    
-    console.log(`Starting advanced iterative creation of linguistic info for "${text}" (max ${maxAttempts} attempts, multiple validators: ${useMultipleValidators})`);
-    
-    while (attempts < maxAttempts) {
-        attempts++;
-        console.log(`Attempt ${attempts}/${maxAttempts}`);
-        
-        try {
-            // 1. Создаем лингвистическую информацию
-            if (!currentLinguisticInfo) {
-                currentLinguisticInfo = await createLinguisticInfo(
-                    aiService,
-                    apiKey,
-                    text,
-                    sourceLanguage,
-                    userLanguage
-                );
-                
-                if (!currentLinguisticInfo) {
-                    console.log(`Failed to generate linguistic info on attempt ${attempts}`);
-                    continue;
-                }
-            }
-            
-            // 2. Выбираем тип валидации
-            let validationResult: MultiValidationResult;
-            
-            if (useMultipleValidators) {
-                // Используем множественную валидацию
-                validationResult = await runMultipleValidation(
-                    aiService,
-                    apiKey,
-                    text,
-                    currentLinguisticInfo,
-                    sourceLanguage,
-                    userLanguage
-                );
-            } else {
-                // Используем стандартную валидацию
-                const singleValidation = await validateLinguisticInfo(
-                    aiService,
-                    apiKey,
-                    text,
-                    currentLinguisticInfo,
-                    sourceLanguage,
-                    userLanguage
-                );
-                
-                validationResult = {
-                    overallValid: singleValidation.isValid,
-                    confidence: 0.7, // Фиксированная уверенность для обратной совместимости
-                    validations: [{
-                        isValid: singleValidation.isValid,
-                        errors: singleValidation.errors,
-                        corrections: singleValidation.corrections,
-                        confidence: 0.7,
-                        validatorType: 'general'
-                    }],
-                    finalErrors: singleValidation.errors,
-                    finalCorrections: singleValidation.corrections || [],
-                    attempts: 1
-                };
-            }
-            
-            lastValidationDetails = validationResult;
-            
-            // 3. Если валидация прошла успешно - возвращаем результат
-            if (validationResult.overallValid) {
-                console.log(`Validation passed on attempt ${attempts} with confidence ${validationResult.confidence.toFixed(2)}`);
-                return {
-                    linguisticInfo: currentLinguisticInfo,
-                    wasValidated: true,
-                    attempts,
-                    confidence: validationResult.confidence,
-                    validationDetails: validationResult
-                };
-            }
-            
-            // 4. Если есть ошибки и рекомендации - пытаемся исправить
-            if (validationResult.finalErrors.length > 0) {
-                console.log(`Validation failed on attempt ${attempts}:`, validationResult.finalErrors);
-                
-                if (validationResult.finalCorrections.length > 0 && attempts < maxAttempts) {
-                    console.log(`Attempting correction on attempt ${attempts}...`);
-                    
-                    const correctedInfo = await correctLinguisticInfo(
-                        aiService,
-                        apiKey,
-                        text,
-                        currentLinguisticInfo,
-                        validationResult.finalErrors,
-                        validationResult.finalCorrections,
-                        sourceLanguage,
-                        userLanguage
-                    );
-                    
-                    if (correctedInfo) {
-                        currentLinguisticInfo = correctedInfo;
-                        console.log(`Correction completed on attempt ${attempts}`);
-                        // Продолжаем цикл для повторной валидации
-                        continue;
-                    } else {
-                        console.log(`Correction failed on attempt ${attempts}`);
-                    }
-                } else {
-                    console.log(`No corrections available or max attempts reached`);
-                }
-            }
-            
-            // Если это последняя попытка, возвращаем что есть
-            if (attempts >= maxAttempts) {
-                console.log(`Max attempts reached (${maxAttempts}), returning current result`);
-                return {
-                    linguisticInfo: currentLinguisticInfo,
-                    wasValidated: false,
-                    attempts,
-                    confidence: validationResult.confidence,
-                    validationDetails: validationResult
-                };
-            }
-            
-        } catch (error) {
-            console.error(`Error on attempt ${attempts}:`, error);
-            
-            // Если это последняя попытка, возвращаем null
-            if (attempts >= maxAttempts) {
-                return {
-                    linguisticInfo: null,
-                    wasValidated: false,
-                    attempts,
-                    confidence: 0,
-                    validationDetails: lastValidationDetails
-                };
-            }
-        }
-    }
-    
-    // Fallback (не должно достигаться)
-    return {
-        linguisticInfo: currentLinguisticInfo,
-        wasValidated: false,
-        attempts,
-        confidence: lastValidationDetails?.confidence || 0,
-        validationDetails: lastValidationDetails
-    };
-}
-
-
-
-// Новая функция с расширенной валидацией для опциональногоиспользования
-export async function createValidatedLinguisticInfoEnhanced(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    sourceLanguage: string,
-    userLanguage: string = 'ru',
-    maxAttempts: number = 5,
-    useMultipleValidators: boolean = true
-): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number; confidence?: number; validationDetails?: MultiValidationResult}> {
-    return createValidatedLinguisticInfoAdvanced(
-        aiService,
-        apiKey,
-        text,
-        sourceLanguage,
-        userLanguage,
-        maxAttempts,
-        useMultipleValidators
-    );
-}
-
 // СУПЕР-БЫСТРАЯ ФУНКЦИЯ: только 1 запрос, без валидации
 export async function createFastLinguisticInfo(
     aiService: AIService,
@@ -1683,7 +1380,8 @@ export async function createFastLinguisticInfo(
         console.log(`Creating fast linguistic info for "${text}" (1 request only)`);
 
         // Создаем улучшенный промпт, который сразу выдает качественную справку
-        const prompt = createQualityLinguisticPrompt(text, sourceLanguage, userLanguage);
+        const promptInit = createQualityLinguisticPrompt(text, sourceLanguage);
+        const prompt = createFormatPreservingTranslationPrompt(promptInit, sourceLanguage);
 
         const completion = await aiService.createChatCompletion(apiKey, [
             {
@@ -1719,7 +1417,7 @@ export async function createOptimizedLinguisticInfo(
         console.log(`Creating optimized linguistic info for "${text}" (max 2 requests)`);
 
         // ШАГ 1: Создаем первоначальную справку
-        const prompt = createQualityLinguisticPrompt(text, sourceLanguage, userLanguage);
+        const prompt = createQualityLinguisticPrompt(text, sourceLanguage);
 
         const completion = await aiService.createChatCompletion(apiKey, [
             {

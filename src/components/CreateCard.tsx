@@ -21,7 +21,7 @@ import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, 
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
-import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createLinguisticInfo, validateLinguisticInfo, correctLinguisticInfo, createValidatedLinguisticInfo, createValidatedLinguisticInfoEnhanced, createOptimizedLinguisticInfo, createTranscription } from '../services/aiServiceFactory';
+import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createOptimizedLinguisticInfo, createTranscription } from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
 import UniversalCardCreator from './UniversalCardCreator';
 import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
