@@ -55,6 +55,11 @@ var options = {
   },
   module: {
     rules: [
+      // Inline KaTeX fonts to avoid separate binary files in extension dir
+      {
+        test: /katex[\\\/]dist[\\\/]fonts[\\\/].*\.(woff2?|ttf|eot|otf)$/i,
+        type: 'asset/inline',
+      },
       {
         test: /\.(css|scss)$/,
         use: [
@@ -75,7 +80,7 @@ var options = {
         generator: {
           filename: 'assets/img/[name][hash][ext]', // Генерирует файлы в `assets/img`
         },
-        exclude: /node_modules/,
+        // allow node_modules so that other assets (e.g. images) are also processed
       },
       {
         test: /\.html$/,
@@ -219,6 +224,11 @@ if (env.NODE_ENV === 'development') {
     minimizer: [
       new TerserPlugin({
         extractComments: false,
+        terserOptions: {
+          format: {
+            ascii_only: true,
+          },
+        },
       }),
     ],
   };

@@ -18,6 +18,7 @@ import {
   type DetailedLoadingMessage
 } from '../services/loadingMessages';
 import { setGlobalProgressCallback, getGlobalApiTracker } from '../services/apiTracker';
+import { forceFormulaDetection } from '../services/formulaDetectionService';
 
 // Интерфейс для типов общих карточек
 interface GeneralCardTemplate {
@@ -209,6 +210,22 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         });
         
                         try {
+            // 1) Try fast math-specific path: front = formula name, back = pretty formula
+            const mathCard = tryBuildFormulaCard(inputText);
+            if (mathCard) {
+                const { front, back } = mathCard;
+                const cardData = { front, back };
+                setGeneratedCard(cardData);
+
+                // Update Redux state
+                dispatch(setFront(front));
+                dispatch(setBack(back));
+                dispatch(setText(inputText));
+
+                // Skip AI flow entirely for math-only cards
+                return;
+            }
+
             const finalPrompt = customPrompt || template.prompt;
             const fullPrompt = `${finalPrompt}\n\nText: "${inputText}"\n\nProvide a clear, educational response that would work well as flashcard content. Be concise but informative.`;
 
@@ -326,6 +343,69 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             }, 500); // Small delay to ensure smooth transition
         }
     }, [inputText, aiService, showError, dispatch, shouldGenerateImage, imageGenerationMode, imageInstructions, modelProvider]);
+
+    // Heuristics: detect math/theorem content
+    function looksLikeMath(text: string): boolean {
+        if (!text) return false;
+        const t = text.toLowerCase();
+        if (/(теорем|формул|правил|lemma|theorem|formula|rule)/i.test(t)) return true;
+        if (/\$\$|\$|\\frac|\\sqrt|\\tan|\\sin|\\cos|tg|ctg|sin|cos|tan/.test(text)) return true;
+        if (/=/.test(text) && /[a-zA-ZА-Яа-я][^\n]{0,30}[=][^\n]{0,60}/.test(text)) return true;
+        if (/\([^\n()]+\)\s*\/\s*\([^\n()]+\)/.test(text)) return true; // (..)/(..)
+        return false;
+    }
+
+    // Extract formula name (front)
+    function extractFormulaName(text: string): string {
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const joined = lines.join(' ');
+        const m1 = joined.match(/\b(Теорема|Формула|Правило)\s+([^:\n]+)\b/i);
+        if (m1) return `${m1[1]} ${m1[2]}`.trim();
+        const m2 = lines[0]?.match(/^([A-ZА-ЯЁ][^:]{2,80})/);
+        if (m2) return m2[1].trim();
+        return 'Формула';
+    }
+
+    // Quick sanitize similar to renderer (subset): remove obvious junk
+    function quickSanitize(text: string): string {
+        return text
+            .replace(/[\u200B-\u200D\u2060\u2061\uFEFF\u00A0]/g, ' ')
+            .replace(/<annotation[\s\S]*?<\/annotation>/gi, '')
+            .replace(/application[^a-zA-Z]*x?[^a-zA-Z]*tex/gi, '')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/https?:\/\/\s*w\s*3\s*\.\s*o\s*r\s*g\s*\/\s*1998\s*\/\s*Math\s*\/\s*MathML/gi, '')
+            .replace(/\bw\s*3\s*\.\s*o\s*r\s*g\b/gi, '')
+            .replace(/\b1998\s*org\s*\/?/gi, '')
+            .replace(/\borg\s*1998\b/gi, '')
+            .replace(/\b1998\s*\/\s*Math\s*\/\s*MathML\b/gi, '')
+            .replace(/MathMLMath/gi, '')
+            .replace(/\bMathML\b/gi, '')
+            .replace(/\s+/g, ' ').trim();
+    }
+
+    // Extract first LaTeX display formula from text
+    function extractFirstLatex(text: string): string | null {
+        // Use existing rule-based converter from our services
+        const processed = forceFormulaDetection(quickSanitize(text));
+        // Prefer block $$...$$
+        const block = processed.match(/\$\$([^$]+)\$\$/);
+        if (block) return `$$${block[1].trim()}$$`;
+        // Inline $...$
+        const inline = processed.match(/(?<!\$)\$([^$\n]+)\$(?!\$)/);
+        if (inline) return `$$${inline[1].trim()}$$`;
+        // Fraction pattern (a-b)/(a+b)
+        const frac = processed.match(/\(\s*([^()]+?)\s*\)\s*\/\s*\(\s*([^()]+?)\s*\)/);
+        if (frac) return `$$\\frac{${frac[1]}}{${frac[2]}}$$`;
+        return null;
+    }
+
+    function tryBuildFormulaCard(text: string): { front: string; back: string } | null {
+        if (!looksLikeMath(text)) return null;
+        const front = extractFormulaName(text);
+        const latex = extractFirstLatex(text);
+        if (!latex) return null;
+        return { front, back: latex };
+    }
 
     // Function to save the generated card
     const saveCard = useCallback(async () => {

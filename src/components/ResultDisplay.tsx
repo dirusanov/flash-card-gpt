@@ -519,16 +519,29 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
 
             {front && (
                 <div style={{ marginBottom: '12px' }}>
-                    {/* Format the front content nicely */}
-                    {front.includes("/") ? (
-                        // If it has pronunciation (contains a slash), format it appropriately
+                    {/* Для GeneralTopic или если похоже на формулы — используем MathContentRenderer */}
+                    {(mode === Modes.GeneralTopic || /\\(frac|sqrt|sum|int|prod|log|ln|sin|cos|tan|cot|arctan|arcsin|arccos|sinh|cosh|tanh)\b|\$|\\\[|\\\(|\)|\[|\]/.test(front)) ? (
+                        <div style={{
+                            textAlign: 'left',
+                            padding: '10px',
+                            backgroundColor: '#F3F4F6',
+                            borderRadius: '8px'
+                        }}>
+                            <MathContentRenderer
+                                content={front}
+                                enableAI={true}
+                                style={{
+                                    fontSize: '16px',
+                                    color: '#111827'
+                                }}
+                            />
+                        </div>
+                    ) : front.includes("/") ? (
+                        // Если это слово/транскрипция
                         (() => {
-                            // Extract word and pronunciation
                             const parts = front.split(/\s*\//)
                             const wordPart = parts[0]?.trim() || ''
-                            const pronunciation = parts.length > 1 ? 
-                                `/${parts.slice(1).join('/').replace(/\/$/, '')}` : ''
-                            
+                            const pronunciation = parts.length > 1 ? `/${parts.slice(1).join('/').replace(/\/$/, '')}` : ''
                             return (
                                 <div style={{
                                     textAlign: 'center',
@@ -553,7 +566,6 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             )
                         })()
                     ) : (
-                        // Simple formatting for plain text
                         <h3 style={{
                             fontSize: '18px',
                             fontWeight: '600',

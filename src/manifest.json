@@ -15,7 +15,8 @@
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*", "<all_urls>"],
-      "js": ["contentScript.bundle.js"]
+      "js": ["contentScript.bundle.js"],
+      "css": ["contentScript.css"]
     }
   ],
   "permissions": [
@@ -35,7 +36,10 @@
       "resources": [
         "assets/img/*.png",
         "assets/img/*.svg",
-        "tailwind.css"
+        "tailwind.css",
+        "*.woff",
+        "*.woff2",
+        "*.ttf"
       ],
       "matches": ["<all_urls>"]
     }

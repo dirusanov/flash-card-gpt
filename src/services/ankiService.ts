@@ -113,40 +113,88 @@ function format_back_lang_learning(card: CardLangLearning): string {
     `;
 }
 
-function format_back_general(back: string, image_base64?: string | null): string {
-    const points = back.replace("Key points:", "").trim().split("-");
-    const htmlPoints = points.map(point => `<li>${point.trim()}</li>`).join("");
+// Convert $...$ and $$...$$ to MathJax-friendly delimiters for Anki (\(\) and \[\])
+function toMathJaxDelimiters(text: string): string {
+    if (!text) return text;
 
+    let result = text;
+
+    // Protect code/pre blocks from accidental conversion
+    const placeholders: string[] = [];
+    result = result.replace(/<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>/gi, (m) => {
+        placeholders.push(m);
+        return `__CODE_BLOCK_${placeholders.length - 1}__`;
+    });
+
+    // Convert block formulas $$...$$ -> \[...\]
+    result = result.replace(/\$\$([\s\S]*?)\$\$/g, (_m, inner) => `\\[${inner}\]`);
+
+    // Convert inline formulas $...$ -> \(...\)
+    result = result.replace(/(?<!\$)\$([^$\n]+)\$(?!\$)/g, (_m, inner) => `\\(${inner}\\)`);
+
+    // Restore code/pre blocks
+    result = result.replace(/__CODE_BLOCK_(\d+)__/g, (_m, idx) => placeholders[Number(idx)]);
+
+    return result;
+}
+
+// Smart list-safe formatter for general back content that preserves math
+function format_back_general(back: string, image_base64?: string | null): string {
+    const cleaned = back.replace(/^(Key points?:?)/i, '').trim();
+
+    // If content already contains list or KaTeX HTML, keep it as-is (just normalize math delimiters)
+    const looksLikeHtmlList = /<\s*(ul|ol|li)\b/i.test(cleaned);
+    const looksLikeRenderedMath = /class\s*=\s*"[^"]*katex[^"]*"/i.test(cleaned);
+
+    let bodyHtml = '';
+    if (looksLikeHtmlList || looksLikeRenderedMath) {
+        bodyHtml = cleaned;
+    } else {
+        // Split by lines; detect list markers only at line start
+        const rawLines = cleaned.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const isListLine = (line: string) => /^(?:[-*•]\s+|\d+\.\s+)/.test(line);
+        const listLines = rawLines.filter(isListLine);
+
+        // Build HTML body: list if we have multiple list-like lines, else paragraphs
+        if (listLines.length >= Math.max(2, Math.floor(rawLines.length / 2))) {
+            const items = rawLines
+                .filter(l => l.length > 0)
+                .map(l => l.replace(/^(?:[-*•]\s+|\d+\.\s+)/, ''))
+                .map(item => `<li>${item}</li>`)
+                .join('');
+            bodyHtml = `<b>Key points:</b>\n<ul>${items}</ul>`;
+        } else {
+            // Keep original structure with paragraphs; preserve single-line answers too
+            if (rawLines.length <= 1) {
+                bodyHtml = `<div>${rawLines[0] || cleaned}</div>`;
+            } else {
+                bodyHtml = rawLines.map(l => `<p>${l}</p>`).join('\n');
+            }
+        }
+    }
+
+    // Images
     let imageHtml = '';
     if (image_base64) {
         let imageData = image_base64;
-        
-        // Extract the actual base64 data if it has a prefix
         if (imageData.startsWith('data:')) {
             const base64Prefix = 'base64,';
             const prefixIndex = imageData.indexOf(base64Prefix);
             if (prefixIndex !== -1) {
-                // Extract just the base64 part without the prefix
                 const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
-                // Anki format requires the proper data URI format for HTML
                 imageHtml = `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
             } else {
-                // Fallback if prefix structure is unexpected
                 imageHtml = `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
             }
         } else {
-            // If it's already just base64 data, use it directly with proper prefix
             imageHtml = `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
         }
     }
 
-    return `
-        <b>Key points:</b>
-        <ul>
-            ${htmlPoints}
-        </ul>
-        ${imageHtml}
-    `;
+    // Convert math delimiters for Anki MathJax
+    const mathReady = toMathJaxDelimiters(bodyHtml);
+
+    return `\n${mathReady}\n${imageHtml}\n`;
 }
 
 export const createAnkiCards = async (
@@ -185,7 +233,8 @@ export const createAnkiCards = async (
             } else if (mode === Modes.GeneralTopic && 'back' in card) {
                 const generalCard = card as CardGeneral;
                 fields = {
-                    Front: generalCard.front,
+                    // Ensure formulas on both sides render well in Anki via MathJax
+                    Front: toMathJaxDelimiters(generalCard.front),
                     Back: format_back_general(generalCard.back, generalCard.image_base64),
                 };
             }

@@ -47,8 +47,11 @@ const MathContentRenderer: React.FC<MathContentRendererProps> = ({
         setIsProcessing(true);
 
         try {
-            // Сначала очищаем от поломанных формул и исправляем их
-            let cleanedText = text
+            // 0) Санитизация странных вставок (MathML/zero-width/italic unicode)
+            let cleanedText = sanitizeBrokenMathPaste(text);
+
+            // 1) Сначала очищаем от поломанных формул и исправляем их
+            cleanedText = cleanedText
                 // Удаляем поломанные LaTeX формулы
                 .replace(/\$\$1\s*=\s*[^$]*\$*/g, '')
                 // Исправляем некорректные символы
@@ -58,9 +61,41 @@ const MathContentRenderer: React.FC<MathContentRendererProps> = ({
                 .replace(/\$\$[^$]*$/g, '');
             
             console.log('🧹 Cleaned text:', cleanedText);
+
+            // 2) ГРУБЫЕ ЭВРИСТИКИ: автоматическое оборачивание одиночных уравнений в $$ .. $$
+            // 1) После фразы "по формуле:" часто следует строка-уравнение — оборачиваем её в блочную формулу
+            cleanedText = cleanedText.replace(/(по\s+формуле\s*:|formula\s*:)[\s\n]*([^\n]+?)(?=(\n|\.|$))/gi, (m, lead, eq) => {
+                const normalized = eq
+                    .replace(/\^(\d+)/g, '^{$1}') // x^2 -> x^{2}
+                    .trim();
+                return `${lead}\n$$${normalized}$$`;
+            });
+
+            // 2) Любая отдельная строка вида "g = ..." или "S=..." — считаем уравнением
+            cleanedText = cleanedText.replace(/(^|\n)\s*([A-Za-zА-Яа-я][A-Za-zА-Яа-я0-9_\s\(\)\^+\-\\\/\*·=]+=[^\n]+)\s*(?=\n|$)/g, (m, p1, eq) => {
+                const normalized = eq
+                    .replace(/·/g, '\\cdot')
+                    .replace(/\^(\d+)/g, '^{$1}')
+                    .trim();
+                return `${p1}$$${normalized}$$`;
+            });
             
-            // Принудительно применяем обнаружение формул для тестирования
+            // 3) Принудительно применяем обнаружение формул для тестирования
             let processedText = forceFormulaDetection(cleanedText);
+
+            // 4) НОРМАЛИЗАЦИЯ ОБРАТНЫХ СЛЭШЕЙ: сводим \\macro → \macro универсально
+            processedText = processedText
+                .replace(/\\{2,}([A-Za-z]+)/g, '\\$1')
+                .replace(/\\{2,}\{/g, '\\{')
+                .replace(/\\{2,}\}/g, '\\}')
+                .replace(/\\{2,}\^/g, '\\^')
+                .replace(/\\{2,}_/g, '\\_')
+                .replace(/\\{2,}\$/g, '\\$')
+                // частые макросы для подстраховки
+                .replace(/\\{2,}mathbb/g, '\\mathbb')
+                .replace(/\\{2,}mathcal/g, '\\mathcal')
+                .replace(/\\{2,}times/g, '\\times')
+                .replace(/\\{2,}sum/g, '\\sum');
             
             // Проверяем, были ли найдены формулы
             const formulaCount = (processedText.match(/\$\$[^$]+\$\$/g) || []).length + 
@@ -112,6 +147,92 @@ const MathContentRenderer: React.FC<MathContentRendererProps> = ({
             setIsProcessing(false);
         }
     };
+
+    // Удаляет невидимые символы, приводит математические юникод-буквы к ASCII,
+    // вычищает шум от MathML/TeX-атрибутов и экранирует < > для безопасной вставки
+    function sanitizeBrokenMathPaste(input: string): string {
+        let s = input;
+
+        // 0) Удаляем zero-width и служебные юникод-символы (в т.ч. U+2061 Function Application)
+        s = s.replace(/[\u200B-\u200D\u2060\u2061\uFEFF]/g, '');
+
+        // 1) Убираем артефакты от копирования MathML/TeX
+        s = s
+            .replace(/https?:\/\/[^\s]*org\/MathML[^\s]*/gi, '')
+            .replace(/\borg\s*\/\s*MathML\b/gi, '')
+            .replace(/application-tex\"?>?/gi, '')
+            .replace(/xapplication-tex/gi, '')
+            .replace(/MathMLMath/gi, '')
+            .replace(/data-tex\s*=\s*\"[^\"]*\"/gi, '')
+            .replace(/aria-hidden=\"true\"/gi, '');
+
+        // 2) Нормализуем математические юникод-буквы (Mathematical Alphanumeric Symbols)
+        s = normalizeMathAlphanumerics(s);
+
+        // 2.1) Удаляем типичные хвосты от W3C MathML (включая разбитые пробелами/переносами варианты)
+        //   Примеры: "http://www.w3.org/1998/Math/MathML", "w3.org/1998/Math/MathML", "1998org/"
+        s = s
+            .replace(/https?:\/\/\s*w\s*3\s*\.\s*o\s*r\s*g\s*\/\s*1998\s*\/\s*Math\s*\/\s*MathML/gi, '')
+            .replace(/\bw\s*3\s*\.\s*o\s*r\s*g\b/gi, '')
+            .replace(/\b1998\s*org\s*\/?/gi, '')
+            .replace(/\borg\b\s*1998/gi, '')
+            .replace(/\b1998\s*\/\s*Math\s*\/\s*MathML\b/gi, '')
+            .replace(/MathMLMath/gi, '')
+            .replace(/\bMathML\b/gi, '');
+
+        // 2.2) Удаляем атрибуты и куски, которые оказываются в тексте
+        s = s
+            .replace(/xmlns\s*=\s*"[^"]*MathML[^"]*"/gi, '')
+            .replace(/display\s*=\s*"block"/gi, '')
+            .replace(/<annotation[\s\S]*?<\/annotation>/gi, '')
+            .replace(/application[^a-zA-Z]*x?[^a-zA-Z]*tex/gi, '');
+
+        // 2.3) Убираем тэги и огрызки HTML/MathML целиком (оставляем чистый текст)
+        s = s.replace(/<[^>]*>/g, '');
+        s = s.replace(/\b(semantics|mrow|mfrac|mi|mo)\b/gi, '');
+
+        // 3) Безопасно экранируем угловые скобки ТОЛЬКО если это не уже отрендеренный KaTeX/MathML
+        // После удаления тегов экранировать нечего — но подстрахуемся на случай оставшихся знаков
+        s = s.replace(/&/g, '&amp;')
+             .replace(/</g, '&lt;')
+             .replace(/>/g, '&gt;');
+
+        // 4) Схлопываем множественные пробелы/переводы строк
+        s = s.replace(/[\u00A0\t ]+/g, ' ').replace(/\s*\n\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
+        return s;
+    }
+
+    // Преобразование юникод-математических букв (italic/bold/etc.) в ASCII
+    function normalizeMathAlphanumerics(str: string): string {
+        let out = '';
+        for (let i = 0; i < str.length; ) {
+            const cp = str.codePointAt(i)!;
+            const ch = String.fromCodePoint(cp);
+            let repl: string | null = null;
+
+            // Bold A-Z (U+1D400–U+1D419), bold a-z (U+1D41A–U+1D433)
+            if (cp >= 0x1D400 && cp <= 0x1D419) repl = String.fromCharCode('A'.charCodeAt(0) + (cp - 0x1D400));
+            else if (cp >= 0x1D41A && cp <= 0x1D433) repl = String.fromCharCode('a'.charCodeAt(0) + (cp - 0x1D41A));
+            // Italic A-Z (U+1D434–U+1D44D), italic a-z (U+1D44E–U+1D467)
+            else if (cp >= 0x1D434 && cp <= 0x1D44D) repl = String.fromCharCode('A'.charCodeAt(0) + (cp - 0x1D434));
+            else if (cp >= 0x1D44E && cp <= 0x1D467) repl = String.fromCharCode('a'.charCodeAt(0) + (cp - 0x1D44E));
+            // Bold italic A-Z (U+1D468–U+1D481), bold italic a-z (U+1D482–U+1D49B)
+            else if (cp >= 0x1D468 && cp <= 0x1D481) repl = String.fromCharCode('A'.charCodeAt(0) + (cp - 0x1D468));
+            else if (cp >= 0x1D482 && cp <= 0x1D49B) repl = String.fromCharCode('a'.charCodeAt(0) + (cp - 0x1D482));
+            // Digits (bold) 0–9 (U+1D7CE–U+1D7D7)
+            else if (cp >= 0x1D7CE && cp <= 0x1D7D7) repl = String.fromCharCode('0'.charCodeAt(0) + (cp - 0x1D7CE));
+            // Planck constant ℎ → h
+            else if (cp === 0x210E) repl = 'h';
+
+            out += repl ?? ch;
+            i += ch.length;
+        }
+
+        // Иногда при копировании буквы разделяются пробелами: "a p p l i c a t i o n" → "application"
+        out = out.replace(/\b([A-Za-z])\s(?:[A-Za-z]\s+){2,}[A-Za-z]\b/g, (m) => m.replace(/\s+/g, ''));
+        return out;
+    }
 
     // Базовые стили для ChatGPT-подобного отображения
     const baseStyles: React.CSSProperties = {

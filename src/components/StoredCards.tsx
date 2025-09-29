@@ -598,16 +598,36 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             <div className="card-content" style={{ padding: '8px' }}>
                 {/* Main content - shows text for Language Learning, front for General */}
                 {(card.text || card.front) && (
-                    <p style={{ 
-                        fontWeight: 'bold', 
-                        fontSize: '14px', 
-                        marginBottom: '4px',
-                        color: '#111827',
-                        lineHeight: '1.4',
-                        wordWrap: 'break-word'
-                    }}>
-                        {card.mode === Modes.LanguageLearning ? card.text : card.front}
-                    </p>
+                    card.mode === Modes.LanguageLearning ? (
+                        <p style={{ 
+                            fontWeight: 'bold', 
+                            fontSize: '14px', 
+                            marginBottom: '4px',
+                            color: '#111827',
+                            lineHeight: '1.4',
+                            wordWrap: 'break-word'
+                        }}>
+                            {card.text}
+                        </p>
+                    ) : (
+                        <div style={{ 
+                            fontWeight: 600,
+                            fontSize: '14px', 
+                            marginBottom: '4px',
+                            color: '#111827',
+                            lineHeight: '1.4',
+                            wordWrap: 'break-word'
+                        }}>
+                            <MathContentRenderer
+                                content={card.front || ''}
+                                enableAI={true}
+                                style={{
+                                    fontSize: '14px',
+                                    color: '#111827',
+                                }}
+                            />
+                        </div>
+                    )
                 )}
 
                 {/* Secondary content - shows translation for Language Learning, back for General */}
