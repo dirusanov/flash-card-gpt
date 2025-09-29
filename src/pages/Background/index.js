@@ -1,5 +1,61 @@
 console.log('I am background script');
 
+const configureActionForTab = (tab) => {
+  if (!tab || tab.id === undefined) {
+    return;
+  }
+
+  const url = tab.url || '';
+  const isHttpPage = url.startsWith('http://') || url.startsWith('https://');
+
+  if (isHttpPage) {
+    chrome.action.setPopup({ tabId: tab.id, popup: '' });
+    chrome.action.setTitle({ tabId: tab.id, title: 'Toggle Sidebar' });
+  } else {
+    chrome.action.setPopup({ tabId: tab.id, popup: 'popup.html' });
+    chrome.action.setTitle({ tabId: tab.id, title: 'Расширение недоступно на этой странице' });
+  }
+};
+
+const refreshActiveTabAction = () => {
+  chrome.tabs.query({ currentWindow: true, active: true }, (tabs) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error querying tabs:', chrome.runtime.lastError.message);
+      return;
+    }
+
+    const [activeTab] = tabs;
+    configureActionForTab(activeTab);
+  });
+};
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error getting tab on activation:', chrome.runtime.lastError.message);
+      return;
+    }
+
+    configureActionForTab(tab);
+  });
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!tab || !tab.active) {
+    return;
+  }
+
+  if (changeInfo.status === 'complete' || changeInfo.url) {
+    configureActionForTab(tab);
+  }
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  refreshActiveTabAction();
+});
+
+refreshActiveTabAction();
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Message received:', request);
   

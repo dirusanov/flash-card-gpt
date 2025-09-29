@@ -168,6 +168,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         <div style={{
           display: 'flex',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '6px',
           marginBottom: '8px'
         }}>
           <label htmlFor="openAiKey" style={{
@@ -211,6 +213,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             style={{
               width: '100%',
               padding: '8px 10px',
+              boxSizing: 'border-box',
               borderRadius: '6px',
               border: '1px solid #E5E7EB',
               backgroundColor: '#ffffff',
@@ -277,6 +280,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           style={{
             width: '100%',
             padding: '8px 12px',
+            boxSizing: 'border-box',
             borderRadius: '6px',
             border: '1px solid #E5E7EB',
             backgroundColor: '#ffffff',
@@ -320,6 +324,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           style={{
             width: '100%',
             padding: '8px 12px',
+            boxSizing: 'border-box',
             borderRadius: '6px',
             border: '1px solid #E5E7EB',
             backgroundColor: '#ffffff',
@@ -370,15 +375,19 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
 
   return (
     <div style={{
-      padding: '12px',
+      boxSizing: 'border-box',
+      padding: '14px',
       backgroundColor: '#ffffff',
       height: '100%',
       width: '100%',
-      maxWidth: '320px',
+      maxWidth: popup ? '100%' : '640px',
       margin: '0 auto',
       overflowY: 'auto',
-      paddingBottom: '16px',
-      marginTop: '20px'
+      overflowX: 'hidden',
+      paddingBottom: '18px',
+      marginTop: '12px',
+      borderRadius: popup ? '12px' : '0',
+      boxShadow: popup ? '0 16px 35px rgba(15, 23, 42, 0.12)' : 'none'
     }}>
       <div style={{
         marginBottom: '20px',
@@ -407,6 +416,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           style={{
             width: '100%',
             padding: '8px 12px',
+            boxSizing: 'border-box',
             borderRadius: '6px',
             border: '1px solid #E5E7EB',
             backgroundColor: '#ffffff',
@@ -446,6 +456,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           style={{
             width: '100%',
             padding: '8px 12px',
+            boxSizing: 'border-box',
             borderRadius: '6px',
             border: '1px solid #E5E7EB',
             backgroundColor: '#ffffff',
@@ -479,7 +490,9 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           <li style={{
             marginBottom: '4px',
             display: 'flex',
-            alignItems: 'center'
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '6px'
           }}>
             Paste Code&nbsp;&nbsp;
             <button
@@ -522,7 +535,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           <pre
             style={{
               display: 'block',
-              overflow: 'auto',
+              overflowX: 'hidden',
+              overflowY: 'auto',
               padding: '10px',
               backgroundColor: '#F3F4F6',
               borderRadius: '4px',
@@ -530,7 +544,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
               cursor: 'pointer',
               fontSize: '12px',
               color: '#374151',
-              margin: 0
+              margin: 0,
+              wordBreak: 'break-word'
             }}
             onClick={() => navigator.clipboard.writeText(
               JSON.stringify({
