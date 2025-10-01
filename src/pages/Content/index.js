@@ -7,10 +7,9 @@ import { instantiateStore } from '../../store';
 
 console.log('Content script works!');
 console.log('Must reload extension for modifications to take effect.');
-
 printLine("Using the 'printLine' function from the Print Module");
 
-// Создаем контейнер для боковой панели
+// ---------- Контейнер сайдбара (id = #sidebar) ----------
 const newDiv = document.createElement('div');
 newDiv.id = 'sidebar';
 newDiv.setAttribute('style', `
@@ -21,130 +20,70 @@ newDiv.setAttribute('style', `
   width: 350px;
   height: 100%;
   overflow: auto;
-  z-index: 9999;
+  z-index: 2147483645; /* ниже плавающего окна (которое у App ~2147483646) */
   background-color: #ffffff;
   box-shadow: -2px 0 5px rgba(0, 0, 0, 0.15);
   transform: translateX(100%); /* по умолчанию скрыто */
   transition: transform 0.3s ease-in-out;
 `);
 
-// Создаем Shadow DOM и добавляем стили
 const shadow = newDiv.attachShadow({ mode: "open" });
+
 const linkElem = document.createElement("link");
 linkElem.setAttribute("rel", "stylesheet");
-const linkUrl = chrome.runtime.getURL("tailwind.css");
-linkElem.setAttribute("href", linkUrl);
+linkElem.setAttribute("href", chrome.runtime.getURL("tailwind.css"));
 shadow.appendChild(linkElem);
 
 document.body.appendChild(newDiv);
 
 const root = createRoot(shadow);
 
-// Компонент красивого лоадера
+// ---------- Красивый лоадер ----------
 const LoadingSpinner = () => {
   return React.createElement('div', {
     style: {
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '100vh',
-      background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      color: '#ffffff'
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      height: '100vh', background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+      fontFamily: 'system-ui, -apple-system, sans-serif', color: '#ffffff'
     }
   }, [
-    // Логотип/иконка
     React.createElement('div', {
       key: 'logo',
       style: {
-        width: '48px',
-        height: '48px',
-        background: 'rgba(255,255,255,0.2)',
-        borderRadius: '12px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: '24px',
+        width: '48px', height: '48px', background: 'rgba(255,255,255,0.2)', borderRadius: '12px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px',
         animation: 'pulse 2s ease-in-out infinite'
       }
     }, '🧠'),
-    // Анимированный спиннер
     React.createElement('div', {
       key: 'spinner',
       style: {
-        width: '32px',
-        height: '32px',
-        border: '2px solid rgba(255,255,255,0.3)',
-        borderTop: '2px solid #ffffff',
-        borderRadius: '50%',
-        animation: 'spin 1s linear infinite',
-        marginBottom: '20px'
+        width: '32px', height: '32px',
+        border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid #ffffff', borderRadius: '50%',
+        animation: 'spin 1s linear infinite', marginBottom: '20px'
       }
     }),
-    // Заголовок
     React.createElement('h2', {
       key: 'title',
-      style: {
-        color: '#ffffff',
-        fontSize: '20px',
-        fontWeight: '700',
-        marginBottom: '8px',
-        textAlign: 'center',
-        letterSpacing: '-0.025em'
-      }
+      style: { color: '#ffffff', fontSize: '20px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', letterSpacing: '-0.025em' }
     }, 'Anki Flash Cards'),
-    // Подзаголовок
     React.createElement('p', {
       key: 'subtitle',
-      style: {
-        color: 'rgba(255,255,255,0.8)',
-        fontSize: '14px',
-        textAlign: 'center',
-        fontWeight: '400'
-      }
+      style: { color: 'rgba(255,255,255,0.8)', fontSize: '14px', textAlign: 'center', fontWeight: 400 }
     }, 'Initializing your learning assistant...'),
-    // Прогресс бар
     React.createElement('div', {
       key: 'progress-bar',
-      style: {
-        width: '200px',
-        height: '2px',
-        backgroundColor: 'rgba(255,255,255,0.3)',
-        borderRadius: '1px',
-        marginTop: '24px',
-        overflow: 'hidden'
-      }
-    }, React.createElement('div', {
-      style: {
-        width: '100%',
-        height: '100%',
-        backgroundColor: '#ffffff',
-        animation: 'progressBar 2s ease-in-out infinite'
-      }
-    })),
-    // CSS анимации
-    React.createElement('style', {
-      key: 'styles'
-    }, `
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-      @keyframes pulse {
-        0%, 100% { transform: scale(1); opacity: 1; }
-        50% { transform: scale(1.05); opacity: 0.8; }
-      }
-      @keyframes progressBar {
-        0% { transform: translateX(-100%); }
-        50% { transform: translateX(0%); }
-        100% { transform: translateX(100%); }
-      }
+      style: { width: '200px', height: '2px', backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: '1px', marginTop: '24px', overflow: 'hidden' }
+    }, React.createElement('div', { style: { width: '100%', height: '100%', backgroundColor: '#ffffff', animation: 'progressBar 2s ease-in-out infinite' } })),
+    React.createElement('style', { key: 'styles' }, `
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.8; } }
+      @keyframes progressBar { 0% { transform: translateX(-100%); } 50% { transform: translateX(0%); } 100% { transform: translateX(100%); } }
     `)
   ]);
 };
 
-// Система управления наследованием состояния сайдбара
+// ---------- Управление состоянием сайдбара (chrome.storage) ----------
 class SidebarStateManager {
   constructor() {
     this.storageKeys = {
@@ -152,181 +91,102 @@ class SidebarStateManager {
       tabPrefix: 'sidebar_tab_'
     };
   }
-
-  // Получить ключ для состояния конкретной вкладки
-  getTabKey(tabId) {
-    return `${this.storageKeys.tabPrefix}${tabId}`;
-  }
-
-  // Получить настройки наследования - всегда используем lastActive режим
-  async getInheritanceSettings() {
-    return {
-      enabled: true,
-      mode: 'lastActive'
-    };
-  }
-
-  // Получить глобальное состояние
+  getTabKey(tabId) { return `${this.storageKeys.tabPrefix}${tabId}`; }
   async getGlobalState() {
     return new Promise((resolve) => {
       chrome.storage.local.get([this.storageKeys.globalState], (result) => {
-        const defaultGlobal = {
-          isVisible: false,
-          lastActiveTabId: null,
-          lastToggleTime: Date.now()
-        };
-        resolve(result[this.storageKeys.globalState] || defaultGlobal);
+        const def = { isVisible: false, lastActiveTabId: null, lastToggleTime: Date.now() };
+        resolve(result[this.storageKeys.globalState] || def);
       });
     });
   }
-
-  // Получить состояние конкретной вкладки
   async getTabState(tabId) {
     const tabKey = this.getTabKey(tabId);
     return new Promise((resolve) => {
-      chrome.storage.local.get([tabKey], (result) => {
-        resolve(result[tabKey] || null);
-      });
+      chrome.storage.local.get([tabKey], (result) => resolve(result[tabKey] || null));
     });
   }
-
-  // Сохранить глобальное состояние
   async saveGlobalState(globalState) {
     return new Promise((resolve) => {
-      chrome.storage.local.set({
-        [this.storageKeys.globalState]: globalState
-      }, resolve);
+      chrome.storage.local.set({ [this.storageKeys.globalState]: globalState }, resolve);
     });
   }
-
-  // Сохранить состояние вкладки
   async saveTabState(tabId, tabState) {
     const tabKey = this.getTabKey(tabId);
     return new Promise((resolve) => {
-      chrome.storage.local.set({
-        [tabKey]: tabState
-      }, resolve);
+      chrome.storage.local.set({ [tabKey]: tabState }, resolve);
     });
   }
-
-  // Определить начальное состояние для новой вкладки - всегда наследуем от последней активной
   async determineInitialState(tabId) {
     const globalState = await this.getGlobalState();
-    
-    // Наследуем от последней активной вкладки
     if (globalState.lastActiveTabId) {
-      const lastActiveState = await this.getTabState(globalState.lastActiveTabId);
-      if (lastActiveState) {
-        return {
-          isVisible: lastActiveState.isVisible,
-          source: 'lastActive',
-          inheritedFrom: globalState.lastActiveTabId
-        };
+      const last = await this.getTabState(globalState.lastActiveTabId);
+      if (last) {
+        return { isVisible: last.isVisible, source: 'lastActive', inheritedFrom: globalState.lastActiveTabId };
       }
     }
-    
-    // Фолбэк на глобальное состояние
-    return {
-      isVisible: globalState.isVisible,
-      source: 'global_fallback',
-      inheritedFrom: null
-    };
+    return { isVisible: globalState.isVisible, source: 'global_fallback', inheritedFrom: null };
   }
-
-  // Переключить состояние сайдбара для вкладки
   async toggleSidebar(tabId) {
     const existingTabState = await this.getTabState(tabId);
     const globalState = await this.getGlobalState();
-    
+
     let currentVisibility;
     if (existingTabState) {
       currentVisibility = existingTabState.isVisible;
     } else {
-      // Для новой вкладки определяем начальное состояние
       const initialState = await this.determineInitialState(tabId);
       currentVisibility = initialState.isVisible;
     }
 
     const newVisibility = !currentVisibility;
-    const currentTime = Date.now();
+    const now = Date.now();
 
-    // Обновляем состояние вкладки
-    const newTabState = {
-      isVisible: newVisibility,
-      lastToggleTime: currentTime,
-      ...(existingTabState?.inheritedFrom && { inheritedFrom: existingTabState.inheritedFrom })
-    };
+    const newTabState = { isVisible: newVisibility, lastToggleTime: now, ...(existingTabState?.inheritedFrom && { inheritedFrom: existingTabState.inheritedFrom }) };
+    const newGlobalState = { ...globalState, isVisible: newVisibility, lastActiveTabId: tabId, lastToggleTime: now };
 
-    // Обновляем глобальное состояние
-    const newGlobalState = {
-      ...globalState,
-      isVisible: newVisibility,
-      lastActiveTabId: tabId,
-      lastToggleTime: currentTime
-    };
-
-    // Сохраняем изменения
-    await Promise.all([
-      this.saveTabState(tabId, newTabState),
-      this.saveGlobalState(newGlobalState)
-    ]);
-
+    await Promise.all([ this.saveTabState(tabId, newTabState), this.saveGlobalState(newGlobalState) ]);
     return { isVisible: newVisibility, wasInherited: !!existingTabState?.inheritedFrom };
   }
-
-  // Получить текущее состояние для вкладки
   async getCurrentState(tabId) {
     const existingTabState = await this.getTabState(tabId);
-    
-    if (existingTabState) {
-      return { 
-        isVisible: existingTabState.isVisible, 
-        source: 'existing',
-        inheritedFrom: existingTabState.inheritedFrom
-      };
-    }
-
-    // Для новой вкладки определяем состояние через наследование
+    if (existingTabState) return { isVisible: existingTabState.isVisible, source: 'existing', inheritedFrom: existingTabState.inheritedFrom };
     return await this.determineInitialState(tabId);
   }
 }
-
-// Создаем глобальный экземпляр менеджера состояния
 const sidebarManager = new SidebarStateManager();
 
-// Функция для применения состояния к DOM
+// ---------- Применить состояние к DOM ----------
 const applySidebarState = (isVisible, tabId, source = 'unknown') => {
   if (isVisible) {
+    // показать
     newDiv.style.transform = 'translateX(0)';
+    newDiv.style.display = ''; // на всякий
     document.body.style.marginRight = '350px';
   } else {
+    // скрыть
     newDiv.style.transform = 'translateX(100%)';
     document.body.style.marginRight = '0';
   }
-  
   console.log(`Sidebar state applied for tab ${tabId}: ${isVisible ? 'visible' : 'hidden'} (source: ${source})`);
 };
 
-// Компонент инициализации хранилища
+// ---------- Рендер React-приложения ----------
 const StoreInitializer = () => {
   const [store, setStore] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [tabId, setTabId] = useState(null);
 
   useEffect(() => {
-    const initializeStoreWithTabId = async () => {
+    const initialize = async () => {
       try {
-        // Получаем tab ID от background script
         chrome.runtime.sendMessage({ action: 'getTabId' }, async (response) => {
           const currentTabId = response?.tabId || Math.floor(Math.random() * 1000000);
           setTabId(currentTabId);
-          console.log('Content script initialized with tab ID:', currentTabId);
 
-          // Определяем начальное состояние сайдбара для этой вкладки
           try {
             const stateInfo = await sidebarManager.getCurrentState(currentTabId);
             applySidebarState(stateInfo.isVisible, currentTabId, stateInfo.source);
-            
             if (stateInfo.inheritedFrom) {
               console.log(`Sidebar state inherited from tab ${stateInfo.inheritedFrom}`);
             }
@@ -336,19 +196,15 @@ const StoreInitializer = () => {
           }
         });
 
-        // Инициализируем store
         const resolvedStore = await instantiateStore();
         setStore(resolvedStore);
-        
-        // Уменьшенная задержка для более быстрого запуска
         setTimeout(() => setIsLoading(false), 100);
       } catch (error) {
         console.error('Error loading state from Chrome storage:', error);
         setIsLoading(false);
       }
     };
-
-    initializeStoreWithTabId();
+    initialize();
   }, []);
 
   if (isLoading || !store || tabId === null) {
@@ -362,48 +218,67 @@ const StoreInitializer = () => {
   );
 };
 
-// Рендерим React-приложение
-const popup = React.createElement(StoreInitializer, {});
-root.render(popup);
+root.render(React.createElement(StoreInitializer));
 
-// Обработчик сообщений с новой логикой наследования
+// ---------- Сообщения от background / App ----------
+const hardShowSidebarHost = () => {
+  // «жёстко» раскрыть контейнер
+  newDiv.removeAttribute('hidden');
+  newDiv.style.removeProperty('display');
+  newDiv.style.removeProperty('visibility');
+  newDiv.style.removeProperty('opacity');
+  newDiv.style.removeProperty('transform');
+};
+
+const showSidebar = () => {
+  hardShowSidebarHost();
+  newDiv.style.transform = 'translateX(0)';
+  document.body.style.marginRight = '350px';
+};
+
+const hideSidebar = () => {
+  newDiv.style.transform = 'translateX(100%)';
+  document.body.style.marginRight = '0';
+};
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || !message.action) return;
+
+  // Тумблер (кнопка в тулбаре/фон)
   if (message.action === 'toggleSidebar') {
     const currentTabId = message.tabId || 'unknown';
-    
     if (currentTabId === 'unknown') {
-      console.error('Cannot toggle sidebar: unknown tab ID');
-      sendResponse({ 
-        status: 'error', 
-        message: 'Unknown tab ID' 
-      });
+      sendResponse?.({ status: 'error', message: 'Unknown tab ID' });
       return true;
     }
-
-    // Используем новый менеджер состояния
     sidebarManager.toggleSidebar(currentTabId)
       .then((result) => {
         applySidebarState(result.isVisible, currentTabId, 'toggle');
-        
-        sendResponse({ 
-          status: 'Sidebar toggled', 
-          visible: result.isVisible, 
-          tabId: currentTabId,
-          wasInherited: result.wasInherited
-        });
-        
-        console.log(`Sidebar toggled for tab ${currentTabId}: ${result.isVisible ? 'visible' : 'hidden'}${result.wasInherited ? ' (was inherited)' : ''}`);
+        sendResponse?.({ status: 'Sidebar toggled', visible: result.isVisible, tabId: currentTabId, wasInherited: result.wasInherited });
       })
       .catch((error) => {
         console.error('Error toggling sidebar:', error);
-        sendResponse({ 
-          status: 'error', 
-          message: error.toString() 
-        });
+        sendResponse?.({ status: 'error', message: String(error) });
       });
+    return true;
+  }
 
-    return true; // Оставляем канал сообщения открытым для sendResponse
+  // ВКЛ/ВЫКЛ из App: вернуть сайдбар после плавающего окна
+  if (message.action === 'expandSidebar') {
+    showSidebar();
+    sendResponse?.({ ok: true });
+    return true;
+  }
+  if (message.action === 'collapseSidebar') {
+    hideSidebar();
+    sendResponse?.({ ok: true });
+    return true;
+  }
+
+  // Может прилететь до монтирования React — просто гарантируем наличие контейнера
+  if (message.action === 'toggleFloating') {
+    // ничего особо не делаем — App сам обработает
+    sendResponse?.({ ok: true });
+    return true;
   }
 });
-
-// Восстановление состояния при загрузке страницы уже обработано в StoreInitializer
