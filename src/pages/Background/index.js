@@ -1,100 +1,21 @@
 /* eslint-disable no-console */
 console.log('I am background script');
 
-/**
- * Память по вкладкам: { floatingVisible: boolean }
- */
-const tabState = new Map();
-const getState = (tabId) => tabState.get(tabId) || { floatingVisible: false };
-const setState = (tabId, next) => tabState.set(tabId, { ...getState(tabId), ...next });
-
-/**
- * Кнопка в тулбаре — popup только на http/https.
- */
-const configureActionForTab = (tab) => {
-  if (!tab || tab.id == null) return;
-  const url = tab.url || '';
-  const isHttp = url.startsWith('http://') || url.startsWith('https://');
-
-  if (isHttp) {
-    chrome.action.setPopup({ tabId: tab.id, popup: '' });
-    chrome.action.setTitle({ tabId: tab.id, title: 'Toggle Sidebar / Floating Window' });
-  } else {
-    chrome.action.setPopup({ tabId: tab.id, popup: 'popup.html' });
-    chrome.action.setTitle({ tabId: tab.id, title: 'Расширение недоступно на этой странице' });
-  }
-};
-
-const refreshActiveTabAction = () => {
-  chrome.tabs.query({ currentWindow: true, active: true }, (tabs) => {
-    if (chrome.runtime.lastError) return;
-    configureActionForTab(tabs[0]);
-  });
-};
-
-chrome.tabs.onActivated.addListener(({ tabId }) => {
-  chrome.tabs.get(tabId, (tab) => {
-    if (chrome.runtime.lastError) return;
-    configureActionForTab(tab);
-  });
-});
-
-chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
-  if (!tab || !tab.active) return;
-  if (info.status === 'complete' || info.url) configureActionForTab(tab);
-});
-
-chrome.runtime.onInstalled.addListener(() => refreshActiveTabAction());
-refreshActiveTabAction();
-
-/**
- * Клик по иконке:
- * - если float включён — выключаем его (шлём 'toggleFloating');
- * - если выключен — пробуем включить float; если страницы-слушателя нет — fallback на 'toggleSidebar'.
- */
+// Клик по иконке — пусть контент решит по preferredMode
 chrome.action.onClicked.addListener((tab) => {
   if (!tab || tab.id == null) return;
-  const { floatingVisible } = getState(tab.id);
-
-  if (floatingVisible) {
-    setState(tab.id, { floatingVisible: false });
-    chrome.tabs.sendMessage(tab.id, { action: 'toggleFloating' }, (res) => {
-      if (chrome.runtime.lastError) {
-        console.error('toggleFloating(off) error:', chrome.runtime.lastError.message);
-      } else {
-        console.log('toggleFloating off response:', res);
-      }
-    });
-    return;
-  }
-
-  let responded = false;
-  chrome.tabs.sendMessage(tab.id, { action: 'toggleFloating' }, (res) => {
+  chrome.tabs.sendMessage(tab.id, { action: 'togglePreferredUI', tabId: tab.id }, (resp) => {
     if (chrome.runtime.lastError) {
-      console.warn('toggleFloating error, fallback to sidebar:', chrome.runtime.lastError.message);
-      chrome.tabs.sendMessage(tab.id, { action: 'toggleSidebar', tabId: tab.id }, (resp2) => {
-        if (chrome.runtime.lastError) console.error('toggleSidebar error:', chrome.runtime.lastError.message);
-        else console.log('toggleSidebar response:', resp2);
-      });
-      return;
+      console.error('togglePreferredUI error:', chrome.runtime.lastError.message);
+    } else {
+      console.log('togglePreferredUI response:', resp);
     }
-    responded = true;
-    setState(tab.id, { floatingVisible: true });
-    console.log('toggleFloating on response:', res);
   });
-
-  // дублируем fallback, если вообще тишина
-  setTimeout(() => {
-    if (!responded) chrome.tabs.sendMessage(tab.id, { action: 'toggleSidebar', tabId: tab.id }, () => {});
-  }, 150);
 });
 
-/**
- * Общий onMessage: утилиты, прокси сайдбара, синхронизация.
- */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   try {
-    // image fetch (по URL вернём dataURL)
+    // image fetch (оставляем как было, если у тебя есть)
     if (typeof message === 'string' && message.startsWith('http')) {
       fetch(message, { method: 'GET' })
         .then((r) => r.blob())
@@ -105,54 +26,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           reader.readAsDataURL(blob);
         })
         .catch((e) => sendResponse({ status: false, error: String(e) }));
-      return true; // async
+      return true;
     }
 
-    // getTabId
+    // вернуть tabId
     if (message && message.action === 'getTabId') {
       const tabId = sender?.tab?.id ?? null;
       sendResponse({ tabId });
       return true;
     }
 
-    // Прокси команд сайдбара
-    if (message && (message.action === 'toggleSidebar' || message.action === 'collapseSidebar' || message.action === 'expandSidebar')) {
+    // ПРОКСИРУЕМ В ТЕКУЩУЮ ВКЛАДКУ — чтобы App.tsx (и content) получили событие
+    const forwardToTab = (actList) => {
+      if (!message || !message.action || !actList.includes(message.action)) return false;
       const targetTabId = sender?.tab?.id ?? message.tabId;
       if (targetTabId == null) {
         sendResponse?.({ status: false, error: 'No target tabId' });
-        return false;
+        return true;
       }
-      chrome.tabs.sendMessage(targetTabId, { action: message.action, tabId: targetTabId }, (response) => {
+      chrome.tabs.sendMessage(targetTabId, { ...message, tabId: targetTabId }, (response) => {
         if (chrome.runtime.lastError) sendResponse?.({ status: false, error: chrome.runtime.lastError.message });
-        else sendResponse?.({ status: true, response });
+        else sendResponse?.(response || { ok: true });
       });
       return true;
-    }
+    };
 
-    // Страница просит переключить float
-    if (message && message.action === 'toggleFloatingFromPage') {
-      const tabId = sender?.tab?.id;
-      if (tabId == null) {
-        sendResponse?.({ ok: false, error: 'No sender.tab.id' });
-        return false;
-      }
-      const { floatingVisible } = getState(tabId);
-      const next = !floatingVisible;
-      setState(tabId, { floatingVisible: next });
-      chrome.tabs.sendMessage(tabId, { action: 'toggleFloating' }, () => {});
-      sendResponse?.({ ok: true, floatingVisible: next });
-      return true;
-    }
+    if (forwardToTab(['togglePreferredUI', 'toggleSidebar',
+      'forceHideSidebar','forceShowSidebar','collapseSidebar','expandSidebar',
+      'showFloating','hideFloating','toggleFloating','syncFloatingState',
+      'setPreferredMode'])) return true;
 
-    // Синхронизация состояния float из страницы
-    if (message && message.action === 'syncFloatingState') {
-      const tabId = sender?.tab?.id ?? message.tabId;
-      if (tabId != null && typeof message.floatingVisible === 'boolean') {
-        setState(tabId, { floatingVisible: message.floatingVisible });
-      }
-      sendResponse?.({ ok: true });
-      return true;
-    }
+    // сайдбар силовые / тумблер
+    if (forwardToTab(['toggleSidebar', 'forceHideSidebar', 'forceShowSidebar', 'collapseSidebar', 'expandSidebar'])) return true;
+
+    // ВАЖНО: проксируем эти события для ПЛАВАЮЩЕГО окна и синхронизации
+    if (forwardToTab(['showFloating', 'hideFloating', 'toggleFloating', 'syncFloatingState'])) return true;
+
+    // настроечные (необязательно проксировать, но можно)
+    if (forwardToTab(['setPreferredMode'])) return true;
 
   } catch (err) {
     console.error('onMessage handler error:', err);

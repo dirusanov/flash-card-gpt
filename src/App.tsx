@@ -127,9 +127,11 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     if (!anchor) return;
 
     const findHost = (): HTMLElement | null => {
-      const explicit = document.querySelector('#anki-sidebar-root') as HTMLElement | null;
+      // 1) сначала явный контейнер
+      const explicit = document.querySelector('#sidebar') as HTMLElement | null;
       if (explicit) return explicit;
 
+      // 2) поднимаемся по DOM от якоря
       let el: HTMLElement | null = anchor.parentElement;
       while (el && el !== document.body) {
         const cs = getComputedStyle(el);
@@ -139,6 +141,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
         el = el.parentElement;
       }
 
+      // 3) fallback — поиск по всей странице
       const all = Array.from(document.querySelectorAll('*')) as HTMLElement[];
       for (const n of all) {
         const cs = getComputedStyle(n);
@@ -151,9 +154,26 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     };
 
     const host = findHost();
-    if (host) host.style.display = isFloating ? 'none' : '';
+
+    // 👉 ВАЖНО: когда плавающее ОКНО включено — прячем хост САЙДБАРА локально,
+    // а когда выключено — НИЧЕГО не делаем (контент-скрипт сам покажет/скроет по storage).
+    if (host && isFloating) {
+      host.style.display = 'none';
+    }
+
+    // Гап справа убираем только когда плаваем; иначе — возвращаем
     forceRemoveSidebarGap(isFloating);
   }, [isFloating]);
+
+  const persistPreferredMode = (mode: 'floating' | 'sidebar') => {
+    try {
+      const key = `anki_ui_tab_${tabId}`;
+      chrome.storage.local.get([key], (res) => {
+        const cur = res[key] || { sidebarVisible: false, floatingVisible: false, preferredMode: 'sidebar' };
+        chrome.storage.local.set({ [key]: { ...cur, preferredMode: mode } });
+      });
+    } catch {}
+  };
 
   // init
   useEffect(() => {
@@ -180,34 +200,60 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
 
   // close
   const handleCloseExtension = useCallback(() => {
+    // если мы в плавающем режиме — закрываем float И фиксируем preferredMode = 'floating'
+    if (isFloating) {
+      setIsFloating(false);
+      try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: false, tabId }); } catch {}
+      try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'floating', tabId }); } catch {}
+      persistPreferredMode('floating'); // 👈
+      try { chrome.runtime.sendMessage({ action: 'forceHideSidebar', tabId }); } catch {}
+      const floatRoot = document.getElementById('anki-floating-root');
+      if (floatRoot) floatRoot.remove();
+      try { (disablePageSelection as any)?.(false); } catch {}
+      return;
+    }
+
+    // если режим сайдбара — просто тумблим его
     dispatch(toggleSidebar(tabId));
-    try { chrome.runtime.sendMessage({ action: 'toggleSidebar', tabId }); } catch {}
-  }, [dispatch, tabId]);
+    try {
+      chrome.runtime.sendMessage({ action: 'toggleSidebar', tabId }, (response) => {
+        const lastErr = (chrome.runtime as any)?.lastError;
+        if (lastErr) console.error('Error sending message:', lastErr.message);
+        else console.log('Extension closed:', response);
+      });
+    } catch (e) {
+      console.error('Error sending message:', e);
+    }
+  }, [dispatch, tabId, isFloating]);
+
+
 
   // enable/disable/toggle floating
   const enableFloating = useCallback(() => {
     setIsFloating(true);
-    setSidebarHostVisible(false);
     forceRemoveSidebarGap(true);
-    try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: true }); } catch {}
-  }, []);
+    try { chrome.runtime.sendMessage({ action: 'forceHideSidebar', tabId }); } catch {}
+    try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: true, tabId }); } catch {}
+    try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'floating', tabId }); } catch {}
+    persistPreferredMode('floating'); // 👈
+  }, [tabId]);
+
 
   const disableFloating = useCallback(() => {
     setIsFloating(false);
-    setSidebarHostVisible(true);
     forceRemoveSidebarGap(false);
-    hardShowSidebarHost();
+    try { chrome.runtime.sendMessage({ action: 'forceShowSidebar', tabId }); } catch {}
+    try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: false, tabId }); } catch {}
+    try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'sidebar', tabId }); } catch {}
+    persistPreferredMode('sidebar'); // 👈
 
-    try { chrome.runtime.sendMessage({ action: 'expandSidebar', tabId }); } catch {}
-    try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: false }); } catch {}
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        hardShowSidebarHost();
-        setSidebarHostVisible(true);
-      });
-    });
-
+    const host = document.querySelector('#sidebar') as HTMLElement | null;
+    if (host) {
+      host.removeAttribute('hidden');
+      host.style.removeProperty('display');
+      host.style.removeProperty('visibility');
+      host.style.removeProperty('opacity');
+    }
     const floatRoot = document.getElementById('anki-floating-root');
     if (floatRoot && floatRoot.childElementCount === 0) floatRoot.remove();
   }, [tabId]);
@@ -219,14 +265,21 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       if (next) {
         setSidebarHostVisible(false);
         forceRemoveSidebarGap(true);
-        try { chrome.runtime.sendMessage({ action: 'collapseSidebar', tabId }); } catch {}
-        try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: true }); } catch {}
+        try { chrome.runtime.sendMessage({ action: 'forceHideSidebar', tabId }); } catch {}
+        try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: true, tabId }); } catch {}
+        // теперь предпочитаем float
+        try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'floating', tabId }); } catch {}
+        persistPreferredMode('floating'); // 👈
       } else {
         setSidebarHostVisible(true);
         forceRemoveSidebarGap(false);
         hardShowSidebarHost();
         try { chrome.runtime.sendMessage({ action: 'expandSidebar', tabId }); } catch {}
-        try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: false }); } catch {}
+        try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: false, tabId }); } catch {}
+        // теперь предпочитаем sidebar
+        try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'sidebar', tabId }); } catch {}
+        persistPreferredMode('sidebar'); // 👈
+
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             hardShowSidebarHost();
@@ -258,11 +311,22 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   // drag
   const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isFloating) return;
+    e.preventDefault();           // чтобы не запускать браузерный drag
+    disablePageSelection(true);   // <— ВКЛ: запрет выделения/overlay
+
     const startX = e.clientX, startY = e.clientY;
     draggingRef.current = { offsetX: startX - floatPos.x, offsetY: startY - floatPos.y };
     window.addEventListener('mousemove', onDragMove);
     window.addEventListener('mouseup', onDragEnd);
   };
+
+  const onDragEnd = () => {
+    draggingRef.current = null;
+    window.removeEventListener('mousemove', onDragMove);
+    window.removeEventListener('mouseup', onDragEnd);
+    disablePageSelection(false);  // <— ВЫКЛ: вернуть как было
+  };
+
   const onDragMove = (e: MouseEvent) => {
     if (!draggingRef.current) return;
     const { innerWidth, innerHeight } = window;
@@ -270,20 +334,31 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     const y = clamp(e.clientY - draggingRef.current.offsetY, 8, innerHeight - floatSize.height - 8);
     setFloatPos({ x, y });
   };
-  const onDragEnd = () => {
-    draggingRef.current = null;
-    window.removeEventListener('mousemove', onDragMove);
-    window.removeEventListener('mouseup', onDragEnd);
-  };
 
   // resize
   const onResizeStart = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isFloating) return;
+    e.preventDefault();
     e.stopPropagation();
-    resizingRef.current = { startX: e.clientX, startY: e.clientY, startW: floatSize.width, startH: floatSize.height };
+    disablePageSelection(true);   // <— включить
+
+    resizingRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: floatSize.width,
+      startH: floatSize.height
+    };
     window.addEventListener('mousemove', onResizeMove);
     window.addEventListener('mouseup', onResizeEnd);
   };
+
+  const onResizeEnd = () => {
+    resizingRef.current = null;
+    window.removeEventListener('mousemove', onResizeMove);
+    window.removeEventListener('mouseup', onResizeEnd);
+    disablePageSelection(false);  // <— выключить
+  };
+
   const onResizeMove = (e: MouseEvent) => {
     if (!resizingRef.current) return;
     const dx = e.clientX - resizingRef.current.startX;
@@ -291,11 +366,6 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     const newW = clamp(resizingRef.current.startW + dx, 300, Math.min(window.innerWidth - 16, 720));
     const newH = clamp(resizingRef.current.startH + dy, 340, Math.min(window.innerHeight - 16, 900));
     setFloatSize({ width: newW, height: newH });
-  };
-  const onResizeEnd = () => {
-    resizingRef.current = null;
-    window.removeEventListener('mousemove', onResizeMove);
-    window.removeEventListener('mouseup', onResizeEnd);
   };
 
   const handlePageChange = useCallback((page: string) => setCurrentPage(page), [setCurrentPage]);
@@ -462,6 +532,68 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     );
   };
 
+  // Глобально отключаем выделение и DnD на странице во время drag/resize
+  const disablePageSelection = (on: boolean) => {
+    const STYLE_ID = 'anki-disable-user-select';
+    const OVERLAY_ID = 'anki-drag-overlay';
+
+    // стиль (user-select: none + grabbing курсор)
+    let styleEl = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+
+    // запоминаем обработчик, чтобы потом снять
+    const anyFn = disablePageSelection as any;
+    if (on) {
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = STYLE_ID;
+        styleEl.textContent = `
+        html, body, * {
+          -webkit-user-select: none !important;
+          -moz-user-select: none !important;
+          -ms-user-select: none !important;
+          user-select: none !important;
+        }
+        body { cursor: grabbing !important; }
+      `;
+        document.head.appendChild(styleEl);
+      }
+
+      // прозрачный оверлей — перехватывает события мыши и не даёт "протыкать" страницу
+      if (!document.getElementById(OVERLAY_ID)) {
+        const overlay = document.createElement('div');
+        overlay.id = OVERLAY_ID;
+        Object.assign(overlay.style, {
+          position: 'fixed',
+          inset: '0',
+          zIndex: '2147483644', // ниже самого окна (у него 2147483646), но выше страницы
+          cursor: 'grabbing',
+          background: 'transparent'
+        } as CSSStyleDeclaration);
+        document.body.appendChild(overlay);
+      }
+
+      // блокируем нативный select/drag
+      const prevent = (e: Event) => e.preventDefault();
+      anyFn._preventHandler = prevent;
+      document.addEventListener('selectstart', prevent, true);
+      document.addEventListener('dragstart', prevent, true);
+    } else {
+      if (styleEl) styleEl.remove();
+      const overlay = document.getElementById(OVERLAY_ID);
+      if (overlay) overlay.remove();
+
+      const prevent = anyFn._preventHandler as ((e: Event) => void) | undefined;
+      if (prevent) {
+        document.removeEventListener('selectstart', prevent, true);
+        document.removeEventListener('dragstart', prevent, true);
+        anyFn._preventHandler = undefined;
+      }
+
+      // очистим текущее выделение (если вдруг осталось)
+      try { window.getSelection()?.removeAllRanges?.(); } catch {}
+    }
+  };
+
   const containerStyle: React.CSSProperties = isFloating ? {
     backgroundColor: '#ffffff',
     position: 'fixed',
@@ -534,8 +666,8 @@ function App({ tabId }: AppProps) {
   const dispatch = useDispatch();
   useEffect(() => {
     dispatch(setCurrentTabId(tabId));
-    setSidebarHostVisible(true);
-    forceRemoveSidebarGap(false);
+    // setSidebarHostVisible(true);
+    // forceRemoveSidebarGap(false);
   }, [dispatch, tabId]);
 
   return (
