@@ -25,43 +25,6 @@ interface StoredCardsProps {
 
 type CardFilterType = 'all' | 'not_exported' | 'exported';
 
-// Функция для рендеринга простого Markdown (изображения, формулы, код)
-const renderMarkdownContent = (content: string): string => {
-    let html = content;
-    
-    // Конвертируем изображения из Markdown в HTML
-    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
-        // Улучшенная логика для alt текста
-        const displayAlt = alt && alt !== 'Изображение' && alt !== 'Image' ? alt : '';
-        
-        return `<div style="text-align: center; margin: 6px 0;">
-            <img src="${src}" alt="${displayAlt}" style="max-width: 100%; max-height: 120px; height: auto; border-radius: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); display: block; margin: 0 auto;" />
-            ${displayAlt ? `<div style="font-size: 9px; color: #6B7280; margin-top: 2px; font-style: italic;">${displayAlt}</div>` : ''}
-        </div>`;
-    });
-    
-    // Обрабатываем LaTeX формулы с помощью KaTeX
-    html = processLatexInContent(html);
-    
-    // Конвертируем блоки кода
-    html = html.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, language, code) => {
-        return `<div style="margin: 8px 0;">
-            <div style="background: #2D2D2D; color: #F8F8F2; padding: 8px; border-radius: 4px; font-family: monospace; overflow-x: auto; white-space: pre; font-size: 11px;">
-                ${language ? `<div style="color: #6B7280; margin-bottom: 4px; font-size: 9px;">${language}</div>` : ''}
-                ${code}
-            </div>
-        </div>`;
-    });
-    
-    // Конвертируем инлайн код
-    html = html.replace(/`([^`]+)`/g, '<code style="background: #F3F4F6; padding: 1px 3px; border-radius: 2px; font-family: monospace; font-size: 11px;">$1</code>');
-    
-    // Конвертируем переносы строк
-    html = html.replace(/\n/g, '<br />');
-    
-    return html;
-};
-
 const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
     const tabAware = useTabAware();
@@ -73,10 +36,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
-    
+
     // Get current card data from Redux for editing
     const currentCardData = useSelector((state: RootState) => state.cards);
-    
+
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingDecks, setLoadingDecks] = useState(false);
@@ -88,7 +51,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const [isEditingInModal, setIsEditingInModal] = useState(false);
     const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
-    
+
     // Локальное состояние для редактирования карточки (избегаем конфликтов с глобальным Redux)
     const [localEditingCardData, setLocalEditingCardData] = useState<StoredCard | null>(null);
 
@@ -97,12 +60,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [totalPages, setTotalPages] = useState(1);
-    
+
     // States for export file modal
     const [showExportModal, setShowExportModal] = useState(false);
     const [exportFileName, setExportFileName] = useState('anki_cards');
     const [isExporting, setIsExporting] = useState(false);
-    
+
     const { showError, renderErrorNotification } = useErrorNotification();
 
     // Initialize OpenAI client
@@ -115,7 +78,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     useEffect(() => {
         const loadAllCards = async () => {
             console.log('StoredCards component mounted, forcing complete reload of cards...');
-            
+
             // First, try to directly access localStorage to see what's there
             try {
                 const rawData = localStorage.getItem('anki_stored_cards');
@@ -132,18 +95,18 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             } catch (e) {
                 console.error('Error accessing localStorage directly:', e);
             }
-            
+
             // Now load through the Redux action
             dispatch(loadStoredCards());
-            
+
             // Add a small delay to make sure cards are loaded
             const timer = setTimeout(() => {
                 console.log('Current stored cards after initial load:', storedCards.length);
-                
+
                 // If there are no cards after initial load, try a different approach
                 if (storedCards.length === 0) {
                     console.log('No cards loaded, trying to load directly from localStorage...');
-                    
+
                     try {
                         const rawData = localStorage.getItem('anki_stored_cards');
                         if (rawData) {
@@ -157,16 +120,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         console.error('Failed to manually load cards:', error);
                     }
                 }
-                
+
                 // Log card counts by filter type for debugging
                 if (storedCards.length > 0) {
                     const notExported = storedCards.filter(card => card.exportStatus === 'not_exported').length;
-                    const exported = storedCards.filter(card => 
+                    const exported = storedCards.filter(card =>
                         card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file'
                     ).length;
-                    
+
                     console.log('Card stats: total=', storedCards.length, 'not_exported=', notExported, 'exported=', exported);
-                    
+
                     // Debug image data in cards
                     storedCards.forEach((card, index) => {
                         if (card.image || card.imageUrl) {
@@ -184,10 +147,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     });
                 }
             }, 500);
-            
+
             return () => clearTimeout(timer);
         };
-        
+
         loadAllCards();
     }, [dispatch, storedCards.length]);
 
@@ -237,13 +200,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const getFilteredCards = () => {
         // Log all cards first to see what we're working with
         console.log('All cards in store:', storedCards.length, 'cards');
-        
+
         // If cards array is empty or invalid, return empty array
         if (!Array.isArray(storedCards) || storedCards.length === 0) {
             console.log('No cards to filter');
             return [];
         }
-        
+
         // Log the exportStatus of each card to help diagnose issues
         const statusCounts = {
             not_exported: 0,
@@ -251,16 +214,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             exported_to_file: 0,
             unknown: 0
         };
-        
+
         storedCards.forEach(card => {
             if (card.exportStatus === 'not_exported') statusCounts.not_exported++;
             else if (card.exportStatus === 'exported_to_anki') statusCounts.exported_to_anki++;
             else if (card.exportStatus === 'exported_to_file') statusCounts.exported_to_file++;
             else statusCounts.unknown++;
         });
-        
+
         console.log('Card status counts:', statusCounts);
-        
+
         let cards;
         switch (activeFilter) {
             case 'not_exported':
@@ -284,31 +247,31 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         const sortedCards = cards.sort((a, b) => {
             return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         });
-        
+
         console.log('Final filtered and sorted cards:', sortedCards.length);
-        
+
         return sortedCards;
     };
 
     const filteredCards = getFilteredCards();
-    
+
     // Get paginated cards for current page
     const getPaginatedCards = () => {
         if (filteredCards.length === 0) {
             return [];
         }
-        
+
         const startIndex = (currentPage - 1) * itemsPerPage;
         const endIndex = startIndex + itemsPerPage;
-        
+
         // If the startIndex is beyond the available cards (which could happen
         // if we were on page 2 and then filtered to fewer cards), reset to page 1
         if (startIndex >= filteredCards.length) {
             setCurrentPage(1);
             return filteredCards.slice(0, itemsPerPage);
         }
-        
-        console.log('Pagination debug:', { 
+
+        console.log('Pagination debug:', {
             totalCards: storedCards.length,
             filteredCards: filteredCards.length,
             currentPage,
@@ -317,18 +280,18 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             endIndex,
             cardsOnThisPage: filteredCards.slice(startIndex, endIndex).length
         });
-        
+
         return filteredCards.slice(startIndex, endIndex);
     };
-    
+
     const paginatedCards = getPaginatedCards();
-    
+
     // Update total pages when filtered cards or items per page changes
     useEffect(() => {
         // Ensure we have at least 1 page
         const calculatedTotalPages = Math.max(1, Math.ceil(filteredCards.length / itemsPerPage));
         setTotalPages(calculatedTotalPages);
-        
+
         // If current page is greater than total pages, reset to page 1
         if (currentPage > calculatedTotalPages) {
             setCurrentPage(1);
@@ -404,7 +367,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             processedImageBase64 = card.image;
                         }
                     }
-                    
+
                     const ankiCard = {
                         text: card.text,
                         translation: card.translation,
@@ -412,7 +375,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         image_base64: processedImageBase64,
                         linguisticInfo: card.linguisticInfo
                     };
-                    
+
                     console.log(`Adding language learning card to Anki export:`, {
                         cardId: card.id,
                         text: card.text,
@@ -420,15 +383,15 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         imageLength: processedImageBase64?.length,
                         imagePreview: processedImageBase64?.substring(0, 30)
                     });
-                    
+
                     langLearningCards.push(ankiCard);
                 } else if (card.mode === Modes.GeneralTopic && (card.front || card.text) && (card.back || card.text)) {
                     // Process image data for GeneralTopic cards too
                     let processedImageBase64 = null;
-                    
+
                     // Check both image and imageUrl fields
                     let imageSource = card.image || card.imageUrl;
-                    
+
                     if (imageSource) {
                         if (imageSource.startsWith('data:')) {
                             // Handle data URI format
@@ -481,7 +444,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         text: card.text,
                         image_base64: processedImageBase64
                     };
-                    
+
                     console.log(`Adding general topic card to Anki export:`, {
                         cardId: card.id,
                         text: card.text,
@@ -493,7 +456,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         hadImageUrlField: !!card.imageUrl,
                         usedField: card.image ? 'image' : card.imageUrl ? 'imageUrl' : 'none'
                     });
-                    
+
                     generalTopicCards.push(generalCard);
                 }
             }
@@ -537,7 +500,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     const rawData = localStorage.getItem('anki_stored_cards');
                     if (rawData) {
                         const savedCards = JSON.parse(rawData);
-                        console.log('Verified localStorage after export:', 
+                        console.log('Verified localStorage after export:',
                             savedCards.filter((c: any) => c.id && selectedCards.includes(c.id))
                                 .map((c: any) => ({id: c.id, status: c.exportStatus}))
                         );
@@ -558,7 +521,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             showError('Please select at least one card to export');
             return;
         }
-        
+
         // Generate default filename with current date
         const currentDate = new Date();
         const dateStr = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD format
@@ -599,9 +562,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 {/* Main content - shows text for Language Learning, front for General */}
                 {(card.text || card.front) && (
                     card.mode === Modes.LanguageLearning ? (
-                        <p style={{ 
-                            fontWeight: 'bold', 
-                            fontSize: '14px', 
+                        <p style={{
+                            fontWeight: 'bold',
+                            fontSize: '14px',
                             marginBottom: '4px',
                             color: '#111827',
                             lineHeight: '1.4',
@@ -610,9 +573,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             {card.text}
                         </p>
                     ) : (
-                        <div style={{ 
+                        <div style={{
                             fontWeight: 600,
-                            fontSize: '14px', 
+                            fontSize: '14px',
                             marginBottom: '4px',
                             color: '#111827',
                             lineHeight: '1.4',
@@ -632,19 +595,19 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
                 {/* Secondary content - shows translation for Language Learning, back for General */}
                 {(card.translation || card.back) && (
-                    <div style={{ 
-                        color: '#374151', 
-                        fontSize: '13px', 
+                    <div style={{
+                        color: '#374151',
+                        fontSize: '13px',
                         marginBottom: '8px',
                         lineHeight: '1.4',
                         wordWrap: 'break-word'
                     }}>
-                        {card.mode === Modes.LanguageLearning 
-                            ? card.translation 
+                        {card.mode === Modes.LanguageLearning
+                            ? card.translation
                             : (card.back && (
                                 <MathContentRenderer
-                                    content={card.back.length > 150 
-                                        ? card.back.substring(0, 150) + '...' 
+                                    content={card.back.length > 150
+                                        ? card.back.substring(0, 150) + '...'
                                         : card.back
                                     }
                                     enableAI={true}
@@ -664,16 +627,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>Examples:</p>
                         {card.examples.slice(0, 1).map(([example, translation], index) => (
                             <div key={index} style={{ fontSize: '12px', marginBottom: '2px' }}>
-                                <p style={{ 
-                                    color: '#111827', 
+                                <p style={{
+                                    color: '#111827',
                                     marginBottom: '2px',
                                     lineHeight: '1.4',
                                     wordWrap: 'break-word',
                                     overflow: 'visible',
                                     whiteSpace: 'normal'
                                 }}>{example}</p>
-                                {translation && <p style={{ 
-                                    color: '#6B7280', 
+                                {translation && <p style={{
+                                    color: '#6B7280',
                                     fontStyle: 'italic',
                                     lineHeight: '1.4',
                                     wordWrap: 'break-word',
@@ -691,16 +654,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 {/* Image display - for both modes */}
                 {(card.image || card.imageUrl) && (
                     <div style={{ marginTop: '8px', textAlign: 'center' }}>
-                        <img 
-                            src={(card.image || card.imageUrl || '') as string} 
-                            alt="Card image" 
-                            style={{ 
-                                maxWidth: '100%', 
-                                maxHeight: '80px', 
+                        <img
+                            src={(card.image || card.imageUrl || '') as string}
+                            alt="Card image"
+                            style={{
+                                maxWidth: '100%',
+                                maxHeight: '80px',
                                 borderRadius: '4px',
                                 border: '1px solid #E5E7EB',
                                 boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-                            }} 
+                            }}
                             onError={(e) => {
                                 console.error('Image failed to load for card:', card.id, 'image data:', {
                                     hasImage: !!card.image,
@@ -712,11 +675,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     imageSrc: (card.image || card.imageUrl || '').substring(0, 100),
                                     usingType: card.image ? 'base64 (permanent)' : 'url (temporary)'
                                 });
-                                
+
                                 // Replace broken image with placeholder
                                 const target = e.target as HTMLImageElement;
                                 target.style.display = 'none';
-                                
+
                                 // Create a placeholder div
                                 const placeholder = document.createElement('div');
                                 placeholder.style.cssText = `
@@ -732,7 +695,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     font-size: 12px;
                                 `;
                                 placeholder.textContent = card.image ? '🖼️ Image error' : '🖼️ URL expired';
-                                
+
                                 // Insert placeholder after the failed image
                                 target.parentNode?.insertBefore(placeholder, target.nextSibling);
                             }}
@@ -748,10 +711,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 )}
 
                 {/* Mode indicator badge */}
-                <div style={{ 
-                    marginTop: '8px', 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
+                <div style={{
+                    marginTop: '8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
                     alignItems: 'center'
                 }}>
                     <span style={{
@@ -1180,7 +1143,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         // НЕ загружаем данные в глобальный Redux state, так как это влияет на статус карточки в CreateCard
         console.log('Starting to edit card:', card.id);
         console.log('Card data:', card);
-        
+
         // Просто устанавливаем локальное состояние для редактирования
         // БЕЗ изменения глобального Redux state
         setEditingCard(card);
@@ -1191,7 +1154,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         setIsProcessingCustomInstruction(false);
         setLoadingNewExamples(false);
         setLoadingAccept(false);
-        
+
         console.log('Modal state set for editing card:', card.id);
     };
 
@@ -1279,7 +1242,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
             // Используем локальное состояние вместо Redux
             const currentText = localEditingCardData?.text || editingCard.text;
-            
+
             console.log('Starting image generation for text:', currentText);
 
             // 1. Get an image description
@@ -1362,13 +1325,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
         try {
             setLoadingNewExamples(true);
-            
+
             // Используем локальное состояние вместо Redux
             const currentText = localEditingCardData?.text || editingCard.text;
-            
+
             // For now, just show a placeholder - you can implement actual examples generation here
             showError('Examples generation would be implemented here', 'info');
-            
+
         } catch (error: any) {
             console.error('Error generating examples:', error);
             showError(`Examples generation failed: ${error?.message || 'Unknown error'}`);
@@ -1388,7 +1351,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         try {
             // For now, just show a placeholder - you can implement actual custom instruction processing here
             showError(`Custom instruction "${customInstruction}" would be applied here`, 'info');
-            
+
             // Clear the instruction after applying
             setCustomInstruction('');
         } catch (error) {
@@ -1453,7 +1416,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     // Render the modal for editing cards
     const renderEditModal = () => {
         console.log('renderEditModal called. showEditModal:', showEditModal, 'editingCard:', editingCard);
-        
+
         if (!showEditModal || !editingCard) {
             console.log('Modal not showing because showEditModal:', showEditModal, 'editingCard:', !!editingCard);
             return null;
@@ -1464,9 +1427,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             console.log('No local editing card data available');
             return null;
         }
-        
+
         const { text, translation, examples, front, back, image, imageUrl, linguisticInfo, transcription } = localEditingCardData;
-        
+
         console.log('Rendering edit modal with local data:', {
             text: text?.substring(0, 20) + '...',
             translation: translation?.substring(0, 20) + '...',
@@ -1519,7 +1482,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             fontWeight: 600,
                             color: '#111827'
                         }}>
-                            Edit Card
+                            Edit Card LOL
                         </h3>
                         <button
                             onClick={handleCancelEdit}
@@ -1707,8 +1670,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     justifyContent: 'space-between',
                     alignItems: 'center',
                 }}>
-                    <div style={{ 
-                        display: 'flex', 
+                    <div style={{
+                        display: 'flex',
                         alignItems: 'center',
                         gap: '8px'
                     }}>
@@ -1742,16 +1705,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             <option value={50}>50 per page</option>
                         </select>
                     </div>
-                    
-                    <div style={{ 
-                        display: 'flex', 
+
+                    <div style={{
+                        display: 'flex',
                         alignItems: 'center',
                         fontSize: '13px',
                         fontWeight: '500',
                         color: '#4B5563',
                     }}>
-                        {filteredCards.length > 0 ? 
-                            `${Math.min((currentPage - 1) * itemsPerPage + 1, filteredCards.length)}-${Math.min(currentPage * itemsPerPage, filteredCards.length)} of ${filteredCards.length} cards` : 
+                        {filteredCards.length > 0 ?
+                            `${Math.min((currentPage - 1) * itemsPerPage + 1, filteredCards.length)}-${Math.min(currentPage * itemsPerPage, filteredCards.length)} of ${filteredCards.length} cards` :
                             '0 cards'
                         }
                     </div>
@@ -1763,8 +1726,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     justifyContent: 'center',
                     alignItems: 'center',
                 }}>
-                    <div style={{ 
-                        display: 'flex', 
+                    <div style={{
+                        display: 'flex',
                         alignItems: 'center',
                         border: '1px solid #D1D5DB',
                         borderRadius: '8px',
@@ -1800,7 +1763,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 <path fillRule="evenodd" d="M15.707 15.707a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 010 1.414zm-6 0a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 011.414 1.414L5.414 10l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
                             </svg>
                         </button>
-                        
+
                         <button
                             onClick={() => handlePageChange(currentPage - 1)}
                             disabled={currentPage === 1}
@@ -1828,7 +1791,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             <FaChevronLeft size={14} />
                         </button>
 
-                        <div style={{ 
+                        <div style={{
                             padding: '6px 16px',
                             fontSize: '13px',
                             fontWeight: '500',
@@ -1869,7 +1832,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         >
                             <FaChevronRight size={14} />
                         </button>
-                        
+
                         <button
                             onClick={() => handlePageChange(totalPages)}
                             disabled={currentPage === totalPages || totalPages === 0}
@@ -1909,14 +1872,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         setActiveFilter('all');
         setCurrentPage(1);
         setItemsPerPage(10);
-        
+
         // Log current state of cards
         console.log('All cards in redux store:', storedCards);
-        
+
         // Force reload cards from storage
         dispatch(loadStoredCards());
     };
-    
+
     // Function to completely clear storage and reset (for emergency use)
     const clearAllCards = () => {
         if (window.confirm('This will delete ALL your cards. Are you sure?')) {
@@ -1935,24 +1898,24 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     // Function to fix storage quota issues by optimizing cards
     const fixStorageQuotaIssues = () => {
         console.log('=== STORAGE QUOTA FIX START ===');
-        
+
         try {
             const rawData = localStorage.getItem('anki_stored_cards');
             if (!rawData) {
                 showError('No cards found in localStorage.', 'error');
                 return;
             }
-            
+
             const sizeInBytes = new Blob([rawData]).size;
             const sizeInMB = sizeInBytes / (1024 * 1024);
-            
+
             console.log(`Current storage size: ${sizeInMB.toFixed(2)}MB`);
-            
+
             if (sizeInMB < 4) {
                 // Удалили навязчивое success уведомление - хранилище в порядке
                 return;
             }
-            
+
             // Ask user if they want to optimize
             const shouldOptimize = window.confirm(
                 `Your storage is using ${sizeInMB.toFixed(2)}MB. This may cause issues with saving new cards.\n\n` +
@@ -1962,37 +1925,37 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 '• NOT remove images from preserved cards\n\n' +
                 'Click OK to optimize, or Cancel to keep current state.'
             );
-            
+
             if (!shouldOptimize) {
                 return;
             }
-            
+
             // Parse current cards
             const currentCards = JSON.parse(rawData);
-            
+
             // Apply smart optimization
             const optimizedCards = currentCards
                 .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) // Sort newest first
                 .slice(0, Math.floor(currentCards.length * 0.8)); // Keep 80% of newest cards
-            
+
             // Save optimized cards
             dispatch({ type: 'SET_STORED_CARDS', payload: optimizedCards });
-            
+
             const newSize = new Blob([JSON.stringify(optimizedCards)]).size / (1024 * 1024);
-            
+
             showError(
                 `Optimization complete! Reduced from ${sizeInMB.toFixed(2)}MB to ${newSize.toFixed(2)}MB. ` +
                 `Kept ${optimizedCards.length} of ${currentCards.length} newest cards with images preserved.`,
                 'success'
             );
-            
+
             console.log(`Storage optimization complete: ${currentCards.length} → ${optimizedCards.length} cards`);
-            
+
         } catch (error) {
             console.error('Error fixing storage quota:', error);
             showError('Failed to optimize storage. Please try again.', 'error');
         }
-        
+
         console.log('=== STORAGE QUOTA FIX END ===');
     };
 
@@ -2023,12 +1986,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
         try {
             setIsExporting(true);
-            
+
             const selectedCardsData = storedCards.filter(card => selectedCards.includes(card.id));
-            
+
             // Create a simpler format without embedded images, following the exact example format
             let exportContent = "#separator:tab\n#html:true\n";
-            
+
             selectedCardsData.forEach((card, index) => {
                 console.log(`Processing card ${index} for file export:`, {
                     id: card.id,
@@ -2043,23 +2006,23 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     imageUrlPreview: card.imageUrl?.substring(0, 50),
                     hasLinguisticInfo: !!card.linguisticInfo
                 });
-                
+
                 if (card.mode === Modes.LanguageLearning) {
                     // Front is just the word/phrase
                     const front = card.text.trim();
-                    
+
                     // Start building the back without any images
                     let back = '';
-                    
+
                     // Add translation
                     if (card.translation) {
                         back += `<b>${card.translation}</b>`;
                     }
-                    
+
                     // Add examples
                     if (card.examples && card.examples.length > 0) {
                         back += "<br><br>";
-                        
+
                         card.examples.forEach(([ex, trans], exIndex) => {
                             back += `${exIndex + 1}. ${ex}`;
                             if (trans) {
@@ -2068,12 +2031,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             back += "<br><br>";
                         });
                     }
-                    
+
                     // Add the actual image if the card has one
                     if (card.image) {
                         // The image is already in base64 format, but may start with data:image/png;base64, or similar prefix
                         let imageData = card.image;
-                        
+
                         // Extract the actual base64 data if it has a prefix
                         if (imageData.startsWith('data:')) {
                             const base64Prefix = 'base64,';
@@ -2094,7 +2057,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     } else if (card.imageUrl) {
                         // ImageUrl might be a base64 string or a URL
                         let imageUrl = card.imageUrl;
-                        
+
                         if (imageUrl.startsWith('data:')) {
                             // Extract the actual base64 data if it has a prefix
                             const base64Prefix = 'base64,';
@@ -2116,18 +2079,18 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             back += `<div><img src="data:image/jpeg;base64,${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
                         }
                     }
-                    
+
                     // Add linguistic information with beautiful formatting
                     if (card.linguisticInfo && card.linguisticInfo.trim()) {
                         const linguisticText = card.linguisticInfo.trim();
-                        
+
                         // Split by lines and format each section
                         const lines = linguisticText.split('\n').filter(line => line.trim());
                         let formattedLinguistic = '';
-                        
+
                         lines.forEach(line => {
                             const trimmedLine = line.trim();
-                            
+
                             // Check if this is a header line (starts with capital letter and ends with colon)
                             if (trimmedLine.match(/^[А-ЯЁA-Z][^:]*:$/)) {
                                 formattedLinguistic += `<div style="color: #2563EB; font-weight: bold; margin-top: 12px; margin-bottom: 4px;">${trimmedLine}</div>`;
@@ -2148,19 +2111,19 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 formattedLinguistic += `<div style="margin-bottom: 6px; color: #374151; line-height: 1.4;">${trimmedLine}</div>`;
                             }
                         });
-                        
+
                         if (formattedLinguistic) {
                             back += `<div style="margin-top: 20px; padding: 12px; background-color: #F8FAFC; border-left: 4px solid #2563EB; border-radius: 0 6px 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);"><div style="color: #1E40AF; font-weight: bold; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 6px;">📚</span>Grammar & Linguistics</div>${formattedLinguistic}</div>`;
                         }
                     }
-                    
+
                     // Clean the front and back content to avoid tab/newline issues
                     const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
                     const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
-                    
+
                     // Export the formatted card with proper escaping
                     exportContent += `${cleanFront}\t${cleanBack}\n`;
-                    
+
                     console.log(`Exported card ${index}:`, {
                         front: cleanFront.substring(0, 50),
                         backLength: cleanBack.length,
@@ -2170,12 +2133,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 else if (card.mode === Modes.GeneralTopic) {
                     const front = (card.front || card.text || 'No content').trim();
                     let back = (card.back || card.text || '').trim();
-                    
+
                     // Add image to back if exists
                     if (card.image) {
                         // The image is already in base64 format, but may start with data:image/png;base64, or similar prefix
                         let imageData = card.image;
-                        
+
                         // Extract the actual base64 data if it has a prefix
                         if (imageData.startsWith('data:')) {
                             const base64Prefix = 'base64,';
@@ -2196,7 +2159,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     } else if (card.imageUrl) {
                         // ImageUrl might be a base64 string or a URL
                         let imageUrl = card.imageUrl;
-                        
+
                         if (imageUrl.startsWith('data:')) {
                             // Extract the actual base64 data if it has a prefix
                             const base64Prefix = 'base64,';
@@ -2218,13 +2181,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             back += `<div><img src="data:image/jpeg;base64,${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
                         }
                     }
-                    
+
                     // Clean the content to avoid tab/newline issues
                     const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
                     const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
-                    
+
                     exportContent += `${cleanFront}\t${cleanBack}\n`;
-                    
+
                     console.log(`Exported General Topic card ${index}:`, {
                         front: cleanFront.substring(0, 50),
                         backLength: cleanBack.length,
@@ -2239,10 +2202,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             if (!fileName) {
                 fileName = 'anki_cards';
             }
-            
+
             // Remove invalid filename characters
             fileName = fileName.replace(/[<>:"/\\|?*]/g, '_');
-            
+
             // Add .txt extension if not present
             if (!fileName.toLowerCase().endsWith('.txt')) {
                 fileName += '.txt';
@@ -2263,7 +2226,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             const totalCards = selectedCardsData.length;
             const cardsWithLinguistics = selectedCardsData.filter(card => card.linguisticInfo && card.linguisticInfo.trim()).length;
             console.log(`Export complete: ${totalCards} cards exported, ${cardsWithLinguistics} with grammar information`);
-            
+
             // Show success message
             // Удалили навязчивое success уведомление об экспорте
 
@@ -2282,7 +2245,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     const rawData = localStorage.getItem('anki_stored_cards');
                     if (rawData) {
                         const savedCards = JSON.parse(rawData);
-                        console.log('Verified localStorage after file export:', 
+                        console.log('Verified localStorage after file export:',
                             savedCards.filter((c: any) => c.id && selectedCards.includes(c.id))
                                 .map((c: any) => ({id: c.id, status: c.exportStatus}))
                         );
@@ -2324,8 +2287,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 borderBottom: '1px solid #E5E7EB',
                 marginTop: '20px'
             }}>
-                <div style={{ 
-                    fontWeight: '600', 
+                <div style={{
+                    fontWeight: '600',
                     fontSize: '16px',
                     color: '#111827',
                     background: 'linear-gradient(to right, #4F46E5, #2563EB)',
@@ -2391,7 +2354,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                         !deckId && useAnkiConnect ? 'Please select a deck first' : ''
                                 }
                             >
-                                {isLoading ? 
+                                {isLoading ?
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Loader type="spinner" size="small" inline color="#ffffff" text="Saving to Anki" />
     </div> : 'Save to Anki'}
@@ -2420,14 +2383,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         </div>
                     </div>
 
-                    <div style={{ 
-                        flex: 1, 
+                    <div style={{
+                        flex: 1,
                         overflow: 'auto',
                         marginBottom: '16px'
                     }}>
                         {renderCards()}
                     </div>
-                    
+
                     {/* Always render pagination outside scrollable area */}
                     {renderPagination()}
                 </>
@@ -2444,7 +2407,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     <p>No saved cards yet.</p>
                 </div>
             )}
-            
+
             {/* Remove the floating action button since we've added a button to the top navigation */}
 
             {/* Export File Modal */}
@@ -2686,4 +2649,4 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     );
 };
 
-export default StoredCards; 
+export default StoredCards;

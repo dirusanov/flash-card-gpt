@@ -10,6 +10,7 @@ import sidebarReducer from './reducers/sidebar';
 import notificationsReducer from './reducers/notifications';
 import tabStateReducer from './reducers/tabState';
 import cardsLocalStorageMiddleware from './middleware/cardsLocalStorage';
+import { viewReducer } from './reducers/view';
 
 const rootReducer = combineReducers({
     deck: decksReducer,
@@ -20,6 +21,7 @@ const rootReducer = combineReducers({
     sidebar: sidebarReducer,
     notifications: notificationsReducer,
     tabState: tabStateReducer,
+    view: viewReducer,
 });
 
 export type RootState = ReturnType<typeof rootReducer>;

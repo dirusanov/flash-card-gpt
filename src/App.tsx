@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useDispatch, useSelector } from "react-redux";
-import { RootState } from "./store";
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState } from './store';
 import CreateCard from './components/CreateCard';
 import Settings from './components/Settings';
 import StoredCards from './components/StoredCards';
@@ -14,34 +14,32 @@ import { FaList, FaCog, FaTimes, FaPlus, FaColumns, FaExpandArrowsAlt } from 're
 import { loadStoredCards } from './store/actions/cards';
 import { setCurrentTabId } from './store/actions/tabState';
 import { TabAwareProvider, useTabAware } from './components/TabAwareProvider';
+import { selectPreferredMode, selectVisible } from './store/reducers/view';
+import { hydrateView, setPreferredMode, setVisible } from './store/actions/view';
 
-interface AppProps {
-  tabId: number;
-}
+interface AppProps { tabId: number; }
 
-const clamp = (v:number, a:number, b:number) => Math.max(a, Math.min(b, v));
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const DEFAULT_FLOAT = { width: 360, height: 560, x: 24, y: 24 };
+
+const DRAG_BAR_H = 32;                 // высота зоны перетаскивания
+const SAFE_TOP = DRAG_BAR_H + 8;       // общий внутренний верхний отступ в float
+const FLOAT_Z = 2147483646;            // z-index окна
 const floatKey = (tabId: number) => `anki_float_state_v1:${tabId}`;
 
 const ensureFloatingRoot = () => {
   const id = 'anki-floating-root';
   let el = document.getElementById(id);
-  if (!el) {
-    el = document.createElement('div');
-    el.id = id;
-    document.body.appendChild(el);
-  }
+  if (!el) { el = document.createElement('div'); el.id = id; document.body.appendChild(el); }
   return el;
 };
 
 const forceRemoveSidebarGap = (enable: boolean) => {
   const STYLE_ID = 'anki-float-reset-gap';
   let tag = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
-
   if (enable) {
     if (!tag) {
-      tag = document.createElement('style');
-      tag.id = STYLE_ID;
+      tag = document.createElement('style'); tag.id = STYLE_ID;
       tag.textContent = `
         html, body { margin-right: 0 !important; padding-right: 0 !important; }
         #anki-sidebar-spacer, .anki-sidebar-spacer { display: none !important; width: 0 !important; }
@@ -61,7 +59,6 @@ const setSidebarHostVisible = (visible: boolean) => {
   try {
     const known = document.querySelector('#sidebar') as HTMLElement | null;
     if (known) known.style.display = visible ? '' : 'none';
-
     const candidates = Array.from(document.querySelectorAll('*')) as HTMLElement[];
     for (const el of candidates) {
       const cs = getComputedStyle(el);
@@ -74,7 +71,6 @@ const setSidebarHostVisible = (visible: boolean) => {
   } catch {}
 };
 
-// Жёсткий показ контейнера сайдбара
 const hardShowSidebarHost = () => {
   const host = document.querySelector('#sidebar') as HTMLElement | null;
   if (!host) return;
@@ -89,12 +85,10 @@ const hardShowSidebarHost = () => {
 const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const tabAware = useTabAware();
   const { currentPage, setCurrentPage } = tabAware;
-  const isAnkiAvailable = useSelector((s: RootState) => s.anki.isAnkiAvailable);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const dispatch = useDispatch();
   const ankiConnectApiKey = useSelector((s: RootState) => s.settings.ankiConnectApiKey);
 
-  // floating
   const [isFloating, setIsFloating] = useState<boolean>(false);
   const [floatPos, setFloatPos] = useState({ x: DEFAULT_FLOAT.x, y: DEFAULT_FLOAT.y });
   const [floatSize, setFloatSize] = useState({ width: DEFAULT_FLOAT.width, height: DEFAULT_FLOAT.height });
@@ -102,7 +96,6 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const resizingRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
 
-  // restore/save floating state per tab
   useEffect(() => {
     try {
       const raw = localStorage.getItem(floatKey(tabId));
@@ -121,17 +114,13 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     } catch {}
   }, [isFloating, floatPos, floatSize, tabId]);
 
-  // hide/show sidebar host & gap
   useEffect(() => {
     const anchor = anchorRef.current;
     if (!anchor) return;
 
     const findHost = (): HTMLElement | null => {
-      // 1) сначала явный контейнер
-      const explicit = document.querySelector('#sidebar') as HTMLElement | null;
+      const explicit = document.querySelector('#anki-sidebar-root') as HTMLElement | null;
       if (explicit) return explicit;
-
-      // 2) поднимаемся по DOM от якоря
       let el: HTMLElement | null = anchor.parentElement;
       while (el && el !== document.body) {
         const cs = getComputedStyle(el);
@@ -140,8 +129,6 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
         if ((cs.position === 'fixed' || cs.position === 'absolute') && isRight && width >= 280 && width <= 520) return el;
         el = el.parentElement;
       }
-
-      // 3) fallback — поиск по всей странице
       const all = Array.from(document.querySelectorAll('*')) as HTMLElement[];
       for (const n of all) {
         const cs = getComputedStyle(n);
@@ -154,37 +141,18 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     };
 
     const host = findHost();
-
-    // 👉 ВАЖНО: когда плавающее ОКНО включено — прячем хост САЙДБАРА локально,
-    // а когда выключено — НИЧЕГО не делаем (контент-скрипт сам покажет/скроет по storage).
-    if (host && isFloating) {
-      host.style.display = 'none';
-    }
-
-    // Гап справа убираем только когда плаваем; иначе — возвращаем
+    if (host) host.style.display = isFloating ? 'none' : '';
     forceRemoveSidebarGap(isFloating);
   }, [isFloating]);
 
-  const persistPreferredMode = (mode: 'floating' | 'sidebar') => {
-    try {
-      const key = `anki_ui_tab_${tabId}`;
-      chrome.storage.local.get([key], (res) => {
-        const cur = res[key] || { sidebarVisible: false, floatingVisible: false, preferredMode: 'sidebar' };
-        chrome.storage.local.set({ [key]: { ...cur, preferredMode: mode } });
-      });
-    } catch {}
-  };
-
-  // init
   useEffect(() => {
     const init = async () => {
       try {
         dispatch(loadStoredCards());
         try {
           const decks = await fetchDecks(ankiConnectApiKey);
-          if ((decks as any).error) {
-            dispatch(setAnkiAvailability(false));
-          } else {
+          if ((decks as any).error) dispatch(setAnkiAvailability(false));
+          else {
             dispatch(fetchDecksSuccess((decks as any).result));
             dispatch(setAnkiAvailability(true));
           }
@@ -198,55 +166,51 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     if (isInitialLoad) init();
   }, [dispatch, ankiConnectApiKey, isInitialLoad]);
 
-  // close
+  useEffect(() => {
+    dispatch<any>(hydrateView());
+  }, [dispatch]);
+
+// брать режим/видимость из Redux
+  const preferredMode = useSelector((s: RootState) => selectPreferredMode(s as any, tabId));
+  const preferredVisible = useSelector((s: RootState) => selectVisible(s as any, tabId));
+
+// локальный isFloating синхронизируем с Redux режимом
+  useEffect(() => {
+    setIsFloating(preferredMode === 'float');
+  }, [preferredMode]);
+
+
   const handleCloseExtension = useCallback(() => {
-    // если мы в плавающем режиме — закрываем float И фиксируем preferredMode = 'floating'
     if (isFloating) {
+      // режим НЕ меняем – остаётся 'float', только скрываем
+      dispatch<any>(setVisible(tabId, false));
       setIsFloating(false);
-      try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: false, tabId }); } catch {}
-      try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'floating', tabId }); } catch {}
-      persistPreferredMode('floating'); // 👈
-      try { chrome.runtime.sendMessage({ action: 'forceHideSidebar', tabId }); } catch {}
+
       const floatRoot = document.getElementById('anki-floating-root');
       if (floatRoot) floatRoot.remove();
       try { (disablePageSelection as any)?.(false); } catch {}
       return;
     }
 
-    // если режим сайдбара — просто тумблим его
+    // сайдбар скрываем
+    dispatch<any>(setPreferredMode(tabId, 'sidebar'));
+    dispatch<any>(setVisible(tabId, false));
     dispatch(toggleSidebar(tabId));
-    try {
-      chrome.runtime.sendMessage({ action: 'toggleSidebar', tabId }, (response) => {
-        const lastErr = (chrome.runtime as any)?.lastError;
-        if (lastErr) console.error('Error sending message:', lastErr.message);
-        else console.log('Extension closed:', response);
-      });
-    } catch (e) {
-      console.error('Error sending message:', e);
-    }
+    try { chrome.runtime.sendMessage({ action: 'toggleSidebar', tabId }); } catch {}
   }, [dispatch, tabId, isFloating]);
 
-
-
-  // enable/disable/toggle floating
   const enableFloating = useCallback(() => {
+    dispatch<any>(setPreferredMode(tabId, 'float'));
+    dispatch<any>(setVisible(tabId, true));
     setIsFloating(true);
     forceRemoveSidebarGap(true);
-    try { chrome.runtime.sendMessage({ action: 'forceHideSidebar', tabId }); } catch {}
-    try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: true, tabId }); } catch {}
-    try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'floating', tabId }); } catch {}
-    persistPreferredMode('floating'); // 👈
-  }, [tabId]);
-
+  }, [dispatch, tabId]);
 
   const disableFloating = useCallback(() => {
+    dispatch<any>(setPreferredMode(tabId, 'sidebar'));
+    dispatch<any>(setVisible(tabId, true));
     setIsFloating(false);
     forceRemoveSidebarGap(false);
-    try { chrome.runtime.sendMessage({ action: 'forceShowSidebar', tabId }); } catch {}
-    try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: false, tabId }); } catch {}
-    try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'sidebar', tabId }); } catch {}
-    persistPreferredMode('sidebar'); // 👈
-
     const host = document.querySelector('#sidebar') as HTMLElement | null;
     if (host) {
       host.removeAttribute('hidden');
@@ -256,54 +220,36 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     }
     const floatRoot = document.getElementById('anki-floating-root');
     if (floatRoot && floatRoot.childElementCount === 0) floatRoot.remove();
-  }, [tabId]);
+  }, [dispatch, tabId]);
+
 
   const toggleFloating = useCallback(() => {
-    setIsFloating(prev => {
+    setIsFloating((prev) => {
       const next = !prev;
-
+      const nextMode = next ? 'float' : 'sidebar';
+      dispatch<any>(setPreferredMode(tabId, nextMode));
+      dispatch<any>(setVisible(tabId, true));
       if (next) {
-        setSidebarHostVisible(false);
         forceRemoveSidebarGap(true);
-        try { chrome.runtime.sendMessage({ action: 'forceHideSidebar', tabId }); } catch {}
-        try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: true, tabId }); } catch {}
-        // теперь предпочитаем float
-        try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'floating', tabId }); } catch {}
-        persistPreferredMode('floating'); // 👈
+        setSidebarHostVisible(false);
       } else {
-        setSidebarHostVisible(true);
         forceRemoveSidebarGap(false);
+        setSidebarHostVisible(true);
         hardShowSidebarHost();
-        try { chrome.runtime.sendMessage({ action: 'expandSidebar', tabId }); } catch {}
-        try { chrome.runtime.sendMessage({ action: 'syncFloatingState', floatingVisible: false, tabId }); } catch {}
-        // теперь предпочитаем sidebar
-        try { chrome.runtime.sendMessage({ action: 'setPreferredMode', mode: 'sidebar', tabId }); } catch {}
-        persistPreferredMode('sidebar'); // 👈
-
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            hardShowSidebarHost();
-            setSidebarHostVisible(true);
-          });
-        });
       }
-
       return next;
     });
-  }, [tabId]);
+  }, [dispatch, tabId]);
 
-  // messages
   useEffect(() => {
     const onMessage = (msg: any, _sender: chrome.runtime.MessageSender, sendResponse?: (r?: any) => void) => {
       if (!msg?.action) return;
-
       if (msg.action === 'toggleFloating') { toggleFloating(); sendResponse?.({ ok: true }); return true; }
       if (msg.action === 'showFloating')   { enableFloating();  sendResponse?.({ ok: true }); return true; }
       if (msg.action === 'hideFloating')   { disableFloating(); sendResponse?.({ ok: true }); return true; }
       if (msg.action === 'collapseSidebar'){ enableFloating();  sendResponse?.({ ok: true }); return true; }
       if (msg.action === 'expandSidebar')  { disableFloating(); sendResponse?.({ ok: true }); return true; }
     };
-
     chrome.runtime.onMessage.addListener(onMessage);
     return () => chrome.runtime.onMessage.removeListener(onMessage);
   }, [toggleFloating, enableFloating, disableFloating]);
@@ -311,22 +257,16 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   // drag
   const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isFloating) return;
-    e.preventDefault();           // чтобы не запускать браузерный drag
-    disablePageSelection(true);   // <— ВКЛ: запрет выделения/overlay
-
+    e.preventDefault(); disablePageSelection(true);
     const startX = e.clientX, startY = e.clientY;
     draggingRef.current = { offsetX: startX - floatPos.x, offsetY: startY - floatPos.y };
-    window.addEventListener('mousemove', onDragMove);
-    window.addEventListener('mouseup', onDragEnd);
+    window.addEventListener('mousemove', onDragMove); window.addEventListener('mouseup', onDragEnd);
   };
-
   const onDragEnd = () => {
     draggingRef.current = null;
-    window.removeEventListener('mousemove', onDragMove);
-    window.removeEventListener('mouseup', onDragEnd);
-    disablePageSelection(false);  // <— ВЫКЛ: вернуть как было
+    window.removeEventListener('mousemove', onDragMove); window.removeEventListener('mouseup', onDragEnd);
+    disablePageSelection(false);
   };
-
   const onDragMove = (e: MouseEvent) => {
     if (!draggingRef.current) return;
     const { innerWidth, innerHeight } = window;
@@ -337,28 +277,15 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
 
   // resize
   const onResizeStart = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isFloating) return;
-    e.preventDefault();
-    e.stopPropagation();
-    disablePageSelection(true);   // <— включить
-
-    resizingRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startW: floatSize.width,
-      startH: floatSize.height
-    };
-    window.addEventListener('mousemove', onResizeMove);
-    window.addEventListener('mouseup', onResizeEnd);
+    if (!isFloating) return; e.preventDefault(); e.stopPropagation(); disablePageSelection(true);
+    resizingRef.current = { startX: e.clientX, startY: e.clientY, startW: floatSize.width, startH: floatSize.height };
+    window.addEventListener('mousemove', onResizeMove); window.addEventListener('mouseup', onResizeEnd);
   };
-
   const onResizeEnd = () => {
     resizingRef.current = null;
-    window.removeEventListener('mousemove', onResizeMove);
-    window.removeEventListener('mouseup', onResizeEnd);
-    disablePageSelection(false);  // <— выключить
+    window.removeEventListener('mousemove', onResizeMove); window.removeEventListener('mouseup', onResizeEnd);
+    disablePageSelection(false);
   };
-
   const onResizeMove = (e: MouseEvent) => {
     if (!resizingRef.current) return;
     const dx = e.clientX - resizingRef.current.startX;
@@ -370,12 +297,13 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
 
   const handlePageChange = useCallback((page: string) => setCurrentPage(page), [setCurrentPage]);
 
+  // Контент страниц (без safeTop — он теперь у контейнера header)
   const renderMainContent = () => {
     const topPadding = currentPage !== 'createCard' ? '46px' : '12px';
     const bottomPadding = '58px';
     const baseStyle: React.CSSProperties = {
-      width: '100%', height: '100%', paddingTop: topPadding, paddingBottom: bottomPadding, overflow: 'auto',
-      opacity: 1, transform: 'translateX(0)', transition: 'all 0.3s ease-in-out'
+      width: '100%', height: '100%', paddingTop: topPadding, paddingBottom: bottomPadding,
+      overflow: 'auto', opacity: 1, transform: 'translateX(0)', transition: 'all 0.3s ease-in-out'
     };
 
     switch (currentPage) {
@@ -396,31 +324,38 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     }
   };
 
+  // Шапка (кнопки + хэндл)
   const renderHeaderButtons = () => {
     const unsavedCardsCount = tabAware.storedCards.filter(c => c.exportStatus === 'not_exported').length;
-
     return (
       <>
         {isFloating && (
-          <div
-            onMouseDown={onDragStart}
-            style={{
-              position: 'absolute', top: 0, left: 0, right: 0, height: 28, cursor: 'move',
-              background: 'linear-gradient(to right, rgba(243,244,246,0.95), rgba(255,255,255,0.75))',
-              borderTopLeftRadius: 12, borderTopRightRadius: 12,
-              borderBottom: '1px solid rgba(0,0,0,0.06)', zIndex: 250
-            }}
-            title="Drag to move"
-          />
+          <>
+            {/* Визуальная панель */}
+            <div
+              style={{
+                position: 'absolute', top: 0, left: 0, right: 0, height: DRAG_BAR_H,
+                pointerEvents: 'none',
+                background: 'linear-gradient(to right, rgba(243,244,246,0.96), rgba(255,255,255,0.84))',
+                borderTopLeftRadius: 12, borderTopRightRadius: 12,
+                borderBottom: '1px solid rgba(0,0,0,0.06)', zIndex: FLOAT_Z + 0
+              }}
+            />
+            {/* Ловец drag (оставляем справа место под кнопки) */}
+            <div
+              onMouseDown={onDragStart}
+              style={{ position: 'absolute', top: 0, left: 0, right: 96, height: DRAG_BAR_H, cursor: 'move', zIndex: FLOAT_Z + 1 }}
+              title="Drag to move"
+            />
+          </>
         )}
 
+        {/* Close */}
         <button
           onClick={handleCloseExtension}
-          className="close-button"
           style={{
-            position: 'absolute', top: '6px', right: '12px', backgroundColor: 'transparent', border: 'none', cursor: 'pointer',
-            padding: '6px', color: '#6B7280', borderRadius: '5px', transition: 'all 0.2s ease', display: 'flex',
-            alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', zIndex: 260
+            position: 'absolute', top: '6px', right: '12px', background: 'transparent', border: 'none',
+            cursor: 'pointer', padding: '6px', color: '#6B7280', borderRadius: 5, width: 28, height: 28, zIndex: FLOAT_Z + 2
           }}
           onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#F3F4F6'; e.currentTarget.style.color = '#EF4444'; }}
           onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#6B7280'; }}
@@ -429,12 +364,12 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
           <FaTimes size={14} />
         </button>
 
+        {/* Toggle float/dock */}
         <button
           onClick={toggleFloating}
-          className="float-toggle-button"
           style={{
-            position: 'absolute', top: '6px', right: '46px', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', padding: '6px',
-            color: '#6B7280', borderRadius: '5px', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', zIndex: 260
+            position: 'absolute', top: '6px', right: '46px', background: 'transparent', border: 'none',
+            cursor: 'pointer', padding: '6px', color: '#6B7280', borderRadius: 5, width: 28, height: 28, zIndex: FLOAT_Z + 2
           }}
           onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#F3F4F6'; e.currentTarget.style.color = '#111827'; }}
           onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#6B7280'; }}
@@ -443,22 +378,20 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
           {isFloating ? <FaColumns size={14} /> : <FaExpandArrowsAlt size={14} />}
         </button>
 
+        {/* New Card (когда не на createCard) */}
         {currentPage !== 'createCard' && (
-          <div style={{ position: 'absolute', top: '6px', left: '12px', right: '80px', zIndex: 200 }}>
+          <div style={{ position: 'absolute', top: '6px', left: '12px', right: '80px', zIndex: FLOAT_Z + 2 }}>
             <button
               onClick={() => handlePageChange('createCard')}
-              className="new-card-button"
               style={{
-                backgroundColor: '#2563EB', border: 'none', cursor: 'pointer', padding: '6px 14px', color: '#FFFFFF',
-                borderRadius: '7px', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: '100%', height: '32px', boxShadow: '0 1px 3px rgba(37, 99, 235, 0.2)', fontSize: '13px', fontWeight: 600
+                backgroundColor: '#2563EB', border: 'none', cursor: 'pointer', padding: '6px 14px', color: '#fff',
+                borderRadius: 7, width: '100%', height: 32, fontSize: 13, fontWeight: 600,
+                boxShadow: '0 1px 3px rgba(37,99,235,0.2)', transition: 'all .2s'
               }}
-              onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#1D4ED8'; e.currentTarget.style.transform = 'translateY(-0.5px)'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(37, 99, 235, 0.25)'; }}
-              onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#2563EB'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(37, 99, 235, 0.2)'; }}
-              title="Create a new card"
+              onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#1D4ED8'; e.currentTarget.style.transform = 'translateY(-0.5px)'; }}
+              onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#2563EB'; e.currentTarget.style.transform = 'translateY(0)'; }}
             >
-              <FaPlus style={{ marginRight: '5px' }} size={13} />
-              New Card
+              <FaPlus style={{ marginRight: 5 }} size={13} /> New Card
             </button>
           </div>
         )}
@@ -517,14 +450,15 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
           </button>
         </div>
 
+        {/* Ручка ресайза */}
         {isFloating && (
           <div
             onMouseDown={onResizeStart}
             title="Drag to resize"
             style={{
               position: 'absolute', width: 16, height: 16, right: 6, bottom: 6, cursor: 'nwse-resize',
-              borderRadius: 4, background: 'linear-gradient(135deg, rgba(203,213,225,0.9), rgba(148,163,184,0.9))',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.08)', zIndex: 220
+              borderRadius: 4, background: 'linear-gradient(135deg, rgba(203,213,225,.9), rgba(148,163,184,.9))',
+              boxShadow: '0 1px 2px rgba(0,0,0,.08)', zIndex: FLOAT_Z + 2
             }}
           />
         )}
@@ -532,98 +466,96 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     );
   };
 
-  // Глобально отключаем выделение и DnD на странице во время drag/resize
+  // Блокировка выделения/drag страницы на время перетаскивания/ресайза
   const disablePageSelection = (on: boolean) => {
     const STYLE_ID = 'anki-disable-user-select';
     const OVERLAY_ID = 'anki-drag-overlay';
-
-    // стиль (user-select: none + grabbing курсор)
     let styleEl = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
-
-    // запоминаем обработчик, чтобы потом снять
     const anyFn = disablePageSelection as any;
+
     if (on) {
       if (!styleEl) {
         styleEl = document.createElement('style');
         styleEl.id = STYLE_ID;
         styleEl.textContent = `
-        html, body, * {
-          -webkit-user-select: none !important;
-          -moz-user-select: none !important;
-          -ms-user-select: none !important;
-          user-select: none !important;
-        }
-        body { cursor: grabbing !important; }
-      `;
+          html, body, * { user-select: none !important; -webkit-user-select: none !important; }
+          body { cursor: grabbing !important; }
+        `;
         document.head.appendChild(styleEl);
       }
-
-      // прозрачный оверлей — перехватывает события мыши и не даёт "протыкать" страницу
       if (!document.getElementById(OVERLAY_ID)) {
         const overlay = document.createElement('div');
         overlay.id = OVERLAY_ID;
-        Object.assign(overlay.style, {
-          position: 'fixed',
-          inset: '0',
-          zIndex: '2147483644', // ниже самого окна (у него 2147483646), но выше страницы
-          cursor: 'grabbing',
-          background: 'transparent'
-        } as CSSStyleDeclaration);
+        overlay.style.position = 'fixed';
+        overlay.style.inset = '0';
+        overlay.style.zIndex = String(FLOAT_Z - 1);
+        overlay.style.cursor = 'grabbing';
+        overlay.style.background = 'transparent';
         document.body.appendChild(overlay);
       }
-
-      // блокируем нативный select/drag
       const prevent = (e: Event) => e.preventDefault();
       anyFn._preventHandler = prevent;
       document.addEventListener('selectstart', prevent, true);
       document.addEventListener('dragstart', prevent, true);
     } else {
       if (styleEl) styleEl.remove();
-      const overlay = document.getElementById(OVERLAY_ID);
-      if (overlay) overlay.remove();
-
+      const overlay = document.getElementById(OVERLAY_ID); if (overlay) overlay.remove();
       const prevent = anyFn._preventHandler as ((e: Event) => void) | undefined;
       if (prevent) {
         document.removeEventListener('selectstart', prevent, true);
         document.removeEventListener('dragstart', prevent, true);
         anyFn._preventHandler = undefined;
       }
-
-      // очистим текущее выделение (если вдруг осталось)
       try { window.getSelection()?.removeAllRanges?.(); } catch {}
     }
   };
 
-  const containerStyle: React.CSSProperties = isFloating ? {
-    backgroundColor: '#ffffff',
-    position: 'fixed',
-    left: floatPos.x,
-    top: floatPos.y,
-    width: floatSize.width,
-    height: floatSize.height,
+  const containerStyle: React.CSSProperties = isFloating
+    ? {
+      backgroundColor: '#ffffff',
+      position: 'fixed',
+      left: floatPos.x,
+      top: floatPos.y,
+      width: floatSize.width,
+      height: floatSize.height,
+      display: 'flex',
+      flexDirection: 'column',
+      zIndex: FLOAT_Z,
+      borderRadius: 12,
+      overflow: 'hidden',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.18), 0 1px 0 rgba(0,0,0,0.08)',
+      border: '1px solid rgba(0,0,0,0.06)'
+    }
+    : {
+      backgroundColor: '#ffffff',
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      position: 'absolute',
+      right: 0,
+      top: 0,
+      width: '350px',
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif',
+      boxShadow: '0 0 0 1px rgba(0,0,0,0.05), 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)'
+    };
+
+  // Общий контейнер-контент с паддингом под хэндл (теперь именно здесь)
+  const headerInnerStyle: React.CSSProperties = {
+    width: '100%',
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    zIndex: 2147483646,
-    borderRadius: 12,
-    overflow: 'hidden',
-    boxShadow: '0 8px 24px rgba(0,0,0,0.18), 0 1px 0 rgba(0,0,0,0.08)',
-    border: '1px solid rgba(0,0,0,0.06)'
-  } : {
     backgroundColor: '#ffffff',
-    height: '100vh',
-    display: 'flex',
-    flexDirection: 'column',
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    width: '350px',
-    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif',
-    boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.05), 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-  };
+    marginTop: 0,
+    height: '100%',
+    overflow: 'auto',
+    boxSizing: 'border-box',
+    paddingTop: isFloating ? SAFE_TOP : 0,
+    scrollPaddingTop: isFloating ? SAFE_TOP : 0
+  } as React.CSSProperties;
 
   return (
     <>
-      {/* якорь для обнаружения исходного сайдбар-хоста */}
       <div ref={anchorRef} data-anki-app-anchor style={{ display: 'none' }} />
 
       {isFloating
@@ -631,12 +563,10 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
           <div className="App" style={containerStyle}>
             <div style={{ flex: 1, width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column' }}>
               {renderHeaderButtons()}
-              <header className="App-header" style={{ width: '100%', flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#ffffff', marginTop: '0px', height: '100%', overflow: 'auto' }}>
+              <header className="App-header" style={headerInnerStyle}>
                 {renderMainContent()}
-                <div style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 9999, maxWidth: '300px', width: 'auto', pointerEvents: 'none' }}>
-                  <div style={{ pointerEvents: 'auto' }}>
-                    <GlobalNotifications />
-                  </div>
+                <div style={{ position: 'absolute', top: 16, right: 16, zIndex: FLOAT_Z + 2, maxWidth: 300, width: 'auto', pointerEvents: 'none' }}>
+                  <div style={{ pointerEvents: 'auto' }}><GlobalNotifications /></div>
                 </div>
               </header>
             </div>
@@ -647,12 +577,10 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
           <div className="App" style={containerStyle}>
             <div style={{ flex: 1, width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column' }}>
               {renderHeaderButtons()}
-              <header className="App-header" style={{ width: '100%', flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#ffffff', marginTop: '0px', height: '100%', overflow: 'auto' }}>
+              <header className="App-header" style={headerInnerStyle}>
                 {renderMainContent()}
-                <div style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 9999, maxWidth: '300px', width: 'auto', pointerEvents: 'none' }}>
-                  <div style={{ pointerEvents: 'auto' }}>
-                    <GlobalNotifications />
-                  </div>
+                <div style={{ position: 'absolute', top: 16, right: 16, zIndex: FLOAT_Z + 2, maxWidth: 300, width: 'auto', pointerEvents: 'none' }}>
+                  <div style={{ pointerEvents: 'auto' }}><GlobalNotifications /></div>
                 </div>
               </header>
             </div>
@@ -666,8 +594,8 @@ function App({ tabId }: AppProps) {
   const dispatch = useDispatch();
   useEffect(() => {
     dispatch(setCurrentTabId(tabId));
-    // setSidebarHostVisible(true);
-    // forceRemoveSidebarGap(false);
+    setSidebarHostVisible(true);
+    forceRemoveSidebarGap(false);
   }, [dispatch, tabId]);
 
   return (

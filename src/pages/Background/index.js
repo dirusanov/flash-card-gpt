@@ -1,75 +1,80 @@
-/* eslint-disable no-console */
-console.log('I am background script');
+// src/pages/Background/index.js
+const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
 
-// Клик по иконке — пусть контент решит по preferredMode
-chrome.action.onClicked.addListener((tab) => {
-  if (!tab || tab.id == null) return;
-  chrome.tabs.sendMessage(tab.id, { action: 'togglePreferredUI', tabId: tab.id }, (resp) => {
-    if (chrome.runtime.lastError) {
-      console.error('togglePreferredUI error:', chrome.runtime.lastError.message);
-    } else {
-      console.log('togglePreferredUI response:', resp);
+function getViewPrefs() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([VIEW_STORAGE_KEY], (res) => {
+        resolve(res[VIEW_STORAGE_KEY] || { preferredModeByTab: {}, visibleByTab: {} });
+      });
+    } catch (e) {
+      resolve({ preferredModeByTab: {}, visibleByTab: {} });
     }
   });
-});
+}
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  try {
-    // image fetch (оставляем как было, если у тебя есть)
-    if (typeof message === 'string' && message.startsWith('http')) {
-      fetch(message, { method: 'GET' })
-        .then((r) => r.blob())
-        .then((blob) => {
-          const reader = new FileReader();
-          reader.onloadend = () => sendResponse({ status: true, data: reader.result });
-          reader.onerror = (e) => sendResponse({ status: false, error: String(e) });
-          reader.readAsDataURL(blob);
-        })
-        .catch((e) => sendResponse({ status: false, error: String(e) }));
-      return true;
-    }
-
-    // вернуть tabId
-    if (message && message.action === 'getTabId') {
-      const tabId = sender?.tab?.id ?? null;
-      sendResponse({ tabId });
-      return true;
-    }
-
-    // ПРОКСИРУЕМ В ТЕКУЩУЮ ВКЛАДКУ — чтобы App.tsx (и content) получили событие
-    const forwardToTab = (actList) => {
-      if (!message || !message.action || !actList.includes(message.action)) return false;
-      const targetTabId = sender?.tab?.id ?? message.tabId;
-      if (targetTabId == null) {
-        sendResponse?.({ status: false, error: 'No target tabId' });
-        return true;
-      }
-      chrome.tabs.sendMessage(targetTabId, { ...message, tabId: targetTabId }, (response) => {
-        if (chrome.runtime.lastError) sendResponse?.({ status: false, error: chrome.runtime.lastError.message });
-        else sendResponse?.(response || { ok: true });
-      });
-      return true;
-    };
-
-    if (forwardToTab(['togglePreferredUI', 'toggleSidebar',
-      'forceHideSidebar','forceShowSidebar','collapseSidebar','expandSidebar',
-      'showFloating','hideFloating','toggleFloating','syncFloatingState',
-      'setPreferredMode'])) return true;
-
-    // сайдбар силовые / тумблер
-    if (forwardToTab(['toggleSidebar', 'forceHideSidebar', 'forceShowSidebar', 'collapseSidebar', 'expandSidebar'])) return true;
-
-    // ВАЖНО: проксируем эти события для ПЛАВАЮЩЕГО окна и синхронизации
-    if (forwardToTab(['showFloating', 'hideFloating', 'toggleFloating', 'syncFloatingState'])) return true;
-
-    // настроечные (необязательно проксировать, но можно)
-    if (forwardToTab(['setPreferredMode'])) return true;
-
-  } catch (err) {
-    console.error('onMessage handler error:', err);
-    try { sendResponse?.({ status: false, error: String(err) }); } catch {}
+function configureActionForTab(tab) {
+  if (!tab || tab.id == null) return;
+  const url = tab.url || '';
+  const isHttp = url.startsWith('http://') || url.startsWith('https://');
+  if (isHttp) {
+    chrome.action.setPopup({ tabId: tab.id, popup: '' });
+    chrome.action.setTitle({ tabId: tab.id, title: 'Toggle Sidebar / Floating' });
+  } else {
+    chrome.action.setPopup({ tabId: tab.id, popup: 'popup.html' });
+    chrome.action.setTitle({
+      tabId: tab.id,
+      title: 'Расширение недоступно на этой странице',
+    });
   }
-  return false;
+}
+
+chrome.tabs.onActivated.addListener(({ tabId }) => chrome.tabs.get(tabId, configureActionForTab));
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!tab || !tab.active) return;
+  if (changeInfo.status === 'complete' || changeInfo.url) configureActionForTab(tab);
+});
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.tabs.query({ currentWindow: true, active: true }, (tabs) => tabs[0] && configureActionForTab(tabs[0]));
 });
 
-console.log('Background script has been loaded.');
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab || tab.id == null) return;
+  const tabId = tab.id;
+
+  const view = await getViewPrefs();
+  const mode = (view.preferredModeByTab && view.preferredModeByTab[tabId]) || 'sidebar';
+
+  if (mode === 'float') {
+    // строгий показ плавающего
+    chrome.tabs.sendMessage(tabId, { action: 'showFloating', tabId });
+  } else {
+    // режим сайдбара переключаем
+    chrome.tabs.sendMessage(tabId, { action: 'toggleSidebar', tabId });
+  }
+});
+
+// утилита для прокси загрузки картинок по URL -> dataURL
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (typeof msg === 'string' && msg.startsWith('http')) {
+    fetch(msg, { method: 'GET' })
+      .then((r) => r.blob())
+      .then(
+        (blob) =>
+          new Promise((res, rej) => {
+            const fr = new FileReader();
+            fr.onloadend = () => res(fr.result);
+            fr.onerror = rej;
+            fr.readAsDataURL(blob);
+          }),
+      )
+      .then((dataUrl) => sendResponse({ status: true, data: dataUrl }))
+      .catch((err) => sendResponse({ status: false, error: String(err) }));
+    return true;
+  }
+
+  if (msg && msg.action === 'getTabId') {
+    sendResponse({ tabId: sender.tab ? sender.tab.id : null });
+    return true;
+  }
+});
