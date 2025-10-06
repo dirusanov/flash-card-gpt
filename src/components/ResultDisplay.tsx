@@ -447,6 +447,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
             overflowX: 'hidden',
             backgroundColor: isEditMode ? '#FAFAFA' : '#ffffff',
+            boxSizing: 'border-box',
             borderLeft: isEditMode 
                 ? '3px solid #3B82F6' 
                 : '3px solid transparent'

@@ -20,7 +20,8 @@ import { hydrateView, setPreferredMode, setVisible } from './store/actions/view'
 interface AppProps { tabId: number; }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
-const DEFAULT_FLOAT = { width: 360, height: 560, x: 24, y: 24 };
+const DEFAULT_FLOAT = { width: 360, height: 660, x: 24, y: 24 };
+const MAX_FLOAT_WIDTH = DEFAULT_FLOAT.width + 48; // allow only slight horizontal growth (~1 cm)
 
 const DRAG_BAR_H = 32;                 // высота зоны перетаскивания
 const SAFE_TOP = DRAG_BAR_H + 8;       // общий внутренний верхний отступ в float
@@ -290,7 +291,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     if (!resizingRef.current) return;
     const dx = e.clientX - resizingRef.current.startX;
     const dy = e.clientY - resizingRef.current.startY;
-    const newW = clamp(resizingRef.current.startW + dx, 300, Math.min(window.innerWidth - 16, 720));
+    const newW = clamp(resizingRef.current.startW + dx, 340, Math.min(window.innerWidth - 16, MAX_FLOAT_WIDTH));
     const newH = clamp(resizingRef.current.startH + dy, 340, Math.min(window.innerHeight - 16, 900));
     setFloatSize({ width: newW, height: newH });
   };
@@ -301,9 +302,12 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const renderMainContent = () => {
     const topPadding = currentPage !== 'createCard' ? '46px' : '12px';
     const bottomPadding = '58px';
+    const horizontalPadding = isFloating ? '12px' : '0px';
     const baseStyle: React.CSSProperties = {
       width: '100%', height: '100%', paddingTop: topPadding, paddingBottom: bottomPadding,
-      overflow: 'auto', opacity: 1, transform: 'translateX(0)', transition: 'all 0.3s ease-in-out'
+      paddingLeft: horizontalPadding, paddingRight: horizontalPadding,
+      overflowY: 'auto', overflowX: 'hidden', opacity: 1, transform: 'translateX(0)', transition: 'all 0.3s ease-in-out',
+      boxSizing: 'border-box'
     };
 
     switch (currentPage) {
@@ -315,8 +319,9 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       default:
         return (
           <div style={{
-            width: '100%', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto', height: '100%', position: 'relative',
-            paddingTop: topPadding, paddingBottom: bottomPadding, opacity: 1, transform: 'translateX(0)', transition: 'all 0.3s ease-in-out'
+            width: '100%', flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', overflowX: 'hidden', height: '100%', position: 'relative',
+            paddingTop: topPadding, paddingBottom: bottomPadding, paddingLeft: horizontalPadding, paddingRight: horizontalPadding,
+            opacity: 1, transform: 'translateX(0)', transition: 'all 0.3s ease-in-out', boxSizing: 'border-box'
           }}>
             <CreateCard />
           </div>
@@ -556,9 +561,12 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     backgroundColor: '#ffffff',
     marginTop: 0,
     height: '100%',
-    overflow: 'auto',
+    overflowY: 'auto',
+    overflowX: 'hidden',
     boxSizing: 'border-box',
     paddingTop: isFloating ? SAFE_TOP : 0,
+    paddingRight: isFloating ? 12 : 0,
+    paddingLeft: isFloating ? 8 : 0,
     scrollPaddingTop: isFloating ? SAFE_TOP : 0
   } as React.CSSProperties;
 

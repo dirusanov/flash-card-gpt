@@ -1452,7 +1452,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 zIndex: 1000,
                 backdropFilter: 'blur(2px)',
                 padding: '16px',
-                overflowY: 'auto'
+                overflowY: 'auto',
+                overflowX: 'hidden'
             }} onClick={handleCancelEdit}>
                 <div style={{
                     backgroundColor: '#ffffff',
@@ -1461,6 +1462,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     width: '100%',
                     maxHeight: 'calc(100% - 32px)',
                     overflowY: 'auto',
+                    overflowX: 'hidden',
                     boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
                     position: 'relative',
                     padding: '16px',
@@ -1516,6 +1518,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         <div style={{
                             position: 'relative',
                             width: '100%',
+                            maxWidth: '100%',
                         }}>
                             <input
                                 type="text"
@@ -1525,6 +1528,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 placeholder="Enter custom instructions for this card (e.g., 'regenerate examples', 'change image style')"
                                 style={{
                                     width: '100%',
+                                    maxWidth: '100%',
                                     padding: '10px 12px',
                                     paddingRight: '44px',
                                     borderRadius: '8px',
@@ -1533,7 +1537,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     color: '#374151',
                                     backgroundColor: isProcessingCustomInstruction ? '#F9FAFB' : '#FFFFFF',
                                     transition: 'all 0.2s ease',
-                                    boxShadow: isProcessingCustomInstruction ? 'inset 0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
+                                    boxShadow: isProcessingCustomInstruction ? 'inset 0 1px 2px rgba(0, 0, 0, 0.05)' : 'none',
+                                    boxSizing: 'border-box'
                                 }}
                                 disabled={isProcessingCustomInstruction}
                             />
@@ -2276,6 +2281,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             padding: '12px',
             paddingBottom: '20px',
             overflowY: 'auto',
+            overflowX: 'hidden',
             width: '100%',
             maxWidth: '320px',
             margin: '0 auto',

@@ -5743,8 +5743,10 @@ Original text: ${text}`;
                 paddingTop: '16px',
                 height: '100%',
                 overflowY: 'auto',
+                overflowX: 'hidden',
                 backgroundColor: '#ffffff',
-                paddingBottom: '16px'
+                paddingBottom: '16px',
+                boxSizing: 'border-box'
             }}>
                 <div style={{
                     display: 'flex',
