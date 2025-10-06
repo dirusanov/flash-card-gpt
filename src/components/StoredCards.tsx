@@ -1440,29 +1440,32 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
         return (
             <div style={{
-                position: 'fixed',
+                position: 'absolute',
                 top: 0,
                 left: 0,
                 right: 0,
                 bottom: 0,
                 backgroundColor: 'rgba(0, 0, 0, 0.5)',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 justifyContent: 'center',
                 zIndex: 1000,
                 backdropFilter: 'blur(2px)',
-                padding: '16px'
+                padding: '16px',
+                overflowY: 'auto'
             }} onClick={handleCancelEdit}>
                 <div style={{
                     backgroundColor: '#ffffff',
                     borderRadius: '12px',
                     maxWidth: '340px',
                     width: '100%',
-                    maxHeight: '90vh',
+                    maxHeight: 'calc(100% - 32px)',
                     overflowY: 'auto',
                     boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
                     position: 'relative',
-                    padding: '16px'
+                    padding: '16px',
+                    boxSizing: 'border-box',
+                    margin: 'auto'
                 }} onClick={(e) => e.stopPropagation()}>
                     <div style={{
                         position: 'sticky',

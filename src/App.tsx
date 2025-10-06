@@ -380,7 +380,15 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
 
         {/* New Card (когда не на createCard) */}
         {currentPage !== 'createCard' && (
-          <div style={{ position: 'absolute', top: '6px', left: '12px', right: '80px', zIndex: FLOAT_Z + 2 }}>
+          <div
+            style={{
+              position: 'absolute',
+              top: isFloating ? `${DRAG_BAR_H + 8}px` : '6px',
+              left: '12px',
+              right: '80px',
+              zIndex: FLOAT_Z + 2
+            }}
+          >
             <button
               onClick={() => handlePageChange('createCard')}
               style={{
