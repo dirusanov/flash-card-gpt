@@ -5,10 +5,16 @@ function getViewPrefs() {
   return new Promise((resolve) => {
     try {
       chrome.storage.local.get([VIEW_STORAGE_KEY], (res) => {
-        resolve(res[VIEW_STORAGE_KEY] || { preferredModeByTab: {}, visibleByTab: {} });
+        resolve(
+          res[VIEW_STORAGE_KEY] || {
+            preferredModeByTab: {},
+            visibleByTab: {},
+            floatGeometryByTab: {},
+          },
+        );
       });
     } catch (e) {
-      resolve({ preferredModeByTab: {}, visibleByTab: {} });
+      resolve({ preferredModeByTab: {}, visibleByTab: {}, floatGeometryByTab: {} });
     }
   });
 }
@@ -44,10 +50,12 @@ chrome.action.onClicked.addListener(async (tab) => {
 
   const view = await getViewPrefs();
   const mode = (view.preferredModeByTab && view.preferredModeByTab[tabId]) || 'sidebar';
+  const visibleMap = view.visibleByTab || {};
+  const hasVisibleEntry = Object.prototype.hasOwnProperty.call(visibleMap, tabId);
+  const visible = hasVisibleEntry ? !!visibleMap[tabId] : mode === 'float';
 
   if (mode === 'float') {
-    // строгий показ плавающего
-    chrome.tabs.sendMessage(tabId, { action: 'showFloating', tabId });
+    chrome.tabs.sendMessage(tabId, { action: visible ? 'hideFloating' : 'showFloating', tabId });
   } else {
     // режим сайдбара переключаем
     chrome.tabs.sendMessage(tabId, { action: 'toggleSidebar', tabId });

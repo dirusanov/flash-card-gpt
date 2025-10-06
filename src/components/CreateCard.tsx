@@ -296,6 +296,36 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const imageGenerationMode = useSelector((state: RootState) => state.settings.imageGenerationMode);
     const [showAISettings, setShowAISettings] = useState(false);
 
+    const IMAGE_MODE_STORAGE_KEY = 'anki_image_generation_mode';
+    const hasLoadedImageModeRef = useRef(false);
+
+    // Persist image generation mode changes
+    useEffect(() => {
+        if (!hasLoadedImageModeRef.current) return;
+        try {
+            localStorage.setItem(IMAGE_MODE_STORAGE_KEY, imageGenerationMode);
+        } catch (error) {
+            console.warn('Failed to persist image generation mode:', error);
+        }
+    }, [imageGenerationMode]);
+
+    // Restore saved image generation mode on first mount
+    useEffect(() => {
+        if (hasLoadedImageModeRef.current) return;
+        hasLoadedImageModeRef.current = true;
+        try {
+            const savedMode = localStorage.getItem(IMAGE_MODE_STORAGE_KEY) as 'off' | 'smart' | 'always' | null;
+            if (savedMode && savedMode !== imageGenerationMode) {
+                dispatch(setImageGenerationMode(savedMode));
+                if (savedMode === 'off') {
+                    dispatch(setShouldGenerateImage(false));
+                }
+            }
+        } catch (error) {
+            console.warn('Failed to restore image generation mode:', error);
+        }
+    }, [dispatch, imageGenerationMode]);
+
     // Initialize shouldGenerateImage based on current imageGenerationMode
     React.useEffect(() => {
         if (imageGenerationMode === 'smart' || imageGenerationMode === 'always') {

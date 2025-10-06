@@ -2,8 +2,8 @@
 import { AnyAction } from 'redux';
 import { ThunkAction } from 'redux-thunk';
 import {
-  VIEW_HYDRATE, VIEW_SET_MODE, VIEW_SET_VIS,
-  VIEW_STORAGE_KEY, ViewMode, ViewState
+  VIEW_HYDRATE, VIEW_SET_MODE, VIEW_SET_VIS, VIEW_SET_GEOMETRY,
+  VIEW_STORAGE_KEY, ViewMode, ViewState, FloatGeometry
 } from '../reducers/view';
 
 type Thunk<R = void> = ThunkAction<Promise<R> | R, any, unknown, AnyAction>;
@@ -34,7 +34,7 @@ export const hydrateView = (): Thunk => async (dispatch, getState) => {
     dispatch({ type: VIEW_HYDRATE, payload: data });
   } else {
     // записываем текущий пустой стейт для единообразия
-    await writeStorage(getState().view ?? { preferredModeByTab: {}, visibleByTab: {} });
+    await writeStorage(getState().view ?? { preferredModeByTab: {}, visibleByTab: {}, floatGeometryByTab: {} });
   }
 };
 
@@ -47,5 +47,11 @@ export const setPreferredMode = (tabId: number, mode: ViewMode): Thunk =>
 export const setVisible = (tabId: number, visible: boolean): Thunk =>
   async (dispatch, getState) => {
     dispatch({ type: VIEW_SET_VIS, payload: { tabId, visible } });
+    await writeStorage(getState().view);
+  };
+
+export const setFloatGeometry = (tabId: number, geometry: FloatGeometry): Thunk =>
+  async (dispatch, getState) => {
+    dispatch({ type: VIEW_SET_GEOMETRY, payload: { tabId, geometry } });
     await writeStorage(getState().view);
   };

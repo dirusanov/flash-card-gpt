@@ -14,8 +14,8 @@ import { FaList, FaCog, FaTimes, FaPlus, FaColumns, FaExpandArrowsAlt } from 're
 import { loadStoredCards } from './store/actions/cards';
 import { setCurrentTabId } from './store/actions/tabState';
 import { TabAwareProvider, useTabAware } from './components/TabAwareProvider';
-import { selectPreferredMode, selectVisible } from './store/reducers/view';
-import { hydrateView, setPreferredMode, setVisible } from './store/actions/view';
+import { selectPreferredMode, selectVisible, selectFloatGeometry } from './store/reducers/view';
+import { hydrateView, setPreferredMode, setVisible, setFloatGeometry } from './store/actions/view';
 
 interface AppProps { tabId: number; }
 
@@ -26,8 +26,6 @@ const MAX_FLOAT_WIDTH = DEFAULT_FLOAT.width + 48; // allow only slight horizonta
 const DRAG_BAR_H = 32;                 // высота зоны перетаскивания
 const SAFE_TOP = DRAG_BAR_H + 8;       // общий внутренний верхний отступ в float
 const FLOAT_Z = 2147483646;            // z-index окна
-const floatKey = (tabId: number) => `anki_float_state_v1:${tabId}`;
-
 const ensureFloatingRoot = () => {
   const id = 'anki-floating-root';
   let el = document.getElementById(id);
@@ -87,6 +85,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const tabAware = useTabAware();
   const { currentPage, setCurrentPage } = tabAware;
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [viewHydrated, setViewHydrated] = useState(false);
   const dispatch = useDispatch();
   const ankiConnectApiKey = useSelector((s: RootState) => s.settings.ankiConnectApiKey);
 
@@ -96,24 +95,35 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const draggingRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const resizingRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
+  const uiStateKey = useCallback(() => `anki_ui_tab_${tabId}`, [tabId]);
 
-  useEffect(() => {
+  const updateUiState = useCallback((patch: Partial<{ sidebarVisible: boolean; floatingVisible: boolean; preferredMode: 'sidebar' | 'floating' }>) => {
     try {
-      const raw = localStorage.getItem(floatKey(tabId));
-      if (raw) {
-        const saved = JSON.parse(raw);
-        if (typeof saved.isFloating === 'boolean') setIsFloating(saved.isFloating);
-        if (saved.pos) setFloatPos(saved.pos);
-        if (saved.size) setFloatSize(saved.size);
+      const key = uiStateKey();
+      chrome.storage?.local.get([key], (res) => {
+        const current = res?.[key] ?? { sidebarVisible: false, floatingVisible: false, preferredMode: 'sidebar' };
+        const next = { ...current, ...patch };
+        try {
+          chrome.storage?.local.set({ [key]: next });
+        } catch {}
+      });
+    } catch {}
+  }, [uiStateKey]);
+
+  const setSidebarDomVisible = useCallback((visible: boolean) => {
+    try {
+      const sidebarEl = document.getElementById('sidebar') as HTMLElement | null;
+      if (sidebarEl) {
+        sidebarEl.style.transform = visible ? 'translateX(0)' : 'translateX(100%)';
+        sidebarEl.style.display = visible ? '' : 'none';
+      }
+      if (!visible) {
+        document.body.style.marginRight = '0';
+      } else {
+        document.body.style.marginRight = '350px';
       }
     } catch {}
-  }, [tabId]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(floatKey(tabId), JSON.stringify({ isFloating, pos: floatPos, size: floatSize }));
-    } catch {}
-  }, [isFloating, floatPos, floatSize, tabId]);
+  }, []);
 
   useEffect(() => {
     const anchor = anchorRef.current;
@@ -168,28 +178,68 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   }, [dispatch, ankiConnectApiKey, isInitialLoad]);
 
   useEffect(() => {
-    dispatch<any>(hydrateView());
+    dispatch<any>(hydrateView()).finally(() => setViewHydrated(true));
   }, [dispatch]);
 
 // брать режим/видимость из Redux
   const preferredMode = useSelector((s: RootState) => selectPreferredMode(s as any, tabId));
   const preferredVisible = useSelector((s: RootState) => selectVisible(s as any, tabId));
+  const storedGeometry = useSelector((s: RootState) => selectFloatGeometry(s as any, tabId));
 
-// локальный isFloating синхронизируем с Redux режимом
+  const ensureInitialFloatPlacement = useCallback(() => {
+    if (storedGeometry) return;
+    try {
+      const width = DEFAULT_FLOAT.width;
+      const height = Math.min(DEFAULT_FLOAT.height, Math.max(340, window.innerHeight - 48));
+      const x = Math.max(8, window.innerWidth - width - 24);
+      const y = Math.max(8, Math.min(DEFAULT_FLOAT.y, window.innerHeight - height - 8));
+      setFloatPos({ x, y });
+      setFloatSize({ width, height });
+    } catch {}
+  }, [storedGeometry]);
+
+// локальный isFloating синхронизируем с Redux режимом/видимостью
   useEffect(() => {
-    setIsFloating(preferredMode === 'float');
-  }, [preferredMode]);
+    const shouldFloat = preferredMode === 'float';
+    const shouldBeVisible = preferredVisible !== false;
+    setIsFloating(shouldFloat && shouldBeVisible);
+  }, [preferredMode, preferredVisible]);
 
+  useEffect(() => {
+    if (!viewHydrated) return;
+    if (preferredMode === 'float') {
+      updateUiState({ preferredMode: 'floating', floatingVisible: preferredVisible !== false, sidebarVisible: false });
+      if (preferredVisible !== false) setSidebarDomVisible(false);
+    } else {
+      updateUiState({ preferredMode: 'sidebar', floatingVisible: false, sidebarVisible: preferredVisible !== false });
+      setSidebarDomVisible(preferredVisible !== false);
+    }
+  }, [preferredMode, preferredVisible, viewHydrated, updateUiState, setSidebarDomVisible]);
+
+  useEffect(() => {
+    if (!storedGeometry) {
+      ensureInitialFloatPlacement();
+      return;
+    }
+    const { x, y, width, height } = storedGeometry;
+    setFloatPos((prev) => (prev.x === x && prev.y === y ? prev : { x, y }));
+    setFloatSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+  }, [storedGeometry, ensureInitialFloatPlacement]);
+
+
+  const hideFloatingWindow = useCallback(() => {
+    dispatch<any>(setVisible(tabId, false));
+    setIsFloating(false);
+    updateUiState({ preferredMode: 'floating', floatingVisible: false, sidebarVisible: false });
+    setSidebarDomVisible(false);
+    const floatRoot = document.getElementById('anki-floating-root');
+    if (floatRoot) floatRoot.remove();
+    try { (disablePageSelection as any)?.(false); } catch {}
+  }, [dispatch, tabId, updateUiState, setSidebarDomVisible]);
 
   const handleCloseExtension = useCallback(() => {
     if (isFloating) {
-      // режим НЕ меняем – остаётся 'float', только скрываем
-      dispatch<any>(setVisible(tabId, false));
-      setIsFloating(false);
-
-      const floatRoot = document.getElementById('anki-floating-root');
-      if (floatRoot) floatRoot.remove();
-      try { (disablePageSelection as any)?.(false); } catch {}
+      hideFloatingWindow();
       return;
     }
 
@@ -197,21 +247,27 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     dispatch<any>(setPreferredMode(tabId, 'sidebar'));
     dispatch<any>(setVisible(tabId, false));
     dispatch(toggleSidebar(tabId));
+    updateUiState({ preferredMode: 'sidebar', floatingVisible: false, sidebarVisible: false });
     try { chrome.runtime.sendMessage({ action: 'toggleSidebar', tabId }); } catch {}
-  }, [dispatch, tabId, isFloating]);
+  }, [dispatch, tabId, isFloating, updateUiState, hideFloatingWindow]);
 
   const enableFloating = useCallback(() => {
+    ensureInitialFloatPlacement();
     dispatch<any>(setPreferredMode(tabId, 'float'));
     dispatch<any>(setVisible(tabId, true));
     setIsFloating(true);
     forceRemoveSidebarGap(true);
-  }, [dispatch, tabId]);
+    updateUiState({ preferredMode: 'floating', floatingVisible: true, sidebarVisible: false });
+    setSidebarDomVisible(false);
+  }, [dispatch, tabId, updateUiState, setSidebarDomVisible, ensureInitialFloatPlacement]);
 
   const disableFloating = useCallback(() => {
     dispatch<any>(setPreferredMode(tabId, 'sidebar'));
     dispatch<any>(setVisible(tabId, true));
     setIsFloating(false);
     forceRemoveSidebarGap(false);
+    updateUiState({ preferredMode: 'sidebar', floatingVisible: false, sidebarVisible: true });
+    setSidebarDomVisible(true);
     const host = document.querySelector('#sidebar') as HTMLElement | null;
     if (host) {
       host.removeAttribute('hidden');
@@ -221,7 +277,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     }
     const floatRoot = document.getElementById('anki-floating-root');
     if (floatRoot && floatRoot.childElementCount === 0) floatRoot.remove();
-  }, [dispatch, tabId]);
+  }, [dispatch, tabId, updateUiState, setSidebarDomVisible]);
 
 
   const toggleFloating = useCallback(() => {
@@ -231,29 +287,34 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       dispatch<any>(setPreferredMode(tabId, nextMode));
       dispatch<any>(setVisible(tabId, true));
       if (next) {
+        ensureInitialFloatPlacement();
         forceRemoveSidebarGap(true);
         setSidebarHostVisible(false);
+        updateUiState({ preferredMode: 'floating', floatingVisible: true, sidebarVisible: false });
+        setSidebarDomVisible(false);
       } else {
         forceRemoveSidebarGap(false);
         setSidebarHostVisible(true);
         hardShowSidebarHost();
+        updateUiState({ preferredMode: 'sidebar', floatingVisible: false, sidebarVisible: true });
+        setSidebarDomVisible(true);
       }
       return next;
     });
-  }, [dispatch, tabId]);
+  }, [dispatch, tabId, updateUiState, setSidebarDomVisible, ensureInitialFloatPlacement]);
 
   useEffect(() => {
     const onMessage = (msg: any, _sender: chrome.runtime.MessageSender, sendResponse?: (r?: any) => void) => {
       if (!msg?.action) return;
       if (msg.action === 'toggleFloating') { toggleFloating(); sendResponse?.({ ok: true }); return true; }
       if (msg.action === 'showFloating')   { enableFloating();  sendResponse?.({ ok: true }); return true; }
-      if (msg.action === 'hideFloating')   { disableFloating(); sendResponse?.({ ok: true }); return true; }
+      if (msg.action === 'hideFloating')   { hideFloatingWindow(); sendResponse?.({ ok: true }); return true; }
       if (msg.action === 'collapseSidebar'){ enableFloating();  sendResponse?.({ ok: true }); return true; }
       if (msg.action === 'expandSidebar')  { disableFloating(); sendResponse?.({ ok: true }); return true; }
     };
     chrome.runtime.onMessage.addListener(onMessage);
     return () => chrome.runtime.onMessage.removeListener(onMessage);
-  }, [toggleFloating, enableFloating, disableFloating]);
+  }, [toggleFloating, enableFloating, disableFloating, hideFloatingWindow]);
 
   // drag
   const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -295,6 +356,28 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     const newH = clamp(resizingRef.current.startH + dy, 340, Math.min(window.innerHeight - 16, 900));
     setFloatSize({ width: newW, height: newH });
   };
+
+  const lastSavedGeometryRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    if (viewHydrated) {
+      lastSavedGeometryRef.current = null;
+    }
+  }, [viewHydrated]);
+
+  useEffect(() => {
+    const geometry = { x: floatPos.x, y: floatPos.y, width: floatSize.width, height: floatSize.height };
+    if (!viewHydrated) {
+      lastSavedGeometryRef.current = geometry;
+      return;
+    }
+    const prev = lastSavedGeometryRef.current;
+    if (prev && prev.x === geometry.x && prev.y === geometry.y && prev.width === geometry.width && prev.height === geometry.height) {
+      return;
+    }
+    lastSavedGeometryRef.current = geometry;
+    dispatch<any>(setFloatGeometry(tabId, geometry));
+  }, [dispatch, tabId, floatPos, floatSize, storedGeometry, viewHydrated]);
 
   const handlePageChange = useCallback((page: string) => setCurrentPage(page), [setCurrentPage]);
 
