@@ -2992,25 +2992,35 @@ JSON ОТВЕТ:
     private async executeQualityValidation(cards: GeneratedCard[], context: WorkflowContext, abortSignal?: AbortSignal): Promise<GeneratedCard[]> {
         console.log(`✅ Validating ${cards.length} cards...`);
 
-        const validatedCards: GeneratedCard[] = [];
+        if (cards.length === 0) {
+            return cards;
+        }
 
-        for (const card of cards) {
+        const validationResults = await Promise.all(cards.map(async (card) => {
             if (abortSignal?.aborted) {
-                break;
+                return { card, isValid: false, aborted: true } as const;
             }
 
             try {
                 const isValid = await this.validateSingleCard(card, context);
-                if (isValid) {
-                    validatedCards.push(card);
-                } else {
+                if (!isValid) {
                     console.log(`❌ Card rejected: ${card.front.substring(0, 50)}...`);
                 }
+                return { card, isValid, aborted: false } as const;
             } catch (error) {
                 console.warn('Card validation error:', error);
-                // В случае ошибки пропускаем карточку
+                return { card, isValid: false, aborted: false } as const;
             }
+        }));
+
+        if (abortSignal?.aborted) {
+            console.log('⏹️ Validation aborted - returning original cards');
+            return cards;
         }
+
+        const validatedCards = validationResults
+            .filter(result => result.isValid)
+            .map(result => result.card);
 
         console.log(`✅ Validation complete: ${validatedCards.length}/${cards.length} cards passed`);
         return validatedCards.length > 0 ? validatedCards : cards; // Fallback
@@ -3062,28 +3072,36 @@ JSON ОТВЕТ:
     private async executeMathFormatting(cards: GeneratedCard[], context: WorkflowContext, abortSignal?: AbortSignal): Promise<GeneratedCard[]> {
         console.log(`📐 Processing math in ${cards.length} cards...`);
 
-        const processedCards: GeneratedCard[] = [];
+        if (cards.length === 0) {
+            return cards;
+        }
 
-        for (const card of cards) {
+        const formattingResults = await Promise.all(cards.map(async (card) => {
             if (abortSignal?.aborted) {
-                break;
+                return { original: card, processed: card, aborted: true } as const;
             }
 
-            // Проверяем есть ли математические маркеры
             const hasMathMarkers = /\[MATH:[^\]]+\]\[\/MATH\]/g.test(card.back);
 
-            if (hasMathMarkers) {
-                try {
-                    const processedCard = await this.formatMathInCard(card, context);
-                    processedCards.push(processedCard);
-                } catch (error) {
-                    console.warn('Math formatting error:', error);
-                    processedCards.push(card); // Добавляем оригинальную карточку
-                }
-            } else {
-                processedCards.push(card);
+            if (!hasMathMarkers) {
+                return { original: card, processed: card, aborted: false } as const;
             }
+
+            try {
+                const processedCard = await this.formatMathInCard(card, context);
+                return { original: card, processed: processedCard, aborted: false } as const;
+            } catch (error) {
+                console.warn('Math formatting error:', error);
+                return { original: card, processed: card, aborted: false } as const;
+            }
+        }));
+
+        if (abortSignal?.aborted) {
+            console.log('⏹️ Math formatting aborted - returning original cards');
+            return cards;
         }
+
+        const processedCards = formattingResults.map(result => result.processed);
 
         console.log(`📐 Math processing complete: ${processedCards.length} cards`);
         return processedCards;
