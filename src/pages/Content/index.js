@@ -75,6 +75,24 @@ const LoadingSpinner = () =>
   ]);
 
 // ---------- Управление UI-состоянием (chrome.storage) ----------
+const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
+
+const ensureViewDefaults = (prefs) => ({
+  preferredModeByTab: { ...(prefs?.preferredModeByTab || {}) },
+  visibleByTab: { ...(prefs?.visibleByTab || {}) },
+  floatGeometryByTab: { ...(prefs?.floatGeometryByTab || {}) },
+  globalMode: prefs?.globalMode === 'float' ? 'float' : 'sidebar',
+  globalVisible: typeof prefs?.globalVisible === 'boolean' ? prefs.globalVisible : true,
+});
+
+const updateViewPrefs = (mutate) => new Promise((resolve) => {
+  chrome.storage.local.get([VIEW_STORAGE_KEY], (res) => {
+    const current = ensureViewDefaults(res[VIEW_STORAGE_KEY]);
+    const next = mutate(current) || current;
+    chrome.storage.local.set({ [VIEW_STORAGE_KEY]: next }, () => resolve(next));
+  });
+});
+
 function UIStateManager() {
   this.prefix = 'anki_ui_tab_'; // anki_ui_tab_<tabId>
 }
@@ -84,9 +102,22 @@ UIStateManager.prototype.key = function (tabId) {
 UIStateManager.prototype.get = function (tabId) {
   const k = this.key(tabId);
   return new Promise((resolve) => {
-    chrome.storage.local.get([k], (res) => {
-      const def = { sidebarVisible: false, floatingVisible: false, preferredMode: 'sidebar' };
-      resolve(res[k] || def);
+    chrome.storage.local.get([k, VIEW_STORAGE_KEY], (res) => {
+      const stored = res[k];
+      if (stored) {
+        resolve(stored);
+        return;
+      }
+
+      const viewPrefs = res[VIEW_STORAGE_KEY] || {};
+      const globalMode = viewPrefs.globalMode === 'float' ? 'floating' : 'sidebar';
+      const globalVisible = typeof viewPrefs.globalVisible === 'boolean' ? viewPrefs.globalVisible : true;
+      const def = {
+        sidebarVisible: globalMode === 'sidebar' && globalVisible,
+        floatingVisible: globalMode === 'floating' && globalVisible,
+        preferredMode: globalMode,
+      };
+      resolve(def);
     });
   });
 };
@@ -94,7 +125,11 @@ UIStateManager.prototype.set = function (tabId, patch) {
   const k = this.key(tabId);
   return new Promise((resolve) => {
     chrome.storage.local.get([k], (res) => {
-      const current = res[k] || { sidebarVisible: false, floatingVisible: false, preferredMode: 'sidebar' };
+      const current = res[k] || {
+        sidebarVisible: false,
+        floatingVisible: false,
+        preferredMode: 'sidebar',
+      };
       const next = { ...current, ...patch };
       chrome.storage.local.set({ [k]: next }, () => resolve(next));
     });
@@ -184,7 +219,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const nextVisible = !st.sidebarVisible;
       applySidebarVisible(nextVisible);
       uiState.set(currentTabId, { sidebarVisible: nextVisible }).then(() => {
-        sendResponse && sendResponse({ status: 'Sidebar toggled', visible: nextVisible, tabId: currentTabId });
+        updateViewPrefs((prefs) => {
+          prefs.visibleByTab[currentTabId] = nextVisible;
+          if (nextVisible) {
+            prefs.preferredModeByTab[currentTabId] = 'sidebar';
+            prefs.globalMode = 'sidebar';
+          }
+          prefs.globalVisible = nextVisible;
+          return prefs;
+        }).finally(() => {
+          sendResponse && sendResponse({ status: 'Sidebar toggled', visible: nextVisible, tabId: currentTabId });
+        });
       });
     });
     return true;
@@ -192,14 +237,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'collapseSidebar' || message.action === 'forceHideSidebar') {
     const currentTabId = message.tabId;
-    if (currentTabId) uiState.set(currentTabId, { sidebarVisible: false });
+    if (currentTabId) {
+      uiState.set(currentTabId, { sidebarVisible: false });
+      updateViewPrefs((prefs) => {
+        prefs.visibleByTab[currentTabId] = false;
+        prefs.globalVisible = false;
+        return prefs;
+      });
+    }
     hideSidebar();
     sendResponse && sendResponse({ ok: true });
     return true;
   }
   if (message.action === 'expandSidebar' || message.action === 'forceShowSidebar') {
     const currentTabId = message.tabId;
-    if (currentTabId) uiState.set(currentTabId, { sidebarVisible: true });
+    if (currentTabId) {
+      uiState.set(currentTabId, { sidebarVisible: true });
+      updateViewPrefs((prefs) => {
+        prefs.visibleByTab[currentTabId] = true;
+        prefs.preferredModeByTab[currentTabId] = 'sidebar';
+        prefs.globalVisible = true;
+        prefs.globalMode = 'sidebar';
+        return prefs;
+      });
+    }
     showSidebar();
     sendResponse && sendResponse({ ok: true });
     return true;
@@ -210,7 +271,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const currentTabId = message.tabId;
     const mode = message.mode === 'floating' ? 'floating' : 'sidebar';
     if (currentTabId) uiState.set(currentTabId, { preferredMode: mode });
-    sendResponse && sendResponse({ ok: true, preferredMode: mode });
+    updateViewPrefs((prefs) => {
+      if (currentTabId) {
+        prefs.preferredModeByTab[currentTabId] = mode === 'floating' ? 'float' : 'sidebar';
+      }
+      prefs.globalMode = mode === 'floating' ? 'float' : 'sidebar';
+      return prefs;
+    }).finally(() => {
+      sendResponse && sendResponse({ ok: true, preferredMode: mode });
+    });
     return true;
   }
 
@@ -219,6 +288,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const currentTabId = message.tabId;
     const visible = !!message.floatingVisible;
     if (currentTabId) uiState.set(currentTabId, { floatingVisible: visible });
+    if (currentTabId) {
+      updateViewPrefs((prefs) => {
+        prefs.visibleByTab[currentTabId] = visible;
+        if (visible) {
+          prefs.preferredModeByTab[currentTabId] = 'float';
+          prefs.globalMode = 'float';
+        }
+        prefs.globalVisible = visible;
+        return prefs;
+      });
+    }
     sendResponse && sendResponse({ ok: true });
     return true;
   }
@@ -238,14 +318,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (st.floatingVisible) {
           chrome.runtime.sendMessage({ action: 'hideFloating', tabId: currentTabId }, () => {});
           uiState.set(currentTabId, { floatingVisible: false, sidebarVisible: false }).then(() => {
-            applySidebarVisible(false);
-            sendResponse && sendResponse({ ok: true, toggled: 'floating:off' });
+            updateViewPrefs((prefs) => {
+              prefs.visibleByTab[currentTabId] = false;
+              prefs.globalVisible = false;
+              return prefs;
+            }).finally(() => {
+              applySidebarVisible(false);
+              sendResponse && sendResponse({ ok: true, toggled: 'floating:off' });
+            });
           });
         } else {
           chrome.runtime.sendMessage({ action: 'showFloating', tabId: currentTabId }, () => {});
           uiState.set(currentTabId, { floatingVisible: true, sidebarVisible: false }).then(() => {
-            applySidebarVisible(false);
-            sendResponse && sendResponse({ ok: true, toggled: 'floating:on' });
+            updateViewPrefs((prefs) => {
+              prefs.visibleByTab[currentTabId] = true;
+              prefs.preferredModeByTab[currentTabId] = 'float';
+              prefs.globalVisible = true;
+              prefs.globalMode = 'float';
+              return prefs;
+            }).finally(() => {
+              applySidebarVisible(false);
+              sendResponse && sendResponse({ ok: true, toggled: 'floating:on' });
+            });
           });
         }
       } else {
@@ -253,11 +347,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const nextVisible = !st.sidebarVisible;
         applySidebarVisible(nextVisible);
         uiState.set(currentTabId, { sidebarVisible: nextVisible, floatingVisible: false }).then(() => {
-          if (nextVisible) {
-            // на всякий — попросим App выключить float
-            chrome.runtime.sendMessage({ action: 'hideFloating', tabId: currentTabId }, () => {});
-          }
-          sendResponse && sendResponse({ ok: true, toggled: `sidebar:${nextVisible ? 'on' : 'off'}` });
+          updateViewPrefs((prefs) => {
+            prefs.visibleByTab[currentTabId] = nextVisible;
+            if (nextVisible) {
+              prefs.preferredModeByTab[currentTabId] = 'sidebar';
+              prefs.globalMode = 'sidebar';
+            }
+            prefs.globalVisible = nextVisible;
+            return prefs;
+          }).finally(() => {
+            if (nextVisible) {
+              // на всякий — попросим App выключить float
+              chrome.runtime.sendMessage({ action: 'hideFloating', tabId: currentTabId }, () => {});
+            }
+            sendResponse && sendResponse({ ok: true, toggled: `sidebar:${nextVisible ? 'on' : 'off'}` });
+          });
         });
       }
     });

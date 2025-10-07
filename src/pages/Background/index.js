@@ -5,16 +5,23 @@ function getViewPrefs() {
   return new Promise((resolve) => {
     try {
       chrome.storage.local.get([VIEW_STORAGE_KEY], (res) => {
-        resolve(
-          res[VIEW_STORAGE_KEY] || {
-            preferredModeByTab: {},
-            visibleByTab: {},
-            floatGeometryByTab: {},
-          },
-        );
+        const stored = res[VIEW_STORAGE_KEY] || {};
+        resolve({
+          preferredModeByTab: stored.preferredModeByTab || {},
+          visibleByTab: stored.visibleByTab || {},
+          floatGeometryByTab: stored.floatGeometryByTab || {},
+          globalMode: stored.globalMode === 'float' ? 'float' : 'sidebar',
+          globalVisible: typeof stored.globalVisible === 'boolean' ? stored.globalVisible : true,
+        });
       });
     } catch (e) {
-      resolve({ preferredModeByTab: {}, visibleByTab: {}, floatGeometryByTab: {} });
+      resolve({
+        preferredModeByTab: {},
+        visibleByTab: {},
+        floatGeometryByTab: {},
+        globalMode: 'sidebar',
+        globalVisible: true,
+      });
     }
   });
 }
@@ -49,10 +56,10 @@ chrome.action.onClicked.addListener(async (tab) => {
   const tabId = tab.id;
 
   const view = await getViewPrefs();
-  const mode = (view.preferredModeByTab && view.preferredModeByTab[tabId]) || 'sidebar';
+  const mode = (view.preferredModeByTab && view.preferredModeByTab[tabId]) || view.globalMode || 'sidebar';
   const visibleMap = view.visibleByTab || {};
   const hasVisibleEntry = Object.prototype.hasOwnProperty.call(visibleMap, tabId);
-  const visible = hasVisibleEntry ? !!visibleMap[tabId] : mode === 'float';
+  const visible = hasVisibleEntry ? !!visibleMap[tabId] : !!view.globalVisible;
 
   if (mode === 'float') {
     chrome.tabs.sendMessage(tabId, { action: visible ? 'hideFloating' : 'showFloating', tabId });

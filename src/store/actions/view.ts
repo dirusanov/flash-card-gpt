@@ -8,6 +8,21 @@ import {
 
 type Thunk<R = void> = ThunkAction<Promise<R> | R, any, unknown, AnyAction>;
 
+const ensureDefaults = (data?: Partial<ViewState> | null): ViewState => {
+  const preferredModeByTab = data?.preferredModeByTab ?? {};
+  const visibleByTab = data?.visibleByTab ?? {};
+  const floatGeometryByTab = data?.floatGeometryByTab ?? {};
+  const globalMode = data?.globalMode === 'float' ? 'float' : 'sidebar';
+  const globalVisible = typeof data?.globalVisible === 'boolean' ? data.globalVisible : true;
+  return {
+    preferredModeByTab,
+    visibleByTab,
+    floatGeometryByTab,
+    globalMode,
+    globalVisible,
+  };
+};
+
 const readStorage = (): Promise<ViewState | null> =>
   new Promise((resolve) => {
     try {
@@ -31,27 +46,28 @@ const writeStorage = (data: ViewState): Promise<void> =>
 export const hydrateView = (): Thunk => async (dispatch, getState) => {
   const data = await readStorage();
   if (data) {
-    dispatch({ type: VIEW_HYDRATE, payload: data });
+    dispatch({ type: VIEW_HYDRATE, payload: ensureDefaults(data) });
   } else {
-    // записываем текущий пустой стейт для единообразия
-    await writeStorage(getState().view ?? { preferredModeByTab: {}, visibleByTab: {}, floatGeometryByTab: {} });
+    const fallback = ensureDefaults(getState().view);
+    dispatch({ type: VIEW_HYDRATE, payload: fallback });
+    await writeStorage(fallback);
   }
 };
 
 export const setPreferredMode = (tabId: number, mode: ViewMode): Thunk =>
   async (dispatch, getState) => {
     dispatch({ type: VIEW_SET_MODE, payload: { tabId, mode } });
-    await writeStorage(getState().view);
+    await writeStorage(ensureDefaults(getState().view));
   };
 
 export const setVisible = (tabId: number, visible: boolean): Thunk =>
   async (dispatch, getState) => {
     dispatch({ type: VIEW_SET_VIS, payload: { tabId, visible } });
-    await writeStorage(getState().view);
+    await writeStorage(ensureDefaults(getState().view));
   };
 
 export const setFloatGeometry = (tabId: number, geometry: FloatGeometry): Thunk =>
   async (dispatch, getState) => {
     dispatch({ type: VIEW_SET_GEOMETRY, payload: { tabId, geometry } });
-    await writeStorage(getState().view);
+    await writeStorage(ensureDefaults(getState().view));
   };

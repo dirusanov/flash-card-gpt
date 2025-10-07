@@ -12,6 +12,8 @@ export interface ViewState {
   preferredModeByTab: Record<number, ViewMode>;
   visibleByTab: Record<number, boolean>;
   floatGeometryByTab: Record<number, FloatGeometry>;
+  globalMode: ViewMode;
+  globalVisible: boolean;
 }
 
 export const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
@@ -26,6 +28,8 @@ const initialState: ViewState = {
   preferredModeByTab: {},
   visibleByTab: {},
   floatGeometryByTab: {},
+  globalMode: 'sidebar',
+  globalVisible: true,
 };
 
 export type ViewActions =
@@ -37,12 +41,20 @@ export type ViewActions =
 export const viewReducer = (state = initialState, action: ViewActions): ViewState => {
   switch (action.type) {
     case VIEW_HYDRATE:
-      return { ...state, ...action.payload };
+      return {
+        ...state,
+        ...action.payload,
+        globalMode: action.payload.globalMode ?? state.globalMode ?? 'sidebar',
+        globalVisible: typeof action.payload.globalVisible === 'boolean'
+          ? action.payload.globalVisible
+          : (typeof state.globalVisible === 'boolean' ? state.globalVisible : true),
+      };
     case VIEW_SET_MODE: {
       const { tabId, mode } = action.payload;
       return {
         ...state,
         preferredModeByTab: { ...state.preferredModeByTab, [tabId]: mode },
+        globalMode: mode,
       };
     }
     case VIEW_SET_VIS: {
@@ -50,6 +62,7 @@ export const viewReducer = (state = initialState, action: ViewActions): ViewStat
       return {
         ...state,
         visibleByTab: { ...state.visibleByTab, [tabId]: visible },
+        globalVisible: visible,
       };
     }
     case VIEW_SET_GEOMETRY: {
@@ -65,12 +78,16 @@ export const viewReducer = (state = initialState, action: ViewActions): ViewStat
 };
 
 // helpers / selectors
-export const selectPreferredMode = (s: any, tabId: number): ViewMode =>
-  (s.view?.preferredModeByTab?.[tabId] as ViewMode) ?? 'sidebar';
+export const selectPreferredMode = (s: any, tabId: number): ViewMode => {
+  const fallback = (s.view?.globalMode as ViewMode) ?? 'sidebar';
+  return (s.view?.preferredModeByTab?.[tabId] as ViewMode) ?? fallback;
+};
 
 export const selectVisible = (s: any, tabId: number): boolean => {
   const value = s.view?.visibleByTab?.[tabId];
-  return typeof value === 'boolean' ? value : true;
+  if (typeof value === 'boolean') return value;
+  const global = s.view?.globalVisible;
+  return typeof global === 'boolean' ? global : true;
 };
 
 export const selectFloatGeometry = (s: any, tabId: number): FloatGeometry | null =>
