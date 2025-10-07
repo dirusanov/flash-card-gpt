@@ -337,103 +337,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     }, [lastDraftCard]);
 
-    const latestDraftSnapshot = useMemo<DraftSnapshot | null>(() => {
-        if (!showResult) {
-            return null;
-        }
-
-        const trimmedOriginal = (originalSelectedText || '').trim();
-        const baseFrontCandidate = (trimmedOriginal || front || '').trim();
-        const baseTextCandidate = (trimmedOriginal || text || front || '').trim();
-        const hasMeaningfulContent = Boolean(
-            baseTextCandidate ||
-            (translation && translation.trim()) ||
-            (back && back.trim()) ||
-            examples.length > 0 ||
-            image ||
-            imageUrl ||
-            (linguisticInfo && linguisticInfo.trim()) ||
-            (transcription && transcription.trim())
-        );
-
-        if (!hasMeaningfulContent) {
-            return null;
-        }
-
-        const cardText = baseTextCandidate || text || front || '';
-        const draftFront = baseFrontCandidate || front || cardText;
-        const draftTranslation = translation || (mode === Modes.GeneralTopic ? (back || '') : translation);
-
-        return {
-            id: currentCardId ?? undefined,
-            mode,
-            text: cardText,
-            translation: draftTranslation && draftTranslation.length > 0 ? draftTranslation : null,
-            examples: examples.length ? examples : [],
-            image: image || null,
-            imageUrl: imageUrl || null,
-            createdAt: lastDraftCard?.createdAt,
-            exportStatus: 'not_exported',
-            front: draftFront,
-            back: back ?? null,
-            linguisticInfo: linguisticInfo || '',
-            transcription: transcription || ''
-        };
-    }, [
-        showResult,
-        originalSelectedText,
-        text,
-        front,
-        translation,
-        back,
-        examples,
-        image,
-        imageUrl,
-        linguisticInfo,
-        transcription,
-        currentCardId,
-        mode,
-        lastDraftCard
-    ]);
-
-    useEffect(() => {
-        if (!latestDraftSnapshot) {
-            return;
-        }
-
-        let candidateId = latestDraftSnapshot.id ?? draftIdRef.current ?? lastDraftCard?.id ?? null;
-        if (!candidateId) {
-            candidateId = `draft-${Date.now()}`;
-        }
-
-        draftIdRef.current = candidateId;
-
-        const draft: StoredCard = {
-            ...latestDraftSnapshot,
-            id: candidateId,
-            createdAt: ensureDraftDate(latestDraftSnapshot.createdAt ?? lastDraftCard?.createdAt),
-        } as StoredCard;
-
-        const normalizedDraft = normalizeDraftCard(draft);
-        const draftContentHash = getDraftContentHash(normalizedDraft);
-        const hasContentChanges = draftContentHash !== lastDraftContentHashRef.current;
-        const nextCreatedAt = hasContentChanges
-            ? new Date()
-            : ensureDraftDate(lastDraftCard?.createdAt);
-
-        const normalizedDraftWithTimestamp: StoredCard = {
-            ...normalizedDraft,
-            createdAt: nextCreatedAt
-        };
-
-        const serializedCandidate = serializeDraftForCompare(normalizedDraftWithTimestamp);
-
-        if (serializedCandidate !== lastDraftSerializedRef.current) {
-            lastDraftSerializedRef.current = serializedCandidate;
-            lastDraftContentHashRef.current = draftContentHash;
-            dispatch(setLastDraftCard(normalizedDraftWithTimestamp));
-        }
-    }, [latestDraftSnapshot, dispatch, lastDraftCard]);
     const enforceLanguageMode = useCallback(() => {
         localStorage.setItem('selected_mode', Modes.LanguageLearning);
 
@@ -681,6 +584,110 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Never automatically mark cards as saved just because they exist in storage
         return false;
     }, [currentCardId, explicitlySaved, isMultipleCards, currentCardIndex, createdCards, isCardExplicitlySaved]);
+
+    const latestDraftSnapshot = useMemo<DraftSnapshot | null>(() => {
+        if (!showResult) {
+            return null;
+        }
+
+        const trimmedOriginal = (originalSelectedText || '').trim();
+        const baseFrontCandidate = (trimmedOriginal || front || '').trim();
+        const baseTextCandidate = (trimmedOriginal || text || front || '').trim();
+        const hasMeaningfulContent = Boolean(
+            baseTextCandidate ||
+            (translation && translation.trim()) ||
+            (back && back.trim()) ||
+            examples.length > 0 ||
+            image ||
+            imageUrl ||
+            (linguisticInfo && linguisticInfo.trim()) ||
+            (transcription && transcription.trim())
+        );
+
+        if (!hasMeaningfulContent) {
+            return null;
+        }
+
+        if (isSaved && !isEdited) {
+            return null;
+        }
+
+        const cardText = baseTextCandidate || text || front || '';
+        const draftFront = baseFrontCandidate || front || cardText;
+        const draftTranslation = translation || (mode === Modes.GeneralTopic ? (back || '') : translation);
+
+        return {
+            id: currentCardId ?? undefined,
+            mode,
+            text: cardText,
+            translation: draftTranslation && draftTranslation.length > 0 ? draftTranslation : null,
+            examples: examples.length ? examples : [],
+            image: image || null,
+            imageUrl: imageUrl || null,
+            createdAt: lastDraftCard?.createdAt,
+            exportStatus: 'not_exported',
+            front: draftFront,
+            back: back ?? null,
+            linguisticInfo: linguisticInfo || '',
+            transcription: transcription || ''
+        };
+    }, [
+        showResult,
+        originalSelectedText,
+        text,
+        front,
+        translation,
+        back,
+        examples,
+        image,
+        imageUrl,
+        linguisticInfo,
+        transcription,
+        currentCardId,
+        mode,
+        lastDraftCard,
+        isSaved,
+        isEdited
+    ]);
+
+    useEffect(() => {
+        if (!latestDraftSnapshot) {
+            return;
+        }
+
+        let candidateId = latestDraftSnapshot.id ?? draftIdRef.current ?? lastDraftCard?.id ?? null;
+        if (!candidateId) {
+            candidateId = `draft-${Date.now()}`;
+        }
+
+        draftIdRef.current = candidateId;
+
+        const draft: StoredCard = {
+            ...latestDraftSnapshot,
+            id: candidateId,
+            createdAt: ensureDraftDate(latestDraftSnapshot.createdAt ?? lastDraftCard?.createdAt),
+        } as StoredCard;
+
+        const normalizedDraft = normalizeDraftCard(draft);
+        const draftContentHash = getDraftContentHash(normalizedDraft);
+        const hasContentChanges = draftContentHash !== lastDraftContentHashRef.current;
+        const nextCreatedAt = hasContentChanges
+            ? new Date()
+            : ensureDraftDate(lastDraftCard?.createdAt);
+
+        const normalizedDraftWithTimestamp: StoredCard = {
+            ...normalizedDraft,
+            createdAt: nextCreatedAt
+        };
+
+        const serializedCandidate = serializeDraftForCompare(normalizedDraftWithTimestamp);
+
+        if (serializedCandidate !== lastDraftSerializedRef.current) {
+            lastDraftSerializedRef.current = serializedCandidate;
+            lastDraftContentHashRef.current = draftContentHash;
+            dispatch(setLastDraftCard(normalizedDraftWithTimestamp));
+        }
+    }, [latestDraftSnapshot, dispatch, lastDraftCard]);
 
     // Add more detailed logging to debug the issue
     console.log('Card state details:', {
@@ -4796,7 +4803,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     const renderLatestCardShortcut = () => {
-        if (!latestCardPreview) {
+        if (!latestCardPreview || isSaved) {
             return null;
         }
 
