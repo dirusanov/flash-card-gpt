@@ -1,10 +1,11 @@
 import { Middleware } from 'redux';
 import { RootState } from '..';
-import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS } from '../actions/cards';
+import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS, SET_LAST_DRAFT_CARD, setLastDraftCard } from '../actions/cards';
 import { SAVE_TAB_CARD, DELETE_TAB_CARD, UPDATE_TAB_STORED_CARD, UPDATE_TAB_CARD_EXPORT_STATUS, SET_TAB_CARD_FIELD } from '../actions/tabState';
 import { StoredCard } from '../reducers/cards';
 
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
+const LAST_DRAFT_STORAGE_KEY = 'anki_last_draft_card';
 const TAB_STORAGE_KEY_PREFIX = 'anki_tab_cards';
 
 // Helper function to compress base64 images
@@ -185,6 +186,70 @@ export const loadCardsFromStorage = (): StoredCard[] => {
     }
     
     return [];
+};
+
+const ensureStoredDate = (value: StoredCard['createdAt'] | undefined): Date => {
+    if (value instanceof Date) {
+        return value;
+    }
+
+    if (typeof value === 'string' || typeof value === 'number') {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed;
+        }
+    }
+
+    return new Date();
+};
+
+const loadLastDraftCardFromStorage = (): StoredCard | null => {
+    try {
+        const raw = localStorage.getItem(LAST_DRAFT_STORAGE_KEY);
+        if (!raw) {
+            return null;
+        }
+
+        const parsed: StoredCard = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') {
+            return null;
+        }
+
+        return {
+            ...parsed,
+            createdAt: ensureStoredDate(parsed.createdAt),
+            examples: Array.isArray(parsed.examples) ? parsed.examples : [],
+            image: parsed.image ?? null,
+            imageUrl: parsed.imageUrl ?? null,
+            translation: parsed.translation ?? null,
+            front: parsed.front ?? parsed.text,
+            back: parsed.back ?? null,
+            linguisticInfo: parsed.linguisticInfo ?? '',
+            transcription: parsed.transcription ?? ''
+        };
+    } catch (error) {
+        console.error('Error loading last draft card from storage:', error);
+        localStorage.removeItem(LAST_DRAFT_STORAGE_KEY);
+        return null;
+    }
+};
+
+const saveLastDraftCardToStorage = (card: StoredCard | null) => {
+    try {
+        if (!card) {
+            localStorage.removeItem(LAST_DRAFT_STORAGE_KEY);
+            return;
+        }
+
+        const payload = {
+            ...card,
+            createdAt: ensureStoredDate(card.createdAt).toISOString(),
+        };
+
+        localStorage.setItem(LAST_DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+        console.error('Error saving last draft card to storage:', error);
+    }
 };
 
 // Tab-specific functions
@@ -451,7 +516,7 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
 export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => next => action => {
     // First pass the action through
     const result = next(action);
-    
+
     // Then handle localStorage operations
     switch (action.type) {
         case LOAD_STORED_CARDS:
@@ -462,6 +527,9 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                     type: 'SET_STORED_CARDS',
                     payload: cards
                 });
+
+                const lastDraftCard = loadLastDraftCardFromStorage();
+                store.dispatch(setLastDraftCard(lastDraftCard));
             } catch (error) {
                 console.error('Error in LOAD_STORED_CARDS middleware:', error);
                 // Initialize with empty array on error
@@ -469,6 +537,7 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                     type: 'SET_STORED_CARDS',
                     payload: []
                 });
+                store.dispatch(setLastDraftCard(null));
             }
             break;
             
@@ -478,10 +547,19 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
         case UPDATE_CARD_EXPORT_STATUS:
             try {
                 // Get the current state after the action has been processed
-                const { cards: { storedCards } } = store.getState();
+                const { cards: { storedCards, lastDraftCard } } = store.getState();
                 saveCardsToStorage(storedCards);
+                saveLastDraftCardToStorage(lastDraftCard);
             } catch (error) {
                 console.error('Error in card storage middleware:', error);
+            }
+            break;
+        case SET_LAST_DRAFT_CARD:
+            try {
+                const { cards: { lastDraftCard } } = store.getState();
+                saveLastDraftCardToStorage(lastDraftCard);
+            } catch (error) {
+                console.error('Error saving last draft card:', error);
             }
             break;
             

@@ -6,7 +6,7 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
 import { setDeckId } from "../store/actions/decks";
-import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription } from "../store/actions/cards";
+import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription, setLastDraftCard } from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
 import { getDescriptionImage, getExamples, translateText, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown } from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setImageGenerationMode } from "../store/actions/settings";
@@ -17,7 +17,7 @@ import { setGlobalProgressCallback, getGlobalApiTracker, resetGlobalApiTracker }
 import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
 import useErrorNotification from './useErrorHandler';
-import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit, FaClock } from 'react-icons/fa';
+import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit, FaClock, FaChevronRight } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
@@ -82,6 +82,71 @@ const GENERAL_CARD_TEMPLATES: GeneralCardTemplate[] = [
         prompt: 'Explain the main concept from this text in simple terms with examples'
     }
 ];
+
+const ensureDraftDate = (value: StoredCard['createdAt'] | undefined): Date => {
+    if (value instanceof Date) {
+        return value;
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed;
+        }
+    }
+    return new Date();
+};
+
+const normalizeDraftCard = (card: StoredCard): StoredCard => ({
+    ...card,
+    createdAt: ensureDraftDate(card.createdAt),
+    examples: card.examples ?? [],
+    image: card.image ?? null,
+    imageUrl: card.imageUrl ?? null,
+    translation: card.translation ?? null,
+    front: card.front ?? card.text,
+    back: card.back ?? null,
+    linguisticInfo: card.linguisticInfo ?? '',
+    transcription: card.transcription ?? '',
+});
+
+const serializeDraftForCompare = (card: StoredCard): string => {
+    const normalizedExamples = (card.examples ?? []).map(example => ([example[0], example[1] ?? null])) as Array<[string, string | null]>;
+
+    return JSON.stringify({
+        id: card.id,
+        mode: card.mode,
+        text: card.text,
+        translation: card.translation ?? null,
+        front: card.front ?? '',
+        back: card.back ?? null,
+        examples: normalizedExamples,
+        image: card.image ?? null,
+        imageUrl: card.imageUrl ?? null,
+        createdAt: ensureDraftDate(card.createdAt).toISOString(),
+        linguisticInfo: card.linguisticInfo ?? '',
+        transcription: card.transcription ?? '',
+    });
+};
+
+const getDraftContentHash = (card: StoredCard): string => {
+    const normalizedExamples = (card.examples ?? []).map(example => ([example[0], example[1] ?? null])) as Array<[string, string | null]>;
+
+    return JSON.stringify({
+        id: card.id,
+        mode: card.mode,
+        text: card.text,
+        translation: card.translation ?? null,
+        front: card.front ?? '',
+        back: card.back ?? null,
+        examples: normalizedExamples,
+        image: card.image ?? null,
+        imageUrl: card.imageUrl ?? null,
+        linguisticInfo: card.linguisticInfo ?? '',
+        transcription: card.transcription ?? '',
+    });
+};
+
+type DraftSnapshot = Omit<StoredCard, 'id' | 'createdAt'> & { id?: string; createdAt?: StoredCard['createdAt'] };
 
 interface CreateCardProps {
     // Пустой интерфейс, так как больше не нужен onSettingsClick
@@ -179,14 +244,196 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
 
+    const noop = useCallback(() => {}, []);
+
     const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, fieldIdPrefix } = tabAware;
+    const lastDraftCard = useSelector((state: RootState) => state.cards.lastDraftCard);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const decks = useSelector((state: RootState) => state.deck.decks);
     const mode = useSelector((state: RootState) => state.settings.mode);
     const [originalSelectedText, setOriginalSelectedText] = useState('');
+    const latestCardPreview = useMemo(() => {
+        if (!lastDraftCard) {
+            return null;
+        }
 
+        let createdAtValue: Date;
+        if (lastDraftCard.createdAt instanceof Date) {
+            createdAtValue = lastDraftCard.createdAt;
+        } else {
+            createdAtValue = new Date(lastDraftCard.createdAt as unknown as string);
+        }
+
+        if (Number.isNaN(createdAtValue.getTime())) {
+            createdAtValue = new Date();
+        }
+
+        const normalizedExamples = Array.isArray(lastDraftCard.examples)
+            ? lastDraftCard.examples
+            : [];
+
+        const normalizedRaw: StoredCard = {
+            ...lastDraftCard,
+            createdAt: createdAtValue,
+            examples: normalizedExamples
+        };
+
+        const isLanguageMode = lastDraftCard.mode === Modes.LanguageLearning;
+        const frontText = isLanguageMode
+            ? normalizedRaw.text
+            : (normalizedRaw.front || normalizedRaw.text);
+        const translationText = isLanguageMode
+            ? normalizedRaw.translation || ''
+            : (normalizedRaw.back || normalizedRaw.translation || '');
+
+        const snippetSource = (frontText || translationText || normalizedRaw.text || '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const snippet = snippetSource.length > 0
+            ? snippetSource
+            : 'Saved card is ready to preview';
+        const previewSnippet = snippet.length > 110
+            ? `${snippet.slice(0, 107).trim()}…`
+            : snippet;
+
+        const englishLocale = 'en-GB';
+        const fullTimestampFormatter = new Intl.DateTimeFormat(englishLocale, {
+            dateStyle: 'medium',
+            timeStyle: 'short'
+        });
+        const shortTimeFormatter = new Intl.DateTimeFormat(englishLocale, {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+
+        const fullTimestampLabel = fullTimestampFormatter.format(createdAtValue);
+        const shortTimeLabel = shortTimeFormatter.format(createdAtValue);
+
+        return {
+            raw: normalizedRaw,
+            front: frontText || '',
+            translation: translationText || '',
+            examples: normalizedExamples,
+            createdAt: createdAtValue,
+            snippet,
+            previewSnippet,
+            timeLabel: fullTimestampLabel,
+            shortTimeLabel,
+            modeLabel: isLanguageMode ? 'Language Learning' : 'General Topic'
+        };
+    }, [lastDraftCard]);
+    const draftIdRef = useRef<string | null>(lastDraftCard?.id ?? null);
+    const lastDraftSerializedRef = useRef<string | null>(lastDraftCard ? serializeDraftForCompare(normalizeDraftCard(lastDraftCard)) : null);
+    const lastDraftContentHashRef = useRef<string | null>(lastDraftCard ? getDraftContentHash(normalizeDraftCard(lastDraftCard)) : null);
+
+    useEffect(() => {
+        if (lastDraftCard) {
+            draftIdRef.current = lastDraftCard.id;
+            lastDraftSerializedRef.current = serializeDraftForCompare(normalizeDraftCard(lastDraftCard));
+            lastDraftContentHashRef.current = getDraftContentHash(normalizeDraftCard(lastDraftCard));
+        }
+    }, [lastDraftCard]);
+
+    const latestDraftSnapshot = useMemo<DraftSnapshot | null>(() => {
+        if (!showResult) {
+            return null;
+        }
+
+        const trimmedOriginal = (originalSelectedText || '').trim();
+        const baseFrontCandidate = (trimmedOriginal || front || '').trim();
+        const baseTextCandidate = (trimmedOriginal || text || front || '').trim();
+        const hasMeaningfulContent = Boolean(
+            baseTextCandidate ||
+            (translation && translation.trim()) ||
+            (back && back.trim()) ||
+            examples.length > 0 ||
+            image ||
+            imageUrl ||
+            (linguisticInfo && linguisticInfo.trim()) ||
+            (transcription && transcription.trim())
+        );
+
+        if (!hasMeaningfulContent) {
+            return null;
+        }
+
+        const cardText = baseTextCandidate || text || front || '';
+        const draftFront = baseFrontCandidate || front || cardText;
+        const draftTranslation = translation || (mode === Modes.GeneralTopic ? (back || '') : translation);
+
+        return {
+            id: currentCardId ?? undefined,
+            mode,
+            text: cardText,
+            translation: draftTranslation && draftTranslation.length > 0 ? draftTranslation : null,
+            examples: examples.length ? examples : [],
+            image: image || null,
+            imageUrl: imageUrl || null,
+            createdAt: lastDraftCard?.createdAt,
+            exportStatus: 'not_exported',
+            front: draftFront,
+            back: back ?? null,
+            linguisticInfo: linguisticInfo || '',
+            transcription: transcription || ''
+        };
+    }, [
+        showResult,
+        originalSelectedText,
+        text,
+        front,
+        translation,
+        back,
+        examples,
+        image,
+        imageUrl,
+        linguisticInfo,
+        transcription,
+        currentCardId,
+        mode,
+        lastDraftCard
+    ]);
+
+    useEffect(() => {
+        if (!latestDraftSnapshot) {
+            return;
+        }
+
+        let candidateId = latestDraftSnapshot.id ?? draftIdRef.current ?? lastDraftCard?.id ?? null;
+        if (!candidateId) {
+            candidateId = `draft-${Date.now()}`;
+        }
+
+        draftIdRef.current = candidateId;
+
+        const draft: StoredCard = {
+            ...latestDraftSnapshot,
+            id: candidateId,
+            createdAt: ensureDraftDate(latestDraftSnapshot.createdAt ?? lastDraftCard?.createdAt),
+        } as StoredCard;
+
+        const normalizedDraft = normalizeDraftCard(draft);
+        const draftContentHash = getDraftContentHash(normalizedDraft);
+        const hasContentChanges = draftContentHash !== lastDraftContentHashRef.current;
+        const nextCreatedAt = hasContentChanges
+            ? new Date()
+            : ensureDraftDate(lastDraftCard?.createdAt);
+
+        const normalizedDraftWithTimestamp: StoredCard = {
+            ...normalizedDraft,
+            createdAt: nextCreatedAt
+        };
+
+        const serializedCandidate = serializeDraftForCompare(normalizedDraftWithTimestamp);
+
+        if (serializedCandidate !== lastDraftSerializedRef.current) {
+            lastDraftSerializedRef.current = serializedCandidate;
+            lastDraftContentHashRef.current = draftContentHash;
+            dispatch(setLastDraftCard(normalizedDraftWithTimestamp));
+        }
+    }, [latestDraftSnapshot, dispatch, lastDraftCard]);
     const enforceLanguageMode = useCallback(() => {
         localStorage.setItem('selected_mode', Modes.LanguageLearning);
 
@@ -545,6 +792,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Handler for translation update
     const handleTranslationUpdate = (newTranslation: string) => {
         tabAware.setTranslation(newTranslation);
+        if (isSaved) {
+            setIsEdited(true);
+        }
+    };
+
+    const handleBackUpdate = (newBack: string | null) => {
+        tabAware.setBack(newBack ?? null);
         if (isSaved) {
             setIsEdited(true);
         }
@@ -1008,6 +1262,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 setIsEdited(false);
                 // showError('Card saved successfully!', 'success'); // Убрали уведомление
 
+                dispatch(setLastDraftCard(null));
+
                 return; // Exit early for multi-card save
             }
 
@@ -1087,6 +1343,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     tabAware.setCurrentCardId(cardId);
                 }
 
+                dispatch(setLastDraftCard(null));
+
             } else if (mode === Modes.GeneralTopic) {
                 // Для GeneralTopic будем использовать front вместо back
                 if (!front) {
@@ -1135,6 +1393,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     tabAware.saveCardToStorage(cardData);
                     tabAware.setCurrentCardId(cardId);
                 }
+
+                dispatch(setLastDraftCard(null));
             }
 
             // Important: When the user explicitly saves the card, mark it as explicitly saved
@@ -1197,8 +1457,50 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setOriginalSelectedText('');
     };
 
-    const handleViewSavedCards = () => {
+    const handleViewSavedCards = useCallback(() => {
         tabAware.setCurrentPage('storedCards');
+    }, [tabAware]);
+
+    const loadLastDraftIntoState = useCallback((card: StoredCard) => {
+        const normalized = normalizeDraftCard(card);
+
+        tabAware.updateCard({
+            text: normalized.text,
+            translation: normalized.translation ?? '',
+            examples: normalized.examples ?? [],
+            image: normalized.image ?? null,
+            imageUrl: normalized.imageUrl ?? null,
+            front: normalized.front ?? normalized.text,
+            back: normalized.back ?? null,
+            linguisticInfo: normalized.linguisticInfo ?? '',
+            transcription: normalized.transcription ?? ''
+        });
+
+        if (normalized.id) {
+            tabAware.setCurrentCardId(normalized.id);
+        } else {
+            tabAware.setCurrentCardId(null);
+        }
+
+        setOriginalSelectedText(normalized.mode === Modes.LanguageLearning ? normalized.text : '');
+        tabAware.setIsGeneratingCard(false);
+        setShowResult(true);
+        setIsEdited(false);
+        setIsNewSubmission(false);
+        setExplicitlySaved(false);
+        setExplicitlySavedIds([]);
+        setIsMultipleCards(false);
+        setCreatedCards([]);
+        setCurrentCardIndex(0);
+    }, [tabAware]);
+
+    const handleOpenLatestCard = () => {
+        if (!latestCardPreview) {
+            return;
+        }
+
+        loadLastDraftIntoState(latestCardPreview.raw);
+        setShowModal(true);
     };
 
     // Используем useCallback для стабильной ссылки на функцию обработки выделения
@@ -2001,6 +2303,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
         dispatch(setTranscription('')); // Очищаем транскрипцию
         setOriginalSelectedText('');
+
+        dispatch(setLastDraftCard(null));
     };
 
     // Add a function to render the AI provider badge
@@ -2465,6 +2769,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         isEdited={isEdited}
                         isGeneratingCard={isGeneratingCard}
                         setTranslation={handleTranslationUpdate}
+                        setBack={handleBackUpdate}
                         setExamples={handleExamplesUpdate}
                         setLinguisticInfo={handleLinguisticInfoUpdate}
                     />
@@ -4490,6 +4795,92 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     };
 
+    const renderLatestCardShortcut = () => {
+        if (!latestCardPreview) {
+            return null;
+        }
+
+        return (
+            <button
+                type="button"
+                onClick={handleOpenLatestCard}
+                style={{
+                    width: '100%',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: '10px',
+                    padding: '16px',
+                    backgroundColor: '#FFFFFF',
+                    color: '#1F2937',
+                    cursor: 'pointer',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '16px',
+                    transition: 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
+                    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                    marginTop: '12px'
+                }}
+                onMouseOver={(e) => {
+                    e.currentTarget.style.backgroundColor = '#F9FAFB';
+                    e.currentTarget.style.borderColor = '#D1D5DB';
+                    e.currentTarget.style.boxShadow = '0 8px 18px -12px rgba(30, 64, 175, 0.35)';
+                }}
+                onMouseOut={(e) => {
+                    e.currentTarget.style.backgroundColor = '#FFFFFF';
+                    e.currentTarget.style.borderColor = '#E5E7EB';
+                    e.currentTarget.style.boxShadow = '0 1px 2px rgba(15, 23, 42, 0.04)';
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative', zIndex: 1 }}>
+                    <div style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '50%',
+                        backgroundColor: '#EEF2FF',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#4338CA',
+                        fontSize: '13px'
+                    }}>
+                        <FaClock size={14} />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
+                        <span style={{ fontWeight: 600, fontSize: '13px', color: '#111827' }}>Latest draft card</span>
+                        <span style={{ fontSize: '11px', color: '#6B7280' }}>Saved on {latestCardPreview.timeLabel}</span>
+                    </div>
+                </div>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    flex: 1,
+                    justifyContent: 'flex-end'
+                }}>
+                    <span
+                        style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            fontSize: '12px',
+                            fontWeight: 500,
+                            color: '#1F2937',
+                            textAlign: 'right',
+                            maxWidth: '60%'
+                        }}
+                    >
+                        {latestCardPreview.previewSnippet}
+                    </span>
+                    <FaChevronRight size={14} style={{ color: '#9CA3AF' }} />
+                </div>
+            </button>
+        );
+    };
+
     // Компонент выбора изучаемого языка
     const renderSourceLanguageSelector = () => {
         // Если модальное окно не открыто, показываем кнопку выбора
@@ -5554,6 +5945,7 @@ Original text: ${text}`;
         }
     };
 
+
     const isGeneratingCard = useSelector((state: RootState) => state.cards.isGeneratingCard);
 
     return (
@@ -6176,6 +6568,8 @@ Original text: ${text}`;
                             />
                         </div>
                     )}
+
+                    {renderLatestCardShortcut()}
                 </div>
             </div>
 
