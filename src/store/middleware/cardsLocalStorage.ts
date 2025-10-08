@@ -8,6 +8,13 @@ const LOCAL_STORAGE_KEY = 'anki_stored_cards';
 const LAST_DRAFT_STORAGE_KEY = 'anki_last_draft_card';
 const TAB_STORAGE_KEY_PREFIX = 'anki_tab_cards';
 
+const isDev = process.env.NODE_ENV !== 'production';
+const debugLog = (...args: unknown[]) => {
+    if (isDev) {
+        console.log(...args);
+    }
+};
+
 // Helper function to compress base64 images
 const compressImageIfPossible = (imageData: string): string => {
     try {
@@ -16,7 +23,7 @@ const compressImageIfPossible = (imageData: string): string => {
             // For very large images, we can try to reduce them
             // This is a simple approach - in a full implementation we'd use canvas to resize
             if (imageData.length > 100000) { // > 100KB
-                console.log('Large image detected, applying basic compression');
+                debugLog('Large image detected, applying basic compression');
                 // Keep the image but warn about size
                 console.warn(`Large image (${Math.round(imageData.length/1024)}KB) detected. Consider using smaller images.`);
                 
@@ -48,7 +55,7 @@ const manageStorageQuota = (cards: StoredCard[]): StoredCard[] => {
         const sizeInBytes = new Blob([serialized]).size;
         const sizeInMB = sizeInBytes / (1024 * 1024);
         
-        console.log(`Storage analysis: ${cards.length} cards, ${sizeInMB.toFixed(2)}MB`);
+        debugLog(`Storage analysis: ${cards.length} cards, ${sizeInMB.toFixed(2)}MB`);
         
         // If size is manageable, return as is
         if (sizeInMB < 4) {
@@ -104,22 +111,22 @@ const showQuotaWarning = () => {
 export const loadCardsFromStorage = (): StoredCard[] => {
     try {
         const storedCardsJson = localStorage.getItem(LOCAL_STORAGE_KEY);
-        console.log('Loading cards from localStorage. Data exists:', !!storedCardsJson);
+        debugLog('Loading cards from localStorage. Data exists:', !!storedCardsJson);
         
         if (storedCardsJson) {
             // Try to parse the JSON
             try {
                 const storedCards: StoredCard[] = JSON.parse(storedCardsJson);
-                console.log('Successfully parsed cards from localStorage, total count:', storedCards.length);
+                debugLog('Successfully parsed cards from localStorage, total count:', storedCards.length);
                 
                 // List first few and last few cards to help diagnose issues
                 if (storedCards.length > 0) {
                     const firstFew = storedCards.slice(0, Math.min(3, storedCards.length));
                     const lastFew = storedCards.length > 3 ? storedCards.slice(-3) : [];
                     
-                    console.log('First few cards:', firstFew.map(c => ({ id: c.id, text: c.text?.substring(0, 20) })));
+                    debugLog('First few cards:', firstFew.map(c => ({ id: c.id, text: c.text?.substring(0, 20) })));
                     if (lastFew.length > 0) {
-                        console.log('Last few cards:', lastFew.map(c => ({ id: c.id, text: c.text?.substring(0, 20) })));
+                        debugLog('Last few cards:', lastFew.map(c => ({ id: c.id, text: c.text?.substring(0, 20) })));
                     }
                 }
                 
@@ -145,7 +152,7 @@ export const loadCardsFromStorage = (): StoredCard[] => {
                     return true;
                 });
                 
-                console.log(`Card validation: ${validCards.length} valid out of ${storedCards.length} total`);
+                debugLog(`Card validation: ${validCards.length} valid out of ${storedCards.length} total`);
                 
                 // Convert date strings back to Date objects
                 const cardsWithDates = validCards.map(card => ({
@@ -155,9 +162,9 @@ export const loadCardsFromStorage = (): StoredCard[] => {
                 
                 // Check images in loaded cards
                 const loadedCardsWithImages = cardsWithDates.filter(card => card.image || card.imageUrl);
-                console.log('Loaded cards with images:', loadedCardsWithImages.length);
+                debugLog('Loaded cards with images:', loadedCardsWithImages.length);
                 loadedCardsWithImages.forEach(card => {
-                    console.log(`Loaded card ${card.id} image data:`, {
+                    debugLog(`Loaded card ${card.id} image data:`, {
                         hasImage: !!card.image,
                         hasImageUrl: !!card.imageUrl,
                         imageLength: card.image?.length,
@@ -257,11 +264,11 @@ export const loadTabCardsFromStorage = (tabId: number): StoredCard[] => {
     try {
         const tabStorageKey = `${TAB_STORAGE_KEY_PREFIX}_${tabId}`;
         const storedCardsJson = localStorage.getItem(tabStorageKey);
-        console.log(`Loading cards for tab ${tabId}. Data exists:`, !!storedCardsJson);
+        debugLog(`Loading cards for tab ${tabId}. Data exists:`, !!storedCardsJson);
         
         if (storedCardsJson) {
             const storedCards: StoredCard[] = JSON.parse(storedCardsJson);
-            console.log(`Successfully loaded ${storedCards.length} cards for tab ${tabId}`);
+            debugLog(`Successfully loaded ${storedCards.length} cards for tab ${tabId}`);
             
             return storedCards.map(card => ({
                 ...card,
@@ -278,7 +285,7 @@ export const loadTabCardsFromStorage = (tabId: number): StoredCard[] => {
 export const saveTabCardsToStorage = (tabId: number, cards: StoredCard[]): void => {
     try {
         const tabStorageKey = `${TAB_STORAGE_KEY_PREFIX}_${tabId}`;
-        console.log(`Saving ${cards.length} cards for tab ${tabId}`);
+        debugLog(`Saving ${cards.length} cards for tab ${tabId}`);
         
         const optimizedCards = manageStorageQuota(cards);
         const serializedCards = JSON.stringify(optimizedCards, (key, value) => {
@@ -287,7 +294,7 @@ export const saveTabCardsToStorage = (tabId: number, cards: StoredCard[]): void 
         });
         
         localStorage.setItem(tabStorageKey, serializedCards);
-        console.log(`Successfully saved ${optimizedCards.length} cards for tab ${tabId}`);
+        debugLog(`Successfully saved ${optimizedCards.length} cards for tab ${tabId}`);
     } catch (error) {
         console.error(`Error saving cards for tab ${tabId}:`, error);
         saveCardsToStorageWithErrorHandling(tabId, cards, error);
@@ -333,14 +340,14 @@ const saveCardsToStorageWithErrorHandling = (tabId: number, cards: StoredCard[],
 // Вспомогательная функция для сохранения карточек в localStorage
 export const saveCardsToStorage = (cards: StoredCard[]): void => {
     try {
-        console.log('Saving cards to localStorage:', cards);
-        console.log('Total cards count:', cards.length);
+        debugLog('Saving cards to localStorage:', cards);
+        debugLog('Total cards count:', cards.length);
         
         // Check images in cards being saved
         const cardsWithImages = cards.filter(card => card.image || card.imageUrl);
-        console.log('Cards with images:', cardsWithImages.length);
+        debugLog('Cards with images:', cardsWithImages.length);
         cardsWithImages.forEach(card => {
-            console.log(`Card ${card.id} image data:`, {
+            debugLog(`Card ${card.id} image data:`, {
                 hasImage: !!card.image,
                 hasImageUrl: !!card.imageUrl,
                 imageLength: card.image?.length,
@@ -368,7 +375,7 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
         
         // Check localStorage size limit
         const storageSizeInBytes = new Blob([serializedCards]).size;
-        console.log('Storage size in bytes:', storageSizeInBytes, 'Approximate max size: ~5MB');
+        debugLog('Storage size in bytes:', storageSizeInBytes, 'Approximate max size: ~5MB');
         
         // Most browsers have a 5MB-10MB limit for localStorage
         if (storageSizeInBytes > 4 * 1024 * 1024) { // 4MB warning
@@ -376,7 +383,7 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
         }
         
         localStorage.setItem(LOCAL_STORAGE_KEY, serializedCards);
-        console.log('Cards saved successfully to localStorage with image preservation');
+        debugLog('Cards saved successfully to localStorage with image preservation');
     } catch (error) {
         console.error('Error saving cards to localStorage:', error);
         
@@ -453,7 +460,7 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                     
                     // Check if our size reduction helped
                     const newSize = new Blob([smallerSerializedCards]).size;
-                    console.log(`Reduced size from ${originalSize} to ${newSize} bytes`);
+                    debugLog(`Reduced size from ${originalSize} to ${newSize} bytes`);
                     
                     // If still too large, we have to fall back to removing the newest cards, but preserve more than just 4
                     if (newSize > 4.5 * 1024 * 1024) {
@@ -501,7 +508,7 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                         localStorage.setItem(LOCAL_STORAGE_KEY, smallerSerializedCards);
                     }
                     
-                    console.log('Saved cards with image preservation strategy to fit within quota');
+                    debugLog('Saved cards with image preservation strategy to fit within quota');
                     
                     // Return true to indicate we handled the error
                     return;

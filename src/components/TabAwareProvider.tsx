@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useMemo } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
+import React, { createContext, useContext, useMemo, useRef } from 'react';
+import { useSelector, useDispatch, shallowEqual } from 'react-redux';
 import { RootState } from '../store';
 import { 
     setTabText, 
@@ -96,40 +96,57 @@ interface TabAwareProviderProps {
 
 export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, children }) => {
     const dispatch = useDispatch();
-    
+
     // Get tab-specific state
-    const tabState = useSelector((state: RootState) => 
-        state.tabState.tabStates[tabId]
+    const tabState = useSelector(
+        (state: RootState) => state.tabState.tabStates[tabId],
+        shallowEqual
     );
-    
-    // Fallback to global state if tab state doesn't exist
-    const globalCards = useSelector((state: RootState) => state.cards);
-    
-    // Больше не загружаем tab-specific карточки, используем только глобальные
-    
+
+    // Read global card data once and memoise shallow fields to avoid needless rerenders
+    const globalCardData = useSelector(
+        (state: RootState) => ({
+            text: state.cards.text,
+            translation: state.cards.translation,
+            examples: state.cards.examples,
+            image: state.cards.image,
+            imageUrl: state.cards.imageUrl,
+            front: state.cards.front,
+            back: state.cards.back,
+            linguisticInfo: state.cards.linguisticInfo,
+            transcription: state.cards.transcription,
+            isGeneratingCard: state.cards.isGeneratingCard,
+            currentCardId: state.cards.currentCardId,
+        }),
+        shallowEqual
+    );
+
+    const storedCards = useSelector((state: RootState) => state.cards.storedCards);
+    const globalCurrentPage = useSelector((state: RootState) => state.currentPage);
+
+    const fallbackFieldIdPrefixRef = useRef(`fallback_${tabId}_${Date.now()}_`);
+
     // Create context value
     const contextValue: TabAwareContextType = useMemo(() => {
         // Use tab-specific data if available, otherwise fallback to global
         const cardData = tabState?.cardData || {
-            text: globalCards.text,
-            translation: globalCards.translation,
-            examples: globalCards.examples,
-            image: globalCards.image,
-            imageUrl: globalCards.imageUrl,
-            front: globalCards.front,
-            back: globalCards.back,
-            linguisticInfo: globalCards.linguisticInfo,
-            transcription: globalCards.transcription,
-            isGeneratingCard: globalCards.isGeneratingCard,
-            currentCardId: globalCards.currentCardId
+            text: globalCardData.text,
+            translation: globalCardData.translation,
+            examples: globalCardData.examples,
+            image: globalCardData.image,
+            imageUrl: globalCardData.imageUrl,
+            front: globalCardData.front,
+            back: globalCardData.back,
+            linguisticInfo: globalCardData.linguisticInfo,
+            transcription: globalCardData.transcription,
+            isGeneratingCard: globalCardData.isGeneratingCard,
+            currentCardId: globalCardData.currentCardId,
         };
 
         // storedCards всегда должны быть глобальными, не tab-specific
-        const storedCards = globalCards.storedCards;
-        const fieldIdPrefix = tabState?.fieldIdPrefix || `fallback_${Date.now()}_`;
-        
+        const fieldIdPrefix = tabState?.fieldIdPrefix || fallbackFieldIdPrefixRef.current;
+
         // currentPage - tab-specific, но с fallback на глобальный
-        const globalCurrentPage = useSelector((state: RootState) => state.currentPage);
         const currentPage = tabState?.currentPage || globalCurrentPage;
 
         return {
@@ -315,7 +332,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 });
             }
         };
-    }, [tabState, globalCards, tabId, dispatch]);
+    }, [tabState, globalCardData, storedCards, tabId, dispatch, globalCurrentPage]);
 
     return (
         <TabAwareContext.Provider value={contextValue}>

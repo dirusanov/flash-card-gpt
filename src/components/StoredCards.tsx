@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
@@ -13,11 +13,16 @@ import useErrorNotification from './useErrorHandler';
 import { Deck, setDeckId } from '../store/actions/decks';
 import Loader from './Loader';
 import { getDescriptionImage } from "../services/openaiApi";
-import { getImage } from '../apiUtils';
-import { OpenAI } from 'openai';
 import ResultDisplay from './ResultDisplay';
 import { processLatexInContent } from '../utils/katexRenderer';
 import MathContentRenderer from './MathContentRenderer';
+
+const isDev = process.env.NODE_ENV !== 'production';
+const debugLog = (...args: unknown[]) => {
+    if (isDev) {
+        console.log(...args);
+    }
+};
 
 interface StoredCardsProps {
     onBackClick: () => void;
@@ -59,7 +64,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const [loadingAccept, setLoadingAccept] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
-    const [totalPages, setTotalPages] = useState(1);
 
     // States for export file modal
     const [showExportModal, setShowExportModal] = useState(false);
@@ -68,96 +72,35 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     const { showError, renderErrorNotification } = useErrorNotification();
 
-    // Initialize OpenAI client
-    const openai = new OpenAI({
-        apiKey: openAiKey,
-        dangerouslyAllowBrowser: true,
-    });
-
     // Load stored cards when the component mounts
     useEffect(() => {
-        const loadAllCards = async () => {
-            console.log('StoredCards component mounted, forcing complete reload of cards...');
+        dispatch(loadStoredCards());
+    }, [dispatch]);
 
-            // First, try to directly access localStorage to see what's there
-            try {
-                const rawData = localStorage.getItem('anki_stored_cards');
-                if (rawData) {
-                    try {
-                        const directCards = JSON.parse(rawData);
-                        console.log('Direct from localStorage, found cards:', directCards.length);
-                    } catch (e) {
-                        console.error('Failed to parse localStorage data directly:', e);
-                    }
-                } else {
-                    console.log('No cards found directly in localStorage');
-                }
-            } catch (e) {
-                console.error('Error accessing localStorage directly:', e);
+    const syncedLocalStorageRef = useRef(false);
+
+    useEffect(() => {
+        if (storedCards.length > 0 || syncedLocalStorageRef.current) {
+            return;
+        }
+
+        try {
+            const rawData = localStorage.getItem('anki_stored_cards');
+            if (!rawData) {
+                syncedLocalStorageRef.current = true;
+                return;
             }
 
-            // Now load through the Redux action
-            dispatch(loadStoredCards());
-
-            // Add a small delay to make sure cards are loaded
-            const timer = setTimeout(() => {
-                console.log('Current stored cards after initial load:', storedCards.length);
-
-                // If there are no cards after initial load, try a different approach
-                if (storedCards.length === 0) {
-                    console.log('No cards loaded, trying to load directly from localStorage...');
-
-                    try {
-                        const rawData = localStorage.getItem('anki_stored_cards');
-                        if (rawData) {
-                            const parsedCards = JSON.parse(rawData);
-                            if (Array.isArray(parsedCards) && parsedCards.length > 0) {
-                                console.log('Found cards directly in localStorage, manually setting in Redux...');
-                                dispatch({ type: 'SET_STORED_CARDS', payload: parsedCards });
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Failed to manually load cards:', error);
-                    }
-                }
-
-                // Log card counts by filter type for debugging
-                if (storedCards.length > 0) {
-                    const notExported = storedCards.filter(card => card.exportStatus === 'not_exported').length;
-                    const exported = storedCards.filter(card =>
-                        card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file'
-                    ).length;
-
-                    console.log('Card stats: total=', storedCards.length, 'not_exported=', notExported, 'exported=', exported);
-
-                    // Debug image data in cards
-                    storedCards.forEach((card, index) => {
-                        if (card.image || card.imageUrl) {
-                            console.log(`Card ${index} (${card.id}) has images:`, {
-                                hasImage: !!card.image,
-                                hasImageUrl: !!card.imageUrl,
-                                imageType: typeof card.image,
-                                imageUrlType: typeof card.imageUrl,
-                                imageLength: card.image?.length,
-                                imageUrlLength: card.imageUrl?.length,
-                                imageStart: card.image?.substring(0, 30),
-                                imageUrlStart: card.imageUrl?.substring(0, 30)
-                            });
-                        }
-                    });
-                }
-            }, 500);
-
-            return () => clearTimeout(timer);
-        };
-
-        loadAllCards();
+            const parsedCards = JSON.parse(rawData);
+            if (Array.isArray(parsedCards) && parsedCards.length > 0) {
+                dispatch({ type: 'SET_STORED_CARDS', payload: parsedCards });
+            }
+        } catch (error) {
+            console.error('Failed to hydrate cards from localStorage:', error);
+        } finally {
+            syncedLocalStorageRef.current = true;
+        }
     }, [dispatch, storedCards.length]);
-
-    // Check if we have cards after loading
-    useEffect(() => {
-        console.log('Stored cards updated:', storedCards);
-    }, [storedCards]);
 
     // Load Anki decks when needed
     const loadAnkiDecks = async () => {
@@ -196,137 +139,114 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
     }, [useAnkiConnect]);
 
-    // Get filtered cards based on current tab with pagination
-    const getFilteredCards = () => {
-        // Log all cards first to see what we're working with
-        console.log('All cards in store:', storedCards.length, 'cards');
-
-        // If cards array is empty or invalid, return empty array
+    const filteredCards = useMemo(() => {
         if (!Array.isArray(storedCards) || storedCards.length === 0) {
-            console.log('No cards to filter');
             return [];
         }
 
-        // Log the exportStatus of each card to help diagnose issues
-        const statusCounts = {
-            not_exported: 0,
-            exported_to_anki: 0,
-            exported_to_file: 0,
-            unknown: 0
-        };
-
-        storedCards.forEach(card => {
-            if (card.exportStatus === 'not_exported') statusCounts.not_exported++;
-            else if (card.exportStatus === 'exported_to_anki') statusCounts.exported_to_anki++;
-            else if (card.exportStatus === 'exported_to_file') statusCounts.exported_to_file++;
-            else statusCounts.unknown++;
-        });
-
-        console.log('Card status counts:', statusCounts);
-
-        let cards;
-        switch (activeFilter) {
-            case 'not_exported':
-                cards = storedCards.filter(card => card.exportStatus === 'not_exported');
-                console.log('Filtered to not_exported cards:', cards.length);
-                break;
-            case 'exported':
-                cards = storedCards.filter(card =>
-                    card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file');
-                console.log('Filtered to exported cards:', cards.length);
-                break;
-            case 'all':
-            default:
-                // Just return all cards, don't sort by export status to avoid any issues
-                cards = [...storedCards];
-                console.log('Using all cards:', cards.length);
-                break;
+        if (isDev) {
+            debugLog('Stored cards total:', storedCards.length);
         }
 
-        // Sort by creation date within each category (newest first)
-        const sortedCards = cards.sort((a, b) => {
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        });
+        const candidates = (() => {
+            switch (activeFilter) {
+                case 'not_exported':
+                    return storedCards.filter(card => card.exportStatus === 'not_exported');
+                case 'exported':
+                    return storedCards.filter(card =>
+                        card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file'
+                    );
+                case 'all':
+                default:
+                    return storedCards;
+            }
+        })();
 
-        console.log('Final filtered and sorted cards:', sortedCards.length);
+        if (isDev) {
+            debugLog(`Filtered cards (${activeFilter}):`, candidates.length);
+        }
 
-        return sortedCards;
-    };
+        return [...candidates].sort((a, b) => (
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        ));
+    }, [storedCards, activeFilter]);
 
-    const filteredCards = getFilteredCards();
+    const totalPages = useMemo(() => {
+        if (filteredCards.length === 0) {
+            return 1;
+        }
+        return Math.max(1, Math.ceil(filteredCards.length / itemsPerPage));
+    }, [filteredCards.length, itemsPerPage]);
 
-    // Get paginated cards for current page
-    const getPaginatedCards = () => {
+    const paginatedCards = useMemo(() => {
         if (filteredCards.length === 0) {
             return [];
         }
 
-        const startIndex = (currentPage - 1) * itemsPerPage;
+        const clampedPage = Math.min(Math.max(currentPage, 1), totalPages);
+        const startIndex = (clampedPage - 1) * itemsPerPage;
         const endIndex = startIndex + itemsPerPage;
 
-        // If the startIndex is beyond the available cards (which could happen
-        // if we were on page 2 and then filtered to fewer cards), reset to page 1
-        if (startIndex >= filteredCards.length) {
-            setCurrentPage(1);
-            return filteredCards.slice(0, itemsPerPage);
+        if (isDev) {
+            debugLog('Pagination debug:', {
+                totalCards: storedCards.length,
+                filteredCards: filteredCards.length,
+                currentPage,
+                clampedPage,
+                itemsPerPage,
+                startIndex,
+                endIndex,
+            });
         }
-
-        console.log('Pagination debug:', {
-            totalCards: storedCards.length,
-            filteredCards: filteredCards.length,
-            currentPage,
-            itemsPerPage,
-            startIndex,
-            endIndex,
-            cardsOnThisPage: filteredCards.slice(startIndex, endIndex).length
-        });
 
         return filteredCards.slice(startIndex, endIndex);
-    };
+    }, [filteredCards, currentPage, itemsPerPage, totalPages, storedCards.length]);
 
-    const paginatedCards = getPaginatedCards();
-
-    // Update total pages when filtered cards or items per page changes
     useEffect(() => {
-        // Ensure we have at least 1 page
-        const calculatedTotalPages = Math.max(1, Math.ceil(filteredCards.length / itemsPerPage));
-        setTotalPages(calculatedTotalPages);
+        setCurrentPage(prev => {
+            const clamped = Math.min(Math.max(prev, 1), totalPages);
+            return clamped === prev ? prev : clamped;
+        });
+    }, [totalPages]);
 
-        // If current page is greater than total pages, reset to page 1
-        if (currentPage > calculatedTotalPages) {
-            setCurrentPage(1);
+    const cardCounts = useMemo(() => {
+        let notExported = 0;
+        let exported = 0;
+
+        for (const card of storedCards) {
+            if (card.exportStatus === 'not_exported') {
+                notExported += 1;
+            } else if (card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file') {
+                exported += 1;
+            }
         }
-    }, [filteredCards.length, itemsPerPage]);
 
-    // Count cards by status for the tab counters
-    const cardCounts = {
-        all: storedCards.length,
-        not_exported: storedCards.filter(card => card.exportStatus === 'not_exported').length,
-        exported: storedCards.filter(card =>
-            card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file').length
-    };
+        return {
+            all: storedCards.length,
+            not_exported: notExported,
+            exported,
+        };
+    }, [storedCards]);
 
-    const handleCardSelect = (cardId: string) => {
-        // Don't allow selection changes when a card is being edited
+    const handleCardSelect = useCallback((cardId: string) => {
         if (editingCard) return;
 
-        if (selectedCards.includes(cardId)) {
-            setSelectedCards(selectedCards.filter(id => id !== cardId));
-        } else {
-            setSelectedCards([...selectedCards, cardId]);
-        }
-    };
+        setSelectedCards(prev => (
+            prev.includes(cardId)
+                ? prev.filter(id => id !== cardId)
+                : [...prev, cardId]
+        ));
+    }, [editingCard]);
 
-    const handleSelectAll = () => {
-        // Don't allow selection changes when a card is being edited
+    const handleSelectAll = useCallback(() => {
         if (editingCard) return;
 
-        if (selectedCards.length === filteredCards.length) {
-            setSelectedCards([]);
-        } else {
-            setSelectedCards(filteredCards.map(card => card.id));
-        }
-    };
+        setSelectedCards(prev => (
+            prev.length === filteredCards.length
+                ? []
+                : filteredCards.map(card => card.id)
+        ));
+    }, [editingCard, filteredCards]);
 
     const handleDelete = (cardId: string) => {
         tabAware.deleteStoredCard(cardId);
@@ -376,7 +296,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         linguisticInfo: card.linguisticInfo
                     };
 
-                    console.log(`Adding language learning card to Anki export:`, {
+                    debugLog(`Adding language learning card to Anki export:`, {
                         cardId: card.id,
                         text: card.text,
                         hasImage: !!processedImageBase64,
@@ -405,7 +325,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         } else if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
                             // Handle URL - need to fetch and convert to base64
                             try {
-                                console.log(`Fetching image from URL for card ${card.id}: ${imageSource}`);
+                                debugLog(`Fetching image from URL for card ${card.id}: ${imageSource}`);
                                 const response = await fetch(imageSource);
                                 if (response.ok) {
                                     const blob = await response.blob();
@@ -425,7 +345,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                         reader.readAsDataURL(blob);
                                     });
                                     processedImageBase64 = base64Data;
-                                    console.log(`Successfully converted URL to base64 for card ${card.id}`);
+                                    debugLog(`Successfully converted URL to base64 for card ${card.id}`);
                                 } else {
                                     console.warn(`Failed to fetch image from URL for card ${card.id}: ${response.status}`);
                                 }
@@ -445,7 +365,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         image_base64: processedImageBase64
                     };
 
-                    console.log(`Adding general topic card to Anki export:`, {
+                    debugLog(`Adding general topic card to Anki export:`, {
                         cardId: card.id,
                         text: card.text,
                         hasImage: !!processedImageBase64,
@@ -488,7 +408,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             // Update export status for selected cards
             selectedCards.forEach(cardId => {
                 tabAware.updateCardExportStatus(cardId, 'exported_to_anki');
-                console.log(`Updated card ${cardId} export status to 'exported_to_anki'`);
+                debugLog(`Updated card ${cardId} export status to 'exported_to_anki'`);
             });
 
             // Show success notification with type parameter
@@ -500,7 +420,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     const rawData = localStorage.getItem('anki_stored_cards');
                     if (rawData) {
                         const savedCards = JSON.parse(rawData);
-                        console.log('Verified localStorage after export:',
+                        debugLog('Verified localStorage after export:',
                             savedCards.filter((c: any) => c.id && selectedCards.includes(c.id))
                                 .map((c: any) => ({id: c.id, status: c.exportStatus}))
                         );
@@ -700,7 +620,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                 target.parentNode?.insertBefore(placeholder, target.nextSibling);
                             }}
                             onLoad={() => {
-                                console.log('✅ Image loaded successfully for card:', card.id, {
+                                debugLog('✅ Image loaded successfully for card:', card.id, {
                                     usingType: card.image ? 'base64 (permanent)' : 'url (temporary)',
                                     imageLength: card.image?.length,
                                     imageUrlLength: card.imageUrl?.length
@@ -1141,8 +1061,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     // Start editing a card
     const handleStartEditing = (card: StoredCard) => {
         // НЕ загружаем данные в глобальный Redux state, так как это влияет на статус карточки в CreateCard
-        console.log('Starting to edit card:', card.id);
-        console.log('Card data:', card);
+        debugLog('Starting to edit card:', card.id);
+        debugLog('Card data:', card);
 
         // Просто устанавливаем локальное состояние для редактирования
         // БЕЗ изменения глобального Redux state
@@ -1155,12 +1075,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         setLoadingNewExamples(false);
         setLoadingAccept(false);
 
-        console.log('Modal state set for editing card:', card.id);
+        debugLog('Modal state set for editing card:', card.id);
     };
 
     // Cancel editing
     const handleCancelEdit = () => {
-        console.log('Canceling edit, resetting modal state...');
+        debugLog('Canceling edit, resetting modal state...');
         setEditingCard(null);
         setLocalEditingCardData(null); // Очищаем локальные данные
         setShowEditModal(false);
@@ -1169,7 +1089,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         setIsProcessingCustomInstruction(false);
         setLoadingNewExamples(false);
         setLoadingAccept(false);
-        console.log('Edit canceled, modal should be hidden now.');
+        debugLog('Edit canceled, modal should be hidden now.');
     };
 
     // Save edited card from modal
@@ -1213,7 +1133,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 updatedCardData.back = updatedCardData.back?.trim() || null;
             }
 
-            console.log('Final data being saved to Redux:', updatedCardData);
+            debugLog('Final data being saved to Redux:', updatedCardData);
 
             // Update the card in the Redux store
             tabAware.updateStoredCard(updatedCardData);
@@ -1243,11 +1163,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             // Используем локальное состояние вместо Redux
             const currentText = localEditingCardData?.text || editingCard.text;
 
-            console.log('Starting image generation for text:', currentText);
+            debugLog('Starting image generation for text:', currentText);
 
             // 1. Get an image description
             const descriptionImage = await getDescriptionImage(openAiKey, currentText, imageInstructions);
-            console.log('Description generated:', descriptionImage);
+            debugLog('Description generated:', descriptionImage);
 
             if (!descriptionImage) {
                 throw new Error('Failed to generate image description');
@@ -1273,14 +1193,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             });
 
             const data = await response.json();
-            console.log('OpenAI direct API response:', data);
+            debugLog('OpenAI direct API response:', data);
 
             if (!data.data || !data.data[0] || !data.data[0].url) {
                 throw new Error('OpenAI did not return an image URL');
             }
 
             const imageUrl = data.data[0].url;
-            console.log('Image URL generated:', imageUrl);
+            debugLog('Image URL generated:', imageUrl);
 
             // 3. Fetch the image and convert to base64
             const imageData = await new Promise((resolve, reject) => {
@@ -1291,7 +1211,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         return;
                     }
 
-                    console.log('Response from background script:', response);
+                    debugLog('Response from background script:', response);
 
                     if (response && response.status && response.data) {
                         resolve(response.data);
@@ -1301,7 +1221,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 });
             });
 
-            console.log('Image data received from background');
+            debugLog('Image data received from background');
 
             // Обновляем локальное состояние с новым изображением
             if (localEditingCardData) {
@@ -1415,22 +1335,22 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Render the modal for editing cards
     const renderEditModal = () => {
-        console.log('renderEditModal called. showEditModal:', showEditModal, 'editingCard:', editingCard);
+        debugLog('renderEditModal called. showEditModal:', showEditModal, 'editingCard:', editingCard);
 
         if (!showEditModal || !editingCard) {
-            console.log('Modal not showing because showEditModal:', showEditModal, 'editingCard:', !!editingCard);
+            debugLog('Modal not showing because showEditModal:', showEditModal, 'editingCard:', !!editingCard);
             return null;
         }
 
         // Используем локальное состояние для редактирования
         if (!localEditingCardData) {
-            console.log('No local editing card data available');
+            debugLog('No local editing card data available');
             return null;
         }
 
         const { text, translation, examples, front, back, image, imageUrl, linguisticInfo, transcription } = localEditingCardData;
 
-        console.log('Rendering edit modal with local data:', {
+        debugLog('Rendering edit modal with local data:', {
             text: text?.substring(0, 20) + '...',
             translation: translation?.substring(0, 20) + '...',
             examplesCount: examples?.length,
@@ -1876,13 +1796,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Debug function to reset viewing state and force reload
     const resetViewState = () => {
-        console.log('Resetting view state...');
+        debugLog('Resetting view state...');
         setActiveFilter('all');
         setCurrentPage(1);
         setItemsPerPage(10);
 
         // Log current state of cards
-        console.log('All cards in redux store:', storedCards);
+        debugLog('All cards in redux store:', storedCards);
 
         // Force reload cards from storage
         dispatch(loadStoredCards());
@@ -1891,7 +1811,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     // Function to completely clear storage and reset (for emergency use)
     const clearAllCards = () => {
         if (window.confirm('This will delete ALL your cards. Are you sure?')) {
-            console.log('Clearing all cards from storage...');
+            debugLog('Clearing all cards from storage...');
             try {
                 localStorage.removeItem('anki_stored_cards');
                 dispatch({ type: 'SET_STORED_CARDS', payload: [] });
@@ -1905,7 +1825,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Function to fix storage quota issues by optimizing cards
     const fixStorageQuotaIssues = () => {
-        console.log('=== STORAGE QUOTA FIX START ===');
+        debugLog('=== STORAGE QUOTA FIX START ===');
 
         try {
             const rawData = localStorage.getItem('anki_stored_cards');
@@ -1917,7 +1837,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             const sizeInBytes = new Blob([rawData]).size;
             const sizeInMB = sizeInBytes / (1024 * 1024);
 
-            console.log(`Current storage size: ${sizeInMB.toFixed(2)}MB`);
+            debugLog(`Current storage size: ${sizeInMB.toFixed(2)}MB`);
 
             if (sizeInMB < 4) {
                 // Удалили навязчивое success уведомление - хранилище в порядке
@@ -1957,14 +1877,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 'success'
             );
 
-            console.log(`Storage optimization complete: ${currentCards.length} → ${optimizedCards.length} cards`);
+            debugLog(`Storage optimization complete: ${currentCards.length} → ${optimizedCards.length} cards`);
 
         } catch (error) {
             console.error('Error fixing storage quota:', error);
             showError('Failed to optimize storage. Please try again.', 'error');
         }
 
-        console.log('=== STORAGE QUOTA FIX END ===');
+        debugLog('=== STORAGE QUOTA FIX END ===');
     };
 
 
@@ -1976,7 +1896,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
     // Debug effect to track modal state changes
     useEffect(() => {
-        console.log('Modal state changed:', {
+        debugLog('Modal state changed:', {
             showEditModal,
             editingCard: editingCard?.id,
             currentCardData: {
@@ -2001,7 +1921,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             let exportContent = "#separator:tab\n#html:true\n";
 
             selectedCardsData.forEach((card, index) => {
-                console.log(`Processing card ${index} for file export:`, {
+                debugLog(`Processing card ${index} for file export:`, {
                     id: card.id,
                     mode: card.mode,
                     hasImage: !!card.image,
@@ -2132,7 +2052,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     // Export the formatted card with proper escaping
                     exportContent += `${cleanFront}\t${cleanBack}\n`;
 
-                    console.log(`Exported card ${index}:`, {
+                    debugLog(`Exported card ${index}:`, {
                         front: cleanFront.substring(0, 50),
                         backLength: cleanBack.length,
                         hasLinguisticInfo: cleanBack.includes('Grammar & Linguistics')
@@ -2196,7 +2116,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
 
                     exportContent += `${cleanFront}\t${cleanBack}\n`;
 
-                    console.log(`Exported General Topic card ${index}:`, {
+                    debugLog(`Exported General Topic card ${index}:`, {
                         front: cleanFront.substring(0, 50),
                         backLength: cleanBack.length,
                         hasImage: !!(card.image || card.imageUrl),
@@ -2233,7 +2153,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             // Log export summary for debugging
             const totalCards = selectedCardsData.length;
             const cardsWithLinguistics = selectedCardsData.filter(card => card.linguisticInfo && card.linguisticInfo.trim()).length;
-            console.log(`Export complete: ${totalCards} cards exported, ${cardsWithLinguistics} with grammar information`);
+            debugLog(`Export complete: ${totalCards} cards exported, ${cardsWithLinguistics} with grammar information`);
 
             // Show success message
             // Удалили навязчивое success уведомление об экспорте
@@ -2241,7 +2161,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             // Update export status for selected cards
             selectedCards.forEach(cardId => {
                 tabAware.updateCardExportStatus(cardId, 'exported_to_file');
-                console.log(`Updated card ${cardId} export status to 'exported_to_file'`);
+                debugLog(`Updated card ${cardId} export status to 'exported_to_file'`);
             });
 
             // Close modal
@@ -2253,7 +2173,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     const rawData = localStorage.getItem('anki_stored_cards');
                     if (rawData) {
                         const savedCards = JSON.parse(rawData);
-                        console.log('Verified localStorage after file export:',
+                        debugLog('Verified localStorage after file export:',
                             savedCards.filter((c: any) => c.id && selectedCards.includes(c.id))
                                 .map((c: any) => ({id: c.id, status: c.exportStatus}))
                         );

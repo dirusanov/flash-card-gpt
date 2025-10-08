@@ -22,6 +22,13 @@ import {
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
 import { Modes } from '../../constants';
 
+const isDev = process.env.NODE_ENV !== 'production';
+const debugLog = (...args: unknown[]) => {
+    if (isDev) {
+        console.log(...args);
+    }
+};
+
 export type ExportStatus = 'not_exported' | 'exported_to_file' | 'exported_to_anki' | 'exported' | 'failed';
 
 export interface StoredCard {
@@ -118,9 +125,9 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             newState.savedCards = [...state.savedCards, ...action.payload];
             break;
         case SAVE_CARD_TO_STORAGE:
-            console.log('*** REDUCER: SAVE_CARD_TO_STORAGE action received ***');
-            console.log('Action payload raw:', action.payload);
-            console.log('Action payload image data:', {
+            debugLog('*** REDUCER: SAVE_CARD_TO_STORAGE action received ***');
+            debugLog('Action payload raw:', action.payload);
+            debugLog('Action payload image data:', {
                 hasImage: !!action.payload.image,
                 hasImageUrl: !!action.payload.imageUrl,
                 imageType: typeof action.payload.image,
@@ -146,7 +153,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 createdAt: ensureDate(newCardData.createdAt)
             };
             
-            console.log('REDUCER: Final card object created:', {
+            debugLog('REDUCER: Final card object created:', {
                 cardId: newCard.id,
                 hasImage: !!newCard.image,
                 hasImageUrl: !!newCard.imageUrl,
@@ -169,11 +176,11 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                         { ...newCard, id: existingCard.id } : 
                         card
                 );
-                console.log('Updated existing card with ID:', newCard.id, 'text:', newCard.text);
+                debugLog('Updated existing card with ID:', newCard.id, 'text:', newCard.text);
             } else {
                 newState.storedCards = [...state.storedCards, newCard];
-                console.log('Added new card with ID:', newCard.id, 'text:', newCard.text);
-                console.log('Total stored cards after addition:', newState.storedCards.length);
+                debugLog('Added new card with ID:', newCard.id, 'text:', newCard.text);
+                debugLog('Total stored cards after addition:', newState.storedCards.length);
             }
             newState.lastDraftCard = newCard;
             break;
@@ -185,8 +192,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             );
             break;
         case UPDATE_STORED_CARD:
-            console.log('*** REDUCER: UPDATE_STORED_CARD action received ***');
-            console.log('Update payload image info:', {
+            debugLog('*** REDUCER: UPDATE_STORED_CARD action received ***');
+            debugLog('Update payload image info:', {
                 cardId: action.payload.id,
                 hasImage: !!action.payload.image,
                 hasImageUrl: !!action.payload.imageUrl,
@@ -218,7 +225,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                         }
                         : card
                 );
-                console.log('UPDATE_STORED_CARD: Updated existing card with ID:', action.payload.id, 'image:', !!action.payload.image);
+                debugLog('UPDATE_STORED_CARD: Updated existing card with ID:', action.payload.id, 'image:', !!action.payload.image);
             } else {
                 const newCardToAdd = {
                     ...action.payload,
@@ -228,7 +235,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                     transcription: action.payload.transcription || ""
                 };
                 newState.storedCards = [...state.storedCards, newCardToAdd];
-                console.log('UPDATE_STORED_CARD: Added new card with ID:', action.payload.id, 'image:', !!newCardToAdd.image);
+                debugLog('UPDATE_STORED_CARD: Added new card with ID:', action.payload.id, 'image:', !!newCardToAdd.image);
             }
             newState.lastDraftCard = findLatestCard(newState.storedCards);
             break;
@@ -251,7 +258,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             // SPECIAL CASE: If text is being completely cleared (empty string), 
             // also clear images to prevent them from appearing on the next card
             if (action.payload === '' || action.payload.trim() === '') {
-                console.log('Text cleared completely, also clearing images');
+                debugLog('Text cleared completely, also clearing images');
                 newState.image = null;
                 newState.imageUrl = null;
             }
@@ -264,7 +271,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             newState.examples = action.payload;
             break;
         case SET_IMAGE:
-            console.log('*** REDUCER: SET_IMAGE called with:', {
+            debugLog('*** REDUCER: SET_IMAGE called with:', {
                 hasPayload: !!action.payload,
                 payloadType: typeof action.payload,
                 payloadLength: action.payload?.length,
@@ -273,7 +280,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             newState.image = action.payload;
             break;
         case SET_IMAGE_URL:
-            console.log('*** REDUCER: SET_IMAGE_URL called with:', {
+            debugLog('*** REDUCER: SET_IMAGE_URL called with:', {
                 hasPayload: !!action.payload,
                 payloadType: typeof action.payload,
                 payloadLength: action.payload?.length,

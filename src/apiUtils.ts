@@ -2,6 +2,13 @@ import { imageUrlToBase64 } from "./services/ankiService";
 import { getOpenAiImageUrl } from "./services/openaiApi";
 import { arrayBufferToBase64 } from "./utils";
 
+const isDev = process.env.NODE_ENV !== 'production';
+const debugLog = (...args: unknown[]) => {
+    if (isDev) {
+        console.log(...args);
+    }
+};
+
 export async function getImage(
     unusedParam: string | null,
     openai: any, 
@@ -9,7 +16,7 @@ export async function getImage(
     descriptionImage: string,
     imageInstructions: string = ''
 ): Promise<{ imageUrl: string | null, imageBase64: string | null }> {
-    console.log('getImage called with description:', descriptionImage);
+    debugLog('getImage called with description:', descriptionImage);
     let imageUrl: string | null = null;
     let imageBase64: string | null = null;
 
@@ -23,19 +30,19 @@ export async function getImage(
 
     // Используем только OpenAI для генерации изображений
     try {
-        console.log('Using OpenAI with key:', openAiKey ? openAiKey.substring(0, 5) + '...' : 'null');
+        debugLog('Using OpenAI with key:', openAiKey ? openAiKey.substring(0, 5) + '...' : 'null');
         imageUrl = await getOpenAiImageUrl(openai, openAiKey, descriptionImage, imageInstructions);
-        console.log('OpenAI returned URL:', imageUrl ? 'success' : 'null');
+        debugLog('OpenAI returned URL:', imageUrl ? 'success' : 'null');
         
         if (imageUrl) {
             // ВАЖНО: Всегда пытаемся конвертировать в base64 для надежного хранения
             try {
-                console.log('Converting image URL to base64 for permanent storage...');
+                debugLog('Converting image URL to base64 for permanent storage...');
                 imageBase64 = await imageUrlToBase64(imageUrl);
-                console.log('Image URL converted to base64:', imageBase64 ? 'success' : 'null');
+                debugLog('Image URL converted to base64:', imageBase64 ? 'success' : 'null');
                 
                 if (imageBase64) {
-                    console.log('✅ Image successfully converted to base64 - keeping both URL and base64 for reliability');
+                    debugLog('✅ Image successfully converted to base64 - keeping both URL and base64 for reliability');
                 } else {
                     console.warn('⚠️ Failed to convert image to base64 - keeping temporary URL as fallback');
                 }
@@ -65,7 +72,7 @@ export async function getImage(
     // убираем временный URL чтобы экономить место и избежать путаницы
     const finalImageUrl = imageBase64 ? null : imageUrl;
     
-    console.log('Final result:', {
+    debugLog('Final result:', {
         hasBase64: !!imageBase64,
         hasUrl: !!finalImageUrl,
         status: imageBase64 ? 'Base64 (permanent)' : finalImageUrl ? 'URL only (temporary)' : 'No image'

@@ -83,6 +83,13 @@ const GENERAL_CARD_TEMPLATES: GeneralCardTemplate[] = [
     }
 ];
 
+const isDev = process.env.NODE_ENV !== 'production';
+const debugLog = (...args: unknown[]) => {
+    if (isDev) {
+        console.log(...args);
+    }
+};
+
 const ensureDraftDate = (value: StoredCard['createdAt'] | undefined): Date => {
     if (value instanceof Date) {
         return value;
@@ -497,7 +504,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     React.useEffect(() => {
         if (imageGenerationMode === 'smart' || imageGenerationMode === 'always') {
             if (!shouldGenerateImage) {
-                console.log(`🔧 Initializing: Setting shouldGenerateImage=true for ${imageGenerationMode} mode`);
+                debugLog(`🔧 Initializing: Setting shouldGenerateImage=true for ${imageGenerationMode} mode`);
                 dispatch(setShouldGenerateImage(true));
             }
         }
@@ -516,10 +523,22 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                message.includes('exceeded') ||
                message.includes('429');
     };
-    const openai = new OpenAI({
-        apiKey: openAiKey,
-        dangerouslyAllowBrowser: true,
-    });
+    const openai = useMemo(() => {
+        if (!openAiKey) {
+            return null;
+        }
+        return new OpenAI({
+            apiKey: openAiKey,
+            dangerouslyAllowBrowser: true,
+        });
+    }, [openAiKey]);
+    const ensureOpenAiClient = useCallback(() => {
+        if (!openai) {
+            throw new Error('OpenAI client is not configured. Please add an API key in settings.');
+        }
+        return openai;
+    }, [openai]);
+
     const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
     const [showModal, setShowModal] = useState(false);
@@ -575,7 +594,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Derive isSaved from multiple checks and explicit user actions
     const isSaved = useMemo(() => {
-        console.log('Calculating isSaved:', {
+        debugLog('Calculating isSaved:', {
             currentCardId,
             explicitlySaved,
             isMultipleCards,
@@ -754,7 +773,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, [latestDraftSnapshot, dispatch, lastDraftCard]);
 
     // Add more detailed logging to debug the issue
-    console.log('Card state details:', {
+    debugLog('Card state details:', {
         isNewSubmission,
         explicitlySaved,
         isSaved,
@@ -779,7 +798,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Timer effect for CreateCard
     useEffect(() => {
-        console.log('🔄 Loading state changed:', {
+        debugLog('🔄 Loading state changed:', {
             loadingGetResult,
             isProcessingCustomInstruction,
             loadingNewImage,
@@ -787,14 +806,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         });
 
         if (loadingGetResult) {
-            console.log('⏱️ Starting timer for card creation');
+            debugLog('⏱️ Starting timer for card creation');
             setElapsedTime(0);
             timerRef.current = setInterval(() => {
                 setElapsedTime(prev => prev + 1);
             }, 1000);
         } else {
             if (timerRef.current) {
-                console.log('⏱️ Stopping timer for card creation');
+                debugLog('⏱️ Stopping timer for card creation');
                 clearInterval(timerRef.current);
                 timerRef.current = null;
             }
@@ -832,8 +851,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const exactMatch = storedCards.find((card: StoredCard) => card.text === textToCheck);
 
         if (exactMatch) {
-            console.log('Found existing card with matching text:', exactMatch?.text || textToCheck, 'ID:', exactMatch.id);
-            console.log('Setting currentCardId but NOT setting explicitlySaved');
+            debugLog('Found existing card with matching text:', exactMatch?.text || textToCheck, 'ID:', exactMatch.id);
+            debugLog('Setting currentCardId but NOT setting explicitlySaved');
 
             // Only set the ID for reference, but DON'T mark as explicitly saved
             // This ensures "Saved to Collection" only appears after user explicitly saves
@@ -888,7 +907,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         try {
             // Check if there's an ongoing generation that might be cancelled
             if (abortControllerRef.current?.signal.aborted) {
-                console.log('New image generation cancelled');
+                debugLog('New image generation cancelled');
                 return;
             }
             
@@ -897,7 +916,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Use different image generation based on provider
             if (modelProvider === ModelProvider.OpenAI) {
                 // Use existing OpenAI implementation
-                const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
+                const { imageUrl, imageBase64 } = await getImage(null, ensureOpenAiClient(), openAiKey, descriptionImage, imageInstructions);
 
                 if (imageUrl) {
                     tabAware.setImageUrl(imageUrl);
@@ -933,7 +952,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         try {
             // Check if there's an ongoing generation that might be cancelled
             if (abortControllerRef.current?.signal.aborted) {
-                console.log('New examples generation cancelled');
+                debugLog('New examples generation cancelled');
                 return;
             }
             
@@ -993,7 +1012,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Generate new image based on instructions
                 const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
-                const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, customInstruction);
+                const { imageUrl, imageBase64 } = await getImage(null, ensureOpenAiClient(), openAiKey, descriptionImage, customInstruction);
 
                 if (imageUrl) {
                     tabAware.setImageUrl(imageUrl);
@@ -1007,9 +1026,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 customInstruction.toLowerCase().includes('предложение')) {
 
                 // Generate new examples based on instructions
-                console.log('📚 Starting examples generation...');
+                debugLog('📚 Starting examples generation...');
                 const newExamples = await aiService.getExamples(apiKey, text, translateToLanguage, true, customInstruction);
-                console.log('📚 Examples generation completed');
+                debugLog('📚 Examples generation completed');
                 tabAware.setExamples(newExamples);
             } else if (customInstruction.toLowerCase().includes('translat') ||
                 customInstruction.toLowerCase().includes('перевод')) {
@@ -1024,9 +1043,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Always use custom instructions for both translation and examples
                 // This should ensure instructions are always applied
                 const translatedText = await aiService.translateText(apiKey, text, translateToLanguage, customInstruction);
-                console.log('📚 Starting examples generation (combined)...');
+                debugLog('📚 Starting examples generation (combined)...');
                 const newExamples = await aiService.getExamples(apiKey, text, translateToLanguage, true, customInstruction);
-                console.log('📚 Examples generation completed (combined)');
+                debugLog('📚 Examples generation completed (combined)');
 
                 if (shouldGenerateImage) {
                     const descriptionImage = await aiService.getDescriptionImage(apiKey, text, customInstruction);
@@ -1058,7 +1077,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.error('Error applying custom instructions:', error);
             showError(error instanceof Error ? error.message : "Failed to apply custom instructions");
         } finally {
-            console.log('📝 Custom instruction processing completed');
+            debugLog('📝 Custom instruction processing completed');
             setIsProcessingCustomInstruction(false);
         }
     };
@@ -1101,8 +1120,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Save All function for multiple cards
     const handleSaveAllCards = async () => {
-        console.log('*** HANDLE SAVE ALL CARDS: Starting ***');
-        console.log('Current Redux state at save all cards time:', {
+        debugLog('*** HANDLE SAVE ALL CARDS: Starting ***');
+        debugLog('Current Redux state at save all cards time:', {
             text,
             translation,
             image,
@@ -1146,8 +1165,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Keep track of saved card IDs to update our explicit save tracking
             const newExplicitlySavedIds: string[] = [...explicitlySavedIds];
 
-            console.log('Starting to save cards. Total cards:', cardsToSave.length, 'Already saved:', explicitlySavedIds.length);
-            console.log('Cards to save:', cardsToSave.map(c => ({ id: c.id, text: c.text?.substring(0, 30) })));
+            debugLog('Starting to save cards. Total cards:', cardsToSave.length, 'Already saved:', explicitlySavedIds.length);
+            debugLog('Cards to save:', cardsToSave.map(c => ({ id: c.id, text: c.text?.substring(0, 30) })));
 
             // Save each card in the cardsToSave array
             for (let i = 0; i < cardsToSave.length; i++) {
@@ -1155,13 +1174,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Skip cards that are already in our explicitly saved list to avoid double saving
                 if (explicitlySavedIds.includes(card.id)) {
-                    console.log(`Card #${i} (${card.id}) already explicitly saved, skipping`);
+                    debugLog(`Card #${i} (${card.id}) already explicitly saved, skipping`);
                     successCount++;
                     continue;
                 }
 
                 try {
-                    console.log(`Saving card #${i} (${card.id}) from multi-card set`);
+                    debugLog(`Saving card #${i} (${card.id}) from multi-card set`);
 
                     // Check if this card already exists in storage by ID only
                     const existingCardIndex = storedCards.findIndex(
@@ -1175,11 +1194,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                         // Add to our explicitly saved IDs list
                         newExplicitlySavedIds.push(card.id);
-                        console.log(`Card #${i} (${card.id}) saved as new`);
+                        debugLog(`Card #${i} (${card.id}) saved as new`);
 
                         successCount++;
                     } else {
-                        console.log(`Card #${i} (${card.id}) already in storage, updating`);
+                        debugLog(`Card #${i} (${card.id}) already in storage, updating`);
                         // Update existing card
                         dispatch(updateStoredCard(card));
                         updatedCards++;
@@ -1195,7 +1214,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
             }
 
-            console.log('Save all complete. Saved:', savedCards, 'Updated:', updatedCards, 'Errors:', errorCount);
+            debugLog('Save all complete. Saved:', savedCards, 'Updated:', updatedCards, 'Errors:', errorCount);
 
             // Update our tracking of explicitly saved cards
             setExplicitlySavedIds(newExplicitlySavedIds);
@@ -1246,8 +1265,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     const handleAccept = async () => {
-        console.log('*** HANDLE ACCEPT: Starting to save card ***');
-        console.log('Current Redux state at save time:', {
+        debugLog('*** HANDLE ACCEPT: Starting to save card ***');
+        debugLog('Current Redux state at save time:', {
             text,
             translation,
             image,
@@ -1278,7 +1297,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     return;
                 }
 
-                console.log('Saving current card from multi-card set:', currentCard.id);
+                debugLog('Saving current card from multi-card set:', currentCard.id);
 
                 const normalizedCurrent = await normalizeImageForStorage(currentCard.image ?? null, currentCard.imageUrl ?? null);
                 const cardToPersist = {
@@ -1302,11 +1321,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 if (existingCardIndex === -1) {
                     // Card is not saved yet - сохраняем ТОЛЬКО текущую карточку
                     tabAware.saveCardToStorage(cardToPersist);
-                    console.log(`Saved new card: ${cardToPersist.id}`);
+                    debugLog(`Saved new card: ${cardToPersist.id}`);
                 } else {
                     // Update existing card - обновляем ТОЛЬКО текущую карточку
                     tabAware.updateStoredCard(cardToPersist);
-                    console.log(`Updated existing card: ${cardToPersist.id}`);
+                    debugLog(`Updated existing card: ${cardToPersist.id}`);
                 }
 
                 // IMPORTANT: Only mark the CURRENT card as explicitly saved
@@ -1316,7 +1335,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         return prev;
                     }
                     const newIds = [...prev, cardToPersist.id];
-                    console.log('Updated explicitly saved IDs:', newIds);
+                    debugLog('Updated explicitly saved IDs:', newIds);
                     return newIds;
                 });
 
@@ -1342,7 +1361,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             const cardId = currentCardId || Date.now().toString();
 
             // Debug the required fields
-            console.log('Saving card with data:', {
+            debugLog('Saving card with data:', {
                 originalSelectedText,
                 text,
                 translation,
@@ -1387,8 +1406,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     exportStatus: 'not_exported' as const
                 };
 
-                console.log('*** CREATECARD: Preparing to save card to storage ***');
-                console.log('Card data being sent to Redux:', {
+                debugLog('*** CREATECARD: Preparing to save card to storage ***');
+                debugLog('Card data being sent to Redux:', {
                     id: cardData.id,
                     text: cardData.text,
                     mode: cardData.mode,
@@ -1406,10 +1425,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Сохранение карточки происходит только по явному действию пользователя (кнопка "Accept")
                 if (currentCardId) {
-                    console.log('Updating existing card by user action:', cardId);
+                    debugLog('Updating existing card by user action:', cardId);
                     tabAware.updateStoredCard(cardData);
                 } else {
-                    console.log('Saving new card by user action:', cardId);
+                    debugLog('Saving new card by user action:', cardId);
                     tabAware.saveCardToStorage(cardData);
                     tabAware.setCurrentCardId(cardId);
                 }
@@ -1453,14 +1472,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     exportStatus: 'not_exported' as const
                 };
 
-                console.log('Saving general topic card to storage:', cardData);
+                debugLog('Saving general topic card to storage:', cardData);
 
                 // Сохранение происходит только по явному действию пользователя (нажатие кнопки)
                 if (currentCardId) {
-                    console.log('Updating existing general topic card by user action:', cardId);
+                    debugLog('Updating existing general topic card by user action:', cardId);
                     tabAware.updateStoredCard(cardData);
                 } else {
-                    console.log('Saving new general topic card by user action:', cardId);
+                    debugLog('Saving new general topic card by user action:', cardId);
                     tabAware.saveCardToStorage(cardData);
                     tabAware.setCurrentCardId(cardId);
                 }
@@ -1500,7 +1519,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
 
-        console.log('Creating new card, clearing all state completely');
+        debugLog('Creating new card, clearing all state completely');
 
         // Reset all saved state tracking
         setExplicitlySaved(false);
@@ -1576,7 +1595,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Используем useCallback для стабильной ссылки на функцию обработки выделения
     const handleTextSelection = useCallback((selectedText: string) => {
-        console.log('Text selection handled for tab-specific state:', selectedText);
+        debugLog('Text selection handled for tab-specific state:', selectedText);
         
         // Принудительно закрываем модальное окно перед анализом нового текста
         setShowTextOptionsModal(false);
@@ -1589,7 +1608,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         tabAware.setText(selectedText);
         
         // Логируем для отладки
-        console.log('Text set via tabAware.setText:', selectedText);
+        debugLog('Text set via tabAware.setText:', selectedText);
     }, [tabAware]);
 
     useEffect(() => {
@@ -1647,7 +1666,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     useEffect(() => {
         // Only run once on component mount
         const checkSavedCardsOnMount = async () => {
-            console.log('Running saved cards check on mount');
+            debugLog('Running saved cards check on mount');
 
             // First, ensure stored cards are loaded from localStorage
             dispatch(loadStoredCards());
@@ -1655,35 +1674,35 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Wait a brief moment to ensure cards are loaded
             setTimeout(() => {
                 const savedCards = loadCardsFromStorage();
-                console.log('Loaded cards from storage:', savedCards.length);
+                debugLog('Loaded cards from storage:', savedCards.length);
 
                 // Get currentCardId from localStorage
                 const savedCardId = localStorage.getItem('current_card_id');
                 const explicitlySavedFlag = localStorage.getItem('explicitly_saved');
 
-                console.log('localStorage values on mount:', {
+                debugLog('localStorage values on mount:', {
                     savedCardId,
                     explicitlySavedFlag,
                     cardCount: savedCards.length
                 });
 
                 if (savedCardId) {
-                    console.log('Found current card ID in localStorage:', savedCardId);
+                    debugLog('Found current card ID in localStorage:', savedCardId);
                     // Find the card by ID
                     const savedCard = savedCards.find((card: StoredCard) => card.id === savedCardId);
 
                     if (savedCard) {
-                        console.log('Restoring card from storage:', savedCard);
+                        debugLog('Restoring card from storage:', savedCard);
                         // If card is found by ID, update the state
                         setIsEdited(false);
                         setIsNewSubmission(false);
 
                         // Set explicitlySaved based on localStorage flag
                         if (explicitlySavedFlag === 'true') {
-                            console.log('Setting explicitlySaved to TRUE based on localStorage flag');
+                            debugLog('Setting explicitlySaved to TRUE based on localStorage flag');
                             setExplicitlySaved(true);
                         } else {
-                            console.log('Setting explicitlySaved to FALSE based on localStorage flag');
+                            debugLog('Setting explicitlySaved to FALSE based on localStorage flag');
                             setExplicitlySaved(false);
                         }
 
@@ -1702,7 +1721,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                         setShowResult(true);
                     } else {
-                        console.log('Card ID from localStorage not found in storage, resetting');
+                        debugLog('Card ID from localStorage not found in storage, resetting');
                         // If card with this ID no longer exists, clear the ID
                         localStorage.removeItem('current_card_id');
                         localStorage.removeItem('explicitly_saved');
@@ -1711,7 +1730,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         setExplicitlySaved(false);
                     }
                 } else {
-                    console.log('No current card ID in localStorage');
+                    debugLog('No current card ID in localStorage');
                     setIsNewSubmission(true);
                     setExplicitlySaved(false);
                 }
@@ -1731,13 +1750,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // Check if this is a new card being created (don't interfere with the creation flow)
         if (showResult && !currentCardId) {
-            console.log('New card being created, skipping automatic saved detection');
+            debugLog('New card being created, skipping automatic saved detection');
             return;
         }
 
         // If we're actively typing in a new card (not yet saved), make sure it's not marked as saved
         if (!currentCardId) {
-            console.log('Actively typing new card text - ensuring not marked as saved');
+            debugLog('Actively typing new card text - ensuring not marked as saved');
             setExplicitlySaved(false);
             localStorage.removeItem('explicitly_saved');
         }
@@ -1785,12 +1804,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // FIXED: Clear image data if image generation is disabled or if this is a new text
         // This prevents images from previous cards appearing on new cards
         if (!shouldGenerateImage) {
-            console.log('Image generation is disabled, clearing existing images');
+            debugLog('Image generation is disabled, clearing existing images');
             tabAware.setImage(null);
             tabAware.setImageUrl(null);
         } else if (originalSelectedText !== text) {
             // If the text has changed significantly from the original, clear old images
-            console.log('Text has changed, clearing existing images for new generation');
+            debugLog('Text has changed, clearing existing images for new generation');
             tabAware.setImage(null);
             tabAware.setImageUrl(null);
         }
@@ -1807,7 +1826,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         globalTracker.reset();
 
         setGlobalProgressCallback((update) => {
-            console.log(`🔄 Progress update: ${update.completed}/${update.total} - ${update.message.title}`);
+            debugLog(`🔄 Progress update: ${update.completed}/${update.total} - ${update.message.title}`);
             setCurrentLoadingMessage(update.message);
             setCurrentProgress({ completed: update.completed, total: update.total });
 
@@ -1822,12 +1841,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         try {
             // Debug logging
-            console.log("=== DEBUG INFO ===");
-            console.log("Model Provider:", modelProvider);
-            console.log("API Key available:", Boolean(apiKey));
-            console.log("Model Name (if Groq):", modelProvider === ModelProvider.Groq ? groqModelName : 'N/A');
-            console.log("AI Service:", Object.keys(aiService));
-            console.log("Source Language:", isAutoDetectLanguage ? detectedLanguageForSubmit : sourceLanguage);
+            debugLog("=== DEBUG INFO ===");
+            debugLog("Model Provider:", modelProvider);
+            debugLog("API Key available:", Boolean(apiKey));
+            debugLog("Model Name (if Groq):", modelProvider === ModelProvider.Groq ? groqModelName : 'N/A');
+            debugLog("AI Service:", Object.keys(aiService));
+            debugLog("Source Language:", isAutoDetectLanguage ? detectedLanguageForSubmit : sourceLanguage);
 
             if (!apiKey) {
                 throw new Error(`API key for ${modelProvider} is missing. Please go to settings and add your API key.`);
@@ -1841,7 +1860,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Check mode before creating components
             if (mode !== Modes.LanguageLearning) {
                 // For General mode, use FAST AI agent workflow for complete cards
-                console.log('🚀 General mode - using fast AI agent workflow for complete cards...');
+                debugLog('🚀 General mode - using fast AI agent workflow for complete cards...');
                 
                 try {
                     // Extract page context for multimedia
@@ -1849,7 +1868,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     try {
                         const { PageContentExtractor } = await import('../services/pageContentExtractor');
                         pageContext = PageContentExtractor.extractPageContent(text);
-                        console.log(`📋 General mode: Extracted page context with ${pageContext?.pageImages?.length || 0} images`);
+                        debugLog(`📋 General mode: Extracted page context with ${pageContext?.pageImages?.length || 0} images`);
                     } catch (extractError) {
                         console.warn('Failed to extract page content for General mode:', extractError);
                         pageContext = undefined;
@@ -1877,12 +1896,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             tabAware.setImageUrl(firstCard.imageUrl);
                         }
                         
-                        console.log(`✅ General mode: Created ${createdCards.length} cards with fast workflow`);
+                        debugLog(`✅ General mode: Created ${createdCards.length} cards with fast workflow`);
                     }
                 } catch (error) {
                     console.error('❌ Error in General mode fast workflow:', error);
                     // Fallback to simple mode if fast workflow fails
-                    console.log('🔄 Falling back to simple flashcard creation...');
+                    debugLog('🔄 Falling back to simple flashcard creation...');
                     const { createFlashcard } = await import('../services/aiServiceFactory');
                     const flashcardResult = await createFlashcard(aiService, apiKey, text, abortSignal);
                     
@@ -1897,7 +1916,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
             
             // НОВЫЙ ПАРАЛЛЕЛЬНЫЙ РЕЖИМ - получаем все компоненты карточки одновременно (только для Language Learning)
-            console.log('🚀 Using parallel card creation for Language Learning mode...');
+            debugLog('🚀 Using parallel card creation for Language Learning mode...');
             
             const { createCardComponentsParallel } = await import('../services/aiServiceFactory');
             
@@ -1915,7 +1934,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             );
             
             const duration = Date.now() - startTime;
-            console.log(`⚡ Parallel card creation completed in ${duration}ms`);
+            debugLog(`⚡ Parallel card creation completed in ${duration}ms`);
 
             // Check if cancelled after parallel creation
             if (abortSignal.aborted) {
@@ -1986,7 +2005,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 throw new Error("Translation failed - cannot create card without translation");
             }
 
-            console.log('Parallel card creation completed with:', completedOperations);
+            debugLog('Parallel card creation completed with:', completedOperations);
 
             // Показываем результат только если есть перевод
             setShowResult(true);
@@ -1995,13 +2014,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setExplicitlySaved(false);
             localStorage.removeItem('explicitly_saved');
             
-            console.log('Setting showResult to true after successful parallel card creation');
+            debugLog('Setting showResult to true after successful parallel card creation');
             
             // Generate a unique ID for this card
             const cardId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             tabAware.setCurrentCardId(cardId);
             
-            console.log('Created card with ID:', cardId);
+            debugLog('Created card with ID:', cardId);
 
             // Show modal if we have at least some data
             if (completedOperations.translation) {
@@ -2011,7 +2030,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 // Hide loading when content is ready and visible
                 setTimeout(() => {
-                    console.log('🎯 Parallel content is ready - hiding loading');
+                    debugLog('🎯 Parallel content is ready - hiding loading');
                     setLoadingGetResult(false);
                     setCurrentLoadingMessage(null);
                     setCurrentProgress({ completed: 0, total: 0 });
@@ -2022,7 +2041,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         } catch (error) {
             // Check if this is a cancellation
             if (abortSignal.aborted) {
-                console.log('Card generation was cancelled by user');
+                debugLog('Card generation was cancelled by user');
                 throw new Error('Operation cancelled by user');
             }
             
@@ -2335,11 +2354,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Add a way to cancel the current card and reset to fresh state
     const handleCancel = () => {
-        console.log('Canceling current card, clearing all state');
+        debugLog('Canceling current card, clearing all state');
         
         // Cancel any ongoing AI requests
         if (abortControllerRef.current) {
-            console.log('Aborting ongoing AI requests');
+            debugLog('Aborting ongoing AI requests');
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
         }
@@ -2420,12 +2439,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Function to handle modal close
     const handleCloseModal = () => {
-        console.log('Modal close handler. Card saved status:', isSaved, 'isEdited:', isEdited);
+        debugLog('Modal close handler. Card saved status:', isSaved, 'isEdited:', isEdited);
 
         // Если карточки созданы с помощью множественного выделения, просто закрываем модальное окно
         // без дополнительных действий, чтобы предотвратить автоматическое сохранение
         if (isMultipleCards) {
-            console.log('Closing modal for multiple cards without automatic saving');
+            debugLog('Closing modal for multiple cards without automatic saving');
             setShowModal(false);
             return;
         }
@@ -2434,7 +2453,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Только для режима одной карточки и только если есть содержимое
         if (showResult && !isSaved && !isEdited && translation && !isMultipleCards) {
             // Clear ALL data including images when closing without saving
-            console.log('Closing without saving, clearing all card data');
+            debugLog('Closing without saving, clearing all card data');
             dispatch(setText(''));
             dispatch(setTranslation(''));
             dispatch(setExamples([]));
@@ -2447,7 +2466,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setShowResult(false);
         } else if (!isSaved) {
             // If not saved, clear ALL data including images when closing
-            console.log('Card not saved, clearing all data');
+            debugLog('Card not saved, clearing all data');
             dispatch(setText(''));
             dispatch(setTranslation(''));
             dispatch(setExamples([]));
@@ -2876,8 +2895,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
 
-        console.log('*** MULTIPLE CARDS CREATION STARTED ***');
-        console.log('Image generation settings:', {
+        debugLog('*** MULTIPLE CARDS CREATION STARTED ***');
+        debugLog('Image generation settings:', {
             imageGenerationMode,
             modelProvider,
             isImageGenerationAvailable: isImageGenerationAvailable(),
@@ -2897,7 +2916,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             for (const option of selectedOptions) {
                 // Check if cancelled before processing each option
                 if (abortSignal.aborted) {
-                    console.log('Multiple cards creation cancelled by user');
+                    debugLog('Multiple cards creation cancelled by user');
                     return;
                 }
 
@@ -2943,7 +2962,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                     // Check if cancelled after translation
                     if (abortSignal.aborted) {
-                        console.log('Multiple cards creation cancelled by user after translation');
+                        debugLog('Multiple cards creation cancelled by user after translation');
                         return;
                     }
 
@@ -2967,7 +2986,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                     // Check if cancelled after examples
                     if (abortSignal.aborted) {
-                        console.log('Multiple cards creation cancelled by user after examples');
+                        debugLog('Multiple cards creation cancelled by user after examples');
                         return;
                     }
 
@@ -2983,7 +3002,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     
                     // Check if cancelled after flashcard
                     if (abortSignal.aborted) {
-                        console.log('Multiple cards creation cancelled by user after flashcard');
+                        debugLog('Multiple cards creation cancelled by user after flashcard');
                         return;
                     }
                     
@@ -2999,7 +3018,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     if (sourceLanguageForLinguistic) {
                         let result;
                         
-                        console.log(`Using optimized linguistic info creation for "${option}" (max 2 requests)`);
+                        debugLog(`Using optimized linguistic info creation for "${option}" (max 2 requests)`);
                         result = await createOptimizedLinguisticInfo(
                             aiService,
                             apiKey,
@@ -3013,7 +3032,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             dispatch(setLinguisticInfo(result.linguisticInfo));
 
                             if (result.wasValidated) {
-                                console.log(`Linguistic info for "${option}" created and validated`);
+                                debugLog(`Linguistic info for "${option}" created and validated`);
                             } else {
                                 console.warn(`Linguistic info for "${option}" created but not fully validated`);
                             }
@@ -3028,7 +3047,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         const sourceLanguageForTranscription = isAutoDetectLanguage ? detectedLanguageForOption : sourceLanguage;
 
                         if (sourceLanguageForTranscription) {
-                            console.log(`Creating transcription for "${option}" using source language: ${sourceLanguageForTranscription}, user language: ${translateToLanguage}`);
+                            debugLog(`Creating transcription for "${option}" using source language: ${sourceLanguageForTranscription}, user language: ${translateToLanguage}`);
 
                             const transcriptionResult = await createTranscription(
                                 aiService,
@@ -3059,7 +3078,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 if (transcriptionHtml) {
                                     generatedTranscription = transcriptionHtml;
                                     dispatch(setTranscription(transcriptionHtml));
-                                    console.log(`Transcription created successfully for "${option}"`);
+                                    debugLog(`Transcription created successfully for "${option}"`);
                                 }
                             }
                         } else {
@@ -3086,24 +3105,24 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 shouldGenerate = analysis.shouldGenerate;
                                 analysisReason = analysis.reason;
                                 
-                                console.log(`Smart image analysis for "${option}": ${shouldGenerate ? 'YES' : 'NO'} - ${analysisReason}`);
+                                debugLog(`Smart image analysis for "${option}": ${shouldGenerate ? 'YES' : 'NO'} - ${analysisReason}`);
                             }
 
                             if (shouldGenerate) {
-                                console.log(`Generating image for "${option}"`);
+                                debugLog(`Generating image for "${option}"`);
                                 const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions);
-                                const { imageUrl, imageBase64 } = await getImage(null, openai, openAiKey, descriptionImage, imageInstructions);
+                                const { imageUrl, imageBase64 } = await getImage(null, ensureOpenAiClient(), openAiKey, descriptionImage, imageInstructions);
 
                                 if (imageUrl) {
                                     currentImageUrl = imageUrl;
-                                    console.log(`Image URL generated for "${option}": ${imageUrl.substring(0, 50)}...`);
+                                    debugLog(`Image URL generated for "${option}": ${imageUrl.substring(0, 50)}...`);
                                 }
                                 if (imageBase64) {
                                     currentImage = imageBase64;
-                                    console.log(`Image base64 generated for "${option}": ${imageBase64.substring(0, 50)}...`);
+                                    debugLog(`Image base64 generated for "${option}": ${imageBase64.substring(0, 50)}...`);
                                 }
                             } else if (imageGenerationMode === 'smart') {
-                                console.log(`No image needed for "${option}": ${analysisReason}`);
+                                debugLog(`No image needed for "${option}": ${analysisReason}`);
                             }
                         } catch (imageError) {
                             console.error(`Image generation failed for "${option}":`, imageError);
@@ -3145,7 +3164,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                     // НЕ сохраняем карточку в хранилище здесь, а только добавляем в список для отображения
                     // dispatch(saveCardToStorage(cardData)); - УДАЛЕНО, чтобы предотвратить автоматическое сохранение
-                    console.log(`Created card ${finalizedCard.id} but NOT saving to storage yet. Image info:`, {
+                    debugLog(`Created card ${finalizedCard.id} but NOT saving to storage yet. Image info:`, {
                         hasImage: !!finalizedCard.image,
                         hasImageUrl: !!finalizedCard.imageUrl,
                         imageLength: finalizedCard.image?.length,
@@ -3174,7 +3193,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Устанавливаем текущую карточку в состояние Redux для отображения
                 const currentCard = newCards[0];
                 if (currentCard) {
-                    console.log('Loading first card into Redux state:', {
+                    debugLog('Loading first card into Redux state:', {
                         cardId: currentCard.id,
                         hasImage: !!currentCard.image,
                         hasImageUrl: !!currentCard.imageUrl,
@@ -3217,14 +3236,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         dispatch(setTranscription(''));
                     }
                     
-                    console.log('First card loaded into Redux state successfully');
+                    debugLog('First card loaded into Redux state successfully');
                 }
 
                 // Сброс статуса явного сохранения карточек
                 setExplicitlySaved(false);
                 setExplicitlySavedIds([]);  // Clear explicitly saved IDs
                 localStorage.removeItem('explicitly_saved');
-                console.log('Reset saved status for new multiple cards');
+                debugLog('Reset saved status for new multiple cards');
 
                 // Важное обновление: очищаем список сохраненных ID перед показом новых карточек
                 setExplicitlySavedIds([]);
@@ -3236,7 +3255,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 setShowModal(true);
                 // Удалили навязчивое success уведомление
 
-                console.log('Created new cards, none saved yet. Card IDs:', newCards.map(card => card.id));
+                debugLog('Created new cards, none saved yet. Card IDs:', newCards.map(card => card.id));
             } else {
                 showError("Failed to create cards. Please try again.", "error");
             }
@@ -3244,7 +3263,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         } catch (error) {
             // Check if this is a cancellation
             if (abortSignal.aborted) {
-                console.log('Multiple cards creation was cancelled by user');
+                debugLog('Multiple cards creation was cancelled by user');
                 throw new Error('Operation cancelled by user');
             }
             
@@ -3258,20 +3277,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.error('Error processing selected options:', error);
             showError(error instanceof Error ? error.message : "Failed to create cards. Please try again.");
         } finally {
-            console.log('🎯 Multiple cards creation finally block reached');
+            debugLog('🎯 Multiple cards creation finally block reached');
 
             // Use the same smart loading management as main function
             setTimeout(() => {
-                console.log('⏳ Checking for pending operations in multiple cards creation...');
+                debugLog('⏳ Checking for pending operations in multiple cards creation...');
 
                 const tracker = getGlobalApiTracker();
                 const trackerStats = tracker.getStats();
                 const hasPendingRequests = trackerStats.inProgress > 0;
 
-                console.log('📊 Multiple cards tracker stats:', trackerStats);
+                debugLog('📊 Multiple cards tracker stats:', trackerStats);
 
                 if (!hasPendingRequests) {
-                    console.log('✅ No pending operations in multiple cards - hiding loader');
+                    debugLog('✅ No pending operations in multiple cards - hiding loader');
                     setLoadingGetResult(false);
 
                     // Reset card generation state to enable navigation buttons
@@ -3280,13 +3299,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // Очищаем карту выбранных опций
                     setSelectedOptionsMap({});
                 } else {
-                    console.log('⏸️ Keeping loader visible for multiple cards - operations still running');
+                    debugLog('⏸️ Keeping loader visible for multiple cards - operations still running');
                     // Wait a bit longer for multiple cards
                     setTimeout(() => {
-                        console.log('⏳ Final check for multiple cards...');
+                        debugLog('⏳ Final check for multiple cards...');
                         const finalCheckStats = tracker.getStats();
                         if (finalCheckStats.inProgress === 0) {
-                            console.log('✅ Multiple cards operations completed - hiding loader');
+                            debugLog('✅ Multiple cards operations completed - hiding loader');
                             setLoadingGetResult(false);
                             tabAware.setIsGeneratingCard(false);
                             setSelectedOptionsMap({});
@@ -3313,12 +3332,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         saveCurrentCardState();
 
         const nextIndex = currentCardIndex + 1;
-        console.log(`Moving from card ${currentCardIndex} to card ${nextIndex}`);
+        debugLog(`Moving from card ${currentCardIndex} to card ${nextIndex}`);
 
         // Загружаем данные следующей карточки
         const card = createdCards[nextIndex];
         if (card) {
-            console.log(`Loading next card data: ${card.id}, text: ${card.text}, linguistic info: ${card.linguisticInfo ? 'yes' : 'no'}`);
+            debugLog(`Loading next card data: ${card.id}, text: ${card.text}, linguistic info: ${card.linguisticInfo ? 'yes' : 'no'}`);
             loadCardData(card);
             // Обновляем индекс карточки после загрузки данных
             setCurrentCardIndex(nextIndex);
@@ -3330,7 +3349,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (!createdCards[currentCardIndex]) return;
 
         // Логируем состояние перед сохранением для отладки
-        console.log('Saving current card state:', {
+        debugLog('Saving current card state:', {
             index: currentCardIndex,
             text,
             linguisticInfo: linguisticInfo ? linguisticInfo.substring(0, 30) + '...' : 'empty'
@@ -3355,12 +3374,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         updatedCards[currentCardIndex] = updatedCard;
         setCreatedCards(updatedCards);
 
-        console.log('Updated card saved:', updatedCard.id);
+        debugLog('Updated card saved:', updatedCard.id);
     };
 
     // Функция для загрузки данных карточки в Redux
     const loadCardData = (card: StoredCard) => {
-        console.log('Loading card data for card:', {
+        debugLog('Loading card data for card:', {
             id: card.id,
             text: card.text,
             hasLinguisticInfo: Boolean(card.linguisticInfo),
@@ -3410,23 +3429,23 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // LinguisticInfo может быть строкой или undefined
         if (card.linguisticInfo) {
-            console.log('Setting linguistic info:', card.linguisticInfo.substring(0, 30) + '...');
+            debugLog('Setting linguistic info:', card.linguisticInfo.substring(0, 30) + '...');
             dispatch(setLinguisticInfo(card.linguisticInfo));
         } else {
-            console.log('No linguistic info found for this card');
+            debugLog('No linguistic info found for this card');
             dispatch(setLinguisticInfo(''));
         }
 
         // Transcription может быть строкой или undefined
         if (card.transcription) {
-            console.log('Setting transcription:', card.transcription.substring(0, 30) + '...');
+            debugLog('Setting transcription:', card.transcription.substring(0, 30) + '...');
             dispatch(setTranscription(card.transcription));
         } else {
-            console.log('No transcription found for this card');
+            debugLog('No transcription found for this card');
             dispatch(setTranscription(''));
         }
         
-        console.log('Card data loaded successfully, image status:', {
+        debugLog('Card data loaded successfully, image status:', {
             hasImage: !!card.image,
             hasImageUrl: !!card.imageUrl
         });
@@ -3440,12 +3459,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         saveCurrentCardState();
 
         const prevIndex = currentCardIndex - 1;
-        console.log(`Moving from card ${currentCardIndex} to card ${prevIndex}`);
+        debugLog(`Moving from card ${currentCardIndex} to card ${prevIndex}`);
 
         // Загружаем данные предыдущей карточки
         const card = createdCards[prevIndex];
         if (card) {
-            console.log(`Loading previous card data: ${card.id}, text: ${card.text}, linguistic info: ${card.linguisticInfo ? 'yes' : 'no'}`);
+            debugLog(`Loading previous card data: ${card.id}, text: ${card.text}, linguistic info: ${card.linguisticInfo ? 'yes' : 'no'}`);
             loadCardData(card);
             // Обновляем индекс карточки после загрузки данных
             setCurrentCardIndex(prevIndex);
@@ -3454,9 +3473,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Анализировать текст и предложить варианты создания карточек
     const analyzeSelectedText = async (selectedText: string) => {
-        console.log('=== ANALYZE SELECTED TEXT ===');
-        console.log('Selected text:', selectedText);
-        console.log('Text length:', selectedText.length);
+        debugLog('=== ANALYZE SELECTED TEXT ===');
+        debugLog('Selected text:', selectedText);
+        debugLog('Text length:', selectedText.length);
         
         if (!selectedText || selectedText.length < 3) {
             tabAware.setText(selectedText);
@@ -3469,11 +3488,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // Count words in the selected text
         const wordCount = selectedText.trim().split(/\s+/).length;
-        console.log('Word count:', wordCount);
+        debugLog('Word count:', wordCount);
 
         // If text is a short phrase (3 words or less), use it directly without showing modal
         if (wordCount <= 3 && !selectedText.includes('.') && !selectedText.includes('\n')) {
-            console.log('Using short text directly (≤3 words)');
+            debugLog('Using short text directly (≤3 words)');
             // Принудительно закрываем модальное окно
             setShowTextOptionsModal(false);
             
@@ -3483,7 +3502,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
-        console.log('Proceeding with text analysis...');
+        debugLog('Proceeding with text analysis...');
         setTextAnalysisLoader(true);
 
         try {
@@ -3495,11 +3514,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 .map(word => word.trim())
                 .filter(Boolean);
             
-            console.log('Extracted words from text:', rawWords);
+            debugLog('Extracted words from text:', rawWords);
 
             // Universal word filtering without language-specific stop words
             let words = Array.from(new Set(rawWords)); // Remove duplicates
-            console.log('Filtered words (universal):', words);
+            debugLog('Filtered words (universal):', words);
 
             // Initialize array of options to present to the user
             let options: string[] = [];
@@ -3507,43 +3526,43 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // For short-medium texts (4-10 words), always include individual words and full phrase
             if (wordCount >= 4 && wordCount <= 10) {
-                console.log('Processing short-medium text (4-10 words)');
+                debugLog('Processing short-medium text (4-10 words)');
                 
                 // Add the full phrase as an option
                 const cleanedFullText = selectedText.replace(/^[-–—•\s]+/, '').trim();
                 options.push(cleanedFullText);
-                console.log('Added full phrase:', cleanedFullText);
+                debugLog('Added full phrase:', cleanedFullText);
 
                 // Primary approach: Use AI to identify important words if available
                 if (apiKey && aiService) {
                     try {
-                        console.log('Using AI to extract key terms...');
+                        debugLog('Using AI to extract key terms...');
                         const aiResponse = await aiService.extractKeyTerms(apiKey, selectedText);
                         if (aiResponse && aiResponse.length > 0) {
                             aiResponse.forEach((term: string) => {
                                 const cleanedTerm = term.replace(/^[-–—•\s]+/, '').trim();
                                 if (!options.includes(cleanedTerm) && cleanedTerm.length > 1) {
                                     options.push(cleanedTerm);
-                                    console.log('Added AI-extracted term:', cleanedTerm);
+                                    debugLog('Added AI-extracted term:', cleanedTerm);
                                 }
                             });
                             phrasesExtracted = true; // Mark as processed by AI
                         }
                     } catch (e) {
-                        console.log('AI extraction failed, falling back to word-based approach:', e);
+                        debugLog('AI extraction failed, falling back to word-based approach:', e);
                     }
                 }
 
                 // Fallback: Add individual words if AI didn't work or no API key
                 if (!phrasesExtracted) {
-                    console.log('Adding individual words (fallback):', words);
+                    debugLog('Adding individual words (fallback):', words);
                     words.forEach(word => {
                         // Use length as universal indicator of importance
                         if (word.length > 2) {  // Universal minimum length
                             const cleanedWord = word.replace(/^[-–—•\s]+/, '').trim();
                             if (!options.includes(cleanedWord)) {
                                 options.push(cleanedWord);
-                                console.log('Added individual word:', cleanedWord);
+                                debugLog('Added individual word:', cleanedWord);
                             }
                         }
                     });
@@ -3551,7 +3570,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Add 2-word combinations for better coverage
                 if (wordCount >= 6) {
-                    console.log('Adding 2-word combinations...');
+                    debugLog('Adding 2-word combinations...');
                     const wordsArray = selectedText.split(/\s+/);
                     for (let i = 0; i < wordsArray.length - 1; i++) {
                         if (wordsArray[i].length > 1 && wordsArray[i + 1].length > 1) {
@@ -3559,7 +3578,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             twoWordPhrase = twoWordPhrase.replace(/^[-–—•\s]+/, '').trim();
                             if (twoWordPhrase.length > 3 && !options.includes(twoWordPhrase)) {
                                 options.push(twoWordPhrase);
-                                console.log('Added 2-word phrase:', twoWordPhrase);
+                                debugLog('Added 2-word phrase:', twoWordPhrase);
                             }
                         }
                     }
@@ -3567,7 +3586,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 // Always mark as processed for short-medium texts
                 phrasesExtracted = true;
-                console.log('Short-medium processing complete. Options so far:', options);
+                debugLog('Short-medium processing complete. Options so far:', options);
             }
 
             // For longer texts (>100 chars), rely primarily on AI extraction
@@ -3598,7 +3617,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // For medium-length selections, try to extract meaningful phrases
             if (!phrasesExtracted && selectedText.length > 30 && selectedText.length <= 200) {
-                console.log('Processing medium-length text:', selectedText.length, 'chars, words:', wordCount);
+                debugLog('Processing medium-length text:', selectedText.length, 'chars, words:', wordCount);
                 
                 // For texts with 4-15 words, also add individual words even in this section
                 if (wordCount >= 4 && wordCount <= 15) {
@@ -3608,7 +3627,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             const cleanedWord = word.replace(/^[-–—•\s]+/, '').trim();
                             if (!options.includes(cleanedWord)) {
                                 options.push(cleanedWord);
-                                console.log('Added individual word:', cleanedWord);
+                                debugLog('Added individual word:', cleanedWord);
                             }
                         }
                     });
@@ -3628,7 +3647,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         const cleanedPhrase = trimmed.replace(/^[-–—•\s]+/, '').trim();
                         if (!options.includes(cleanedPhrase)) {
                             options.push(cleanedPhrase);
-                            console.log('Added medium phrase:', cleanedPhrase);
+                            debugLog('Added medium phrase:', cleanedPhrase);
                         }
                     }
                 });
@@ -3639,21 +3658,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Add individual important words if we don't have many options yet
             if (options.length < 5 || (wordCount >= 4 && wordCount <= 15 && !phrasesExtracted)) {
-                console.log('Adding individual words, current options count:', options.length, 'wordCount:', wordCount, 'phrasesExtracted:', phrasesExtracted);
+                debugLog('Adding individual words, current options count:', options.length, 'wordCount:', wordCount, 'phrasesExtracted:', phrasesExtracted);
                 
                 // Find potentially important words (longer words are often more significant)
                 const importantWords = words
                     .filter(word => word.length > 2)  // Lowered from 5 to 3 to include more words
                     .slice(0, 7);  // Increased limit to 7 important words
 
-                console.log('Important words found:', importantWords);
+                debugLog('Important words found:', importantWords);
 
                 importantWords.forEach(word => {
                     // Clean the word by removing leading dashes/hyphens
                     const cleanedWord = word.replace(/^[-–—•\s]+/, '').trim();
                     if (!options.includes(cleanedWord)) {
                         options.push(cleanedWord);
-                        console.log('Added important word:', cleanedWord);
+                        debugLog('Added important word:', cleanedWord);
                     }
                 });
             }
@@ -4508,13 +4527,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Функция для автоматического определения языка
     const detectLanguage = useCallback(async (text: string): Promise<string | null> => {
-        console.log('=== LANGUAGE DETECTION START ===');
-        console.log('Input text:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
-        console.log('Text length:', text.length);
+        debugLog('=== LANGUAGE DETECTION START ===');
+        debugLog('Input text:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
+        debugLog('Text length:', text.length);
         
         // Определяем язык, если есть текст
         if (!text || text.trim().length < 2) {
-            console.log('Text too short for language detection');
+            debugLog('Text too short for language detection');
             return null;
         }
 
@@ -4527,7 +4546,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
 
             if (detectedLanguage !== normalized) {
-                console.log(`Setting detected language (${context}):`, normalized);
+                debugLog(`Setting detected language (${context}):`, normalized);
                 setDetectedLanguage(normalized);
             }
 
@@ -4543,7 +4562,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // 1. ОФЛАЙН определение (быстро и бесплатно)
         const offlineDetected = detectLanguageOffline(text);
         if (offlineDetected) {
-            console.log('Language detected offline:', offlineDetected);
+            debugLog('Language detected offline:', offlineDetected);
             recordDetection(offlineDetected, 'offline detection');
             return detectedResult;
         }
@@ -4553,21 +4572,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const cachedResult = localStorage.getItem(smartCacheKey);
         
         if (cachedResult && detectedLanguage !== cachedResult) {
-            console.log('Using smart cached language detection result:', cachedResult);
+            debugLog('Using smart cached language detection result:', cachedResult);
             recordDetection(cachedResult, 'smart cache');
             return detectedResult;
         }
 
         // 3. Если язык уже определен для текущего текста, не определяем повторно
         if (detectedLanguage && cachedResult === detectedLanguage) {
-            console.log('Language already detected for this text:', detectedLanguage);
+            debugLog('Language already detected for this text:', detectedLanguage);
             detectedResult = detectedLanguage;
             return detectedLanguage;
         }
 
         // 4. Проверяем квоту и только тогда делаем API вызов (ЭКОНОМИЯ!)
         if (isQuotaExceededCached()) {
-            console.log('Language detection skipped due to cached quota error');
+            debugLog('Language detection skipped due to cached quota error');
             // Only show error if it hasn't been shown yet
             if (shouldShowQuotaNotification()) {
                 const cachedError = getCachedQuotaError();
@@ -4583,11 +4602,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const lastApiCall = localStorage.getItem('last_language_api_call');
         const now = Date.now();
         if (lastApiCall && (now - parseInt(lastApiCall)) < 2000) { // мин 2 секунды между API вызовами
-            console.log('Language detection API call skipped - too frequent calls');
+            debugLog('Language detection API call skipped - too frequent calls');
             return detectedLanguage ?? detectedResult;
         }
 
-        console.log('Making API call for language detection...');
+        debugLog('Making API call for language detection...');
         localStorage.setItem('last_language_api_call', now.toString());
         setIsDetectingLanguage(true);
 
@@ -4601,7 +4620,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 if (modelProvider === ModelProvider.OpenAI) {
                     // Extra check for quota cache before making OpenAI request
                     if (isQuotaExceededCached()) {
-                        console.log('OpenAI language detection skipped due to cached quota error');
+                        debugLog('OpenAI language detection skipped due to cached quota error');
                         // Only show error if it hasn't been shown yet
                         if (shouldShowQuotaNotification()) {
                             const cachedError = getCachedQuotaError();
@@ -4613,7 +4632,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
                     
                     try {
-                        const response = await openai.chat.completions.create({
+                        const client = ensureOpenAiClient();
+                        const response = await client.chat.completions.create({
                             model: "gpt-5-nano",
                             messages: [
                                 {
@@ -4630,7 +4650,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         });
 
                         detectedCode = response.choices[0].message.content?.trim().toLowerCase();
-                        console.log("Language detected via OpenAI:", detectedCode);
+                        debugLog("Language detected via OpenAI:", detectedCode);
                     } catch (openaiError) {
                         // Check if this is a quota error and cache it
                         if (openaiError instanceof Error) {
@@ -4641,7 +4661,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 errorMessage.includes('exceeded') ||
                                 errorMessage.includes('429')) {
                                 cacheQuotaExceededError(errorMessage);
-                                console.log('Quota error detected and cached in OpenAI language detection');
+                                debugLog('Quota error detected and cached in OpenAI language detection');
                             }
                         }
                         throw openaiError; // Re-throw to be handled by outer catch
@@ -4649,7 +4669,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 } else if (modelProvider === ModelProvider.Groq) {
                     // Extra check for quota cache before making Groq request
                     if (isQuotaExceededCached()) {
-                        console.log('Groq language detection skipped due to cached quota error');
+                        debugLog('Groq language detection skipped due to cached quota error');
                         // Only show error if it hasn't been shown yet
                         if (shouldShowQuotaNotification()) {
                             const cachedError = getCachedQuotaError();
@@ -4700,16 +4720,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     
                     const groqData = await groqResponse.json();
                     detectedCode = groqData.choices?.[0]?.message?.content?.trim().toLowerCase();
-                    console.log("Language detected via Groq:", detectedCode);
+                    debugLog("Language detected via Groq:", detectedCode);
                 }
 
                 // Проверяем, является ли результат действительным языковым кодом
                 if (detectedCode && allLanguages.some(lang => lang.code === detectedCode)) {
-                    console.log('Language successfully detected:', detectedCode);
+                    debugLog('Language successfully detected:', detectedCode);
                     recordDetection(detectedCode, 'API detection');
                     return detectedResult;
                 } else {
-                    console.log('Invalid or unrecognized language code:', detectedCode);
+                    debugLog('Invalid or unrecognized language code:', detectedCode);
                 }
             } else {
                 // Если OpenAI недоступен, используем более простую эвристику
@@ -4738,30 +4758,30 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 let detectedLang = '';
 
                 if (cyrillicPattern.test(textSample)) {
-                    console.log("Detected Cyrillic script - setting Russian");
+                    debugLog("Detected Cyrillic script - setting Russian");
                     detectedLang = 'ru';
                 } else if (chinesePattern.test(textSample)) {
-                    console.log("Detected Chinese characters");
+                    debugLog("Detected Chinese characters");
                     detectedLang = 'zh';
                 } else if (japanesePattern.test(textSample)) {
-                    console.log("Detected Japanese characters");
+                    debugLog("Detected Japanese characters");
                     detectedLang = 'ja';
                 } else if (koreanPattern.test(textSample)) {
-                    console.log("Detected Korean characters");
+                    debugLog("Detected Korean characters");
                     detectedLang = 'ko';
                 } else if (arabicPattern.test(textSample)) {
-                    console.log("Detected Arabic script");
+                    debugLog("Detected Arabic script");
                     detectedLang = 'ar';
                 } else if (spanishPattern.test(textSample) || isSpanishWord) {
-                    console.log("Detected Spanish text or common Spanish word");
+                    debugLog("Detected Spanish text or common Spanish word");
                     detectedLang = 'es';
                 } else if (latinPattern.test(textSample)) {
-                    console.log("Detected Latin script, defaulting to English");
+                    debugLog("Detected Latin script, defaulting to English");
                     detectedLang = 'en';
                 }
 
                 if (detectedLang) {
-                    console.log('Language detected using fallback method:', detectedLang);
+                    debugLog('Language detected using fallback method:', detectedLang);
                     recordDetection(detectedLang, 'fallback detection');
                     return detectedResult;
                 }
@@ -4833,18 +4853,18 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
 
                 if (detectedLang) {
-                    console.log("Language detected using fallback method in error handler:", detectedLang);
+                    debugLog("Language detected using fallback method in error handler:", detectedLang);
                     recordDetection(detectedLang, 'fallback method in error handler');
                     return detectedResult;
                 }
             }
         } finally {
             setIsDetectingLanguage(false);
-            console.log('=== LANGUAGE DETECTION END ===');
+            debugLog('=== LANGUAGE DETECTION END ===');
         }
 
         return detectedResult;
-    }, [openai, openAiKey, modelProvider, groqApiKey, groqModelName, detectLanguageOffline, getSmartCacheKey, updateSourceLanguage, detectedLanguage, showError, shouldShowQuotaNotification, getCachedQuotaError, markQuotaNotificationShown, cacheQuotaExceededError, setIsAutoDetectLanguage, allLanguages]);
+    }, [ensureOpenAiClient, openAiKey, modelProvider, groqApiKey, groqModelName, detectLanguageOffline, getSmartCacheKey, updateSourceLanguage, detectedLanguage, showError, shouldShowQuotaNotification, getCachedQuotaError, markQuotaNotificationShown, cacheQuotaExceededError, setIsAutoDetectLanguage, allLanguages]);
 
     // Обработчик переключения между автоопределением и ручным выбором
     const toggleAutoDetect = () => {
@@ -5120,7 +5140,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 onClick={() => {
                                     // Check if quota is exceeded before resetting language detection
                                     if (isQuotaExceededCached()) {
-                                        console.log('Language detection reset skipped due to cached quota error');
+                                        debugLog('Language detection reset skipped due to cached quota error');
                                         // Only show error if it hasn't been shown yet
                                         if (shouldShowQuotaNotification()) {
                                             const cachedError = getCachedQuotaError();
@@ -5134,7 +5154,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     
                                     // Повторно определяем язык для текущего текста
                                     if (text) {
-                                        console.log('Manually triggering language detection for:', text.substring(0, 50) + '...');
+                                        debugLog('Manually triggering language detection for:', text.substring(0, 50) + '...');
                                         detectLanguage(text);
                                     }
                                 }}
@@ -5413,7 +5433,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const savedDetectedLanguage = localStorage.getItem('detected_language');
         const savedAutoDetect = localStorage.getItem('auto_detect_language');
 
-        console.log('Initializing language settings from localStorage:', {
+        debugLog('Initializing language settings from localStorage:', {
             savedSourceLanguage,
             savedDetectedLanguage,
             savedAutoDetect
@@ -5527,16 +5547,16 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         
         // Автоматически включаем shouldGenerateImage для Smart и Always режимов
         if (mode === 'smart' || mode === 'always') {
-            console.log(`🔧 Automatically enabling shouldGenerateImage for ${mode} mode`);
+            debugLog(`🔧 Automatically enabling shouldGenerateImage for ${mode} mode`);
             dispatch(setShouldGenerateImage(true));
             
             // Дополнительная проверка - убеждаемся, что состояние действительно изменилось
             setTimeout(() => {
-                console.log(`🔍 Verification: shouldGenerateImage should now be true for ${mode} mode`);
+                debugLog(`🔍 Verification: shouldGenerateImage should now be true for ${mode} mode`);
             }, 100);
         } else if (mode === 'off') {
             // При выключении режима также выключаем общий переключатель
-            console.log('🔧 Disabling shouldGenerateImage for off mode');
+            debugLog('🔧 Disabling shouldGenerateImage for off mode');
             dispatch(setShouldGenerateImage(false));
         }
         
@@ -5713,7 +5733,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 // Извлекаем контент страницы асинхронно для загрузки внешних изображений
                 pageContext = await PageContentExtractor.extractPageContentAsync(text, selectionElement);
                 
-                console.log('📄 Extracted page content:', {
+                debugLog('📄 Extracted page content:', {
                     images: pageContext.pageImages.length,
                     formulas: pageContext.formulas.length,
                     codeBlocks: pageContext.codeBlocks.length,
@@ -5724,7 +5744,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 
                 // Детальное логирование найденных изображений
                 pageContext.pageImages.forEach((img, index) => {
-                    console.log(`🖼️ Изображение ${index}:`, {
+                    debugLog(`🖼️ Изображение ${index}:`, {
                         src: img.src,
                         alt: img.alt,
                         relevanceScore: img.relevanceScore,
@@ -5743,15 +5763,15 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             
             // Check if cancelled after creation
             if (abortSignal.aborted) {
-                console.log('AI card creation was cancelled by user');
+                debugLog('AI card creation was cancelled by user');
                 return;
             }
             
-            console.log(`🎉 AI Agents created ${createdCards.length} cards successfully`);
+            debugLog(`🎉 AI Agents created ${createdCards.length} cards successfully`);
             
             // Логируем финальные карточки для отладки
             createdCards.forEach((card: any, index: number) => {
-                console.log(`🃏 Карточка ${index}:`, {
+                debugLog(`🃏 Карточка ${index}:`, {
                     front: card.front,
                     backPreview: card.back.substring(0, 200) + '...',
                     hasAttachedImages: !!card.attachedImages && card.attachedImages.length > 0,
@@ -5764,7 +5784,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 
                 // Показываем полный back для первой карточки
                 if (index === 0) {
-                    console.log(`🃏 Полный back карточки 0:`, card.back);
+                    debugLog(`🃏 Полный back карточки 0:`, card.back);
                 }
             });
             
@@ -5777,31 +5797,31 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             
         } catch (error) {
             if (abortSignal.aborted) {
-                console.log('AI card creation was cancelled by user');
+                debugLog('AI card creation was cancelled by user');
                 return;
             }
             console.error('❌ Error in AI agent card creation:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             showError(`Card creation error: ${errorMessage}`, 'error');
         } finally {
-            console.log('🎯 Main card creation function finally block reached');
+            debugLog('🎯 Main card creation function finally block reached');
             // Add delay to prevent window disappearing too quickly
             // Use a longer delay and check for any pending operations
             setTimeout(() => {
-                console.log('⏳ Checking for pending operations before hiding loader...');
+                debugLog('⏳ Checking for pending operations before hiding loader...');
 
                 // Check if there are any pending operations by looking at API tracker
                 const tracker = getGlobalApiTracker();
                 const trackerStats = tracker.getStats();
                 const hasPendingRequests = trackerStats.inProgress > 0;
 
-                console.log('📊 Tracker stats:', trackerStats);
-                console.log('🔄 Has pending requests:', hasPendingRequests);
+                debugLog('📊 Tracker stats:', trackerStats);
+                debugLog('🔄 Has pending requests:', hasPendingRequests);
 
                 // Also check local loading states
                 const hasLocalOperations = isProcessingCustomInstruction || loadingNewImage || loadingNewExamples;
 
-                console.log('🏠 Local loading states:', {
+                debugLog('🏠 Local loading states:', {
                     isProcessingCustomInstruction,
                     loadingNewImage,
                     loadingNewExamples,
@@ -5810,25 +5830,25 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
                 // Only hide loader if no operations are running
                 if (!hasPendingRequests && !hasLocalOperations) {
-                    console.log('✅ No pending operations - hiding loader');
+                    debugLog('✅ No pending operations - hiding loader');
                     setLoadingGetResult(false);
                     setCurrentLoadingMessage(null);
                     setCurrentProgress({ completed: 0, total: 0 });
                 } else {
-                    console.log('⏸️ Keeping loader visible - operations still running');
+                    debugLog('⏸️ Keeping loader visible - operations still running');
                     // If there are still pending operations, wait a bit longer
                     setTimeout(() => {
-                        console.log('⏳ Second check after additional delay...');
+                        debugLog('⏳ Second check after additional delay...');
                         const secondCheckStats = tracker.getStats();
                         const stillHasPending = secondCheckStats.inProgress > 0;
 
                         if (!stillHasPending && !isProcessingCustomInstruction && !loadingNewImage && !loadingNewExamples) {
-                            console.log('✅ Second check passed - hiding loader');
+                            debugLog('✅ Second check passed - hiding loader');
                             setLoadingGetResult(false);
                             setCurrentLoadingMessage(null);
                             setCurrentProgress({ completed: 0, total: 0 });
                         } else {
-                            console.log('⏸️ Still has pending operations - keeping loader');
+                            debugLog('⏸️ Still has pending operations - keeping loader');
                         }
                     }, 2000);
                 }
