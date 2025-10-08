@@ -480,14 +480,29 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
             <button
               onClick={() => handlePageChange('createCard')}
               style={{
-                backgroundColor: '#2563EB', border: 'none', cursor: 'pointer', padding: '6px 14px', color: '#fff',
-                borderRadius: 7, width: '100%', height: 32, fontSize: 13, fontWeight: 600,
-                boxShadow: '0 1px 3px rgba(37,99,235,0.2)', transition: 'all .2s'
+                backgroundColor: '#2563EB',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '8px 14px',
+                color: '#fff',
+                borderRadius: 8,
+                width: '100%',
+                minHeight: 36,
+                fontSize: 13,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                lineHeight: 1.1,
+                boxShadow: '0 1px 3px rgba(37,99,235,0.2)',
+                transition: 'all .2s'
               }}
               onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#1D4ED8'; e.currentTarget.style.transform = 'translateY(-0.5px)'; }}
               onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#2563EB'; e.currentTarget.style.transform = 'translateY(0)'; }}
             >
-              <FaPlus style={{ marginRight: 5 }} size={13} /> New Card
+              <FaPlus size={14} style={{ transform: 'translateY(-0.5px)' }} />
+              <span style={{ transform: 'translateY(-0.5px)' }}>New Card</span>
             </button>
           </div>
         )}

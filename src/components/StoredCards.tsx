@@ -1487,7 +1487,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             fontWeight: 600,
                             color: '#111827'
                         }}>
-                            Edit Card LOL
+                            Edit Card
                         </h3>
                         <button
                             onClick={handleCancelEdit}
