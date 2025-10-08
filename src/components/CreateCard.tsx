@@ -280,6 +280,22 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             examples: normalizedExamples
         };
 
+        const hasMeaningfulContent = Boolean(
+            (normalizedRaw.text && normalizedRaw.text.trim()) ||
+            (normalizedRaw.translation && normalizedRaw.translation.trim()) ||
+            (normalizedRaw.front && normalizedRaw.front.trim()) ||
+            (normalizedRaw.back && normalizedRaw.back.trim()) ||
+            (normalizedRaw.examples && normalizedRaw.examples.length > 0) ||
+            normalizedRaw.image ||
+            normalizedRaw.imageUrl ||
+            (normalizedRaw.linguisticInfo && normalizedRaw.linguisticInfo.trim()) ||
+            (normalizedRaw.transcription && normalizedRaw.transcription.trim())
+        );
+
+        if (!hasMeaningfulContent) {
+            return null;
+        }
+
         const isLanguageMode = lastDraftCard.mode === Modes.LanguageLearning;
         const frontText = isLanguageMode
             ? normalizedRaw.text
@@ -325,6 +341,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             modeLabel: isLanguageMode ? 'Language Learning' : 'General Topic'
         };
     }, [lastDraftCard]);
+
     const draftIdRef = useRef<string | null>(lastDraftCard?.id ?? null);
     const lastDraftSerializedRef = useRef<string | null>(lastDraftCard ? serializeDraftForCompare(normalizeDraftCard(lastDraftCard)) : null);
     const lastDraftContentHashRef = useRef<string | null>(lastDraftCard ? getDraftContentHash(normalizeDraftCard(lastDraftCard)) : null);
@@ -585,6 +602,48 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         return false;
     }, [currentCardId, explicitlySaved, isMultipleCards, currentCardIndex, createdCards, isCardExplicitlySaved]);
 
+    const draftMatchesExplicitlySavedCard = useMemo(() => {
+        if (!lastDraftCard || isEdited) {
+            return false;
+        }
+
+        const savedFlagFromStorage = typeof window !== 'undefined'
+            ? localStorage.getItem('explicitly_saved') === 'true'
+            : false;
+
+        if (!explicitlySaved && !savedFlagFromStorage) {
+            return false;
+        }
+
+        const savedId = currentCardId || (typeof window !== 'undefined' ? localStorage.getItem('current_card_id') : null);
+        if (!savedId) {
+            return false;
+        }
+
+        return lastDraftCard.id === savedId;
+    }, [lastDraftCard, explicitlySaved, currentCardId, isEdited]);
+
+    useEffect(() => {
+        if (!lastDraftCard) {
+            return;
+        }
+
+        const savedFlagFromStorage = typeof window !== 'undefined'
+            ? localStorage.getItem('explicitly_saved') === 'true'
+            : false;
+
+        const savedIdFromStorage = typeof window !== 'undefined'
+            ? localStorage.getItem('current_card_id')
+            : null;
+
+        const effectiveSavedId = currentCardId || savedIdFromStorage;
+        const matchesSavedCard = effectiveSavedId ? lastDraftCard.id === effectiveSavedId : false;
+
+        if (!isEdited && (isSaved || explicitlySaved || (savedFlagFromStorage && matchesSavedCard))) {
+            dispatch(setLastDraftCard(null));
+        }
+    }, [lastDraftCard, isSaved, explicitlySaved, isEdited, currentCardId, dispatch]);
+
     const latestDraftSnapshot = useMemo<DraftSnapshot | null>(() => {
         if (!showResult) {
             return null;
@@ -608,7 +667,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return null;
         }
 
-        if (isSaved && !isEdited) {
+        const savedFlagFromStorage = typeof window !== 'undefined'
+            ? localStorage.getItem('explicitly_saved') === 'true'
+            : false;
+
+        if ((isSaved || savedFlagFromStorage || explicitlySaved) && !isEdited) {
             return null;
         }
 
@@ -647,7 +710,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         mode,
         lastDraftCard,
         isSaved,
-        isEdited
+        isEdited,
+        explicitlySaved
     ]);
 
     useEffect(() => {
@@ -4803,7 +4867,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     const renderLatestCardShortcut = () => {
-        if (!latestCardPreview || isSaved) {
+        if (!latestCardPreview || isSaved || draftMatchesExplicitlySavedCard) {
             return null;
         }
 
