@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from './store';
@@ -22,6 +22,7 @@ interface AppProps { tabId: number; }
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const DEFAULT_FLOAT = { width: 360, height: 660, x: 24, y: 24 };
 const MAX_FLOAT_WIDTH = DEFAULT_FLOAT.width + 48; // allow only slight horizontal growth (~1 cm)
+const GEOMETRY_SAVE_INTERVAL = 10_000; // persist float geometry at most once per 10s during interactions
 
 const DRAG_BAR_H = 32;                 // высота зоны перетаскивания
 const SAFE_TOP = DRAG_BAR_H + 8;       // общий внутренний верхний отступ в float
@@ -54,17 +55,29 @@ const forceRemoveSidebarGap = (enable: boolean) => {
   }
 };
 
-const setSidebarHostVisible = (visible: boolean) => {
+const setSidebarHostVisible = (visible: boolean, host?: HTMLElement | null) => {
   try {
     const known = document.querySelector('#sidebar') as HTMLElement | null;
     if (known) known.style.display = visible ? '' : 'none';
+    const target = host ?? document.querySelector('#anki-sidebar-root');
+    if (target) {
+      target.setAttribute('data-anki-sidebar-host', 'true');
+      (target as HTMLElement).style.display = visible ? '' : 'none';
+      return;
+    }
+  } catch {}
+  if (host) return;
+  try {
+    const anchor = document.querySelector('[data-anki-app-anchor]');
+    if (!anchor) return;
     const candidates = Array.from(document.querySelectorAll('*')) as HTMLElement[];
     for (const el of candidates) {
+      if (el.id === 'anki-floating-root') continue;
       const cs = getComputedStyle(el);
       const isRight = (el.style.right === '0px') || ((cs as any).right === '0px');
-      if ((cs.position === 'fixed' || cs.position === 'absolute') && isRight && el.offsetWidth >= 280 && el.offsetWidth <= 520) {
-        if (el.id === 'anki-floating-root') continue;
-        if (el.querySelector('[data-anki-app-anchor]')) el.style.display = visible ? '' : 'none';
+      if ((cs.position === 'fixed' || cs.position === 'absolute') && isRight && el.offsetWidth >= 280 && el.offsetWidth <= 520 && el.contains(anchor)) {
+        el.style.display = visible ? '' : 'none';
+        break;
       }
     }
   } catch {}
@@ -81,6 +94,37 @@ const hardShowSidebarHost = () => {
   host.classList.remove('hidden', 'is-hidden', 'collapsed');
 };
 
+const FLOATING_CONTAINER_STYLE: React.CSSProperties = {
+  backgroundColor: '#ffffff',
+  position: 'fixed',
+  left: 0,
+  top: 0,
+  width: 'var(--anki-float-width, 360px)',
+  height: 'var(--anki-float-height, 660px)',
+  display: 'flex',
+  flexDirection: 'column',
+  zIndex: FLOAT_Z,
+  borderRadius: 12,
+  overflow: 'hidden',
+  boxShadow: '0 8px 24px rgba(0,0,0,0.18), 0 1px 0 rgba(0,0,0,0.08)',
+  border: '1px solid rgba(0,0,0,0.06)',
+  transform: 'var(--anki-float-transform, translate3d(24px, 24px, 0))',
+  willChange: 'transform'
+};
+
+const SIDEBAR_CONTAINER_STYLE: React.CSSProperties = {
+  backgroundColor: '#ffffff',
+  height: '100vh',
+  display: 'flex',
+  flexDirection: 'column',
+  position: 'absolute',
+  right: 0,
+  top: 0,
+  width: '350px',
+  fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif',
+  boxShadow: '0 0 0 1px rgba(0,0,0,0.05), 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)'
+};
+
 const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const tabAware = useTabAware();
   const { currentPage, setCurrentPage } = tabAware;
@@ -94,8 +138,43 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const [floatSize, setFloatSize] = useState({ width: DEFAULT_FLOAT.width, height: DEFAULT_FLOAT.height });
   const draggingRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const resizingRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const floatContainerRef = useRef<HTMLDivElement | null>(null);
+  const geometryRef = useRef({ x: DEFAULT_FLOAT.x, y: DEFAULT_FLOAT.y, width: DEFAULT_FLOAT.width, height: DEFAULT_FLOAT.height });
+  const animationFrameRef = useRef<number | null>(null);
+  const geometrySaveTimeoutRef = useRef<number | null>(null);
+  const lastSavedGeometryRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const sidebarHostRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const uiStateKey = useCallback(() => `anki_ui_tab_${tabId}`, [tabId]);
+
+  const applyGeometryToDom = useCallback(() => {
+    if (!isFloating) return;
+    const node = floatContainerRef.current;
+    if (!node) return;
+    const { x, y, width, height } = geometryRef.current;
+    node.style.setProperty('--anki-float-x', `${x}px`);
+    node.style.setProperty('--anki-float-y', `${y}px`);
+    node.style.setProperty('--anki-float-width', `${width}px`);
+    node.style.setProperty('--anki-float-height', `${height}px`);
+    node.style.setProperty('--anki-float-transform', `translate3d(${x}px, ${y}px, 0)`);
+  }, [isFloating]);
+
+  const scheduleDomGeometry = useCallback(() => {
+    if (animationFrameRef.current !== null) return;
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      applyGeometryToDom();
+    });
+  }, [applyGeometryToDom]);
+
+  useEffect(() => () => {
+    if (animationFrameRef.current !== null) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+    }
+    if (geometrySaveTimeoutRef.current !== null) {
+      window.clearTimeout(geometrySaveTimeoutRef.current);
+    }
+  }, []);
 
   const updateUiState = useCallback((patch: Partial<{ sidebarVisible: boolean; floatingVisible: boolean; preferredMode: 'sidebar' | 'floating' }>) => {
     try {
@@ -125,9 +204,63 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     } catch {}
   }, []);
 
+  const persistGeometry = useCallback(() => {
+    if (!viewHydrated) return;
+    const { x, y, width, height } = geometryRef.current;
+    const prev = lastSavedGeometryRef.current;
+    if (prev && prev.x === x && prev.y === y && prev.width === width && prev.height === height) {
+      return;
+    }
+    lastSavedGeometryRef.current = { x, y, width, height };
+    dispatch<any>(setFloatGeometry(tabId, { x, y, width, height }));
+  }, [dispatch, tabId, viewHydrated]);
+
+  const commitFloatGeometry = useCallback((immediate?: boolean) => {
+    if (!viewHydrated) return;
+    if (immediate) {
+      if (geometrySaveTimeoutRef.current !== null) {
+        window.clearTimeout(geometrySaveTimeoutRef.current);
+        geometrySaveTimeoutRef.current = null;
+      }
+      persistGeometry();
+      return;
+    }
+    if (geometrySaveTimeoutRef.current !== null) return;
+    geometrySaveTimeoutRef.current = window.setTimeout(() => {
+      geometrySaveTimeoutRef.current = null;
+      persistGeometry();
+    }, GEOMETRY_SAVE_INTERVAL);
+  }, [persistGeometry, viewHydrated]);
+
+  useEffect(() => {
+    geometryRef.current.x = floatPos.x;
+    geometryRef.current.y = floatPos.y;
+    geometryRef.current.width = floatSize.width;
+    geometryRef.current.height = floatSize.height;
+    if (isFloating) applyGeometryToDom();
+  }, [floatPos.x, floatPos.y, floatSize.width, floatSize.height, isFloating, applyGeometryToDom]);
+
+  useEffect(() => {
+    if (!viewHydrated) return;
+    lastSavedGeometryRef.current = null;
+  }, [viewHydrated]);
+
+  useEffect(() => {
+    if (!isFloating) return;
+    if (!floatContainerRef.current) return;
+    scheduleDomGeometry();
+  }, [isFloating, scheduleDomGeometry]);
+
   useEffect(() => {
     const anchor = anchorRef.current;
     if (!anchor) return;
+
+    const knownHost = sidebarHostRef.current;
+    if (knownHost && document.body.contains(knownHost)) {
+      knownHost.style.display = isFloating ? 'none' : '';
+      forceRemoveSidebarGap(isFloating);
+      return;
+    }
 
     const findHost = (): HTMLElement | null => {
       const explicit = document.querySelector('#anki-sidebar-root') as HTMLElement | null;
@@ -152,7 +285,10 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     };
 
     const host = findHost();
-    if (host) host.style.display = isFloating ? 'none' : '';
+    if (host) {
+      sidebarHostRef.current = host;
+      host.style.display = isFloating ? 'none' : '';
+    }
     forceRemoveSidebarGap(isFloating);
   }, [isFloating]);
 
@@ -195,8 +331,10 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       const y = Math.max(8, Math.min(DEFAULT_FLOAT.y, window.innerHeight - height - 8));
       setFloatPos({ x, y });
       setFloatSize({ width, height });
+      geometryRef.current = { x, y, width, height };
+      scheduleDomGeometry();
     } catch {}
-  }, [storedGeometry]);
+  }, [storedGeometry, scheduleDomGeometry]);
 
 // локальный isFloating синхронизируем с Redux режимом/видимостью
   useEffect(() => {
@@ -224,7 +362,9 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     const { x, y, width, height } = storedGeometry;
     setFloatPos((prev) => (prev.x === x && prev.y === y ? prev : { x, y }));
     setFloatSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
-  }, [storedGeometry, ensureInitialFloatPlacement]);
+    geometryRef.current = { x, y, width, height };
+    if (isFloating) scheduleDomGeometry();
+  }, [storedGeometry, ensureInitialFloatPlacement, isFloating, scheduleDomGeometry]);
 
 
   const hideFloatingWindow = useCallback(() => {
@@ -289,12 +429,12 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       if (next) {
         ensureInitialFloatPlacement();
         forceRemoveSidebarGap(true);
-        setSidebarHostVisible(false);
+        setSidebarHostVisible(false, sidebarHostRef.current);
         updateUiState({ preferredMode: 'floating', floatingVisible: true, sidebarVisible: false });
         setSidebarDomVisible(false);
       } else {
         forceRemoveSidebarGap(false);
-        setSidebarHostVisible(true);
+        setSidebarHostVisible(true, sidebarHostRef.current);
         hardShowSidebarHost();
         updateUiState({ preferredMode: 'sidebar', floatingVisible: false, sidebarVisible: true });
         setSidebarDomVisible(true);
@@ -319,93 +459,122 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   // drag
   const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isFloating) return;
-    e.preventDefault(); disablePageSelection(true);
-    const startX = e.clientX, startY = e.clientY;
-    draggingRef.current = { offsetX: startX - floatPos.x, offsetY: startY - floatPos.y };
-    window.addEventListener('mousemove', onDragMove); window.addEventListener('mouseup', onDragEnd);
+    e.preventDefault();
+    disablePageSelection(true);
+    const { x, y } = geometryRef.current;
+    draggingRef.current = { offsetX: e.clientX - x, offsetY: e.clientY - y };
+    window.addEventListener('mousemove', onDragMove);
+    window.addEventListener('mouseup', onDragEnd);
   };
   const onDragEnd = () => {
+    if (!draggingRef.current) return;
     draggingRef.current = null;
-    window.removeEventListener('mousemove', onDragMove); window.removeEventListener('mouseup', onDragEnd);
+    window.removeEventListener('mousemove', onDragMove);
+    window.removeEventListener('mouseup', onDragEnd);
     disablePageSelection(false);
+    const { x, y } = geometryRef.current;
+    setFloatPos((prev) => (prev.x === x && prev.y === y ? prev : { x, y }));
+    commitFloatGeometry(true);
   };
   const onDragMove = (e: MouseEvent) => {
-    if (!draggingRef.current) return;
+    const dragState = draggingRef.current;
+    if (!dragState) return;
     const { innerWidth, innerHeight } = window;
-    const x = clamp(e.clientX - draggingRef.current.offsetX, 8, innerWidth - floatSize.width - 8);
-    const y = clamp(e.clientY - draggingRef.current.offsetY, 8, innerHeight - floatSize.height - 8);
-    setFloatPos({ x, y });
+    const current = geometryRef.current;
+    const maxX = Math.max(8, innerWidth - current.width - 8);
+    const maxY = Math.max(8, innerHeight - current.height - 8);
+    const x = clamp(e.clientX - dragState.offsetX, 8, maxX);
+    const y = clamp(e.clientY - dragState.offsetY, 8, maxY);
+    if (x === current.x && y === current.y) return;
+    current.x = x;
+    current.y = y;
+    scheduleDomGeometry();
+    commitFloatGeometry();
   };
 
   // resize
   const onResizeStart = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isFloating) return; e.preventDefault(); e.stopPropagation(); disablePageSelection(true);
-    resizingRef.current = { startX: e.clientX, startY: e.clientY, startW: floatSize.width, startH: floatSize.height };
-    window.addEventListener('mousemove', onResizeMove); window.addEventListener('mouseup', onResizeEnd);
+    if (!isFloating) return;
+    e.preventDefault();
+    e.stopPropagation();
+    disablePageSelection(true);
+    const { width, height } = geometryRef.current;
+    resizingRef.current = { startX: e.clientX, startY: e.clientY, startW: width, startH: height };
+    window.addEventListener('mousemove', onResizeMove);
+    window.addEventListener('mouseup', onResizeEnd);
   };
   const onResizeEnd = () => {
+    if (!resizingRef.current) return;
     resizingRef.current = null;
-    window.removeEventListener('mousemove', onResizeMove); window.removeEventListener('mouseup', onResizeEnd);
+    window.removeEventListener('mousemove', onResizeMove);
+    window.removeEventListener('mouseup', onResizeEnd);
     disablePageSelection(false);
+    const { width, height, x, y } = geometryRef.current;
+    setFloatSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+    setFloatPos((prev) => (prev.x === x && prev.y === y ? prev : { x, y }));
+    commitFloatGeometry(true);
   };
   const onResizeMove = (e: MouseEvent) => {
-    if (!resizingRef.current) return;
-    const dx = e.clientX - resizingRef.current.startX;
-    const dy = e.clientY - resizingRef.current.startY;
-    const newW = clamp(resizingRef.current.startW + dx, 340, Math.min(window.innerWidth - 16, MAX_FLOAT_WIDTH));
-    const newH = clamp(resizingRef.current.startH + dy, 340, Math.min(window.innerHeight - 16, 900));
-    setFloatSize({ width: newW, height: newH });
+    const resizeState = resizingRef.current;
+    if (!resizeState) return;
+    const dx = e.clientX - resizeState.startX;
+    const dy = e.clientY - resizeState.startY;
+    const maxWidth = Math.min(window.innerWidth - 16, MAX_FLOAT_WIDTH);
+    const maxHeight = Math.min(window.innerHeight - 16, 900);
+    const newW = clamp(resizeState.startW + dx, 340, maxWidth);
+    const newH = clamp(resizeState.startH + dy, 340, maxHeight);
+    const geometry = geometryRef.current;
+    const x = clamp(geometry.x, 8, Math.max(8, window.innerWidth - newW - 8));
+    const y = clamp(geometry.y, 8, Math.max(8, window.innerHeight - newH - 8));
+    if (geometry.width === newW && geometry.height === newH && geometry.x === x && geometry.y === y) return;
+    geometry.width = newW;
+    geometry.height = newH;
+    geometry.x = x;
+    geometry.y = y;
+    scheduleDomGeometry();
+    commitFloatGeometry();
   };
-
-  const lastSavedGeometryRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
-
-  useEffect(() => {
-    if (viewHydrated) {
-      lastSavedGeometryRef.current = null;
-    }
-  }, [viewHydrated]);
-
-  useEffect(() => {
-    const geometry = { x: floatPos.x, y: floatPos.y, width: floatSize.width, height: floatSize.height };
-    if (!viewHydrated) {
-      lastSavedGeometryRef.current = geometry;
-      return;
-    }
-    const prev = lastSavedGeometryRef.current;
-    if (prev && prev.x === geometry.x && prev.y === geometry.y && prev.width === geometry.width && prev.height === geometry.height) {
-      return;
-    }
-    lastSavedGeometryRef.current = geometry;
-    dispatch<any>(setFloatGeometry(tabId, geometry));
-  }, [dispatch, tabId, floatPos, floatSize, storedGeometry, viewHydrated]);
 
   const handlePageChange = useCallback((page: string) => setCurrentPage(page), [setCurrentPage]);
 
-  // Контент страниц (без safeTop — он теперь у контейнера header)
-  const renderMainContent = () => {
+  const sharedContentStyle = useMemo<React.CSSProperties>(() => {
     const topPadding = currentPage !== 'createCard' ? '46px' : '12px';
-    const bottomPadding = '58px';
     const horizontalPadding = isFloating ? '12px' : '0px';
-    const baseStyle: React.CSSProperties = {
-      width: '100%', height: '100%', paddingTop: topPadding, paddingBottom: bottomPadding,
-      paddingLeft: horizontalPadding, paddingRight: horizontalPadding,
-      overflowY: 'auto', overflowX: 'hidden', opacity: 1, transform: 'translateX(0)', transition: 'all 0.3s ease-in-out',
+    return {
+      width: '100%',
+      height: '100%',
+      paddingTop: topPadding,
+      paddingBottom: '58px',
+      paddingLeft: horizontalPadding,
+      paddingRight: horizontalPadding,
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      opacity: 1,
+      transform: 'translateX(0)',
+      transition: 'all 0.3s ease-in-out',
       boxSizing: 'border-box'
     };
+  }, [currentPage, isFloating]);
 
+  const cardContentStyle = useMemo<React.CSSProperties>(() => ({
+    ...sharedContentStyle,
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative'
+  }), [sharedContentStyle]);
+
+  // Контент страниц (без safeTop — он теперь у контейнера header)
+  const renderMainContent = () => {
     switch (currentPage) {
       case 'settings':
-        return <div style={baseStyle}><Settings onBackClick={() => handlePageChange('createCard')} popup={false} /></div>;
+        return <div style={sharedContentStyle}><Settings onBackClick={() => handlePageChange('createCard')} popup={false} /></div>;
       case 'storedCards':
-        return <div style={baseStyle}><StoredCards onBackClick={() => handlePageChange('createCard')} /></div>;
+        return <div style={sharedContentStyle}><StoredCards onBackClick={() => handlePageChange('createCard')} /></div>;
       case 'createCard':
       default:
         return (
-          <div style={{
-            width: '100%', flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', overflowX: 'hidden', height: '100%', position: 'relative',
-            paddingTop: topPadding, paddingBottom: bottomPadding, paddingLeft: horizontalPadding, paddingRight: horizontalPadding,
-            opacity: 1, transform: 'translateX(0)', transition: 'all 0.3s ease-in-out', boxSizing: 'border-box'
-          }}>
+          <div style={cardContentStyle}>
             <CreateCard />
           </div>
         );
@@ -621,37 +790,10 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     }
   };
 
-  const containerStyle: React.CSSProperties = isFloating
-    ? {
-      backgroundColor: '#ffffff',
-      position: 'fixed',
-      left: floatPos.x,
-      top: floatPos.y,
-      width: floatSize.width,
-      height: floatSize.height,
-      display: 'flex',
-      flexDirection: 'column',
-      zIndex: FLOAT_Z,
-      borderRadius: 12,
-      overflow: 'hidden',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.18), 0 1px 0 rgba(0,0,0,0.08)',
-      border: '1px solid rgba(0,0,0,0.06)'
-    }
-    : {
-      backgroundColor: '#ffffff',
-      height: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      position: 'absolute',
-      right: 0,
-      top: 0,
-      width: '350px',
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif',
-      boxShadow: '0 0 0 1px rgba(0,0,0,0.05), 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)'
-    };
+  const containerStyle = isFloating ? FLOATING_CONTAINER_STYLE : SIDEBAR_CONTAINER_STYLE;
 
   // Общий контейнер-контент с паддингом под хэндл (теперь именно здесь)
-  const headerInnerStyle: React.CSSProperties = {
+  const headerInnerStyle = useMemo<React.CSSProperties>(() => ({
     width: '100%',
     flex: 1,
     display: 'flex',
@@ -666,7 +808,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     paddingRight: isFloating ? 12 : 0,
     paddingLeft: isFloating ? 8 : 0,
     scrollPaddingTop: isFloating ? SAFE_TOP : 0
-  } as React.CSSProperties;
+  }), [isFloating]);
 
   return (
     <>
@@ -674,7 +816,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
 
       {isFloating
         ? createPortal(
-          <div className="App" style={containerStyle}>
+          <div className="App" ref={isFloating ? floatContainerRef : undefined} style={containerStyle}>
             <div style={{ flex: 1, width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column' }}>
               {renderHeaderButtons()}
               <header className="App-header" style={headerInnerStyle}>
