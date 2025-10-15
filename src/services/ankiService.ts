@@ -303,9 +303,27 @@ interface DeckResponse {
     error: string | null;
 }
 
-export const fetchDecks = async (apiKey: string | null): Promise<DeckResponse> => {
+const normalizeAnkiUrl = (url: string | null | undefined) => {
+    const fallback = 'http://127.0.0.1:8765';
+    if (!url) {
+        return fallback;
+    }
+
     try {
-        const response = await fetch('http://localhost:8765', {
+        const parsed = new URL(url.trim());
+        // strip trailing slash to avoid double slashes when we reuse the base
+        parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+        return parsed.toString();
+    } catch (error) {
+        console.warn('Invalid AnkiConnect URL provided, falling back to default.', error);
+        return fallback;
+    }
+};
+
+export const fetchDecks = async (ankiConnectUrl: string, apiKey: string | null): Promise<DeckResponse> => {
+    try {
+        const endpoint = normalizeAnkiUrl(ankiConnectUrl);
+        const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'deckNames', version: 6, key: apiKey }),

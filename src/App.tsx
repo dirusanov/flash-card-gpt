@@ -132,6 +132,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const [viewHydrated, setViewHydrated] = useState(false);
   const dispatch = useDispatch();
   const ankiConnectApiKey = useSelector((s: RootState) => s.settings.ankiConnectApiKey);
+  const ankiConnectUrl = useSelector((s: RootState) => s.settings.ankiConnectUrl);
 
   const [isFloating, setIsFloating] = useState<boolean>(false);
   const [floatPos, setFloatPos] = useState({ x: DEFAULT_FLOAT.x, y: DEFAULT_FLOAT.y });
@@ -297,7 +298,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       try {
         dispatch(loadStoredCards());
         try {
-          const decks = await fetchDecks(ankiConnectApiKey);
+          const decks = await fetchDecks(ankiConnectUrl, ankiConnectApiKey);
           if ((decks as any).error) dispatch(setAnkiAvailability(false));
           else {
             dispatch(fetchDecksSuccess((decks as any).result));
@@ -311,7 +312,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       }
     };
     if (isInitialLoad) init();
-  }, [dispatch, ankiConnectApiKey, isInitialLoad]);
+  }, [dispatch, ankiConnectUrl, ankiConnectApiKey, isInitialLoad]);
 
   useEffect(() => {
     dispatch<any>(hydrateView()).finally(() => setViewHydrated(true));

@@ -4,6 +4,7 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from '../store';
 import { loadStoredCards, deleteStoredCard, saveAnkiCards, updateCardExportStatus, updateStoredCard, setImageUrl, setImage, setText, setTranslation, setExamples, setFront, setBack, setLinguisticInfo, setTranscription } from '../store/actions/cards';
+import { setAnkiAvailability } from '../store/actions/anki';
 import { StoredCard, ExportStatus } from '../store/reducers/cards';
 import { useTabAware } from './TabAwareProvider';
 import { Modes } from '../constants';
@@ -39,6 +40,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
+    const isAnkiAvailable = useSelector((state: RootState) => state.anki.isAnkiAvailable);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
 
@@ -103,41 +105,56 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     }, [dispatch, storedCards.length]);
 
     // Load Anki decks when needed
-    const loadAnkiDecks = async () => {
-        if (!useAnkiConnect) return;
+    const loadAnkiDecks = useCallback(async () => {
+        if (!useAnkiConnect) {
+            dispatch(setAnkiAvailability(false));
+            return;
+        }
+
+        setLoadingDecks(true);
 
         try {
-            setLoadingDecks(true);
-            const response = await fetchDecks(ankiConnectApiKey);
+            const response = await fetchDecks(ankiConnectUrl, ankiConnectApiKey);
 
-            if (response.result) {
-                dispatch({
-                    type: 'FETCH_DECKS_SUCCESS',
-                    payload: response.result
-                });
+            if (response.error) {
+                throw new Error(response.error);
+            }
 
-                // Select first deck if none is selected
-                if (!deckId && response.result.length > 0) {
-                    dispatch(setDeckId(response.result[0].deckId));
-                }
+            const decksResult = Array.isArray(response.result) ? response.result : [];
+
+            dispatch({
+                type: 'FETCH_DECKS_SUCCESS',
+                payload: decksResult
+            });
+            dispatch(setAnkiAvailability(true));
+
+            // Select first deck if none is selected
+            if (!deckId && decksResult.length > 0) {
+                dispatch(setDeckId(decksResult[0].deckId));
             }
         } catch (error) {
             console.error('Error loading decks:', error);
-            // Only show error if useAnkiConnect is enabled
-            if (useAnkiConnect) {
-                showError('Failed to load Anki decks. Make sure Anki is running with AnkiConnect plugin.');
-            }
+            dispatch(setAnkiAvailability(false));
+            dispatch({ type: 'FETCH_DECKS_SUCCESS', payload: [] });
         } finally {
             setLoadingDecks(false);
         }
-    };
+    }, [useAnkiConnect, ankiConnectUrl, ankiConnectApiKey, dispatch, deckId]);
 
     // Load decks initially if using AnkiConnect
     useEffect(() => {
-        if (useAnkiConnect && decks.length === 0) {
+        if (useAnkiConnect) {
             loadAnkiDecks();
+        } else {
+            dispatch(setAnkiAvailability(false));
         }
-    }, [useAnkiConnect]);
+    }, [useAnkiConnect, loadAnkiDecks, dispatch]);
+
+    useEffect(() => {
+        if (!isAnkiAvailable) {
+            setShowDeckSelector(false);
+        }
+    }, [isAnkiAvailable]);
 
     const filteredCards = useMemo(() => {
         if (!Array.isArray(storedCards) || storedCards.length === 0) {
@@ -256,6 +273,21 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const handleSaveToAnki = async () => {
         if (selectedCards.length === 0) {
             showError('Please select at least one card to save');
+            return;
+        }
+
+        if (!useAnkiConnect) {
+            showError('AnkiConnect integration is disabled. Enable it in settings and try again.');
+            return;
+        }
+
+        if (!isAnkiAvailable) {
+            showError('AnkiConnect is not available. Make sure Anki is running with the AnkiConnect plugin.');
+            return;
+        }
+
+        if (!deckId) {
+            showError('Please select an Anki deck before saving.');
             return;
         }
 
@@ -898,7 +930,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     };
 
     const toggleDeckSelector = () => {
-        setShowDeckSelector(prev => !prev);
+        setShowDeckSelector(prev => {
+            const next = !prev;
+            if (!prev && useAnkiConnect) {
+                loadAnkiDecks();
+            }
+            return next;
+        });
     };
 
     // Render deck selector dropdown or button
@@ -962,99 +1000,157 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '8px',
-                minWidth: '36px',
-                height: '38px'
+                padding: '6px 8px',
+                width: '36px',
+                height: '36px',
+                transition: 'all 0.2s ease'
             }
         };
 
+        const selectedDeckName = decks.find(d => d.deckId === deckId)?.name || 'None selected';
+        const statusColor = loadingDecks ? '#F59E0B' : (isAnkiAvailable ? '#10B981' : '#EF4444');
+        const statusText = loadingDecks
+            ? 'AnkiConnect: checking…'
+            : isAnkiAvailable
+                ? 'AnkiConnect: available'
+                : 'AnkiConnect: unavailable';
+
+        const statusBadge = (
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                padding: '8px 12px',
+                backgroundColor: '#F9FAFB',
+                borderRadius: '8px',
+                border: '1px solid #E5E7EB',
+                marginBottom: isAnkiAvailable ? '8px' : '16px'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '999px',
+                        backgroundColor: statusColor,
+                        boxShadow: `0 0 0 3px ${statusColor}22`
+                    }} />
+                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#111827' }}>{statusText}</span>
+                </div>
+                <button
+                    onClick={loadAnkiDecks}
+                    disabled={loadingDecks}
+                    style={{
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        color: '#2563EB',
+                        cursor: loadingDecks ? 'default' : 'pointer',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}
+                >
+                    {loadingDecks ? (
+                        <Loader type="spinner" size="small" color="#2563EB" />
+                    ) : (
+                        <>
+                            <FaSync size={12} />
+                            {isAnkiAvailable ? 'Refresh' : 'Check'}
+                        </>
+                    )}
+                </button>
+            </div>
+        );
+
+        if (!isAnkiAvailable) {
+            return statusBadge;
+        }
+
         if (!showDeckSelector) {
             return (
-                <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    width: '100%',
-                    marginBottom: '12px',
-                    padding: '8px 12px',
-                    backgroundColor: '#F9FAFB',
-                    borderRadius: '6px',
-                    border: '1px solid #E5E7EB'
-                }}>
-                    <div>
-                        <span style={{ fontSize: '13px', color: '#6B7280' }}>Anki Deck:</span>
-                        <span style={{ fontSize: '14px', fontWeight: '500', marginLeft: '8px', color: '#111827' }}>
-                            {decks.find(d => d.deckId === deckId)?.name || 'None selected'}
-                        </span>
+                <>
+                    {statusBadge}
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        width: '100%',
+                        marginBottom: '12px',
+                        padding: '8px 12px',
+                        backgroundColor: '#F9FAFB',
+                        borderRadius: '6px',
+                        border: '1px solid #E5E7EB'
+                    }}>
+                        <div>
+                            <span style={{ fontSize: '13px', color: '#6B7280' }}>Anki Deck:</span>
+                            <span style={{ fontSize: '14px', fontWeight: '500', marginLeft: '8px', color: '#111827' }}>
+                                {selectedDeckName}
+                            </span>
+                        </div>
+                        <button
+                            onClick={toggleDeckSelector}
+                            style={{
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: '#2563EB',
+                                fontSize: '13px'
+                            }}
+                        >
+                            Change
+                        </button>
                     </div>
-                    <button
-                        onClick={toggleDeckSelector}
-                        style={{
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: '#2563EB',
-                            fontSize: '13px'
-                        }}
-                    >
-                        Change
-                    </button>
-                </div>
+                </>
             );
         }
 
         return (
-            <div style={deckSelectorStyle.container}>
-                <div style={deckSelectorStyle.header}>
-                    <span style={deckSelectorStyle.title}>Select Anki Deck</span>
-                    <button
-                        onClick={toggleDeckSelector}
-                        style={deckSelectorStyle.button}
-                    >
-                        Hide
-                    </button>
-                </div>
+            <>
+                {statusBadge}
+                <div style={deckSelectorStyle.container}>
+                    <div style={deckSelectorStyle.header}>
+                        <span style={deckSelectorStyle.title}>Select Anki Deck</span>
+                        <button
+                            onClick={toggleDeckSelector}
+                            style={deckSelectorStyle.button}
+                        >
+                            Hide
+                        </button>
+                    </div>
 
-                <div style={deckSelectorStyle.selectContainer}>
-                    <select
-                        value={deckId}
-                        onChange={handleDeckChange}
-                        style={deckSelectorStyle.select}
-                        disabled={loadingDecks}
-                    >
-                        {decks.length === 0 && <option value="">No decks available</option>}
-                        {decks.map(deck => (
-                            <option key={deck.deckId} value={deck.deckId}>
-                                {deck.name}
-                            </option>
-                        ))}
-                    </select>
-                    <button
-                        onClick={loadAnkiDecks}
-                        disabled={loadingDecks}
-                        title="Refresh decks list"
-                        style={deckSelectorStyle.refreshButton}
-                        aria-label="Refresh decks"
-                    >
-                        {loadingDecks ? (
-                            <span style={{ marginLeft: '2px' }}>
-                                <Loader type="spinner" size="small" color="#4B5563" />
-                            </span>
-                        ) : (
-                            <FaSync size={14} />
-                        )}
-                    </button>
+                    <div style={deckSelectorStyle.selectContainer}>
+                        <select
+                            value={deckId}
+                            onChange={handleDeckChange}
+                            style={deckSelectorStyle.select}
+                            disabled={loadingDecks}
+                        >
+                            {decks.length === 0 && <option value="">No decks available</option>}
+                            {decks.map(deck => (
+                                <option key={deck.deckId} value={deck.deckId}>
+                                    {deck.name}
+                                </option>
+                            ))}
+                        </select>
+                        <button
+                            onClick={loadAnkiDecks}
+                            disabled={loadingDecks}
+                            title="Refresh decks list"
+                            style={deckSelectorStyle.refreshButton}
+                            aria-label="Refresh decks"
+                        >
+                            {loadingDecks ? (
+                                <span style={{ marginLeft: '2px' }}>
+                                    <Loader type="spinner" size="small" color="#4B5563" />
+                                </span>
+                            ) : (
+                                <FaSync size={14} />
+                            )}
+                        </button>
+                    </div>
                 </div>
-
-                <style>
-                    {`
-                    @keyframes spin {
-                        0% { transform: rotate(0deg); }
-                        100% { transform: rotate(360deg); }
-                    }
-                    `}
-                </style>
-            </div>
+            </>
         );
     };
 
@@ -2267,7 +2363,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                             <button
                                 onClick={handleSaveToAnki}
-                                disabled={isLoading || selectedCards.length === 0 || !useAnkiConnect || !deckId || editingCard !== null}
+                                disabled={isLoading || selectedCards.length === 0 || !useAnkiConnect || !isAnkiAvailable || !deckId || editingCard !== null}
                                 style={{
                                     padding: '6px 10px',
                                     borderRadius: '6px',
@@ -2276,10 +2372,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                                     fontSize: '13px',
                                     border: 'none',
                                     cursor: 'pointer',
-                                    opacity: (isLoading || selectedCards.length === 0 || !useAnkiConnect || !deckId || editingCard !== null) ? 0.6 : 1
+                                    opacity: (isLoading || selectedCards.length === 0 || !useAnkiConnect || !isAnkiAvailable || !deckId || editingCard !== null) ? 0.6 : 1
                                 }}
                                 title={
                                     editingCard !== null ? 'Finish editing first' :
+                                        !isAnkiAvailable && useAnkiConnect ? 'Anki Connect is not available' :
                                         !deckId && useAnkiConnect ? 'Please select a deck first' : ''
                                 }
                             >
