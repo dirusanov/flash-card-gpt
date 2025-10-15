@@ -1,4 +1,4 @@
-import { OpenAI } from 'openai';
+import { backgroundFetch } from './backgroundFetch';
 import { getGlobalApiTracker } from './apiTracker';
 
 // Simple cache to prevent API spam when quota is exceeded
@@ -43,7 +43,7 @@ export const getCachedQuotaError = (): string | null => {
 };
 
 // Хелпер-функция для форматирования сообщений об ошибках от OpenAI
-const formatOpenAIErrorMessage = (errorData: any): string => {
+export const formatOpenAIErrorMessage = (errorData: any): string => {
   if (!errorData || !errorData.error) {
     return "Unknown OpenAI API error";
   }
@@ -118,15 +118,18 @@ export const translateText = async (
 
     };
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+    const response = await backgroundFetch(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-      signal: abortSignal,
-    });
+      abortSignal
+    );
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -224,15 +227,18 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
 
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+  const response = await backgroundFetch(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-    signal: abortSignal,
-  });
+    abortSignal
+  );
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -332,15 +338,17 @@ export const isAbstract = async (
 
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal: undefined, // AbortSignal not available in this function
-  });
+  const response = await backgroundFetch(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    }
+  );
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -418,15 +426,18 @@ export const getDescriptionImage = async (
 
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+  const response = await backgroundFetch(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-    signal: abortSignal,
-  });
+    abortSignal
+  );
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -463,18 +474,17 @@ export const getDescriptionImage = async (
 };
 
 const getImageUrlRequest = async (
-  openai: OpenAI,
+  apiKey: string,
   description: string,
   customInstructions: string = ''
 ): Promise<string | null> => {
-  // Track API request
   const tracker = getGlobalApiTracker();
-      const requestId = tracker.startRequest(
-      'Generating image',
-      `Creating beautiful illustration with AI`,
-      '🖼️',
-      '#6366F1'
-    );
+  const requestId = tracker.startRequest(
+    'Generating image',
+    `Creating beautiful illustration with AI`,
+    '🖼️',
+    '#6366F1'
+  );
 
   try {
     tracker.setInProgress(requestId);
@@ -482,76 +492,79 @@ const getImageUrlRequest = async (
     const finalDescription = customInstructions
       ? `${description}. ${customInstructions}`
       : description;
-      
-    const response = await openai.images.generate({
-      model: 'dall-e-2',
-      prompt: finalDescription,
-      n: 1,
-      size: '512x512',
-      response_format: 'url',
-    });
 
-    if (!response.data || !response.data[0]?.url) {
+    const response = await backgroundFetch(
+      'https://api.openai.com/v1/images/generations',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'dall-e-2',
+          prompt: finalDescription,
+          n: 1,
+          size: '512x512',
+          response_format: 'url',
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (data && data.error) {
+        const errorMessage = formatOpenAIErrorMessage(data);
+
+        if (data.error.code === 'insufficient_quota' || response.status === 429) {
+          cacheQuotaExceededError(errorMessage);
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      throw new Error(`OpenAI image API error: ${response.status} ${response.statusText}`);
+    }
+
+    if (!data?.data?.[0]?.url) {
       tracker.errorRequest(requestId);
-      throw new Error("OpenAI did not return an image URL. Please try again.");
+      throw new Error('OpenAI did not return an image URL. Please try again.');
     }
 
     tracker.completeRequest(requestId);
-    return response.data[0].url;
+    return data.data[0].url as string;
   } catch (error) {
     console.error('Error during image generation:', error);
     tracker.errorRequest(requestId);
 
-    // Проверяем, есть ли дополнительная информация об ошибке
     if (error instanceof Error) {
-      const errorMessage = error.message || '';
-      
-      // Проверяем типичные ошибки OpenAI
-      if (errorMessage.includes('quota') || errorMessage.includes('billing')) {
+      const message = error.message || '';
+
+      if (message.includes('quota') || message.includes('billing')) {
         const quotaError = "Your OpenAI account has exceeded its quota.\n\nPlease check your billing details or use a different API key.";
         cacheQuotaExceededError(quotaError);
         throw new Error(quotaError);
       }
-      
-      if (errorMessage.includes('rate limit')) {
-        throw new Error("OpenAI rate limit exceeded.\n\nPlease try again in a few minutes.");
+
+      if (message.includes('rate limit')) {
+        throw new Error('OpenAI rate limit exceeded.\n\nPlease try again in a few minutes.');
       }
-      
-      if (errorMessage.includes('invalid API key')) {
-        throw new Error("Invalid OpenAI API key.\n\nPlease check your API key in settings.");
+
+      if (message.includes('invalid API key')) {
+        throw new Error('Invalid OpenAI API key.\n\nPlease check your API key in settings.');
       }
-      
-      // Для ошибок, связанных с модерацией контента
-      if (errorMessage.includes('moderation') || errorMessage.includes('policy')) {
-        throw new Error("OpenAI content policy violation.\n\nThe image request was flagged for content policy violation. Please modify your request.");
+
+      if (message.includes('moderation') || message.includes('policy')) {
+        throw new Error('OpenAI content policy violation.\n\nThe image request was flagged for content policy violation. Please modify your request.');
       }
-      
-      // Если ошибка содержит JSON с деталями
-      if (errorMessage.includes('{') && errorMessage.includes('}')) {
-        try {
-          // Пытаемся извлечь JSON из строки ошибки
-          const jsonStr = errorMessage.substring(
-            errorMessage.indexOf('{'),
-            errorMessage.lastIndexOf('}') + 1
-          );
-          const errorData = JSON.parse(jsonStr);
-          if (errorData && errorData.error) {
-            return formatOpenAIErrorMessage(errorData);
-          }
-        } catch (jsonError) {
-          // Если не удалось разобрать JSON, просто используем исходное сообщение
-        }
-      }
-      
-      throw error; // Пробрасываем оригинальную ошибку, если она не подходит под известные шаблоны
     }
-    
-    throw new Error("Failed to generate image.\n\nPlease check your OpenAI API key and try again.");
+
+    throw error instanceof Error ? error : new Error('Failed to generate image.\n\nPlease check your OpenAI API key and try again.');
   }
 };
 
 export const getOpenAiImageUrl = async (
-  openai: OpenAI,
   apiKey: string,
   word: string,
   customInstructions: string = ''
@@ -584,7 +597,7 @@ export const getOpenAiImageUrl = async (
     if (isAbstractWord) {
         const description = await getDescriptionImage(apiKey, word, customInstructions);
         const result = await getImageUrlRequest(
-            openai,
+            apiKey,
             `Create a vivid, high-quality illustration representing the concept of '${description}'`,
             customInstructions
         );
@@ -592,7 +605,7 @@ export const getOpenAiImageUrl = async (
         return result;
     } else {
         const photorealisticPrompt = `Create a high-quality, photorealistic image of a ${word} with a neutral expression and clear features`;
-        const result = await getImageUrlRequest(openai, photorealisticPrompt, customInstructions);
+        const result = await getImageUrlRequest(apiKey, photorealisticPrompt, customInstructions);
         tracker.completeRequest(requestId);
         return result;
     }
@@ -605,7 +618,6 @@ export const getOpenAiImageUrl = async (
 
 // ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: Прямая генерация изображения без дополнительных запросов
 export const getOptimizedImageUrl = async (
-  openai: OpenAI,
   apiKey: string,
   word: string,
   customInstructions: string = ''
@@ -649,7 +661,7 @@ export const getOptimizedImageUrl = async (
           optimizedPrompt += ` ${customInstructions}`;
         }
 
-        const result = await getImageUrlRequest(openai, optimizedPrompt, '');
+        const result = await getImageUrlRequest(apiKey, optimizedPrompt, '');
         tracker.completeRequest(requestId);
         return result;
         
@@ -699,15 +711,17 @@ const getLangaugeNameText = async (
 
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal: undefined, // AbortSignal not available in this internal function
-  });
+  const response = await backgroundFetch(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    }
+  );
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -779,15 +793,18 @@ export const generateAnkiFront = async (
 
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+  const response = await backgroundFetch(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-    signal: abortSignal,
-  });
+    abortSignal
+  );
 
     const data = await response.json();
     tracker.completeRequest(requestId);
@@ -847,15 +864,17 @@ export const generateAnkiBack = async (
 
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal: undefined, // AbortSignal not available in this function
-  });
+  const response = await backgroundFetch(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    }
+  );
 
     const data = await response.json();
     tracker.completeRequest(requestId);

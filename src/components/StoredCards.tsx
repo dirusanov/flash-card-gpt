@@ -14,6 +14,7 @@ import useErrorNotification from './useErrorHandler';
 import { Deck, setDeckId } from '../store/actions/decks';
 import Loader from './Loader';
 import { getDescriptionImage } from "../services/openaiApi";
+import { backgroundFetch } from "../services/backgroundFetch";
 import ResultDisplay from './ResultDisplay';
 import { processLatexInContent } from '../utils/katexRenderer';
 import MathContentRenderer from './MathContentRenderer';
@@ -1274,19 +1275,22 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 ? `${descriptionImage}. ${imageInstructions}`
                 : descriptionImage;
 
-            const response = await fetch('https://api.openai.com/v1/images/generations', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${openAiKey}`
-                },
-                body: JSON.stringify({
-                    prompt: finalPrompt,
-                    n: 1,
-                    size: '512x512',
-                    response_format: 'url'
-                })
-            });
+            const response = await backgroundFetch(
+                'https://api.openai.com/v1/images/generations',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${openAiKey}`
+                    },
+                    body: JSON.stringify({
+                        prompt: finalPrompt,
+                        n: 1,
+                        size: '512x512',
+                        response_format: 'url'
+                    })
+                }
+            );
 
             const data = await response.json();
             debugLog('OpenAI direct API response:', data);

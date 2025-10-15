@@ -1,5 +1,6 @@
 // src/pages/Background/index.js
 const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
+const activeFetchControllers = new Map();
 
 function getViewPrefs() {
   return new Promise((resolve) => {
@@ -88,8 +89,73 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg && msg.action === 'getTabId') {
+  if (!msg || typeof msg !== 'object') {
+    return undefined;
+  }
+
+  if (msg.action === 'proxyFetch') {
+    const { requestId, url, options = {} } = msg;
+    const controller = new AbortController();
+    activeFetchControllers.set(requestId, controller);
+
+    fetch(url, {
+      method: options.method || 'GET',
+      headers: options.headers || {},
+      body: options.body || null,
+      redirect: options.redirect,
+      credentials: options.credentials,
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const headers = {};
+        response.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+
+        const bodyText = await response.text();
+
+        sendResponse({
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+          body: bodyText,
+        });
+      })
+      .catch((error) => {
+        const isAbort = error && error.name === 'AbortError';
+        sendResponse({
+          ok: false,
+          status: 0,
+          statusText: isAbort ? 'Aborted' : 'Error',
+          headers: {},
+          body: '',
+          aborted: isAbort,
+          error: isAbort ? 'Request aborted' : String(error),
+        });
+      })
+      .finally(() => {
+        activeFetchControllers.delete(requestId);
+      });
+
+    return true;
+  }
+
+  if (msg.action === 'proxyFetchAbort') {
+    const { requestId } = msg;
+    const controller = activeFetchControllers.get(requestId);
+    if (controller) {
+      controller.abort();
+      activeFetchControllers.delete(requestId);
+    }
+    sendResponse({ ok: false, aborted: true });
+    return true;
+  }
+
+  if (msg.action === 'getTabId') {
     sendResponse({ tabId: sender.tab ? sender.tab.id : null });
     return true;
   }
+
+  return undefined;
 });

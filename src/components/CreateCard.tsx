@@ -8,14 +8,14 @@ import { RootState } from "../store";
 import { setDeckId } from "../store/actions/decks";
 import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription, setLastDraftCard } from "../store/actions/cards";
 import { CardLangLearning, CardGeneral } from '../services/ankiService';
-import { getDescriptionImage, getExamples, translateText, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown } from "../services/openaiApi";
+import { getDescriptionImage, getExamples, translateText, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage } from "../services/openaiApi";
 import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setImageGenerationMode } from "../store/actions/settings";
 import { Modes } from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import { getLoadingMessage, getDetailedLoadingMessage, type LoadingMessage, type DetailedLoadingMessage } from '../services/loadingMessages';
 import { setGlobalProgressCallback, getGlobalApiTracker, resetGlobalApiTracker } from '../services/apiTracker';
-import { OpenAI } from 'openai';
 import { getImage } from '../apiUtils';
+import { backgroundFetch } from '../services/backgroundFetch';
 import useErrorNotification from './useErrorHandler';
 import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit, FaClock, FaChevronRight } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
@@ -523,22 +523,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                message.includes('exceeded') ||
                message.includes('429');
     };
-    const openai = useMemo(() => {
-        if (!openAiKey) {
-            return null;
-        }
-        return new OpenAI({
-            apiKey: openAiKey,
-            dangerouslyAllowBrowser: true,
-        });
-    }, [openAiKey]);
-    const ensureOpenAiClient = useCallback(() => {
-        if (!openai) {
-            throw new Error('OpenAI client is not configured. Please add an API key in settings.');
-        }
-        return openai;
-    }, [openai]);
-
     const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
     const [showModal, setShowModal] = useState(false);
@@ -916,7 +900,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Use different image generation based on provider
             if (modelProvider === ModelProvider.OpenAI) {
                 // Use existing OpenAI implementation
-                const { imageUrl, imageBase64 } = await getImage(null, ensureOpenAiClient(), openAiKey, descriptionImage, imageInstructions);
+                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, imageInstructions);
 
                 if (imageUrl) {
                     tabAware.setImageUrl(imageUrl);
@@ -1012,7 +996,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Generate new image based on instructions
                 const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
-                const { imageUrl, imageBase64 } = await getImage(null, ensureOpenAiClient(), openAiKey, descriptionImage, customInstruction);
+                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, customInstruction);
 
                 if (imageUrl) {
                     tabAware.setImageUrl(imageUrl);
@@ -3111,7 +3095,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             if (shouldGenerate) {
                                 debugLog(`Generating image for "${option}"`);
                                 const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions);
-                                const { imageUrl, imageBase64 } = await getImage(null, ensureOpenAiClient(), openAiKey, descriptionImage, imageInstructions);
+                                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, imageInstructions);
 
                                 if (imageUrl) {
                                     currentImageUrl = imageUrl;
@@ -4632,30 +4616,51 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
                     
                     try {
-                        const client = ensureOpenAiClient();
-                        const response = await client.chat.completions.create({
-                            model: "gpt-5-nano",
-                            messages: [
-                                {
-                                    role: "system",
-                                    content: "You are a language detection assistant. Respond only with the ISO 639-1 language code."
+                        const response = await backgroundFetch(
+                            'https://api.openai.com/v1/chat/completions',
+                            {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    Authorization: `Bearer ${openAiKey}`,
                                 },
-                                {
-                                    role: "user",
-                                    content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
+                                body: JSON.stringify({
+                                    model: 'gpt-5-nano',
+                                    messages: [
+                                        {
+                                            role: 'system',
+                                            content: 'You are a language detection assistant. Respond only with the ISO 639-1 language code.',
+                                        },
+                                        {
+                                            role: 'user',
+                                            content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`,
+                                        },
+                                    ],
+                                }),
+                            }
+                        );
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            if (data?.error) {
+                                const formattedError = formatOpenAIErrorMessage(data);
+                                if (data.error.code === 'insufficient_quota' || response.status === 429) {
+                                    cacheQuotaExceededError(formattedError);
+                                    debugLog('Quota error detected and cached in OpenAI language detection');
                                 }
-                            ],
+                                throw new Error(formattedError);
+                            }
 
+                            throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+                        }
 
-                        });
-
-                        detectedCode = response.choices[0].message.content?.trim().toLowerCase();
-                        debugLog("Language detected via OpenAI:", detectedCode);
+                        detectedCode = data.choices?.[0]?.message?.content?.trim().toLowerCase();
+                        debugLog('Language detected via OpenAI:', detectedCode);
                     } catch (openaiError) {
-                        // Check if this is a quota error and cache it
                         if (openaiError instanceof Error) {
                             const errorMessage = openaiError.message;
-                            if (errorMessage.includes('quota') || 
+                            if (errorMessage.includes('quota') ||
                                 errorMessage.includes('insufficient_quota') ||
                                 errorMessage.includes('billing') ||
                                 errorMessage.includes('exceeded') ||
@@ -4664,7 +4669,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 debugLog('Quota error detected and cached in OpenAI language detection');
                             }
                         }
-                        throw openaiError; // Re-throw to be handled by outer catch
+                        throw openaiError;
                     }
                 } else if (modelProvider === ModelProvider.Groq) {
                     // Extra check for quota cache before making Groq request
@@ -4680,47 +4685,49 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         return detectedLanguage ?? detectedResult;
                     }
                     
-                    // Используем Groq API для определения языка
-                    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${groqApiKey}`
-                        },
-                        body: JSON.stringify({
-                            model: groqModelName,
-                            messages: [
-                                {
-                                    role: "system",
-                                    content: "You are a language detection assistant. Respond only with the ISO 639-1 language code."
-                                },
-                                {
-                                    role: "user",
-                                    content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`
-                                }
-                            ],
-
-
-                        })
-                    });
-                    
-                    if (!groqResponse.ok) {
-                        const errorData = await groqResponse.json();
-                        const errorMessage = `Groq API error: ${groqResponse.status} ${groqResponse.statusText} - ${JSON.stringify(errorData)}`;
-                        
-                        // Check if this is a quota/rate limit error for Groq
-                        if (groqResponse.status === 429 || 
-                            (errorData && (errorData.error?.includes?.('quota') || errorData.error?.includes?.('limit')))) {
-                            // For Groq, we don't have the same caching system, but we should still stop
-                            throw new Error("API rate limit exceeded. Please try again in a few minutes.");
+                    const groqResponse = await backgroundFetch(
+                        'https://api.groq.com/openai/v1/chat/completions',
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                Authorization: `Bearer ${groqApiKey}`,
+                            },
+                            body: JSON.stringify({
+                                model: groqModelName,
+                                messages: [
+                                    {
+                                        role: 'system',
+                                        content: 'You are a language detection assistant. Respond only with the ISO 639-1 language code.',
+                                    },
+                                    {
+                                        role: 'user',
+                                        content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`,
+                                    },
+                                ],
+                                max_tokens: 5,
+                                temperature: 0.0,
+                            }),
                         }
-                        
-                        throw new Error(errorMessage);
-                    }
-                    
+                    );
+
                     const groqData = await groqResponse.json();
+
+                    if (!groqResponse.ok) {
+                        const groqErrorMessage = (groqData && groqData.error && groqData.error.message)
+                            ? `Groq API error: ${groqData.error.message}`
+                            : `Groq API error: ${groqResponse.status} ${groqResponse.statusText}`;
+
+                        if (groqResponse.status === 429 || groqErrorMessage.toLowerCase().includes('quota')) {
+                            cacheQuotaExceededError(groqErrorMessage);
+                        }
+
+                        console.error('Groq language detection failed:', groqData || groqResponse.statusText);
+                        throw new Error(groqErrorMessage);
+                    }
+
                     detectedCode = groqData.choices?.[0]?.message?.content?.trim().toLowerCase();
-                    debugLog("Language detected via Groq:", detectedCode);
+                    debugLog('Language detected via Groq:', detectedCode);
                 }
 
                 // Проверяем, является ли результат действительным языковым кодом
@@ -4864,7 +4871,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
 
         return detectedResult;
-    }, [ensureOpenAiClient, openAiKey, modelProvider, groqApiKey, groqModelName, detectLanguageOffline, getSmartCacheKey, updateSourceLanguage, detectedLanguage, showError, shouldShowQuotaNotification, getCachedQuotaError, markQuotaNotificationShown, cacheQuotaExceededError, setIsAutoDetectLanguage, allLanguages]);
+    }, [openAiKey, modelProvider, groqApiKey, groqModelName, detectLanguageOffline, getSmartCacheKey, updateSourceLanguage, detectedLanguage, showError, shouldShowQuotaNotification, getCachedQuotaError, markQuotaNotificationShown, cacheQuotaExceededError, setIsAutoDetectLanguage, allLanguages]);
 
     // Обработчик переключения между автоопределением и ручным выбором
     const toggleAutoDetect = () => {

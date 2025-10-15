@@ -1,9 +1,14 @@
 import { formatErrorMessage } from './errorFormatting';
 import { ModelProvider } from '../store/reducers/settings';
-import { OpenAI } from 'openai';
-import type { ChatCompletionMessageParam } from 'openai/resources';
 import { TranscriptionResult } from './aiServiceFactory';
 import { getGlobalApiTracker } from './apiTracker';
+import { backgroundFetch } from './backgroundFetch';
+import { formatOpenAIErrorMessage, cacheQuotaExceededError } from './openaiApi';
+
+type ChatMessage = {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+};
 
 /**
  * Интерфейс для работы с AI-провайдерами
@@ -581,27 +586,58 @@ Provide ONLY the two lines as shown above, no additional text.`;
  * Реализация провайдера OpenAI
  */
 export class OpenAIProvider extends BaseAIProvider {
-  private openai: OpenAI;
+  private readonly baseUrl: string = 'https://api.openai.com/v1';
   
   constructor(apiKey: string, modelName: string = 'gpt-5-nano') {
     super(apiKey, modelName);
-    this.openai = new OpenAI({
-      apiKey: apiKey,
-      dangerouslyAllowBrowser: true,
-    });
   }
   
   protected async sendRequest(prompt: string, options: any = {}): Promise<string | null> {
     try {
-      const response = await this.openai.chat.completions.create({
-        model: this.modelName,
-        messages: [
-          { role: 'user', content: prompt }
+      if (!this.apiKey) {
+        throw new Error('OpenAI API key is missing. Please check your settings.');
+      }
+
+      const { messages, model, signal, ...restOptions } = options || {};
+
+      const body = {
+        model: model || this.modelName,
+        messages: (messages as ChatMessage[] | undefined) ?? [
+          { role: 'user' as const, content: prompt },
         ],
-        ...options
-      });
-      
-      return response.choices[0]?.message?.content?.trim() || null;
+        ...restOptions,
+      };
+
+      const response = await backgroundFetch(
+        `${this.baseUrl}/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify(body),
+        },
+        signal
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data?.error) {
+          const errorMessage = formatOpenAIErrorMessage(data);
+
+          if (data.error.code === 'insufficient_quota' || response.status === 429) {
+            cacheQuotaExceededError(errorMessage);
+          }
+
+          throw new Error(errorMessage);
+        }
+
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+      }
+
+      return data.choices?.[0]?.message?.content?.trim() || null;
     } catch (error) {
       console.error('Error in OpenAI request:', error);
       throw error;
@@ -621,14 +657,48 @@ export class OpenAIProvider extends BaseAIProvider {
 
     try {
       tracker.setInProgress(requestId);
-      const response = await this.openai.images.generate({
-        model: "dall-e-3",
-        prompt: description,
-        n: 1,
-        size: "1024x1024",
-      });
-      
-      const imageUrl = response.data?.[0]?.url || null;
+
+      if (!this.apiKey) {
+        throw new Error('OpenAI API key is missing. Please check your settings.');
+      }
+
+      const response = await backgroundFetch(
+        `${this.baseUrl}/images/generations`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'dall-e-3',
+            prompt: description,
+            n: 1,
+            size: '1024x1024',
+            response_format: 'url',
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data?.error) {
+          const errorMessage = formatOpenAIErrorMessage(data);
+
+          if (data.error.code === 'insufficient_quota' || response.status === 429) {
+            cacheQuotaExceededError(errorMessage);
+          }
+
+          tracker.errorRequest(requestId);
+          throw new Error(errorMessage);
+        }
+
+        tracker.errorRequest(requestId);
+        throw new Error(`OpenAI image API error: ${response.status} ${response.statusText}`);
+      }
+
+      const imageUrl = data?.data?.[0]?.url || null;
       if (imageUrl) {
         tracker.completeRequest(requestId);
       } else {
@@ -647,7 +717,7 @@ export class OpenAIProvider extends BaseAIProvider {
     const { getOptimizedImageUrl } = await import('./openaiApi');
     
     try {
-      return await getOptimizedImageUrl(this.openai, this.apiKey, word, customInstructions);
+      return await getOptimizedImageUrl(this.apiKey, word, customInstructions);
     } catch (error) {
       console.error('Error generating optimized image:', error);
       throw error;
@@ -710,17 +780,46 @@ export class OpenAIProvider extends BaseAIProvider {
 
     try {
       tracker.setInProgress(requestId);
-      const formattedMessages: ChatCompletionMessageParam[] = messages.map(msg => ({
-        role: msg.role as 'user' | 'system' | 'assistant',
-        content: msg.content
+      if (!this.apiKey) {
+        throw new Error('OpenAI API key is missing. Please check your settings.');
+      }
+      const formattedMessages: ChatMessage[] = messages.map(msg => ({
+        role: msg.role as ChatMessage['role'],
+        content: msg.content,
       }));
-      
-      const response = await this.openai.chat.completions.create({
-        model: this.modelName,
-        messages: formattedMessages,
-      });
-      
-      const content = response.choices[0]?.message?.content?.trim() || '';
+
+      const response = await backgroundFetch(
+        `${this.baseUrl}/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.modelName,
+            messages: formattedMessages,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data?.error) {
+          const errorMessage = formatOpenAIErrorMessage(data);
+          if (data.error.code === 'insufficient_quota' || response.status === 429) {
+            cacheQuotaExceededError(errorMessage);
+          }
+          tracker.errorRequest(requestId);
+          throw new Error(errorMessage);
+        }
+
+        tracker.errorRequest(requestId);
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+      }
+
+      const content = data.choices?.[0]?.message?.content?.trim() || '';
       if (!content) {
         tracker.errorRequest(requestId);
         return null;
@@ -752,30 +851,33 @@ export class GroqProvider extends BaseAIProvider {
         throw new Error("Groq API key is missing. Please check your settings.");
       }
       
-      const response = await fetch(`${this.apiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
-        },
-        body: JSON.stringify({
-          model: this.modelName,
-          messages: [
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
+      const response = await backgroundFetch(
+        `${this.apiBaseUrl}/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.modelName,
+            messages: [
+              {
+                role: 'user',
+                content: prompt,
+              },
+            ],
+            ...options,
+          }),
+        }
+      );
 
-        })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(formatErrorMessage("Groq API Error", response.status, errorData));
-      }
-      
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(formatErrorMessage('Groq API Error', response.status, data));
+      }
+
       return data.choices?.[0]?.message?.content?.trim() ?? null;
     } catch (error) {
       console.error('Error in Groq API request:', error);
@@ -848,25 +950,27 @@ export class GroqProvider extends BaseAIProvider {
         throw new Error("Groq API key is missing. Please check your settings.");
       }
       
-      const response = await fetch(`${this.apiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
-        },
-        body: JSON.stringify({
-          model: this.modelName,
-          messages: messages,
+      const response = await backgroundFetch(
+        `${this.apiBaseUrl}/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.modelName,
+            messages,
+          }),
+        }
+      );
 
-        })
-      });
+      const data = await response.json();
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(formatErrorMessage("Groq API Error", response.status, errorData));
+        throw new Error(formatErrorMessage('Groq API Error', response.status, data));
       }
       
-      const data = await response.json();
       const content = data.choices?.[0]?.message?.content?.trim() ?? '';
       
       if (!content) {
