@@ -49,14 +49,17 @@ export const formatOpenAIErrorMessage = (errorData: any): string => {
   }
   
   const { message, type, code } = errorData.error;
-  
+  const normalizedMessage = typeof message === 'string' ? message.toLowerCase() : '';
+
   let formattedMessage = "";
-  
+
   // Основная часть сообщения об ошибке
   if (code === "insufficient_quota") {
     formattedMessage = "Your OpenAI account has exceeded its quota.\n\nPlease check your billing details or use a different API key.";
+  } else if (code === 'invalid_api_key' || normalizedMessage.includes('invalid api key') || normalizedMessage.includes('incorrect api key') || normalizedMessage.includes('api key provided is incorrect') || normalizedMessage.includes('api key is invalid')) {
+    formattedMessage = "Authentication failed: Your OpenAI API key is invalid or revoked.\n\nOpen Settings and paste a valid key to continue.";
   } else if (type === "invalid_request_error") {
-    formattedMessage = "Invalid request to OpenAI.\n\nPlease check your API key and settings.";
+    formattedMessage = "Invalid request to OpenAI.\n\nPlease review your API key and request settings.";
   } else if (type === "rate_limit_exceeded") {
     formattedMessage = "OpenAI rate limit exceeded.\n\nPlease try again in a few minutes.";
   } else {
@@ -540,22 +543,23 @@ const getImageUrlRequest = async (
 
     if (error instanceof Error) {
       const message = error.message || '';
+      const normalized = message.toLowerCase();
 
-      if (message.includes('quota') || message.includes('billing')) {
+      if (normalized.includes('quota') || normalized.includes('billing')) {
         const quotaError = "Your OpenAI account has exceeded its quota.\n\nPlease check your billing details or use a different API key.";
         cacheQuotaExceededError(quotaError);
         throw new Error(quotaError);
       }
 
-      if (message.includes('rate limit')) {
+      if (normalized.includes('rate limit')) {
         throw new Error('OpenAI rate limit exceeded.\n\nPlease try again in a few minutes.');
       }
 
-      if (message.includes('invalid API key')) {
-        throw new Error('Invalid OpenAI API key.\n\nPlease check your API key in settings.');
+      if (normalized.includes('invalid api key') || normalized.includes('incorrect api key') || normalized.includes('api key provided is incorrect') || normalized.includes('api key is invalid')) {
+        throw new Error('Authentication failed: Your OpenAI API key is invalid or revoked.\n\nOpen Settings and paste a valid key to continue.');
       }
 
-      if (message.includes('moderation') || message.includes('policy')) {
+      if (normalized.includes('moderation') || normalized.includes('policy')) {
         throw new Error('OpenAI content policy violation.\n\nThe image request was flagged for content policy violation. Please modify your request.');
       }
     }

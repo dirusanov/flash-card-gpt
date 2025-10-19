@@ -8,7 +8,7 @@ export const formatErrorMessage = (
 
   // Format based on status code
   if (statusCode === 401) {
-    formattedMessage += "Authentication error. Please check your API key.";
+    formattedMessage += "Authentication failed. Please open Settings and add a valid API key.";
   } else if (statusCode === 429) {
     formattedMessage += "Rate limit exceeded. Please try again later.";
   } else if (statusCode === 500 || statusCode === 503) {

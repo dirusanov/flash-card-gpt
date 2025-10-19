@@ -17,7 +17,7 @@ import { setGlobalProgressCallback, getGlobalApiTracker, resetGlobalApiTracker }
 import { getImage } from '../apiUtils';
 import { backgroundFetch } from '../services/backgroundFetch';
 import useErrorNotification from './useErrorHandler';
-import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit, FaClock, FaChevronRight } from 'react-icons/fa';
+import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit, FaClock, FaChevronRight, FaKey } from 'react-icons/fa';
 import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
@@ -547,6 +547,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [savedCardIndices, setSavedCardIndices] = useState<Set<number>>(new Set());
     const [showRecreateModal, setShowRecreateModal] = useState(false);
     const [recreateComments, setRecreateComments] = useState('');
+    const [showMissingApiKeyNotice, setShowMissingApiKeyNotice] = useState(false);
 
     // AbortController for cancelling AI requests
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -566,6 +567,47 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         ),
         [modelProvider, openAiKey, groqApiKey]
     );
+
+    const providerDisplayName = useMemo(() => {
+        switch (modelProvider) {
+            case ModelProvider.Groq:
+                return 'Groq';
+            case ModelProvider.OpenAI:
+            default:
+                return 'OpenAI';
+        }
+    }, [modelProvider]);
+
+    const notifyMissingApiKey = useCallback(() => {
+        setShowMissingApiKeyNotice(true);
+    }, []);
+
+    useEffect(() => {
+        if (apiKey) {
+            setShowMissingApiKeyNotice(false);
+        }
+    }, [apiKey]);
+
+    const handlePotentialApiKeyIssue = useCallback((rawMessage: string | null | undefined) => {
+        if (!rawMessage) {
+            return;
+        }
+
+        const normalized = rawMessage.toLowerCase();
+        const apiKeyIndicators = [
+            'invalid api key',
+            'incorrect api key',
+            'authentication failed',
+            'api key is missing',
+            'api key provided is incorrect',
+            'unauthorized',
+            'bearer token is invalid'
+        ];
+
+        if (!apiKey || apiKeyIndicators.some(indicator => normalized.includes(indicator))) {
+            notifyMissingApiKey();
+        }
+    }, [apiKey, notifyMissingApiKey]);
 
     // Track which card IDs have been explicitly saved by the user
     const [explicitlySavedIds, setExplicitlySavedIds] = useState<string[]>([]);
@@ -917,11 +959,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (error instanceof Error && isQuotaError(error)) {
                 console.error('Quota error detected in image generation:', error.message);
                 showError(error.message);
+                handlePotentialApiKeyIssue(error.message);
                 return;
             }
             
             console.error('Error generating image:', error);
-            showError(error instanceof Error ? error.message : "Failed to generate image");
+            const imageErrorMessage = error instanceof Error ? error.message : "Failed to generate image";
+            showError(imageErrorMessage);
+            handlePotentialApiKeyIssue(imageErrorMessage);
         } finally {
             setLoadingNewImage(false);
         }
@@ -966,11 +1011,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (error instanceof Error && isQuotaError(error)) {
                 console.error('Quota error detected in examples generation:', error.message);
                 showError(error.message);
+                handlePotentialApiKeyIssue(error.message);
                 return;
             }
             
             console.error('Error getting examples:', error);
-            showError(error instanceof Error ? error.message : "Failed to generate examples");
+            const examplesErrorMessage = error instanceof Error ? error.message : "Failed to generate examples";
+            showError(examplesErrorMessage);
+            handlePotentialApiKeyIssue(examplesErrorMessage);
         } finally {
             setLoadingNewExamples(false);
         }
@@ -1055,11 +1103,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (error instanceof Error && isQuotaError(error)) {
                 console.error('Quota error detected in custom instructions:', error.message);
                 showError(error.message);
+                handlePotentialApiKeyIssue(error.message);
                 return;
             }
             
             console.error('Error applying custom instructions:', error);
-            showError(error instanceof Error ? error.message : "Failed to apply custom instructions");
+            const customInstructionError = error instanceof Error ? error.message : "Failed to apply custom instructions";
+            showError(customInstructionError);
+            handlePotentialApiKeyIssue(customInstructionError);
         } finally {
             debugLog('📝 Custom instruction processing completed');
             setIsProcessingCustomInstruction(false);
@@ -1535,6 +1586,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         tabAware.setCurrentPage('storedCards');
     }, [tabAware]);
 
+    const handleOpenSettings = useCallback(() => {
+        setShowMissingApiKeyNotice(false);
+        tabAware.setCurrentPage('settings');
+    }, [tabAware]);
+
+    const handleDismissMissingApiKeyNotice = useCallback(() => {
+        setShowMissingApiKeyNotice(false);
+    }, []);
+
     const loadLastDraftIntoState = useCallback((card: StoredCard) => {
         const normalized = normalizeDraftCard(card);
 
@@ -1767,6 +1827,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
         }
 
+        if (!apiKey) {
+            notifyMissingApiKey();
+            return;
+        }
+
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
@@ -1831,10 +1896,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             debugLog("Model Name (if Groq):", modelProvider === ModelProvider.Groq ? groqModelName : 'N/A');
             debugLog("AI Service:", Object.keys(aiService));
             debugLog("Source Language:", isAutoDetectLanguage ? detectedLanguageForSubmit : sourceLanguage);
-
-            if (!apiKey) {
-                throw new Error(`API key for ${modelProvider} is missing. Please go to settings and add your API key.`);
-            }
 
             // Определяем язык исходного текста для API запросов
             const sourceLanguageForSubmit = isAutoDetectLanguage 
@@ -2042,9 +2103,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
             
             console.error('Error processing text:', error);
-            showError(error instanceof Error
+            const errorMessage = error instanceof Error
                 ? `${error.message}`
-                : "Failed to create card. Please check your API key and try again.");
+                : "Failed to create card. Please check your API key and try again.";
+            showError(errorMessage);
+            handlePotentialApiKeyIssue(errorMessage);
             
             // Hide loading on errors
             setLoadingGetResult(false);
@@ -2875,6 +2938,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
+        if (!apiKey) {
+            notifyMissingApiKey();
+            return;
+        }
+
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
@@ -3162,14 +3230,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         console.error('Quota error detected, stopping multiple cards creation:', error.message);
                         showError(error.message);
                         throw error; // Throw to reach finally block
-                    }
-                    
-                    console.error(`Error creating card for "${option}":`, error);
-                    showError(`Failed to create card for "${option.substring(0, 20)}...": ${error instanceof Error ? error.message : "Unknown error"}`, "error");
                 }
+                
+                console.error(`Error creating card for "${option}":`, error);
+                const singleCardErrorMessage = error instanceof Error ? error.message : 'Unknown error';
+                showError(`Failed to create card for "${option.substring(0, 20)}...": ${singleCardErrorMessage}`, "error");
+                handlePotentialApiKeyIssue(singleCardErrorMessage);
             }
+        }
 
-            if (newCards.length > 0) {
+        if (newCards.length > 0) {
                 setCreatedCards(newCards);
                 setCurrentCardIndex(0);
                 setIsMultipleCards(newCards.length > 1);
@@ -3241,7 +3311,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 debugLog('Created new cards, none saved yet. Card IDs:', newCards.map(card => card.id));
             } else {
-                showError("Failed to create cards. Please try again.", "error");
+                const fallbackMessage = "Failed to create cards. Please try again.";
+                showError(fallbackMessage, "error");
+                handlePotentialApiKeyIssue(fallbackMessage);
             }
 
         } catch (error) {
@@ -3255,11 +3327,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (error instanceof Error && isQuotaError(error)) {
                 console.error('Quota error detected in multiple cards creation:', error.message);
                 showError(error.message);
+                handlePotentialApiKeyIssue(error.message);
                 return;
             }
             
             console.error('Error processing selected options:', error);
-            showError(error instanceof Error ? error.message : "Failed to create cards. Please try again.");
+            const outerErrorMessage = error instanceof Error ? error.message : "Failed to create cards. Please try again.";
+            showError(outerErrorMessage);
+            handlePotentialApiKeyIssue(outerErrorMessage);
         } finally {
             debugLog('🎯 Multiple cards creation finally block reached');
 
@@ -4825,7 +4900,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     modelProvider === ModelProvider.Groq ? 'Groq' : 'AI';
                 
                 if (typeof showError === 'function') {
-                    showError(`Language detection failed: Invalid ${providerName} API key. Please check your API key in settings.`, 'error');
+                    const invalidKeyMessage = `Language detection failed: Invalid ${providerName} API key. Please check your API key in settings.`;
+                    showError(invalidKeyMessage, 'error');
+                    handlePotentialApiKeyIssue(invalidKeyMessage);
                 }
                 
                 // Возвращаемся к простой эвристике при ошибке API ключа
@@ -5586,6 +5663,11 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             return;
         }
 
+        if (!apiKey) {
+            notifyMissingApiKey();
+            return;
+        }
+
         // Using unified loadingGetResult instead of separate isGeneratingGeneralCard
         
         try {
@@ -5666,11 +5748,24 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             
         } catch (error) {
             console.error('Error generating general card:', error);
-            showError(`Failed to generate card: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            showError(`Failed to generate card: ${errorMessage}`, 'error');
+            handlePotentialApiKeyIssue(errorMessage);
         } finally {
             // Using unified loadingGetResult instead of separate isGeneratingGeneralCard
         }
-    }, [aiService, showError, dispatch, shouldGenerateImage, imageGenerationMode, isImageGenerationAvailable, imageInstructions]);
+    }, [
+        aiService,
+        showError,
+        dispatch,
+        shouldGenerateImage,
+        imageGenerationMode,
+        isImageGenerationAvailable,
+        imageInstructions,
+        apiKey,
+        notifyMissingApiKey,
+        handlePotentialApiKeyIssue
+    ]);
 
     // Function to handle template selection
     const handleTemplateSelect = useCallback((template: GeneralCardTemplate) => {
@@ -5704,6 +5799,11 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     const handleCreateAICards = useCallback(async () => {
         if (!text.trim()) {
             showError('Please enter or select text to create cards', 'error');
+            return;
+        }
+
+        if (!apiKey) {
+            notifyMissingApiKey();
             return;
         }
 
@@ -5810,6 +5910,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             console.error('❌ Error in AI agent card creation:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             showError(`Card creation error: ${errorMessage}`, 'error');
+            handlePotentialApiKeyIssue(errorMessage);
         } finally {
             debugLog('🎯 Main card creation function finally block reached');
             // Add delay to prevent window disappearing too quickly
@@ -5862,7 +5963,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             }, 1500); // Longer initial delay
             abortControllerRef.current = null;
         }
-    }, [text, aiService, apiKey, showError]);
+    }, [text, aiService, apiKey, showError, notifyMissingApiKey, handlePotentialApiKeyIssue]);
 
     // Functions for preview management
     const handleAcceptPreviewCards = async () => {
@@ -6024,7 +6125,9 @@ Original text: ${text}`;
         } catch (error) {
             console.error('Error recreating card:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            showError(`Card recreation error: ${errorMessage}`, 'error');
+            const formattedMessage = `Card recreation error: ${errorMessage}`;
+            showError(formattedMessage, 'error');
+            handlePotentialApiKeyIssue(errorMessage);
         } finally {
             setLoadingAccept(false);
             setRecreateComments('');
@@ -6259,6 +6362,115 @@ Original text: ${text}`;
                         <FaTimes />
                         Cancel Analysis
                     </button>
+                </div>
+            )}
+            {showMissingApiKeyNotice && !apiKey && (
+                <div
+                    style={{
+                        margin: '16px',
+                        marginBottom: 0,
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px',
+                        padding: '16px 18px',
+                        borderRadius: '12px',
+                        background: 'linear-gradient(135deg, #EFF6FF 0%, #FFFFFF 100%)',
+                        border: '1px solid #BFDBFE',
+                        boxShadow: '0 12px 35px -18px rgba(59, 130, 246, 0.45)',
+                        animation: 'slideIn 0.25s ease-out'
+                    }}
+                >
+                    <div
+                        style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '12px',
+                            backgroundColor: '#DBEAFE',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#1D4ED8',
+                            flexShrink: 0
+                        }}
+                    >
+                        <FaKey size={18} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px'
+                        }}>
+                            <span style={{
+                                fontSize: '15px',
+                                fontWeight: 600,
+                                color: '#1D4ED8'
+                            }}>
+                                Add an API key for {providerDisplayName}
+                            </span>
+                            <span style={{
+                                fontSize: '13px',
+                                color: '#1F2937',
+                                lineHeight: 1.5
+                            }}>
+                                Add a valid key in Settings to create cards. You can update it anytime.
+                            </span>
+                        </div>
+                        <div style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '8px',
+                            marginTop: '10px'
+                        }}>
+                            <button
+                                onClick={handleOpenSettings}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    background: 'linear-gradient(135deg, #2563EB, #1D4ED8)',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    padding: '8px 14px',
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 6px 16px -8px rgba(37, 99, 235, 0.6)'
+                                }}
+                                onMouseOver={(e) => {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #1D4ED8, #1E3A8A)';
+                                }}
+                                onMouseOut={(e) => {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #2563EB, #1D4ED8)';
+                                }}
+                            >
+                                Open settings
+                                <FaChevronRight size={12} />
+                            </button>
+                            <button
+                                onClick={handleDismissMissingApiKeyNotice}
+                                style={{
+                                    backgroundColor: '#FFFFFF',
+                                    color: '#1F2937',
+                                    border: '1px solid #E5E7EB',
+                                    borderRadius: '8px',
+                                    padding: '8px 14px',
+                                    fontSize: '13px',
+                                    fontWeight: 500,
+                                    cursor: 'pointer'
+                                }}
+                                onMouseOver={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#F3F4F6';
+                                }}
+                                onMouseOut={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#FFFFFF';
+                                }}
+                            >
+                                Dismiss
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
             <div style={{

@@ -123,6 +123,20 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
         groqApiKey
     ), [modelProvider, openAiKey, groqApiKey]);
 
+    const providerDisplayName = useMemo(() => {
+        switch (modelProvider) {
+            case ModelProvider.Groq:
+                return 'Groq';
+            case ModelProvider.OpenAI:
+            default:
+                return 'OpenAI';
+        }
+    }, [modelProvider]);
+
+    const notifyMissingApiKey = useCallback(() => {
+        showError(`Missing ${providerDisplayName} API key. Open settings and add a valid key to continue.`, 'warning');
+    }, [providerDisplayName, showError]);
+
     // Timer effect
     useEffect(() => {
         if (isGenerating) {
@@ -192,6 +206,11 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     const generateCard = useCallback(async (template: GeneralCardTemplate, customPrompt?: string) => {
         if (!inputText.trim()) {
             showError('Please provide some text to create a card from');
+            return;
+        }
+
+        if (!apiKey) {
+            notifyMissingApiKey();
             return;
         }
 
@@ -342,7 +361,18 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 setCurrentProgress({ completed: 0, total: 0 });
             }, 500); // Small delay to ensure smooth transition
         }
-    }, [inputText, aiService, showError, dispatch, shouldGenerateImage, imageGenerationMode, imageInstructions, modelProvider]);
+    }, [
+        inputText,
+        aiService,
+        showError,
+        dispatch,
+        shouldGenerateImage,
+        imageGenerationMode,
+        imageInstructions,
+        modelProvider,
+        apiKey,
+        notifyMissingApiKey
+    ]);
 
     // Heuristics: detect math/theorem content
     function looksLikeMath(text: string): boolean {

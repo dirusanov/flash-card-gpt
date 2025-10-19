@@ -1,10 +1,11 @@
 /* eslint-disable no-console */
 import { printLine } from './modules/print';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from '../../App';
 import { Provider } from 'react-redux';
 import { instantiateStore } from '../../store';
+import { initializeApiKeyPersistence } from '../../services/apiKeyStorage';
 
 console.log('Content script works!');
 console.log('Must reload extension for modifications to take effect.');
@@ -163,11 +164,17 @@ const StoreInitializer = () => {
   const [store, setStore] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [tabId, setTabId] = useState(null);
+  const apiKeyUnsubscribeRef = useRef(null);
 
   useEffect(() => {
+    let isMounted = true;
+
     const initialize = async () => {
       try {
         chrome.runtime.sendMessage({ action: 'getTabId' }, async (response) => {
+          if (!isMounted) {
+            return;
+          }
           const currentTabId = (response && typeof response.tabId !== 'undefined') ? response.tabId : Math.floor(Math.random() * 1000000);
           setTabId(currentTabId);
 
@@ -181,7 +188,20 @@ const StoreInitializer = () => {
         });
 
         const resolvedStore = await instantiateStore();
+        if (!isMounted) {
+          return;
+        }
         setStore(resolvedStore);
+        try {
+          const unsubscribe = await initializeApiKeyPersistence(resolvedStore);
+          if (isMounted) {
+            apiKeyUnsubscribeRef.current = unsubscribe;
+          } else if (typeof unsubscribe === 'function') {
+            unsubscribe();
+          }
+        } catch (error) {
+          console.error('Failed to initialize API key persistence:', error);
+        }
         setTimeout(() => setIsLoading(false), 100);
       } catch (error) {
         console.error('Error initializing store:', error);
@@ -189,6 +209,14 @@ const StoreInitializer = () => {
       }
     };
     initialize();
+
+    return () => {
+      isMounted = false;
+      if (apiKeyUnsubscribeRef.current) {
+        apiKeyUnsubscribeRef.current();
+        apiKeyUnsubscribeRef.current = null;
+      }
+    };
   }, []);
 
   if (isLoading || !store || tabId === null) {
