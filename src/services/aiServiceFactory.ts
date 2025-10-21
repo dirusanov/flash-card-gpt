@@ -1,6 +1,38 @@
 import { ModelProvider } from '../store/reducers/settings';
 import { AIProviderInterface, createAIProvider } from './aiProviders';
 
+class ApiKeyAuthorizationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ApiKeyAuthorizationError';
+  }
+}
+
+const API_KEY_ERROR_INDICATORS = [
+  '401',
+  'unauthorized',
+  'forbidden',
+  'invalid api key',
+  'incorrect api key',
+  'authentication failed',
+  'api key is missing',
+  'api key provided is incorrect',
+  'bearer token is invalid',
+  'invalid credentials',
+  'invalid token',
+  'access was denied',
+  'invalid api_key'
+];
+
+const isApiKeyErrorMessage = (message: string | undefined | null): boolean => {
+  if (!message) {
+    return false;
+  }
+
+  const normalized = message.toLowerCase();
+  return API_KEY_ERROR_INDICATORS.some((indicator) => normalized.includes(indicator));
+};
+
 // Функция для быстрого retry с backoff для критически важных API вызовов
 const retryWithBackoff = async <T>(
   fn: () => Promise<T>,
@@ -479,25 +511,43 @@ export const createCardComponentsParallel = async (
   
   // 1. Перевод (всегда выполняется) - с быстрым retry
   promises.push(
-    retryWithBackoff(() => 
+    retryWithBackoff(() =>
       createTranslation(service, apiKey, text, translateToLanguage, customPrompt, sourceLanguage, abortSignal)
     )
       .then(result => ({ type: 'translation', result }))
-      .catch(error => ({ type: 'translation', error: error.message }))
+      .catch(error => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (isApiKeyErrorMessage(message)) {
+          throw new ApiKeyAuthorizationError(message);
+        }
+        return { type: 'translation', error: message };
+      })
   );
   
   // 2. Примеры (параллельно с переводом)
   promises.push(
     createExamples(service, apiKey, text, translateToLanguage, true, customPrompt, sourceLanguage, abortSignal)
       .then(result => ({ type: 'examples', result }))
-      .catch(error => ({ type: 'examples', error: error.message }))
+      .catch(error => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (isApiKeyErrorMessage(message)) {
+          throw new ApiKeyAuthorizationError(message);
+        }
+        return { type: 'examples', error: message };
+      })
   );
   
   // 3. Flashcard (параллельно)
   promises.push(
     createFlashcard(service, apiKey, text, abortSignal)
       .then(result => ({ type: 'flashcard', result }))
-      .catch(error => ({ type: 'flashcard', error: error.message }))
+      .catch(error => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (isApiKeyErrorMessage(message)) {
+          throw new ApiKeyAuthorizationError(message);
+        }
+        return { type: 'flashcard', error: message };
+      })
   );
   
   // 4. Лингвистическая информация (параллельно, быстрая версия)
@@ -505,7 +555,13 @@ export const createCardComponentsParallel = async (
     promises.push(
       createFastLinguisticInfo(service, apiKey, text, sourceLanguage, translateToLanguage)
         .then(result => ({ type: 'linguisticInfo', result: result.linguisticInfo }))
-        .catch(error => ({ type: 'linguisticInfo', error: error.message }))
+        .catch(error => {
+          const message = error instanceof Error ? error.message : String(error);
+          if (isApiKeyErrorMessage(message)) {
+            throw new ApiKeyAuthorizationError(message);
+          }
+          return { type: 'linguisticInfo', error: message };
+        })
     );
   }
   
@@ -585,12 +641,26 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     promises.push(
       imagePromise()
         .then(result => ({ type: 'imageUrl', result }))
-        .catch(error => ({ type: 'imageUrl', error: error.message }))
+        .catch(error => {
+          const message = error instanceof Error ? error.message : String(error);
+          if (isApiKeyErrorMessage(message)) {
+            throw new ApiKeyAuthorizationError(message);
+          }
+          return { type: 'imageUrl', error: message };
+        })
     );
   }
   
-  // Выполняем все запросы параллельно
-  const results = await Promise.all(promises);
+  let results;
+  try {
+    // Выполняем все запросы параллельно
+    results = await Promise.all(promises);
+  } catch (error) {
+    if (error instanceof ApiKeyAuthorizationError) {
+      throw error;
+    }
+    throw error;
+  }
   
   // Обрабатываем результаты
   const finalResult: any = { errors };

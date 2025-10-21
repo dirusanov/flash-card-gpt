@@ -460,6 +460,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [isEdited, setIsEdited] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
+    const [forceHideLoader, setForceHideLoader] = useState(false);
     const [isNewSubmission, setIsNewSubmission] = useState(true);
     const [explicitlySaved, setExplicitlySaved] = useState(false);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
@@ -551,6 +552,44 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // AbortController for cancelling AI requests
     const abortControllerRef = useRef<AbortController | null>(null);
+    const criticalApiErrorRef = useRef(false);
+
+    const stopLoadingImmediately = useCallback(() => {
+        debugLog('🚫 Critical API issue detected - stopping loaders instantly');
+        criticalApiErrorRef.current = true;
+        setForceHideLoader(true);
+        setLoadingGetResult(false);
+        setIsProcessingCustomInstruction(false);
+        setLoadingNewImage(false);
+        setLoadingNewExamples(false);
+        setCurrentLoadingMessage(null);
+        setCurrentProgress({ completed: 0, total: 0 });
+        setElapsedTime(0);
+
+        if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+        }
+
+        setGlobalProgressCallback(() => {});
+        resetGlobalApiTracker();
+        tabAware.setIsGeneratingCard(false);
+
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+    }, [
+        tabAware,
+        setForceHideLoader,
+        setLoadingGetResult,
+        setIsProcessingCustomInstruction,
+        setLoadingNewImage,
+        setLoadingNewExamples,
+        setCurrentLoadingMessage,
+        setCurrentProgress,
+        setElapsedTime
+    ]);
 
     // Получаем сохраненные карточки из tab-aware контекста
     const { storedCards } = tabAware;
@@ -590,7 +629,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const handlePotentialApiKeyIssue = useCallback((rawMessage: string | null | undefined) => {
         if (!rawMessage) {
-            return;
+            return false;
         }
 
         const normalized = rawMessage.toLowerCase();
@@ -598,16 +637,28 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             'invalid api key',
             'incorrect api key',
             'authentication failed',
+            'authorization failed',
             'api key is missing',
             'api key provided is incorrect',
             'unauthorized',
-            'bearer token is invalid'
+            'bearer token is invalid',
+            'invalid credentials',
+            'invalid token',
+            '401',
+            'access was denied',
+            'forbidden'
         ];
 
-        if (!apiKey || apiKeyIndicators.some(indicator => normalized.includes(indicator))) {
+        const hasInvalidKey = !apiKey || apiKeyIndicators.some(indicator => normalized.includes(indicator));
+
+        if (hasInvalidKey) {
+            criticalApiErrorRef.current = true;
+            stopLoadingImmediately();
             notifyMissingApiKey();
         }
-    }, [apiKey, notifyMissingApiKey]);
+
+        return hasInvalidKey;
+    }, [apiKey, notifyMissingApiKey, stopLoadingImmediately]);
 
     // Track which card IDs have been explicitly saved by the user
     const [explicitlySavedIds, setExplicitlySavedIds] = useState<string[]>([]);
@@ -1832,6 +1883,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
+        criticalApiErrorRef.current = false;
+
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
@@ -1867,6 +1920,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         tabAware.setLinguisticInfo("");
         tabAware.setTranscription('');
 
+        setForceHideLoader(false);
         setLoadingGetResult(true);
         setCurrentLoadingMessage(null);
 
@@ -1875,6 +1929,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         globalTracker.reset();
 
         setGlobalProgressCallback((update) => {
+            if (criticalApiErrorRef.current) {
+                return;
+            }
             debugLog(`🔄 Progress update: ${update.completed}/${update.total} - ${update.message.title}`);
             setCurrentLoadingMessage(update.message);
             setCurrentProgress({ completed: update.completed, total: update.total });
@@ -1994,6 +2051,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 image: false,
                 linguisticInfo: false
             };
+            let translationErrorMessage: string | null = null;
+            let hadCriticalApiKeyError = false;
 
             // Устанавливаем полученные результаты
             if (result.translation?.translated) {
@@ -2030,24 +2089,42 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 
                 // Показываем предупреждения для неудачных компонентов
                 for (const error of result.errors) {
+                    const detailsMessage = error.error || '';
+                    const normalizedComponent = `${error.component} generation failed: ${detailsMessage}`;
                     if (error.component === 'translation') {
                         // Перевод критичен - показываем ошибку
-                        showError(`Translation failed: ${error.error}`, 'error');
+                        showError(`Translation failed: ${detailsMessage}`, 'error');
+                        if (detailsMessage) {
+                            translationErrorMessage = detailsMessage;
+                        }
                     } else {
                         // Другие компоненты - показываем предупреждения
-                        showError(`${error.component} generation failed: ${error.error}`, 'warning');
+                        showError(normalizedComponent, 'warning');
+                    }
+
+                    if (detailsMessage) {
+                        const detectedApiKeyIssue = handlePotentialApiKeyIssue(detailsMessage);
+                        if (detectedApiKeyIssue) {
+                            hadCriticalApiKeyError = true;
+                        }
                     }
                 }
                 
                 // Если перевод не удался, останавливаем создание карточки
                 if (!completedOperations.translation) {
-                    throw new Error('Translation failed - cannot create card without translation');
+                    const errorMessageForThrow = translationErrorMessage
+                        || (hadCriticalApiKeyError
+                            ? 'Authentication failed: your API key is missing, invalid, or not working. Please update it in Settings.'
+                            : 'Translation failed - cannot create card without translation');
+                    throw new Error(errorMessageForThrow);
                 }
             }
 
             // Проверяем есть ли критически важные компоненты
             if (!completedOperations.translation) {
-                throw new Error("Translation failed - cannot create card without translation");
+                const fallbackMessage = translationErrorMessage
+                    || 'Translation failed - cannot create card without translation';
+                throw new Error(fallbackMessage);
             }
 
             debugLog('Parallel card creation completed with:', completedOperations);
@@ -2107,22 +2184,26 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 ? `${error.message}`
                 : "Failed to create card. Please check your API key and try again.";
             showError(errorMessage);
-            handlePotentialApiKeyIssue(errorMessage);
-            
+            const isApiKeyError = handlePotentialApiKeyIssue(errorMessage);
+
             // Hide loading on errors
             setLoadingGetResult(false);
             setCurrentLoadingMessage(null);
             setCurrentProgress({ completed: 0, total: 0 });
+            if (isApiKeyError) {
+                tabAware.setIsGeneratingCard(false);
+            }
             // Don't close modal on errors - keep it open so user can retry
         } finally {
             // Don't force hide loading in finally block - let it complete naturally
             // Only reset card generation state and clear abort controller
-            
+
             // Reset card generation state to enable navigation buttons
             tabAware.setIsGeneratingCard(false);
-            
+
             // Clear abort controller
             abortControllerRef.current = null;
+            criticalApiErrorRef.current = false;
         }
     };
 
@@ -2943,6 +3024,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
+        criticalApiErrorRef.current = false;
+
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
@@ -2956,6 +3039,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         });
 
         setShowTextOptionsModal(false);
+        setForceHideLoader(false);
         setLoadingGetResult(true);
         
         // Set card generation state to true to disable navigation buttons
@@ -3334,9 +3418,28 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.error('Error processing selected options:', error);
             const outerErrorMessage = error instanceof Error ? error.message : "Failed to create cards. Please try again.";
             showError(outerErrorMessage);
-            handlePotentialApiKeyIssue(outerErrorMessage);
+            const isApiKeyError = handlePotentialApiKeyIssue(outerErrorMessage);
+            setLoadingGetResult(false);
+            setCurrentLoadingMessage(null);
+            setCurrentProgress({ completed: 0, total: 0 });
+            tabAware.setIsGeneratingCard(false);
+            if (isApiKeyError && abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
         } finally {
             debugLog('🎯 Multiple cards creation finally block reached');
+
+            if (criticalApiErrorRef.current) {
+                debugLog('🚫 Critical API error detected - skipping delayed loader hide');
+                criticalApiErrorRef.current = false;
+                setLoadingGetResult(false);
+                setCurrentLoadingMessage(null);
+                setCurrentProgress({ completed: 0, total: 0 });
+                tabAware.setIsGeneratingCard(false);
+                setSelectedOptionsMap({});
+                abortControllerRef.current = null;
+                return;
+            }
 
             // Use the same smart loading management as main function
             setTimeout(() => {
@@ -3375,6 +3478,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Clear abort controller
             abortControllerRef.current = null;
+            criticalApiErrorRef.current = false;
         }
     };
 
@@ -5807,10 +5911,13 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             return;
         }
 
+        criticalApiErrorRef.current = false;
+
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
 
+        setForceHideLoader(false);
         setLoadingGetResult(true);
 
         try {
@@ -5910,9 +6017,24 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             console.error('❌ Error in AI agent card creation:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             showError(`Card creation error: ${errorMessage}`, 'error');
-            handlePotentialApiKeyIssue(errorMessage);
+            const isApiKeyError = handlePotentialApiKeyIssue(errorMessage);
+            setLoadingGetResult(false);
+            setCurrentLoadingMessage(null);
+            setCurrentProgress({ completed: 0, total: 0 });
+            if (isApiKeyError && abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
         } finally {
             debugLog('🎯 Main card creation function finally block reached');
+            if (criticalApiErrorRef.current) {
+                debugLog('🚫 Critical API error detected in AI agent flow - stopping loader immediately');
+                criticalApiErrorRef.current = false;
+                setLoadingGetResult(false);
+                setCurrentLoadingMessage(null);
+                setCurrentProgress({ completed: 0, total: 0 });
+                abortControllerRef.current = null;
+                return;
+            }
             // Add delay to prevent window disappearing too quickly
             // Use a longer delay and check for any pending operations
             setTimeout(() => {
@@ -5962,6 +6084,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 }
             }, 1500); // Longer initial delay
             abortControllerRef.current = null;
+            criticalApiErrorRef.current = false;
         }
     }, [text, aiService, apiKey, showError, notifyMissingApiKey, handlePotentialApiKeyIssue]);
 
@@ -6158,7 +6281,7 @@ Original text: ${text}`;
             height: '100%',
             position: 'relative'
         }}>
-            {loadingGetResult && (
+            {loadingGetResult && !forceHideLoader && (
                 <div className="loading-overlay" style={{
                     position: 'absolute',
                     top: 0,

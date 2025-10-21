@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FaTimesCircle, FaCheckCircle, FaExclamationTriangle, FaInfoCircle, FaTimes } from 'react-icons/fa';
 
 // Type for error notification types
@@ -10,7 +10,8 @@ const useErrorNotification = () => {
   const [type, setType] = useState<ErrorType>('error');
   const [visible, setVisible] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
-  
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Show error notification
   const showError = (message: string | null, errorType: ErrorType = 'error') => {
     console.log('showError called:', { message, errorType, visible, isAnimating });
@@ -26,8 +27,12 @@ const useErrorNotification = () => {
       }, 50);
       
       // Auto-hide all messages after 5 seconds
-      setTimeout(() => {
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+      }
+      hideTimerRef.current = setTimeout(() => {
         hideNotification();
+        hideTimerRef.current = null;
       }, 5000);
     } else {
       hideNotification();
@@ -42,29 +47,51 @@ const useErrorNotification = () => {
       setError(null);
     }, 300); // Match animation duration
   };
+
+  useEffect(() => {
+    return () => {
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = null;
+      }
+    };
+  }, []);
   
   // Format API error messages to be more user-friendly
   const formatApiErrorMessage = (message: string): string => {
+    const normalized = message.toLowerCase();
+
     // Check for common API error patterns
-    if (message.includes('401') || message.includes('Unauthorized') || message.includes('Authentication')) {
-      return 'API Authentication failed: Please check your API key in Settings.';
+    if (
+      normalized.includes('401') ||
+      normalized.includes('unauthorized') ||
+      normalized.includes('authentication failed') ||
+      normalized.includes('authorization failed') ||
+      normalized.includes('invalid api key') ||
+      normalized.includes('api key is invalid') ||
+      normalized.includes('api key provided is incorrect') ||
+      normalized.includes('bearer token is invalid') ||
+      normalized.includes('invalid credentials') ||
+      normalized.includes('invalid token')
+    ) {
+      return 'Authorization failed: your API key is invalid or no longer active.\n\nOpen the extension settings and paste a working key.';
     } 
-    else if (message.includes('429') || message.includes('Rate limit')) {
-      return 'API rate limit exceeded: Please try again in a few minutes.';
+    if (normalized.includes('429') || normalized.includes('rate limit') || normalized.includes('quota')) {
+      return 'Quota exhausted: your OpenAI plan or monthly budget has been reached.\n\nOpen the OpenAI Platform → Usage limits to raise the quota or update billing, then try again.';
     }
-    else if (message.includes('500') || message.includes('502') || message.includes('503') || message.includes('504')) {
-      return 'AI service is currently unavailable. Please try again later.';
+    if (
+      normalized.includes('500') ||
+      normalized.includes('502') ||
+      normalized.includes('503') ||
+      normalized.includes('504')
+    ) {
+      return 'The AI service is temporarily unavailable. Please try again later.';
     }
-    else if (message.includes('key is missing') || message.includes('API key')) {
-      return 'API key is missing or invalid. Please check your settings.';
+    if (normalized.includes('openai')) {
+      return `OpenAI error: ${message.split('OpenAI').pop()}`;
     }
-    
-    // For model-specific errors
-    if (message.includes('OpenAI')) {
-      return `OpenAI API error: ${message.split('OpenAI').pop()}`;
-    }
-    else if (message.includes('Groq')) {
-      return `Groq API error: ${message.split('Groq').pop()}`;
+    if (normalized.includes('groq')) {
+      return `Groq error: ${message.split('Groq').pop()}`;
     }
     
     // Return the original message if no patterns match
