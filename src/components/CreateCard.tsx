@@ -1648,10 +1648,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const loadLastDraftIntoState = useCallback((card: StoredCard) => {
         const normalized = normalizeDraftCard(card);
+        const effectiveTranslation = normalized.mode === Modes.LanguageLearning
+            ? (normalized.translation ?? '')
+            : ((normalized.back ?? normalized.translation ?? ''));
 
         tabAware.updateCard({
             text: normalized.text,
-            translation: normalized.translation ?? '',
+            translation: effectiveTranslation,
             examples: normalized.examples ?? [],
             image: normalized.image ?? null,
             imageUrl: normalized.imageUrl ?? null,
@@ -1681,6 +1684,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const handleOpenLatestCard = () => {
         if (!latestCardPreview) {
+            return;
+        }
+
+        const hasTranslation = Boolean((latestCardPreview.translation ?? '').trim());
+        const hasExamples = Array.isArray(latestCardPreview.examples) && latestCardPreview.examples.length > 0;
+        if (!hasTranslation || !hasExamples) {
             return;
         }
 
@@ -5076,6 +5085,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const renderLatestCardShortcut = () => {
         if (!latestCardPreview || isSaved || draftMatchesExplicitlySavedCard) {
+            return null;
+        }
+
+        const hasTranslation = Boolean((latestCardPreview.translation ?? '').trim());
+        const hasExamples = Array.isArray(latestCardPreview.examples) && latestCardPreview.examples.length > 0;
+        if (!hasTranslation || !hasExamples) {
             return null;
         }
 
