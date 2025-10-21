@@ -524,6 +524,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                message.includes('exceeded') ||
                message.includes('429');
     };
+
+    // (moved) Persist/restore of target language is placed after language list
     const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
     const [showModal, setShowModal] = useState(false);
@@ -4373,6 +4375,35 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Получение данных о текущем языке
     const currentLanguage = useMemo(() => {
         return allLanguages.find(lang => lang.code === translateToLanguage) || allLanguages[0];
+    }, [translateToLanguage]);
+
+    // Persist and restore user-selected target language ("Your Language")
+    const TARGET_LANGUAGE_STORAGE_KEY = 'target_language';
+    // Restore saved language on first mount if present and valid
+    React.useEffect(() => {
+        try {
+            const saved = localStorage.getItem(TARGET_LANGUAGE_STORAGE_KEY);
+            if (saved && saved !== translateToLanguage) {
+                const exists = allLanguages.some(l => l.code === saved);
+                if (exists) {
+                    dispatch(setTranslateToLanguage(saved));
+                }
+            }
+        } catch {
+            // Ignore storage errors silently
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Save whenever language changes
+    React.useEffect(() => {
+        try {
+            if (translateToLanguage) {
+                localStorage.setItem(TARGET_LANGUAGE_STORAGE_KEY, translateToLanguage);
+            }
+        } catch {
+            // Ignore storage errors silently
+        }
     }, [translateToLanguage]);
 
     // Компонент выбора языка
