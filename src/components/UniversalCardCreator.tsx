@@ -94,7 +94,7 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
     onCancel 
 }) => {
     const dispatch = useDispatch();
-    const { showError } = useErrorNotification();
+    const { showError, renderErrorNotification } = useErrorNotification();
     
     const [selectedTemplate, setSelectedTemplate] = useState<GeneralCardTemplate | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -249,7 +249,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             const fullPrompt = `${finalPrompt}\n\nText: "${inputText}"\n\nProvide a clear, educational response that would work well as flashcard content. Be concise but informative.`;
 
             // Generate the card content (API tracker will handle progress automatically)
-            const response = await aiService.translateText(fullPrompt, 'en');
+            const response = await aiService.translateText(apiKey, fullPrompt, 'en');
             
             if (!response) {
                 throw new Error('Failed to generate card content');
@@ -506,8 +506,20 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             borderRadius: '12px',
             boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
             maxWidth: '500px',
-            width: '100%'
+            width: '100%',
+            position: 'relative'
         }}>
+            <div style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                zIndex: 9999,
+                pointerEvents: 'none'
+            }}>
+                <div style={{ pointerEvents: 'auto' }}>
+                    {renderErrorNotification()}
+                </div>
+            </div>
             {/* Header */}
             <div style={{
                 display: 'flex',

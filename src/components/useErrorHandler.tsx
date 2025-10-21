@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FaTimesCircle, FaCheckCircle, FaExclamationTriangle, FaInfoCircle, FaTimes } from 'react-icons/fa';
 
 // Type for error notification types
@@ -6,53 +6,86 @@ export type ErrorType = 'error' | 'success' | 'warning' | 'info';
 
 // Enhanced error notification hook
 const useErrorNotification = () => {
-  const [error, setError] = useState<string | null>(null);
-  const [type, setType] = useState<ErrorType>('error');
+  const [notification, setNotification] = useState<{ id: number; message: string; type: ErrorType } | null>(null);
   const [visible, setVisible] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideAnimationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Show error notification
-  const showError = (message: string | null, errorType: ErrorType = 'error') => {
-    console.log('showError called:', { message, errorType, visible, isAnimating });
-    
-    if (message) {
-      setError(message);
-      setType(errorType);
-      setVisible(true);
-      
-      // Небольшая задержка для плавной анимации
-      setTimeout(() => {
-        setIsAnimating(true);
-      }, 50);
-      
-      // Auto-hide all messages after 5 seconds
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current);
-      }
-      hideTimerRef.current = setTimeout(() => {
-        hideNotification();
-        hideTimerRef.current = null;
-      }, 5000);
-    } else {
-      hideNotification();
+  const hideNotification = useCallback(() => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
     }
-  };
-  
-  // Hide notification with animation
-  const hideNotification = () => {
-    setIsAnimating(false);
-    setTimeout(() => {
-      setVisible(false);
-      setError(null);
-    }, 300); // Match animation duration
-  };
+    if (animationTimerRef.current) {
+      clearTimeout(animationTimerRef.current);
+      animationTimerRef.current = null;
+    }
 
+    setIsAnimating(false);
+    if (hideAnimationTimerRef.current) {
+      clearTimeout(hideAnimationTimerRef.current);
+      hideAnimationTimerRef.current = null;
+    }
+
+    hideAnimationTimerRef.current = setTimeout(() => {
+      setVisible(false);
+      setNotification(null);
+      hideAnimationTimerRef.current = null;
+    }, 300); // Match animation duration
+  }, []);
+
+  const showError = useCallback((message: string | null, errorType: ErrorType = 'error') => {
+    if (!message) {
+      hideNotification();
+      return;
+    }
+
+    const id = Date.now();
+    setNotification({ id, message, type: errorType });
+    setVisible(true);
+
+    if (hideAnimationTimerRef.current) {
+      clearTimeout(hideAnimationTimerRef.current);
+      hideAnimationTimerRef.current = null;
+    }
+
+    if (animationTimerRef.current) {
+      clearTimeout(animationTimerRef.current);
+      animationTimerRef.current = null;
+    }
+
+    setIsAnimating(false);
+    animationTimerRef.current = setTimeout(() => {
+      setIsAnimating(true);
+      animationTimerRef.current = null;
+    }, 40);
+
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+    }
+    hideTimerRef.current = setTimeout(() => {
+      hideNotification();
+      hideTimerRef.current = null;
+    }, 5000);
+  }, [hideNotification]);
+
+  // Hide notification with animation
   useEffect(() => {
     return () => {
       if (hideTimerRef.current) {
         clearTimeout(hideTimerRef.current);
         hideTimerRef.current = null;
+      }
+      if (animationTimerRef.current) {
+        clearTimeout(animationTimerRef.current);
+        animationTimerRef.current = null;
+      }
+      if (hideAnimationTimerRef.current) {
+        clearTimeout(hideAnimationTimerRef.current);
+        hideAnimationTimerRef.current = null;
       }
     };
   }, []);
@@ -100,10 +133,10 @@ const useErrorNotification = () => {
   
   // Render the notification component
   const renderErrorNotification = () => {
-    if (!visible || !error) return null;
-    
+    if (!visible || !notification) return null;
+
     const getIconAndColor = () => {
-      switch (type) {
+      switch (notification.type) {
         case 'success':
           return { 
             icon: <FaCheckCircle size={16} />, 
@@ -135,12 +168,13 @@ const useErrorNotification = () => {
           };
       }
     };
-    
+
     const { icon, color, bgColor, borderColor } = getIconAndColor();
-    const formattedMessage = formatApiErrorMessage(error);
-    
+    const formattedMessage = formatApiErrorMessage(notification.message);
+
     return (
       <div 
+        key={notification.id}
         style={{
           transform: isAnimating ? 'translateX(0)' : 'translateX(100%)',
           opacity: isAnimating ? 1 : 0,

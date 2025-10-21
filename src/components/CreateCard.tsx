@@ -5779,7 +5779,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             const fullPrompt = `${finalPrompt}\n\nText: "${inputText}"\n\nProvide a clear, educational response that would work well as flashcard content. Be concise but informative.`;
             
             // Use the AI service to generate the card content
-            const response = await aiService.translateText(fullPrompt, 'en');
+            const response = await aiService.translateText(apiKey, fullPrompt, 'en');
             
             if (!response) {
                 throw new Error('Failed to generate card content');
