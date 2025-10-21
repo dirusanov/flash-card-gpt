@@ -322,7 +322,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     }
 
                     const ankiCard = {
-                        text: card.text,
+                        text: card.text || card.front || '',
                         translation: card.translation,
                         examples: card.examples || [],
                         image_base64: processedImageBase64,
@@ -524,7 +524,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                             lineHeight: '1.4',
                             wordWrap: 'break-word'
                         }}>
-                            {card.text}
+                            {card.text || card.front || ''}
                         </p>
                     ) : (
                         <div style={{
@@ -1450,6 +1450,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
         }
 
         const { text, translation, examples, front, back, image, imageUrl, linguisticInfo, transcription } = localEditingCardData;
+        // Ensure studied word is visible in modal: for LanguageLearning use text as front fallback
+        const displayFront = editingCard.mode === Modes.LanguageLearning
+            ? (text || front || '')
+            : (front || '');
 
         debugLog('Rendering edit modal with local data:', {
             text: text?.substring(0, 20) + '...',
@@ -1633,7 +1637,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                     {/* Use ResultDisplay component for consistent UI */}
                     <ResultDisplay
                         mode={editingCard.mode}
-                        front={front || null}
+                        front={displayFront || null}
                         back={back || null}
                         translation={translation || null}
                         examples={examples || []}
@@ -2037,8 +2041,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 });
 
                 if (card.mode === Modes.LanguageLearning) {
-                    // Front is just the word/phrase
-                    const front = card.text.trim();
+                    // Front is the studied word/phrase (fallback to front if text missing)
+                    const front = (card.text || card.front || '').trim();
 
                     // Start building the back without any images
                     let back = '';
