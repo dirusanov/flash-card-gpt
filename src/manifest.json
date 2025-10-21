@@ -28,7 +28,9 @@
     "https://api-inference.huggingface.co/*",
     "https://oaidalleapiprodscus.blob.core.windows.net/*",
     "https://cdn.jsdelivr.net/*",
-    "https://*/*"
+    "https://*/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
   ],
   "devtools_page": "devtools.html",
   "web_accessible_resources": [

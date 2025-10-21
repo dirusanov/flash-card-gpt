@@ -5,6 +5,7 @@ import {RootState} from "../store";
 import chatGptLogo from '../assets/img/chat-gpt.png';
 import CopyIcon from '../assets/img/copy-icon.svg';
 import { ModelProvider } from '../store/reducers/settings';
+import { backgroundFetch } from '../services/backgroundFetch';
 
 interface SettingsProps {
     onBackClick: () => void;
@@ -21,6 +22,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const groqApiKey = useSelector((state: RootState) => state.settings.groqApiKey);
   const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
   const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
+  const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
 
   const handleOpenAiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     dispatch(setOpenAiKey(event.target.value));
@@ -32,6 +34,10 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
 
   const handleAnkiConnectApiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     dispatch(setAnkiConnectApiKey(event.target.value));
+  };
+
+  const handleUseAnkiConnectChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    dispatch(setUseAnkiConnect(event.target.checked));
   };
 
   const handleGroqApiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -367,8 +373,77 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
 
   const renderAnkiConnectSection = () => {
     return (
-      <div style={{ marginBottom: '20px' }}>
-        {/* Anki Connect settings */}
+      <div style={{ marginBottom: '20px', backgroundColor: '#F9FAFB', padding: '12px', borderRadius: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <div>
+            <div style={{ fontWeight: 600, color: '#111827', fontSize: '14px' }}>AnkiConnect</div>
+            <div style={{ fontSize: '12px', color: '#6B7280' }}>Enable integration with Anki via AnkiConnect</div>
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={useAnkiConnect}
+              onChange={handleUseAnkiConnectChange}
+              style={{ width: 0, height: 0, opacity: 0, position: 'absolute' }}
+            />
+            <span style={{
+              width: '38px', height: '22px', borderRadius: '999px', display: 'inline-block', position: 'relative',
+              backgroundColor: useAnkiConnect ? '#10B981' : '#D1D5DB', transition: 'background-color 0.2s ease'
+            }}>
+              <span style={{
+                position: 'absolute', top: '3px', left: useAnkiConnect ? '20px' : '3px', width: '16px', height: '16px',
+                borderRadius: '999px', backgroundColor: '#ffffff', transition: 'left 0.2s ease', boxShadow: '0 1px 2px rgba(0,0,0,0.15)'
+              }} />
+            </span>
+          </label>
+        </div>
+
+        {useAnkiConnect && (
+          <>
+            <label htmlFor="ankiConnectUrl" style={{
+              display: 'block', fontWeight: 600, marginBottom: '6px', color: '#111827', fontSize: '14px'
+            }}>AnkiConnect URL</label>
+            <input
+              type="text"
+              id="ankiConnectUrl"
+              value={ankiConnectUrl}
+              onChange={handleAnkiConnectUrlChange}
+              placeholder="http://127.0.0.1:8765"
+              style={{
+                width: '100%', padding: '8px 12px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #E5E7EB',
+                backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none', transition: 'all 0.2s ease', marginBottom: '12px'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+              onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+            />
+
+            <button
+              onClick={async () => {
+                try {
+                  setTestResults(null);
+                  const response = await backgroundFetch(ankiConnectUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'deckNames', version: 6, key: ankiConnectApiKey })
+                  });
+                  const data = await response.json<any>();
+                  if (response.ok && !data.error) {
+                    setTestResults({ success: true, message: 'AnkiConnect is reachable ✅' });
+                  } else {
+                    setTestResults({ success: false, message: `AnkiConnect error: ${data?.error || 'Unknown error'}` });
+                  }
+                } catch (e: any) {
+                  setTestResults({ success: false, message: `Failed to reach AnkiConnect: ${e?.message || e}` });
+                }
+              }}
+              style={{
+                marginTop: '4px', padding: '6px 12px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px'
+              }}
+            >
+              Test AnkiConnect
+            </button>
+          </>
+        )}
       </div>
     );
   }

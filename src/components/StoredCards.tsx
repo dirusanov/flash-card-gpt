@@ -2338,11 +2338,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                 </div>
             </div>
 
+            {useAnkiConnect && renderDeckSelector()}
+
             {storedCards.length > 0 ? (
                 <>
                     {renderTabNavigation()}
-
-                    {useAnkiConnect && renderDeckSelector()}
 
                     <div style={{
                         display: 'flex',

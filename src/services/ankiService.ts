@@ -1,4 +1,5 @@
 import { Modes } from '../constants';
+import { backgroundFetch } from './backgroundFetch';
 
 function format_example(
     example: string,
@@ -271,7 +272,7 @@ export const createAnkiCards = async (
             params: { deck: deckName },
         });
 
-        const createDeckResponse = await fetch(ankiConnectUrl, {
+        const createDeckResponse = await backgroundFetch(ankiConnectUrl, {
             method: 'POST',
             body: createDeckPayload,
             headers: { 'Content-Type': 'application/json' },
@@ -312,7 +313,7 @@ export const createAnkiCards = async (
             params: { notes },
         });
 
-        const response = await fetch(ankiConnectUrl, {
+        const response = await backgroundFetch(ankiConnectUrl, {
             method: 'POST',
             body: addNotesPayload,
             headers: { 'Content-Type': 'application/json' },
@@ -381,7 +382,7 @@ const normalizeAnkiUrl = (url: string | null | undefined) => {
 export const fetchDecks = async (ankiConnectUrl: string, apiKey: string | null): Promise<DeckResponse> => {
     try {
         const endpoint = normalizeAnkiUrl(ankiConnectUrl);
-        const response = await fetch(endpoint, {
+        const response = await backgroundFetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'deckNames', version: 6, key: apiKey }),
