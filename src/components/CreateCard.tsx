@@ -2058,7 +2058,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 examples: false,
                 flashcard: false,
                 image: false,
-                linguisticInfo: false
+                linguisticInfo: false,
+                transcription: false
             };
             let translationErrorMessage: string | null = null;
             let hadCriticalApiKeyError = false;
@@ -2090,6 +2091,39 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (result.imageUrl) {
                 tabAware.setImageUrl(result.imageUrl);
                 completedOperations.image = true;
+            }
+
+            // Устанавливаем транскрипцию, если доступна
+            if (result.transcription) {
+                try {
+                    const languageName = await getLanguageName(translateToLanguage);
+                    const userLang = result.transcription.userLanguageTranscription || null;
+                    let ipa = result.transcription.ipaTranscription || null;
+                    if (ipa && !ipa.startsWith('[')) {
+                        ipa = `[${ipa}]`;
+                    }
+                    const transcriptionHtml = [
+                        userLang && `
+                            <div class="transcription-item user-lang">
+                                <span class="transcription-label">${languageName}:</span>
+                                <span class="transcription-text">${userLang}</span>
+                            </div>
+                        `,
+                        ipa && `
+                            <div class="transcription-item ipa">
+                                <span class="transcription-label">IPA:</span>
+                                <span class="transcription-text">${ipa}</span>
+                            </div>
+                        `
+                    ].filter(Boolean).join('\n');
+
+                    if (transcriptionHtml) {
+                        tabAware.setTranscription(transcriptionHtml);
+                        completedOperations.transcription = true;
+                    }
+                } catch (e) {
+                    console.warn('Failed to format transcription result:', e);
+                }
             }
 
             // Обработка ошибок
@@ -2166,6 +2200,27 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     setCurrentLoadingMessage(null);
                     setCurrentProgress({ completed: 0, total: 0 });
                 }, 500); // Short delay to ensure UI updates
+
+                // Fallback: если параллельная транскрипция не сработала — запускаем агента в фоне
+                if (!completedOperations.transcription) {
+                    try {
+                        const studiedWord = (result.flashcard?.front && result.flashcard.front.trim()) ? result.flashcard.front.trim() : text;
+                        const sourceLangForPron = sourceLanguageForSubmit;
+                        if (studiedWord && sourceLangForPron && translateToLanguage) {
+                            const aiAgentService = createAIAgentService(aiService, apiKey);
+                            (async () => {
+                                debugLog(`🔤 Pronunciation Agent (fallback): generating for "${studiedWord}" (${sourceLangForPron} -> ${translateToLanguage})`);
+                                const pronunciationHtml = await aiAgentService.generatePronunciationHtml(studiedWord, sourceLangForPron, translateToLanguage);
+                                if (pronunciationHtml) {
+                                    tabAware.setTranscription(pronunciationHtml);
+                                    debugLog('🔤 Pronunciation Agent (fallback): transcription set');
+                                }
+                            })().catch(err => console.warn('Pronunciation Agent fallback async error:', err));
+                        }
+                    } catch (e) {
+                        console.warn('Pronunciation Agent fallback failed to start:', e);
+                    }
+                }
             } else {
                 throw new Error("Failed to create card: No data was successfully generated. Please check your API key and try again.");
             }

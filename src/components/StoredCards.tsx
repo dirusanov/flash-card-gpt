@@ -326,7 +326,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
                         translation: card.translation,
                         examples: card.examples || [],
                         image_base64: processedImageBase64,
-                        linguisticInfo: card.linguisticInfo
+                        linguisticInfo: card.linguisticInfo,
+                        transcription: card.transcription || ''
                     };
 
                     debugLog(`Adding language learning card to Anki export:`, {

@@ -251,6 +251,20 @@ export class AIAgentService {
                 Ты координируешь работу других агентов и принимаешь решения о том, какие агенты должны работать и как.`,
                 execute: this.executeSupervisor.bind(this)
             },
+            pronunciationAgent: {
+                name: 'Pronunciation Agent',
+                role: 'Агент транскрипции и произношения (IPA + язык пользователя)',
+                systemPrompt: `Ты — специализированный агент по фонетике. Твоя задача — получать корректную транскрипцию изучаемого слова/фразы:
+
+1) USER_LANG — транскрипция с опорой на фонетику/письмо языка интерфейса пользователя
+2) IPA — международная фонетическая транскрипция
+
+Требования:
+- Строго использовать корректные IPA‑символы (ˈ ˌ ə ɪ ɛ æ ɑ ɔ ʊ ʌ θ ð ʃ ʒ ʧ ʤ ŋ …)
+- Никаких лишних комментариев, только данные
+- Возвращай ОТДЕЛЬНО значения для USER_LANG и IPA`,
+                execute: this.executePronunciationAgent.bind(this)
+            },
             contentAnalyzer: {
                 name: 'Content Analyzer',
                 role: 'Анализатор контента и планировщик вопросов',
@@ -551,6 +565,91 @@ export class AIAgentService {
             this.cache.delete(firstKey);
         }
         this.cache.set(cacheKey, { cards, timestamp: Date.now() });
+    }
+
+    // ===== Новая логика транскрипции (агент произношения) =====
+    private async executePronunciationAgent(input: { text: string; sourceLanguage: string; userLanguage: string }): Promise<{ userLanguageTranscription: string | null; ipaTranscription: string | null }> {
+        const { text, sourceLanguage, userLanguage } = input;
+        try {
+            // Используем провайдера с его строгим промптом для стабильности
+            const { createTranscription } = await import('./aiServiceFactory');
+            const transcription = await createTranscription(
+                { ...this.aiService },
+                this.apiKey,
+                text,
+                sourceLanguage,
+                userLanguage
+            );
+
+            return {
+                userLanguageTranscription: transcription?.userLanguageTranscription || null,
+                ipaTranscription: transcription?.ipaTranscription || null
+            };
+        } catch (error) {
+            console.error('Pronunciation agent failed:', error);
+            return { userLanguageTranscription: null, ipaTranscription: null };
+        }
+    }
+
+    private async getLanguageNameWithCache(languageCode: string): Promise<string> {
+        try {
+            const cacheKey = `language_name_${languageCode}`;
+            const cached = typeof localStorage !== 'undefined' ? localStorage.getItem(cacheKey) : null;
+            if (cached) return cached;
+
+            // Fallback к имени через AI (один краткий запрос)
+            if (this.aiService.createChatCompletion) {
+                const prompt = `Return only the native name of the language with ISO 639-1 code "${languageCode}".`;
+                const response = await this.aiService.createChatCompletion(this.apiKey, [
+                    { role: 'user', content: prompt }
+                ]);
+                const name = response?.content?.trim();
+                if (name) {
+                    if (typeof localStorage !== 'undefined') {
+                        localStorage.setItem(cacheKey, name);
+                    }
+                    return name;
+                }
+            }
+        } catch (e) {
+            console.warn('getLanguageNameWithCache failed, fallback to code:', e);
+        }
+        return (languageCode || '').toUpperCase();
+    }
+
+    public async generatePronunciationHtml(text: string, sourceLanguage: string, userLanguage: string): Promise<string | null> {
+        if (!text || !sourceLanguage || !userLanguage) return null;
+
+        const { userLanguageTranscription, ipaTranscription } = await this.executePronunciationAgent({
+            text,
+            sourceLanguage,
+            userLanguage
+        });
+
+        if (!userLanguageTranscription && !ipaTranscription) return null;
+
+        const languageName = await this.getLanguageNameWithCache(userLanguage);
+        const blocks: string[] = [];
+
+        if (userLanguageTranscription) {
+            blocks.push(
+                `<div class="transcription-item user-lang">
+                    <span class="transcription-label">${languageName}:</span>
+                    <span class="transcription-text">${userLanguageTranscription}</span>
+                </div>`
+            );
+        }
+        if (ipaTranscription) {
+            const bracketed = ipaTranscription.startsWith('[') ? ipaTranscription : `[${ipaTranscription}]`;
+            blocks.push(
+                `<div class="transcription-item ipa">
+                    <span class="transcription-label">IPA:</span>
+                    <span class="transcription-text">${bracketed}</span>
+                </div>`
+            );
+        }
+
+        return blocks.join('\n');
     }
 
     // 🚀 НОВАЯ АРХИТЕКТУРА: Анализ → Планирование → Параллельная генерация → Проверка → Форматирование

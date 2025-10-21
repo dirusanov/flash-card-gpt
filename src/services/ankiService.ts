@@ -21,6 +21,7 @@ export interface CardLangLearning {
     examples: Array<[string, string | null]>;
     image_base64: string | null;
     linguisticInfo?: string;
+    transcription?: string; // HTML with user-language + IPA
 }
 
 export interface CardGeneral {
@@ -28,6 +29,59 @@ export interface CardGeneral {
     front: string;
     back: string;
     image_base64?: string | null;
+}
+
+function extractTranscriptionParts(transcriptionHtml: string | undefined): { label?: string; user?: string; ipa?: string } {
+    if (!transcriptionHtml) return {};
+    try {
+        const userMatch = transcriptionHtml.match(/transcription-item\s+user-lang[\s\S]*?<span\s+class=\"transcription-text\">([\s\S]*?)<\/span>/i);
+        const ipaMatch = transcriptionHtml.match(/transcription-item\s+ipa[\s\S]*?<span\s+class=\"transcription-text\">([\s\S]*?)<\/span>/i);
+        const labelMatch = transcriptionHtml.match(/transcription-item\s+user-lang[\s\S]*?<span\s+class=\"transcription-label\">([\s\S]*?)<\/span>/i);
+        return {
+            label: labelMatch ? labelMatch[1].trim() : undefined,
+            user: userMatch ? userMatch[1].trim() : undefined,
+            ipa: ipaMatch ? ipaMatch[1].trim() : undefined,
+        };
+    } catch {
+        return {};
+    }
+}
+
+function renderTranscriptionForAnki(card: CardLangLearning): string {
+    const { transcription } = card;
+    if (!transcription || !transcription.trim()) return '';
+
+    const parts = extractTranscriptionParts(transcription);
+    const label = parts.label || 'Transcription';
+    const user = parts.user;
+    const ipa = parts.ipa;
+
+    if (!user && !ipa) return '';
+
+    const userRow = user ? `
+        <div style="margin:4px 0; text-align:center;">
+            <span style="font-weight:600; font-size:12px; color:#64748B;">${label}:</span>
+            <span style="font-size:14px; color:#334155; font-weight:600; margin-left:6px;">${user}</span>
+        </div>
+    ` : '';
+
+    const ipaRow = ipa ? `
+        <div style="margin:4px 0; text-align:center;">
+            <span style="font-weight:600; font-size:12px; color:#64748B;">IPA:</span>
+            <span style="font-family: 'Doulos SIL','Charis SIL','Times New Roman',serif; font-size:14px; color:#0F172A; margin-left:6px;">${ipa}</span>
+        </div>
+    ` : '';
+
+    return `
+        <div style="margin-top: 8px; padding: 10px; background-color:#F8FAFC; border:1px solid #E2E8F0; border-radius:6px; text-align:center;">
+            <div style="color:#1E293B; font-weight:700; font-size:13px; margin-bottom:6px; display:inline-flex; align-items:center; gap:6px; justify-content:center;">
+                <span>🔤</span>
+                <span>Pronunciation</span>
+            </div>
+            ${userRow}
+            ${ipaRow}
+        </div>
+    `;
 }
 
 function format_back_lang_learning(card: CardLangLearning): string {
@@ -105,9 +159,13 @@ function format_back_lang_learning(card: CardLangLearning): string {
         }
     }
 
+    // Transcription block (inline-styled for Anki)
+    const transcriptionHtml = renderTranscriptionForAnki(card);
+
     return `
-        <b>${card.translation}</b>
-        <br><br>${formatted_examples}<br><br>
+        ${transcriptionHtml}
+        <div style="margin-top: 10px;"><b>${card.translation}</b></div>
+        <br>${formatted_examples}<br><br>
         ${imageHtml}
         ${linguisticHtml}
     `;

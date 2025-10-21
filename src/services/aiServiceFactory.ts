@@ -499,6 +499,7 @@ export const createCardComponentsParallel = async (
   flashcard?: FlashcardContent;
   linguisticInfo?: string;
   imageUrl?: string;
+  transcription?: TranscriptionResult | null;
   errors: Array<{component: string; error: string}>;
 }> => {
   const startTime = Date.now();
@@ -549,6 +550,21 @@ export const createCardComponentsParallel = async (
         return { type: 'flashcard', error: message };
       })
   );
+
+  // 4. Транскрипция (параллельно, если известен язык источника)
+  if (sourceLanguage) {
+    promises.push(
+      service.createTranscription(apiKey, text, sourceLanguage, translateToLanguage)
+        .then(result => ({ type: 'transcription', result }))
+        .catch(error => {
+          const message = error instanceof Error ? error.message : String(error);
+          if (isApiKeyErrorMessage(message)) {
+            throw new ApiKeyAuthorizationError(message);
+          }
+          return { type: 'transcription', error: message };
+        })
+    );
+  }
   
   // 4. Лингвистическая информация (параллельно, быстрая версия)
   if (sourceLanguage) {
