@@ -360,7 +360,8 @@ Keep the description under 50 words and make sure it is purely descriptive witho
         
         if (translate) {
           try {
-            translatedExample = await this.translateText(example, translateToLanguage);
+            const hint = sourceLanguage ? ` Source text language (ISO 639-1): ${sourceLanguage}. Translate strictly from ${sourceLanguage} to ${translateToLanguage}.` : '';
+            translatedExample = await this.translateText(example, translateToLanguage, hint);
           } catch (translationError) {
             console.error('Error translating example:', translationError);
           }

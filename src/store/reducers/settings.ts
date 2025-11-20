@@ -62,7 +62,8 @@ const initialState: SettingsState = {
     aiInstructions: '',
     imageInstructions: '',
     modelProvider: ModelProvider.OpenAI,
-    sourceLanguage: 'en'
+    // Empty by default; auto-detection or explicit user choice will set it
+    sourceLanguage: ''
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {

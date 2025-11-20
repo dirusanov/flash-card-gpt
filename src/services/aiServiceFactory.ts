@@ -349,11 +349,17 @@ export const createTranslation = async (
       throw new Error("API key is missing. Please check your settings.");
     }
 
+    // If we know source language, append a minimal, token-cheap hint to the prompt
+    // to improve directionality for non-English texts.
+    const languageHint = textLanguage
+      ? ` Source text language (ISO 639-1): ${textLanguage}. Translate strictly from ${textLanguage} to ${translateToLanguage}.`
+      : '';
+
     const translatedText = await service.translateText(
       apiKey,
       text,
       translateToLanguage,
-      customPrompt,
+      (customPrompt || '') + languageHint,
       abortSignal
     );
     

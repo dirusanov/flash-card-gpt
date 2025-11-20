@@ -1112,24 +1112,63 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Generate new examples based on instructions
                 debugLog('📚 Starting examples generation...');
-                const newExamples = await aiService.getExamples(apiKey, text, translateToLanguage, true, customInstruction);
+                const detectedOrManual = isAutoDetectLanguage ? (detectedLanguage || null) : (sourceLanguage || null);
+                const newExamplesResult = await createExamples(
+                    aiService,
+                    apiKey,
+                    text,
+                    translateToLanguage,
+                    true,
+                    customInstruction,
+                    detectedOrManual || undefined,
+                    abortControllerRef.current?.signal
+                );
+                const newExamples = newExamplesResult.map(ex => [ex.original, ex.translated] as [string, string | null]);
                 debugLog('📚 Examples generation completed');
                 tabAware.setExamples(newExamples);
             } else if (customInstruction.toLowerCase().includes('translat') ||
                 customInstruction.toLowerCase().includes('перевод')) {
 
                 // Update translation based on instructions
-                const translatedText = await aiService.translateText(apiKey, text, translateToLanguage, customInstruction);
-                if (translatedText) {
-                    tabAware.setTranslation(translatedText);
+                const detectedOrManual = isAutoDetectLanguage ? (detectedLanguage || null) : (sourceLanguage || null);
+                const translation = await createTranslation(
+                    aiService,
+                    apiKey,
+                    text,
+                    translateToLanguage,
+                    customInstruction,
+                    detectedOrManual || undefined,
+                    abortControllerRef.current?.signal
+                );
+                if (translation && translation.translated) {
+                    tabAware.setTranslation(translation.translated);
                 }
             } else {
                 // Apply all updates with custom instructions
                 // Always use custom instructions for both translation and examples
                 // This should ensure instructions are always applied
-                const translatedText = await aiService.translateText(apiKey, text, translateToLanguage, customInstruction);
+                const detectedOrManual = isAutoDetectLanguage ? (detectedLanguage || null) : (sourceLanguage || null);
+                const translation = await createTranslation(
+                    aiService,
+                    apiKey,
+                    text,
+                    translateToLanguage,
+                    customInstruction,
+                    detectedOrManual || undefined,
+                    abortControllerRef.current?.signal
+                );
                 debugLog('📚 Starting examples generation (combined)...');
-                const newExamples = await aiService.getExamples(apiKey, text, translateToLanguage, true, customInstruction);
+                const newExamplesResult = await createExamples(
+                    aiService,
+                    apiKey,
+                    text,
+                    translateToLanguage,
+                    true,
+                    customInstruction,
+                    detectedOrManual || undefined,
+                    abortControllerRef.current?.signal
+                );
+                const newExamples = newExamplesResult.map(ex => [ex.original, ex.translated] as [string, string | null]);
                 debugLog('📚 Examples generation completed (combined)');
 
                 if (shouldGenerateImage) {
@@ -1141,8 +1180,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
                 }
 
-                if (translatedText) {
-                    tabAware.setTranslation(translatedText);
+                if (translation && translation.translated) {
+                    tabAware.setTranslation(translation.translated);
                 }
                 tabAware.setExamples(newExamples);
             }
@@ -4738,32 +4777,51 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         return null;
     }, [sourceLanguage, detectedLanguage]);
 
-    // Офлайн определение языка по паттернам
-    const detectLanguageOffline = useCallback((text: string): string | null => {
+    // Язык страницы из DOM/meta (дешевый хинт)
+    const getPageLanguageHint = useCallback((): string | null => {
+        try {
+            const htmlLang = (document.documentElement.getAttribute('lang') || '').trim();
+            if (htmlLang) {
+                const norm = htmlLang.toLowerCase().split('-')[0];
+                return norm.length === 2 ? norm : null;
+            }
+            const metaLang = (document.querySelector('meta[http-equiv="Content-Language" i]') as HTMLMetaElement)?.content
+                || (document.querySelector('meta[name="language" i]') as HTMLMetaElement)?.content
+                || (document.querySelector('meta[property="og:locale" i]') as HTMLMetaElement)?.content;
+            if (metaLang) {
+                const norm = metaLang.toLowerCase().split('-')[0];
+                return norm.length === 2 ? norm : null;
+            }
+        } catch (_) { /* ignore */ }
+        return null;
+    }, []);
+
+    // Офлайн определение языка по паттернам (с учетом языка страницы для коротких строк)
+    const detectLanguageOffline = useCallback((text: string, pageHint?: string | null): string | null => {
         const cleanText = text.trim().toLowerCase();
         
-        // Русский: кириллица
+        // Скрипты
         if (/[а-яё]/i.test(cleanText)) return 'ru';
+        if (/[\u4e00-\u9fff]/.test(cleanText)) return 'zh';
+        if (/[\u3040-\u309f\u30a0-\u30ff]/.test(cleanText)) return 'ja';
+        if (/[\uac00-\ud7af]/.test(cleanText)) return 'ko';
+        if (/[\u0600-\u06ff]/.test(cleanText)) return 'ar';
         
-        // Английский: только латиница + английские слова
+        // Латиница с диакритиками
+        if (/[ñáéíóúü]/i.test(cleanText)) return 'es';
+        if (/[àâäéèêëïîôöùûüÿç]/i.test(cleanText)) return 'fr';
+        if (/[äöüß]/i.test(cleanText)) return 'de';
+        if (/[àèéìíîòóù]/i.test(cleanText)) return 'it';
+        
+        // Чистая латиница без диакритики
         if (/^[a-z\s\.,!?\-'"]+$/i.test(cleanText)) {
-            const englishWords = ['the', 'and', 'is', 'in', 'to', 'of', 'a', 'for', 'with', 'on', 'at', 'by', 'from', 'this', 'that', 'it', 'he', 'she', 'they', 'we', 'you', 'was', 'were', 'are', 'have', 'has', 'had', 'can', 'will', 'would', 'could', 'should'];
+            const englishWords = ['the','and','is','in','to','of','a','for','with','on','at','by','from','this','that','it','he','she','they','we','you','was','were','are','have','has','had','can','will','would','could','should'];
             const words = cleanText.split(/\s+/);
             const englishMatches = words.filter(word => englishWords.includes(word.replace(/[^\w]/g, ''))).length;
-            if (englishMatches > 0 || words.length === 1) return 'en';
+            if (englishMatches > 0) return 'en';
+            // Для однословных латинских слов доверимся языку страницы
+            if (words.length === 1 && pageHint && pageHint.length === 2) return pageHint;
         }
-        
-        // Испанский: латиница + специфичные символы
-        if (/[ñáéíóúü]/i.test(cleanText)) return 'es';
-        
-        // Французский: латиница + французские диакритики
-        if (/[àâäéèêëïîôöùûüÿç]/i.test(cleanText)) return 'fr';
-        
-        // Немецкий: латиница + немецкие символы
-        if (/[äöüß]/i.test(cleanText)) return 'de';
-        
-        // Итальянский: латиница + итальянские символы
-        if (/[àèéìíîòóù]/i.test(cleanText)) return 'it';
         
         return null;
     }, []);
@@ -4817,11 +4875,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             detectedResult = normalized;
         };
 
-        // 1. ОФЛАЙН определение (быстро и бесплатно)
-        const offlineDetected = detectLanguageOffline(text);
+        // 1. ОФЛАЙН определение (быстро и бесплатно) с учетом языка страницы
+        const pageHint = getPageLanguageHint();
+        const offlineDetected = detectLanguageOffline(text, pageHint);
         if (offlineDetected) {
             debugLog('Language detected offline:', offlineDetected);
             recordDetection(offlineDetected, 'offline detection');
+            return detectedResult;
+        }
+
+        // 1.1. Если указан язык страницы и текст короткий/неоднозначный — используем хинт без LLM
+        const isShortOrAmbiguous = text.trim().split(/\s+/).length <= 2;
+        if (!detectedResult && pageHint && isShortOrAmbiguous) {
+            debugLog('Using page language hint due to short/ambiguous text:', pageHint);
+            recordDetection(pageHint, 'page hint');
             return detectedResult;
         }
 
@@ -4907,9 +4974,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         },
                                         {
                                             role: 'user',
-                                            content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`,
+                                            content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text.slice(0, 160)}"`,
                                         },
                                     ],
+                                    max_tokens: 5,
+                                    temperature: 0.0,
                                 }),
                             }
                         );
@@ -4976,7 +5045,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                     },
                                     {
                                         role: 'user',
-                                        content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text}"`,
+                                        content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text.slice(0, 160)}"`,
                                     },
                                 ],
                                 max_tokens: 5,
@@ -5057,8 +5126,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     debugLog("Detected Spanish text or common Spanish word");
                     detectedLang = 'es';
                 } else if (latinPattern.test(textSample)) {
-                    debugLog("Detected Latin script, defaulting to English");
-                    detectedLang = 'en';
+                    // For ambiguous Latin-only text in fallback path, prefer page hint over defaulting to English
+                    const pageHint = getPageLanguageHint();
+                    if (pageHint) {
+                        debugLog("Detected Latin script, using page hint:", pageHint);
+                        detectedLang = pageHint;
+                    } else {
+                        debugLog("Detected Latin script, defaulting to English (no hint)");
+                        detectedLang = 'en';
+                    }
                 }
 
                 if (detectedLang) {
@@ -5132,7 +5208,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 } else if (spanishPattern.test(textSample) || isSpanishWord) {
                     detectedLang = 'es';
                 } else if (latinPattern.test(textSample)) {
-                    detectedLang = 'en';
+                    const pageHint = getPageLanguageHint();
+                    detectedLang = pageHint || 'en';
                 }
 
                 if (detectedLang) {
