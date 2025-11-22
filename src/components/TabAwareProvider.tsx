@@ -37,6 +37,8 @@ import { StoredCard } from '../store/reducers/cards';
 import { Modes } from '../constants';
 
 interface TabAwareContextType {
+    // Tab identity
+    tabId: number;
     // Card data
     text: string;
     translation: string;
@@ -150,6 +152,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
         const currentPage = tabState?.currentPage || globalCurrentPage;
 
         return {
+            tabId,
             // Card data
             text: cardData.text,
             translation: cardData.translation,

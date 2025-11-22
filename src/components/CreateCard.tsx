@@ -253,8 +253,33 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const noop = useCallback(() => {}, []);
 
-    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, fieldIdPrefix } = tabAware;
+    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, fieldIdPrefix, tabId } = tabAware;
     const lastDraftCard = useSelector((state: RootState) => state.cards.lastDraftCard);
+
+    // Tab-scoped localStorage helpers to avoid cross-tab leaks
+    const getTabScopedLS = useCallback((key: string): string | null => {
+        try {
+            const tabKey = `${key}_${tabId}`;
+            const v = localStorage.getItem(tabKey);
+            return v !== null ? v : localStorage.getItem(key);
+        } catch {
+            return null;
+        }
+    }, [tabId]);
+    const setTabScopedLS = useCallback((key: string, value: string) => {
+        try {
+            const tabKey = `${key}_${tabId}`;
+            localStorage.setItem(tabKey, value);
+            // also write legacy global key for backward compatibility
+            localStorage.setItem(key, value);
+        } catch {}
+    }, [tabId]);
+    const removeTabScopedLS = useCallback((key: string) => {
+        try {
+            localStorage.removeItem(`${key}_${tabId}`);
+            localStorage.removeItem(key);
+        } catch {}
+    }, [tabId]);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
@@ -706,14 +731,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
 
         const savedFlagFromStorage = typeof window !== 'undefined'
-            ? localStorage.getItem('explicitly_saved') === 'true'
+            ? getTabScopedLS('explicitly_saved') === 'true'
             : false;
 
         if (!explicitlySaved && !savedFlagFromStorage) {
             return false;
         }
 
-        const savedId = currentCardId || (typeof window !== 'undefined' ? localStorage.getItem('current_card_id') : null);
+        const savedId = currentCardId || (typeof window !== 'undefined' ? getTabScopedLS('current_card_id') : null);
         if (!savedId) {
             return false;
         }
@@ -727,11 +752,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
 
         const savedFlagFromStorage = typeof window !== 'undefined'
-            ? localStorage.getItem('explicitly_saved') === 'true'
+            ? getTabScopedLS('explicitly_saved') === 'true'
             : false;
 
         const savedIdFromStorage = typeof window !== 'undefined'
-            ? localStorage.getItem('current_card_id')
+            ? getTabScopedLS('current_card_id')
             : null;
 
         const effectiveSavedId = currentCardId || savedIdFromStorage;
@@ -766,7 +791,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
 
         const savedFlagFromStorage = typeof window !== 'undefined'
-            ? localStorage.getItem('explicitly_saved') === 'true'
+            ? getTabScopedLS('explicitly_saved') === 'true'
             : false;
 
         if ((isSaved || savedFlagFromStorage || explicitlySaved) && !isEdited) {
@@ -858,7 +883,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         isSaved,
         currentCardId,
         text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
-        localStorage_explicitly_saved: localStorage.getItem('explicitly_saved')
+        localStorage_explicitly_saved: getTabScopedLS('explicitly_saved')
     });
 
     const popularLanguages = [
@@ -1357,13 +1382,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Ensure the current card is marked as explicitly saved
             setExplicitlySaved(true);
-            localStorage.setItem('explicitly_saved', 'true');
+            setTabScopedLS('explicitly_saved', 'true');
 
             // Also update the currentCardId to match current card
             const currentCard = cardsToSave[currentCardIndex];
             if (currentCard && currentCard.id) {
                 dispatch(setCurrentCardId(currentCard.id));
-                localStorage.setItem('current_card_id', currentCard.id);
+                setTabScopedLS('current_card_id', currentCard.id);
             }
 
             // Show detailed success message
@@ -1477,11 +1502,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Set current card's ID for reference
                 tabAware.setCurrentCardId(cardToPersist.id);
-                localStorage.setItem('current_card_id', cardToPersist.id);
+                setTabScopedLS('current_card_id', cardToPersist.id);
 
                 // Update UI state for the current card only
                 setExplicitlySaved(true);
-                localStorage.setItem('explicitly_saved', 'true');
+                setTabScopedLS('explicitly_saved', 'true');
                 setIsEdited(false);
                 // showError('Card saved successfully!', 'success'); // Убрали уведомление
 
@@ -1623,7 +1648,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Important: When the user explicitly saves the card, mark it as explicitly saved
             // and store this state in localStorage
             setExplicitlySaved(true);
-            localStorage.setItem('explicitly_saved', 'true');
+            setTabScopedLS('explicitly_saved', 'true');
 
             // Убрали уведомления при сохранении/обновлении карточек
             // if (isEdited) {
@@ -1657,8 +1682,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Reset all saved state tracking
         setExplicitlySaved(false);
         setExplicitlySavedIds([]);
-        localStorage.removeItem('explicitly_saved');
-        localStorage.removeItem('current_card_id');
+        removeTabScopedLS('explicitly_saved');
+        removeTabScopedLS('current_card_id');
 
         // Сбрасываем историю карточек
         setCreatedCards([]);
@@ -1828,8 +1853,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 debugLog('Loaded cards from storage:', savedCards.length);
 
                 // Get currentCardId from localStorage
-                const savedCardId = localStorage.getItem('current_card_id');
-                const explicitlySavedFlag = localStorage.getItem('explicitly_saved');
+                const savedCardId = getTabScopedLS('current_card_id');
+                const explicitlySavedFlag = getTabScopedLS('explicitly_saved');
 
                 debugLog('localStorage values on mount:', {
                     savedCardId,
@@ -1874,8 +1899,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     } else {
                         debugLog('Card ID from localStorage not found in storage, resetting');
                         // If card with this ID no longer exists, clear the ID
-                        localStorage.removeItem('current_card_id');
-                        localStorage.removeItem('explicitly_saved');
+                        removeTabScopedLS('current_card_id');
+                        removeTabScopedLS('explicitly_saved');
                         tabAware.setCurrentCardId(null);
                         setIsNewSubmission(true);
                         setExplicitlySaved(false);
@@ -1909,7 +1934,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (!currentCardId) {
             debugLog('Actively typing new card text - ensuring not marked as saved');
             setExplicitlySaved(false);
-            localStorage.removeItem('explicitly_saved');
+            removeTabScopedLS('explicitly_saved');
         }
 
         // Check if the card already exists in storage
@@ -1950,7 +1975,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // IMPORTANT: Explicitly clear saved state when creating a new card
         setExplicitlySaved(false);
-        localStorage.removeItem('explicitly_saved');
+        removeTabScopedLS('explicitly_saved');
 
         // Сбрасываем предыдущие сохраненные карточки
         setCreatedCards([]);
@@ -2224,7 +2249,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             
             // IMPORTANT: Only set explicitly saved to false AFTER successful creation
             setExplicitlySaved(false);
-            localStorage.removeItem('explicitly_saved');
+            removeTabScopedLS('explicitly_saved');
             
             debugLog('Setting showResult to true after successful parallel card creation');
             
@@ -2652,8 +2677,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
         setExplicitlySaved(false); // Reset explicit save
-        localStorage.removeItem('explicitly_saved'); // Also remove from localStorage
-        localStorage.removeItem('current_card_id'); // Clear current card ID too
+        removeTabScopedLS('explicitly_saved'); // Also remove from localStorage (tab-scoped)
+        removeTabScopedLS('current_card_id'); // Clear current card ID too
 
         // Reset card generation state to enable navigation buttons
         tabAware.setIsGeneratingCard(false);
@@ -3225,7 +3250,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Сброс статуса явного сохранения для предотвращения ложного отображения "Saved to Collection"
                 setExplicitlySaved(false);
-                localStorage.removeItem('explicitly_saved');
+                removeTabScopedLS('explicitly_saved');
 
                 try {
                 let detectedLanguageForOption = detectedLanguage;
@@ -3536,12 +3561,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Сброс статуса явного сохранения карточек
                 setExplicitlySaved(false);
                 setExplicitlySavedIds([]);  // Clear explicitly saved IDs
-                localStorage.removeItem('explicitly_saved');
+                removeTabScopedLS('explicitly_saved');
                 debugLog('Reset saved status for new multiple cards');
 
                 // Важное обновление: очищаем список сохраненных ID перед показом новых карточек
                 setExplicitlySavedIds([]);
-                localStorage.removeItem('explicitly_saved');
+                removeTabScopedLS('explicitly_saved');
                 setExplicitlySaved(false);
 
                 // Показываем результат
@@ -6499,7 +6524,7 @@ Original text: ${text}`;
     };
 
 
-    const isGeneratingCard = useSelector((state: RootState) => state.cards.isGeneratingCard);
+    // Use tab-specific isGeneratingCard from TabAware context to avoid cross-tab leakage
 
     return (
         <div style={{

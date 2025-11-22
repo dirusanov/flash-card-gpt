@@ -6,6 +6,7 @@ import App from '../../App';
 import { Provider } from 'react-redux';
 import { instantiateStore } from '../../store';
 import { initializeApiKeyPersistence } from '../../services/apiKeyStorage';
+import { setCurrentTabId } from '../../store/actions/tabState';
 
 console.log('Content script works!');
 console.log('Must reload extension for modifications to take effect.');
@@ -169,29 +170,43 @@ const StoreInitializer = () => {
   useEffect(() => {
     let isMounted = true;
 
+    const getTabIdAsync = () => new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ action: 'getTabId' }, (response) => {
+          const currentTabId = (response && typeof response.tabId !== 'undefined')
+            ? response.tabId
+            : Math.floor(Math.random() * 1000000);
+          resolve(currentTabId);
+        });
+      } catch {
+        resolve(Math.floor(Math.random() * 1000000));
+      }
+    });
+
     const initialize = async () => {
       try {
-        chrome.runtime.sendMessage({ action: 'getTabId' }, async (response) => {
-          if (!isMounted) {
-            return;
-          }
-          const currentTabId = (response && typeof response.tabId !== 'undefined') ? response.tabId : Math.floor(Math.random() * 1000000);
-          setTabId(currentTabId);
+        const currentTabId = await getTabIdAsync();
+        if (!isMounted) return;
+        setTabId(currentTabId);
 
-          try {
-            const state = await uiState.get(currentTabId);
-            applySidebarVisible(state.sidebarVisible);
-          } catch (error) {
-            console.error('Error reading initial UI state:', error);
-            applySidebarVisible(false);
-          }
-        });
+        try {
+          const state = await uiState.get(currentTabId);
+          applySidebarVisible(state.sidebarVisible);
+        } catch (error) {
+          console.error('Error reading initial UI state:', error);
+          applySidebarVisible(false);
+        }
 
         const resolvedStore = await instantiateStore();
-        if (!isMounted) {
-          return;
+        if (!isMounted) return;
+        // Critically, create tab-specific state BEFORE first render to avoid global fallbacks
+        try {
+          resolvedStore.dispatch(setCurrentTabId(currentTabId));
+        } catch (e) {
+          console.warn('Failed to pre-initialize tab state:', e);
         }
         setStore(resolvedStore);
+
         try {
           const unsubscribe = await initializeApiKeyPersistence(resolvedStore);
           if (isMounted) {
@@ -202,12 +217,14 @@ const StoreInitializer = () => {
         } catch (error) {
           console.error('Failed to initialize API key persistence:', error);
         }
+
         setTimeout(() => setIsLoading(false), 100);
       } catch (error) {
         console.error('Error initializing store:', error);
         setIsLoading(false);
       }
     };
+
     initialize();
 
     return () => {

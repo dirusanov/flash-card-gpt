@@ -10,6 +10,20 @@ import {
     SET_TAB_CURRENT_PAGE
 } from '../actions/tabState';
 import { ExportStatus, StoredCard } from './cards';
+// Listen to global card actions so we can mirror them into the current tab's state
+import {
+    SET_TEXT,
+    SET_TRANSLATION,
+    SET_EXAMPLES,
+    SET_IMAGE,
+    SET_IMAGE_URL,
+    SET_FRONT,
+    SET_BACK,
+    SET_LINGUISTIC_INFO,
+    SET_TRANSCRIPTION,
+    SET_IS_GENERATING_CARD,
+    SET_CURRENT_CARD_ID as SET_GLOBAL_CURRENT_CARD_ID,
+} from '../actions/cards';
 import { Modes } from '../../constants';
 
 export interface TabCardData {
@@ -220,6 +234,184 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                 };
             }
             break;
+
+        // Mirror global card state changes into the current tab's cardData
+        case SET_TEXT: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            text: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_TRANSLATION: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            translation: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_EXAMPLES: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            examples: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_IMAGE: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            image: action.payload ?? null,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_IMAGE_URL: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            imageUrl: action.payload ?? null,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_FRONT: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            front: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_BACK: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            back: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_LINGUISTIC_INFO: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            linguisticInfo: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_TRANSCRIPTION: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            transcription: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_IS_GENERATING_CARD: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            isGeneratingCard: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_GLOBAL_CURRENT_CARD_ID: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            currentCardId: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
 
         default:
             break;
