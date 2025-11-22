@@ -1,7 +1,13 @@
 # Flash Cards + GPT
 ![Logo](</src/assets/img/logo.png>)
 
-Flash Cards + GPT is an innovative browser extension designed to create flashcards on the fly while browsing web pages. Simply highlight the text, click on the extension icon, and your flashcards are ready to use! This is an excellent tool for students and curious individuals who want to simplify the process of learning foreign languages or deepen their knowledge in various topics such as medicine or history.
+Create high‑quality flashcards right from any web page. Select text, click the extension, and let AI do the heavy lifting: translation, examples, optimal fronts/backs, and even illustrative images.
+
+## Demo
+
+![Demo](</screenshots/demo.gif>)
+
+Tip: Put your demo GIF at `screenshots/demo.gif` for this preview to work.
 
 ## Usage
 
@@ -10,13 +16,18 @@ Flash Cards + GPT is an innovative browser extension designed to create flashcar
 3. Click on the Flash Cards + GPT extension icon in the browser panel.
 4. Follow the instructions to create and save your flashcard.
 
-### Mode: "learning language"
+### Mode: Learning Language
 ![Usage Example 1](</screenshots/lang-learn.png>)
 
-### Mode: "General"
+### Mode: General Topic
 ![Usage Example 2](</screenshots/gen-topic-sample.png>)
 
-Please replace `<Link to your usage example 1 screenshot>` and `<Link to your usage example 2 screenshot>` with the actual links to your screenshots showing examples of extension usage.
+## Features
+
+- Instant card creation from selected text
+- AI‑powered translation, examples, and card structure
+- Smart image generation with consistent style (photorealistic or painting)
+- Anki integration via AnkiConnect (optional)
 
 ## Functionality
 
@@ -42,9 +53,9 @@ npm install
 ```sh
 npm run build
 ```
-5.  Enter `chrome://extensions/` in the address bar of the Chrome browser.
-6.  Enable developer mode by clicking on the corresponding button.
-7.  Click "Load unpacked extension" and select the `build` folder in your project directory.
+5. Open `chrome://extensions/` in Chrome.
+6. Enable Developer mode.
+7. Click “Load unpacked” and select the `build` folder.
 
 ## OpenAI API Key
 
@@ -71,4 +82,4 @@ Once the extension is installed, you will need to configure it with your OpenAI 
 
 ## Support
 
-If you have any issues or questions, please create a GitHub [Issues](https://github.com/dirusanov/flash-card-gpt/issues).
+If you have any issues or questions, please create a GitHub [issue](https://github.com/dirusanov/flash-card-gpt/issues).
