@@ -16,7 +16,8 @@
     {
       "matches": ["http://*/*", "https://*/*", "<all_urls>"],
       "js": ["contentScript.bundle.js"],
-      "css": ["contentScript.css"]
+      "css": ["contentScript.css"],
+      "run_at": "document_start"
     }
   ],
   "permissions": [

@@ -35,7 +35,26 @@ const linkElem = document.createElement('link');
 linkElem.setAttribute('rel', 'stylesheet');
 linkElem.setAttribute('href', chrome.runtime.getURL('tailwind.css'));
 shadow.appendChild(linkElem);
-document.body.appendChild(newDiv);
+
+// Безопасно дождаться появления <body> на document_start
+const mountSidebarHost = () => {
+  try {
+    if (document.body && !document.getElementById('sidebar')) {
+      document.body.appendChild(newDiv);
+    } else if (!document.body) {
+      // fallback, если body еще не готов
+      window.addEventListener('DOMContentLoaded', () => {
+        if (!document.getElementById('sidebar') && document.body) {
+          document.body.appendChild(newDiv);
+        }
+      }, { once: true });
+    }
+  } catch (e) {
+    // в крайнем случае попробуем позже
+    setTimeout(mountSidebarHost, 50);
+  }
+};
+mountSidebarHost();
 
 const root = createRoot(shadow);
 
@@ -150,11 +169,11 @@ const clearHiddenStyles = () => {
 const showSidebar = () => {
   clearHiddenStyles();
   newDiv.style.transform = 'translateX(0)';
-  document.body.style.marginRight = '350px';
+  if (document.body) document.body.style.marginRight = '350px';
 };
 const hideSidebar = () => {
   newDiv.style.transform = 'translateX(100%)';
-  document.body.style.marginRight = '0';
+  if (document.body) document.body.style.marginRight = '0';
 };
 const applySidebarVisible = (visible) => {
   if (visible) showSidebar(); else hideSidebar();
@@ -183,6 +202,12 @@ const StoreInitializer = () => {
       }
     });
 
+    const whenBodyReady = () => new Promise((resolve) => {
+      if (document.body) return resolve();
+      const onReady = () => { if (document.body) { resolve(); document.removeEventListener('DOMContentLoaded', onReady); } };
+      document.addEventListener('DOMContentLoaded', onReady);
+    });
+
     const initialize = async () => {
       try {
         const currentTabId = await getTabIdAsync();
@@ -190,6 +215,7 @@ const StoreInitializer = () => {
         setTabId(currentTabId);
 
         try {
+          await whenBodyReady();
           const state = await uiState.get(currentTabId);
           applySidebarVisible(state.sidebarVisible);
         } catch (error) {
