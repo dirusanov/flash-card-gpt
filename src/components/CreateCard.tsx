@@ -1744,10 +1744,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         setOriginalSelectedText(normalized.mode === Modes.LanguageLearning ? normalized.text : '');
         tabAware.setIsGeneratingCard(false);
+        // Ensure saved flags are cleared before showing result to avoid flicker
+        setExplicitlySaved(false);
+        removeTabScopedLS('explicitly_saved');
         setShowResult(true);
         setIsEdited(false);
         setIsNewSubmission(false);
-        setExplicitlySaved(false);
         setExplicitlySavedIds([]);
         setIsMultipleCards(false);
         setCreatedCards([]);
@@ -2094,6 +2096,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
                 
                 // For General mode, we're done - return early
+                setExplicitlySaved(false);
+                removeTabScopedLS('explicitly_saved');
                 setShowResult(true);
                 return;
             }
@@ -2244,12 +2248,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             debugLog('Parallel card creation completed with:', completedOperations);
 
-            // Показываем результат только если есть перевод
-            setShowResult(true);
-            
-            // IMPORTANT: Only set explicitly saved to false AFTER successful creation
+            // Clear saved flags BEFORE showing result to prevent UI flicker
             setExplicitlySaved(false);
             removeTabScopedLS('explicitly_saved');
+            // Показываем результат только если есть перевод
+            setShowResult(true);
             
             debugLog('Setting showResult to true after successful parallel card creation');
             
@@ -2261,7 +2264,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Show modal if we have at least some data
             if (completedOperations.translation) {
-                setShowResult(true);
                 setShowModal(true);
                 setIsNewSubmission(true);
                 
@@ -6101,7 +6103,9 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             if (imageData) {
                 dispatch(setImageUrl(imageData));
             }
-            
+            // Ensure saved flags are cleared before showing result to avoid flicker
+            setExplicitlySaved(false);
+            removeTabScopedLS('explicitly_saved');
             setShowResult(true);
             
         } catch (error) {
