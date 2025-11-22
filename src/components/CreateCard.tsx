@@ -251,6 +251,31 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
 
+    // Auto-resume generation after hard reload if there was a pending job for this tab
+    useEffect(() => {
+        let mounted = true;
+        const pendingKey = `anki_pending_job_${tabAware.tabId}`;
+        try {
+            chrome.storage?.local?.get?.([pendingKey], (res) => {
+                if (!mounted) return;
+                const pending = res?.[pendingKey];
+                if (!pending || !pending.text) return;
+                if (tabAware.isGeneratingCard) return; // already running
+                if (!text || text.trim() === '') {
+                    tabAware.setText(pending.text);
+                }
+                setTimeout(() => {
+                    try {
+                        const fakeEvt = { preventDefault: () => {} } as unknown as React.FormEvent;
+                        handleSubmit(fakeEvt);
+                    } catch {}
+                }, 200);
+            });
+        } catch {}
+        return () => { mounted = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const noop = useCallback(() => {}, []);
 
     const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, fieldIdPrefix, tabId } = tabAware;
@@ -1983,6 +2008,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // Set card generation state to true to disable navigation buttons
         tabAware.setIsGeneratingCard(true);
+        // Persist a small "pending job" marker so we can auto-resume after page reloads
+        try {
+            const pendingKey = `anki_pending_job_${tabAware.tabId}`;
+            const pendingPayload = { text, ts: Date.now() } as const;
+            chrome.storage?.local?.set?.({ [pendingKey]: pendingPayload }, () => {});
+        } catch {}
 
         // IMPORTANT: Explicitly clear saved state when creating a new card
         setExplicitlySaved(false);
@@ -2347,6 +2378,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Reset card generation state to enable navigation buttons
             tabAware.setIsGeneratingCard(false);
+            // Clear pending job marker so auto-resume doesn't retrigger once finished
+            try {
+                const pendingKey = `anki_pending_job_${tabAware.tabId}`;
+                chrome.storage?.local?.remove?.(pendingKey);
+            } catch {}
 
             // Clear abort controller
             abortControllerRef.current = null;
@@ -2713,6 +2749,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
         dispatch(setTranscription('')); // Очищаем транскрипцию
         setOriginalSelectedText('');
+
+        // Clear pending job marker so auto-resume doesn't trigger after manual cancel
+        try {
+            const pendingKey = `anki_pending_job_${tabAware.tabId}`;
+            chrome.storage?.local?.remove?.(pendingKey);
+        } catch {}
 
         dispatch(setLastDraftCard(null));
     };
