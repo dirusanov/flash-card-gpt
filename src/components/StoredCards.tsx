@@ -44,6 +44,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
     const isAnkiAvailable = useSelector((state: RootState) => state.anki.isAnkiAvailable);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
+    const sourceLanguage = useSelector((state: RootState) => state.settings.sourceLanguage);
 
     // Get current card data from Redux for editing
     const currentCardData = useSelector((state: RootState) => state.cards);
@@ -1264,7 +1265,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             debugLog('Starting image generation for text:', currentText);
 
             // 1. Get an image description
-            const descriptionImage = await getDescriptionImage(openAiKey, currentText, imageInstructions);
+            const descriptionImage = await getDescriptionImage(openAiKey, currentText, imageInstructions, undefined, sourceLanguage || undefined);
             debugLog('Description generated:', descriptionImage);
 
             if (!descriptionImage) {
@@ -1272,9 +1273,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick }) => {
             }
 
             // 2. Generate image using OpenAI API
-            const finalPrompt = imageInstructions
+            const noTextRule = ' no text, no letters, no numbers, no captions, no signs, no logos, no watermarks, no typography, no written content.';
+            const finalPrompt = (imageInstructions
                 ? `${descriptionImage}. ${imageInstructions}`
-                : descriptionImage;
+                : descriptionImage) + noTextRule;
 
             const response = await backgroundFetch(
                 'https://api.openai.com/v1/images/generations',

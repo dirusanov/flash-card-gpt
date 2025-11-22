@@ -1,5 +1,24 @@
 import { backgroundFetch } from './backgroundFetch';
 import { getGlobalApiTracker } from './apiTracker';
+import { getLanguageEnglishName } from './languageNames';
+import { getImagePromptCacheKey, loadCachedPrompt, saveCachedPrompt } from './promptCache';
+
+// Image style handling
+type ImageStyle = 'photorealistic' | 'painting';
+const DEFAULT_IMAGE_STYLE: ImageStyle = 'photorealistic';
+
+// Try to infer style preference from custom instructions (supports EN/RU keywords)
+const detectImageStyle = (customInstructions: string | undefined | null): ImageStyle | null => {
+  if (!customInstructions) return null;
+  const text = customInstructions.toLowerCase();
+  // Photorealistic keywords
+  const photoMatch = /photoreal(?:istic)?|photo[-\s]?real|realistic|фотореал|фото\s?реал|реалистич/iu.test(text);
+  if (photoMatch) return 'photorealistic';
+  // Painting keywords (oil, watercolor etc.)
+  const paintingMatch = /painting|painted|oil\s?painting|watercolor|brush|canvas|illustration|живопис|картина|маслом|акварел/iu.test(text);
+  if (paintingMatch) return 'painting';
+  return null;
+};
 
 // Simple cache to prevent API spam when quota is exceeded
 let quotaExceededCache: { timestamp: number; message: string; notificationShown: boolean } | null = null;
@@ -303,7 +322,8 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
 
 export const isAbstract = async (
   apiKey: string,
-  word: string
+  word: string,
+  sourceLanguage?: string
 ): Promise<boolean> => {
   // Track API request
   const tracker = getGlobalApiTracker();
@@ -328,10 +348,12 @@ export const isAbstract = async (
       throw new Error(quotaExceededCache!.message);
     }
 
+  const langName = getLanguageEnglishName(sourceLanguage || null);
+  const langHint = sourceLanguage ? ` The word language: code=${sourceLanguage}${langName ? `, name=${langName}` : ''}. Interpret the word in this language only.` : '';
   const promptMessages = [
     {
       role: 'system',
-      content: `Is the word '${word}' an abstract concept or a concrete object? Answer 'abstract' or 'concrete':`,
+      content: `Is the word '${word}' an abstract concept or a concrete object? Answer 'abstract' or 'concrete'.${langHint}`,
     },
   ];
 
@@ -385,7 +407,8 @@ export const getDescriptionImage = async (
   apiKey: string,
   word: string,
   customInstructions: string = '',
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  sourceLanguage?: string
 ): Promise<string> => {
   // Track API request
   const tracker = getGlobalApiTracker();
@@ -410,7 +433,9 @@ export const getDescriptionImage = async (
       throw new Error(quotaExceededCache!.message);
     }
 
-  const basePrompt = `Provide a detailed description for an image that represents the concept of '${word}'`;
+  const langName2 = getLanguageEnglishName(sourceLanguage || null);
+  const langHint = sourceLanguage ? ` The source word language: code=${sourceLanguage}${langName2 ? `, name=${langName2}` : ''}. Interpret the meaning of '${word}' strictly in this language; do not use meanings from other languages with similar spelling.` : '';
+  const basePrompt = `Provide a detailed description for an image that represents the concept of '${word}'.${langHint}`;
   
   const finalPrompt = customInstructions 
     ? `${basePrompt}. ${customInstructions}`
@@ -505,10 +530,10 @@ const getImageUrlRequest = async (
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'dall-e-2',
+          model: 'dall-e-3',
           prompt: finalDescription,
           n: 1,
-          size: '512x512',
+          size: '1024x1024',
           response_format: 'url',
         }),
       }
@@ -571,7 +596,8 @@ const getImageUrlRequest = async (
 export const getOpenAiImageUrl = async (
   apiKey: string,
   word: string,
-  customInstructions: string = ''
+  customInstructions: string = '',
+  sourceLanguage?: string
 ): Promise<string | null> => {
     // Track API request
     const tracker = getGlobalApiTracker();
@@ -596,20 +622,54 @@ export const getOpenAiImageUrl = async (
           throw new Error(quotaExceededCache!.message);
         }
     
-        const isAbstractWord = await isAbstract(apiKey, word);
+        const isAbstractWord = await isAbstract(apiKey, word, sourceLanguage);
+        const resolvedStyle: ImageStyle = detectImageStyle(customInstructions) || DEFAULT_IMAGE_STYLE;
 
     if (isAbstractWord) {
-        const description = await getDescriptionImage(apiKey, word, customInstructions);
+        // Generate description and ensure it's in sourceLanguage via getDescriptionImage
+        const description = await getDescriptionImage(apiKey, word, customInstructions, undefined, sourceLanguage);
+        // Build style-consistent prompt when we control the language; otherwise rely on description + custom instructions
+        const promptForImage = sourceLanguage
+          ? description
+          : (
+              resolvedStyle === 'painting'
+                ? `Create a high-quality painting-style image representing the concept of '${description}', with visible brush strokes and rich textures`
+                : `Create a high-quality, photorealistic image that visually represents the concept of '${description}', using real-world objects and natural lighting`
+            );
         const result = await getImageUrlRequest(
             apiKey,
-            `Create a vivid, high-quality illustration representing the concept of '${description}'`,
+            promptForImage,
             customInstructions
         );
         tracker.completeRequest(requestId);
         return result;
     } else {
-        const photorealisticPrompt = `Create a high-quality, photorealistic image of a ${word} with a neutral expression and clear features`;
-        const result = await getImageUrlRequest(apiKey, photorealisticPrompt, customInstructions);
+        const name = getLanguageEnglishName(sourceLanguage || null);
+        const langNote = sourceLanguage ? ` The source word language: code=${sourceLanguage}${name ? `, name=${name}` : ''}. Interpret '${word}' in this language only.` : '';
+        let styledPrompt = (
+          resolvedStyle === 'painting'
+            ? `Create a detailed painting-style image of a ${word} with clear composition and visible brush strokes.${langNote}`
+            : `Create a high-quality, photorealistic image of a ${word} with natural lighting and clear details on a neutral background.${langNote}`
+        );
+        // Translate and cache the image prompt if we have a source language
+        if (sourceLanguage) {
+          const key = getImagePromptCacheKey(sourceLanguage, styledPrompt);
+          const cached = loadCachedPrompt(key);
+          if (cached) {
+            styledPrompt = cached;
+          } else {
+            try {
+              const translated = await translateText(apiKey, styledPrompt, sourceLanguage);
+              if (translated) {
+                styledPrompt = translated;
+                saveCachedPrompt(key, translated);
+              }
+            } catch (e) {
+              console.warn('Image prompt translation failed, using English prompt');
+            }
+          }
+        }
+        const result = await getImageUrlRequest(apiKey, styledPrompt, customInstructions);
         tracker.completeRequest(requestId);
         return result;
     }
@@ -624,7 +684,8 @@ export const getOpenAiImageUrl = async (
 export const getOptimizedImageUrl = async (
   apiKey: string,
   word: string,
-  customInstructions: string = ''
+  customInstructions: string = '',
+  sourceLanguage?: string
 ): Promise<string | null> => {
     // Track API request
     const tracker = getGlobalApiTracker();
@@ -649,20 +710,45 @@ export const getOptimizedImageUrl = async (
           throw new Error(quotaExceededCache!.message);
         }
     
-        // Умный промпт, который работает как для абстрактных, так и для конкретных понятий
-        let optimizedPrompt = `Create a high-quality, clear image representing "${word}".`;
-        
-        // Добавляем контекст в зависимости от типа слова
-        if (/^[A-Z]/.test(word) || word.length > 15) {
-          // Вероятно абстрактное понятие или длинная фраза
-          optimizedPrompt = `Create a symbolic, artistic illustration that clearly represents the concept of "${word}". Use clear visual metaphors and symbols.`;
+        // Consistent style prompt for both abstract and concrete concepts
+        const langName3 = getLanguageEnglishName(sourceLanguage || null);
+        const langNote = sourceLanguage ? ` The source word language: code=${sourceLanguage}${langName3 ? `, name=${langName3}` : ''}. Interpret '${word}' strictly in this language.` : '';
+        const resolvedStyle: ImageStyle = detectImageStyle(customInstructions) || DEFAULT_IMAGE_STYLE;
+
+        const likelyAbstract = (/^[A-Z]/.test(word) || word.length > 15);
+
+        let optimizedPrompt = '';
+        if (resolvedStyle === 'painting') {
+          optimizedPrompt = likelyAbstract
+            ? `Create a high-quality painting-style image that clearly represents the concept of "${word}", with visible brush strokes and rich textures.${langNote}`
+            : `Create a detailed painting-style image of "${word}" with clear composition and artistic lighting.${langNote}`;
         } else {
-          // Вероятно конкретный объект
-          optimizedPrompt = `Create a photorealistic image of "${word}" with good lighting and clear details on a neutral background.`;
+          optimizedPrompt = likelyAbstract
+            ? `Create a high-quality, photorealistic image that visually represents the concept of "${word}", using real-world objects, natural lighting, and realistic materials.${langNote}`
+            : `Create a high-quality, photorealistic image of "${word}" with natural lighting and clear details on a neutral background.${langNote}`;
         }
         
         if (customInstructions) {
           optimizedPrompt += ` ${customInstructions}`;
+        }
+
+        // Translate and cache optimized prompt if source language is available
+        if (sourceLanguage) {
+          const key = getImagePromptCacheKey(sourceLanguage, optimizedPrompt);
+          const cached = loadCachedPrompt(key);
+          if (cached) {
+            optimizedPrompt = cached;
+          } else {
+            try {
+              const translated = await translateText(apiKey, optimizedPrompt, sourceLanguage);
+              if (translated) {
+                optimizedPrompt = translated;
+                saveCachedPrompt(key, translated);
+              }
+            } catch (e) {
+              console.warn('Optimized image prompt translation failed, using English prompt');
+            }
+          }
         }
 
         const result = await getImageUrlRequest(apiKey, optimizedPrompt, '');

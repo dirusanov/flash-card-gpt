@@ -114,6 +114,7 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
     const imageGenerationMode = useSelector((state: RootState) => state.settings.imageGenerationMode);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
+    const sourceLanguage = useSelector((state: RootState) => state.settings.sourceLanguage);
 
     // Get AI service and API key
     const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
@@ -322,7 +323,13 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
                     if (shouldGenerate) {
                         console.log('🖼️ Starting image generation...');
-                        const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions);
+                        const imageDescription = await aiService.getDescriptionImage(
+                            apiKey,
+                            inputText,
+                            imageInstructions,
+                            undefined,
+                            sourceLanguage || undefined
+                        );
                         if (imageDescription && aiService.getImageUrl) {
                             imageUrl = await aiService.getImageUrl(apiKey, imageDescription);
                             console.log('🖼️ Image generation completed');

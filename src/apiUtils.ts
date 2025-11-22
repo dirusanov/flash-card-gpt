@@ -12,7 +12,8 @@ const debugLog = (...args: unknown[]) => {
 export async function getImage(
     openAiKey: string,
     descriptionImage: string,
-    imageInstructions: string = ''
+    imageInstructions: string = '',
+    sourceLanguage?: string
 ): Promise<{ imageUrl: string | null, imageBase64: string | null }> {
     debugLog('getImage called with description:', descriptionImage);
     let imageUrl: string | null = null;
@@ -29,7 +30,7 @@ export async function getImage(
     // Используем только OpenAI для генерации изображений
     try {
         debugLog('Using OpenAI with key:', openAiKey ? openAiKey.substring(0, 5) + '...' : 'null');
-        imageUrl = await getOpenAiImageUrl(openAiKey, descriptionImage, imageInstructions);
+        imageUrl = await getOpenAiImageUrl(openAiKey, descriptionImage, imageInstructions, sourceLanguage);
         debugLog('OpenAI returned URL:', imageUrl ? 'success' : 'null');
         
         if (imageUrl) {

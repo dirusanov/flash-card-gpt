@@ -145,7 +145,8 @@ export interface AIService {
     apiKey: string,
     word: string,
     customInstructions?: string,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    sourceLanguage?: string
   ) => Promise<string>;
   
   getImageUrl?: (
@@ -156,7 +157,8 @@ export interface AIService {
   getOptimizedImageUrl?: (
     apiKey: string,
     word: string,
-    customInstructions?: string
+    customInstructions?: string,
+    sourceLanguage?: string
   ) => Promise<string | null>;
   
   generateAnkiFront: (
@@ -231,7 +233,8 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       apiKey: string,
       word: string,
       customInstructions: string = '',
-      abortSignal?: AbortSignal
+      abortSignal?: AbortSignal,
+      sourceLanguage?: string
     ): Promise<string> => {
       // Check if cancelled before starting
       if (abortSignal?.aborted) {
@@ -239,7 +242,7 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       }
       
       const aiProvider = createAIProvider(provider, apiKey);
-      return aiProvider.getDescriptionImage(word, customInstructions);
+      return aiProvider.getDescriptionImage(word, customInstructions, sourceLanguage);
     },
     
     getImageUrl: async (
@@ -253,10 +256,11 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
     getOptimizedImageUrl: async (
       apiKey: string,
       word: string,
-      customInstructions?: string
+      customInstructions?: string,
+      sourceLanguage?: string
     ): Promise<string | null> => {
       const aiProvider = createAIProvider(provider, apiKey);
-      return aiProvider.getOptimizedImageUrl ? aiProvider.getOptimizedImageUrl(word, customInstructions) : null;
+      return aiProvider.getOptimizedImageUrl ? aiProvider.getOptimizedImageUrl(word, customInstructions, sourceLanguage) : null;
     },
     
     generateAnkiFront: async (
@@ -648,7 +652,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
       if (shouldGenerate) {
         if (service.getOptimizedImageUrl) {
           // Используем быструю оптимизированную версию (1 запрос вместо 3)
-          return await service.getOptimizedImageUrl(apiKey, text);
+          return await service.getOptimizedImageUrl(apiKey, text, undefined, sourceLanguage);
         } else if (service.getImageUrl) {
           // Fallback к обычной версии
           return await service.getImageUrl(apiKey, text);

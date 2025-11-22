@@ -990,12 +990,18 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 return;
             }
             
-            const descriptionImage = await aiService.getDescriptionImage(apiKey, text, imageInstructions, abortControllerRef.current?.signal);
+            const descriptionImage = await aiService.getDescriptionImage(
+                apiKey,
+                text,
+                imageInstructions,
+                abortControllerRef.current?.signal,
+                sourceLanguage || undefined
+            );
 
             // Use different image generation based on provider
             if (modelProvider === ModelProvider.OpenAI) {
                 // Use existing OpenAI implementation
-                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, imageInstructions);
+                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, imageInstructions, sourceLanguage || undefined);
 
                 if (imageUrl) {
                     tabAware.setImageUrl(imageUrl);
@@ -1096,8 +1102,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 customInstruction.toLowerCase().includes('картин')) {
 
                 // Generate new image based on instructions
-                const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction);
-                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, customInstruction);
+            const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction, undefined, sourceLanguage || undefined);
+                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, customInstruction, sourceLanguage || undefined);
 
                 if (imageUrl) {
                     tabAware.setImageUrl(imageUrl);
@@ -1172,7 +1178,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 debugLog('📚 Examples generation completed (combined)');
 
                 if (shouldGenerateImage) {
-                    const descriptionImage = await aiService.getDescriptionImage(apiKey, text, customInstruction);
+                    const descriptionImage = await aiService.getDescriptionImage(apiKey, text, customInstruction, undefined, sourceLanguage || undefined);
                     const imageUrl = await aiService.getImageUrl?.(apiKey, descriptionImage);
 
                     if (imageUrl) {
@@ -2535,6 +2541,51 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }}>
                         Image generation style
                     </label>
+                    {/* Quick style presets */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const stripped = (localImageInstructions || '')
+                                  .replace(/photoreal(?:istic)?|photo[-\s]?real|realistic/gi, '')
+                                  .replace(/painting|painted|oil\s?painting|watercolor|brush|canvas|illustration|живопис|картина|маслом|акварел/gi, '')
+                                  .trim();
+                                const preset = 'Use photorealistic style with natural lighting and realistic materials.';
+                                setLocalImageInstructions(stripped ? preset + ' ' + stripped : preset);
+                            }}
+                            style={{
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid #E5E7EB',
+                                backgroundColor: '#FFFFFF',
+                                cursor: 'pointer',
+                                fontSize: '12px'
+                            }}
+                        >
+                            Photorealistic
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const stripped = (localImageInstructions || '')
+                                  .replace(/photoreal(?:istic)?|photo[-\s]?real|realistic/gi, '')
+                                  .replace(/painting|painted|oil\s?painting|watercolor|brush|canvas|illustration|живопис|картина|маслом|акварел/gi, '')
+                                  .trim();
+                                const preset = 'Use painting style (oil painting), visible brush strokes and canvas texture.';
+                                setLocalImageInstructions(stripped ? preset + ' ' + stripped : preset);
+                            }}
+                            style={{
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid #E5E7EB',
+                                backgroundColor: '#FFFFFF',
+                                cursor: 'pointer',
+                                fontSize: '12px'
+                            }}
+                        >
+                            Painting
+                        </button>
+                    </div>
                     <textarea
                         value={localImageInstructions}
                         onChange={(e) => setLocalImageInstructions(e.target.value)}
@@ -3351,8 +3402,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                             if (shouldGenerate) {
                                 debugLog(`Generating image for "${option}"`);
-                                const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions);
-                                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, imageInstructions);
+                                const descriptionImage = await aiService.getDescriptionImage(apiKey, option, imageInstructions, undefined, sourceLanguage || undefined);
+                                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, imageInstructions, sourceLanguage || undefined);
 
                                 if (imageUrl) {
                                     currentImageUrl = imageUrl;
@@ -6005,7 +6056,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             let imageData = null;
             if (shouldGenerateImage && imageGenerationMode !== 'off' && isImageGenerationAvailable()) {
                 try {
-                    const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions);
+                    const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions, undefined, sourceLanguage || undefined);
                     if (imageDescription) {
                         const imageUrl = await aiService.getImageUrl?.(apiKey, imageDescription);
                         if (imageUrl) {

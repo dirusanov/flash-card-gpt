@@ -4,6 +4,8 @@ import { TranscriptionResult } from './aiServiceFactory';
 import { getGlobalApiTracker } from './apiTracker';
 import { backgroundFetch } from './backgroundFetch';
 import { formatOpenAIErrorMessage, cacheQuotaExceededError } from './openaiApi';
+import { getLanguageEnglishName } from './languageNames';
+import { getImagePromptCacheKey, loadCachedPrompt, saveCachedPrompt } from './promptCache';
 
 type ChatMessage = {
   role: 'system' | 'user' | 'assistant';
@@ -30,7 +32,8 @@ export interface AIProviderInterface {
   
   getDescriptionImage: (
     word: string,
-    customInstructions?: string
+    customInstructions?: string,
+    sourceLanguage?: string
   ) => Promise<string>;
   
   getImageUrl?: (
@@ -39,7 +42,8 @@ export interface AIProviderInterface {
   
   getOptimizedImageUrl?: (
     word: string,
-    customInstructions?: string
+    customInstructions?: string,
+    sourceLanguage?: string
   ) => Promise<string | null>;
   
   generateAnkiFront: (
@@ -149,10 +153,15 @@ Format your response as follows:
 Do not include definitions, explanations, or translations, ONLY the numbered example sentences as shown above.`;
       },
       
-      imageDescription: (word: string) => 
-        `Create a short visual description of the word/concept "${word}" for image generation.
+      imageDescription: (word: string, sourceLanguage?: string) => {
+        const langName = getLanguageEnglishName(sourceLanguage || null);
+        const langDetails = sourceLanguage
+          ? ` The source word language: code=${sourceLanguage}${langName ? `, name=${langName}` : ''}. Interpret the meaning of "${word}" strictly in this language; do not use meanings from other languages with similar spelling.`
+          : '';
+        return `Create a short visual description of the word/concept "${word}" for image generation.${langDetails}
 The description should be concrete, visual, and focus on representational elements.
-Keep the description under 50 words and make sure it is purely descriptive without any formatting.`
+Keep the description under 50 words and make sure it is purely descriptive without any formatting.`;
+      }
     };
   }
   
@@ -393,7 +402,8 @@ Keep the description under 50 words and make sure it is purely descriptive witho
    */
   public async getDescriptionImage(
     word: string,
-    customInstructions: string = ''
+    customInstructions: string = '',
+    sourceLanguage?: string
   ): Promise<string> {
     // Track API request
     const tracker = getGlobalApiTracker();
@@ -406,7 +416,7 @@ Keep the description under 50 words and make sure it is purely descriptive witho
 
     try {
       tracker.setInProgress(requestId);
-      const basePrompt = this.getPrompts().imageDescription(word);
+      const basePrompt = this.getPrompts().imageDescription(word, sourceLanguage);
       const finalPrompt = customInstructions 
         ? `${basePrompt} ${customInstructions}` 
         : basePrompt;
@@ -418,9 +428,30 @@ Keep the description under 50 words and make sure it is purely descriptive witho
         throw new Error("Failed to generate image description. Please try again.");
       }
       
-      const description = this.extractPlainText(response);
+      let description = this.extractPlainText(response) || response;
+      
+      // If sourceLanguage provided, translate description and cache it
+      if (sourceLanguage) {
+        const cacheKey = getImagePromptCacheKey(sourceLanguage, description);
+        const cached = loadCachedPrompt(cacheKey);
+        if (cached) {
+          description = cached;
+        } else {
+          try {
+            const translated = await this.translateText(description, sourceLanguage);
+            if (translated) {
+              description = translated;
+              saveCachedPrompt(cacheKey, translated);
+            }
+          } catch (e) {
+            // If translation fails, keep original description
+            console.warn('Image prompt translation failed, using original description');
+          }
+        }
+      }
+      
       tracker.completeRequest(requestId);
-      return description || response;
+      return description;
     } catch (error) {
       console.error('Error generating image description:', error);
       tracker.errorRequest(requestId);
@@ -663,6 +694,8 @@ export class OpenAIProvider extends BaseAIProvider {
         throw new Error('OpenAI API key is missing. Please check your settings.');
       }
 
+      const noTextRule = ' no text, no letters, no numbers, no captions, no signs, no logos, no watermarks, no typography, no written content.';
+      const finalPrompt = `${description}${noTextRule}`;
       const response = await backgroundFetch(
         `${this.baseUrl}/images/generations`,
         {
@@ -673,7 +706,7 @@ export class OpenAIProvider extends BaseAIProvider {
           },
           body: JSON.stringify({
             model: 'dall-e-3',
-            prompt: description,
+            prompt: finalPrompt,
             n: 1,
             size: '1024x1024',
             response_format: 'url',
@@ -714,11 +747,11 @@ export class OpenAIProvider extends BaseAIProvider {
   }
 
   // НОВАЯ ОПТИМИЗИРОВАННАЯ функция для быстрой генерации изображений
-  public async getOptimizedImageUrl(word: string, customInstructions: string = ''): Promise<string | null> {
+  public async getOptimizedImageUrl(word: string, customInstructions: string = '', sourceLanguage?: string): Promise<string | null> {
     const { getOptimizedImageUrl } = await import('./openaiApi');
     
     try {
-      return await getOptimizedImageUrl(this.apiKey, word, customInstructions);
+      return await getOptimizedImageUrl(this.apiKey, word, customInstructions, sourceLanguage);
     } catch (error) {
       console.error('Error generating optimized image:', error);
       throw error;
