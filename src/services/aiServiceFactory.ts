@@ -158,7 +158,8 @@ export interface AIService {
     apiKey: string,
     word: string,
     customInstructions?: string,
-    sourceLanguage?: string
+    sourceLanguage?: string,
+    abortSignal?: AbortSignal
   ) => Promise<string | null>;
   
   generateAnkiFront: (
@@ -207,8 +208,8 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       
       // Создаем провайдер на лету
       const aiProvider = createAIProvider(provider, apiKey);
-      // Делегируем выполнение провайдеру
-      return aiProvider.translateText(text, translateToLanguage, customPrompt);
+      // Делегируем выполнение провайдеру (с поддержкой отмены)
+      return aiProvider.translateText(text, translateToLanguage, customPrompt, abortSignal);
     },
     
     getExamples: async (
@@ -226,7 +227,7 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       }
       
       const aiProvider = createAIProvider(provider, apiKey);
-      return aiProvider.getExamples(word, translateToLanguage, translate, customPrompt, sourceLanguage);
+      return aiProvider.getExamples(word, translateToLanguage, translate, customPrompt, sourceLanguage, abortSignal);
     },
     
     getDescriptionImage: async (
@@ -242,7 +243,7 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       }
       
       const aiProvider = createAIProvider(provider, apiKey);
-      return aiProvider.getDescriptionImage(word, customInstructions, sourceLanguage);
+      return aiProvider.getDescriptionImage(word, customInstructions, sourceLanguage, abortSignal);
     },
     
     getImageUrl: async (
@@ -257,10 +258,11 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       apiKey: string,
       word: string,
       customInstructions?: string,
-      sourceLanguage?: string
+      sourceLanguage?: string,
+      abortSignal?: AbortSignal
     ): Promise<string | null> => {
       const aiProvider = createAIProvider(provider, apiKey);
-      return aiProvider.getOptimizedImageUrl ? aiProvider.getOptimizedImageUrl(word, customInstructions, sourceLanguage) : null;
+      return aiProvider.getOptimizedImageUrl ? aiProvider.getOptimizedImageUrl(word, customInstructions, sourceLanguage, abortSignal) : null;
     },
     
     generateAnkiFront: async (
@@ -274,7 +276,7 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       }
       
       const aiProvider = createAIProvider(provider, apiKey);
-      return aiProvider.generateAnkiFront(text);
+      return aiProvider.generateAnkiFront(text, abortSignal);
     },
     
     extractKeyTerms: async (apiKey: string, text: string): Promise<string[]> => {
@@ -633,12 +635,18 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
     // Создаем промис для генерации изображения с Smart анализом
     const imagePromise = async () => {
+      if (abortSignal?.aborted) {
+        throw new Error('Card creation was cancelled by user');
+      }
       let shouldGenerate = imageGenerationMode === 'always';
       let analysisReason = '';
 
       // Для Smart режима выполняем анализ
       if (imageGenerationMode === 'smart') {
         try {
+          if (abortSignal?.aborted) {
+            throw new Error('Card creation was cancelled by user');
+          }
           const analysis = await shouldGenerateImageForText(text);
           shouldGenerate = analysis.shouldGenerate;
           analysisReason = analysis.reason;
@@ -652,7 +660,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
       if (shouldGenerate) {
         if (service.getOptimizedImageUrl) {
           // Используем быструю оптимизированную версию (1 запрос вместо 3)
-          return await service.getOptimizedImageUrl(apiKey, text, undefined, sourceLanguage);
+          return await service.getOptimizedImageUrl(apiKey, text, undefined, sourceLanguage, abortSignal);
         } else if (service.getImageUrl) {
           // Fallback к обычной версии
           return await service.getImageUrl(apiKey, text);

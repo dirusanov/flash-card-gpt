@@ -504,7 +504,8 @@ export const getDescriptionImage = async (
 const getImageUrlRequest = async (
   apiKey: string,
   description: string,
-  customInstructions: string = ''
+  customInstructions: string = '',
+  abortSignal?: AbortSignal
 ): Promise<string | null> => {
   const tracker = getGlobalApiTracker();
   const requestId = tracker.startRequest(
@@ -536,7 +537,8 @@ const getImageUrlRequest = async (
           size: '1024x1024',
           response_format: 'url',
         }),
-      }
+      },
+      abortSignal
     );
 
     const data = await response.json();
@@ -597,7 +599,8 @@ export const getOpenAiImageUrl = async (
   apiKey: string,
   word: string,
   customInstructions: string = '',
-  sourceLanguage?: string
+  sourceLanguage?: string,
+  abortSignal?: AbortSignal
 ): Promise<string | null> => {
     // Track API request
     const tracker = getGlobalApiTracker();
@@ -639,7 +642,8 @@ export const getOpenAiImageUrl = async (
         const result = await getImageUrlRequest(
             apiKey,
             promptForImage,
-            customInstructions
+            customInstructions,
+            abortSignal
         );
         tracker.completeRequest(requestId);
         return result;
@@ -669,7 +673,7 @@ export const getOpenAiImageUrl = async (
             }
           }
         }
-        const result = await getImageUrlRequest(apiKey, styledPrompt, customInstructions);
+        const result = await getImageUrlRequest(apiKey, styledPrompt, customInstructions, abortSignal);
         tracker.completeRequest(requestId);
         return result;
     }
@@ -685,7 +689,8 @@ export const getOptimizedImageUrl = async (
   apiKey: string,
   word: string,
   customInstructions: string = '',
-  sourceLanguage?: string
+  sourceLanguage?: string,
+  abortSignal?: AbortSignal
 ): Promise<string | null> => {
     // Track API request
     const tracker = getGlobalApiTracker();
@@ -740,7 +745,7 @@ export const getOptimizedImageUrl = async (
             optimizedPrompt = cached;
           } else {
             try {
-              const translated = await translateText(apiKey, optimizedPrompt, sourceLanguage);
+              const translated = await translateText(apiKey, optimizedPrompt, sourceLanguage, '', abortSignal);
               if (translated) {
                 optimizedPrompt = translated;
                 saveCachedPrompt(key, translated);
@@ -751,7 +756,7 @@ export const getOptimizedImageUrl = async (
           }
         }
 
-        const result = await getImageUrlRequest(apiKey, optimizedPrompt, '');
+        const result = await getImageUrlRequest(apiKey, optimizedPrompt, '', abortSignal);
         tracker.completeRequest(requestId);
         return result;
         

@@ -19,7 +19,8 @@ export interface AIProviderInterface {
   translateText: (
     text: string,
     translateToLanguage?: string,
-    customPrompt?: string
+    customPrompt?: string,
+    abortSignal?: AbortSignal
   ) => Promise<string | null>;
   
   getExamples: (
@@ -27,13 +28,15 @@ export interface AIProviderInterface {
     translateToLanguage: string,
     translate?: boolean,
     customPrompt?: string,
-    sourceLanguage?: string
+    sourceLanguage?: string,
+    abortSignal?: AbortSignal
   ) => Promise<Array<[string, string | null]>>;
   
   getDescriptionImage: (
     word: string,
     customInstructions?: string,
-    sourceLanguage?: string
+    sourceLanguage?: string,
+    abortSignal?: AbortSignal
   ) => Promise<string>;
   
   getImageUrl?: (
@@ -43,11 +46,13 @@ export interface AIProviderInterface {
   getOptimizedImageUrl?: (
     word: string,
     customInstructions?: string,
-    sourceLanguage?: string
+    sourceLanguage?: string,
+    abortSignal?: AbortSignal
   ) => Promise<string | null>;
   
   generateAnkiFront: (
-    text: string
+    text: string,
+    abortSignal?: AbortSignal
   ) => Promise<string | null>;
   
   // Метод для извлечения ключевых терминов из текста
@@ -131,11 +136,10 @@ export abstract class BaseAIProvider implements AIProviderInterface {
   protected getPrompts() {
     return {
       translate: (text: string, language: string) => 
-        `Translate the following text to ${language}: "${text}". 
-Output ONLY the direct translation, without any additional text, explanations, quotes, examples, or formatting.
-Provide the most common and appropriate translation. Only include multiple meanings if the word has distinctly different translations that are equally common.
-If multiple translations are needed, separate them with commas (e.g., "перевод1, перевод2, перевод3").
-Do not include definitions, examples, notes, or part of speech information in English like (noun), (verb), (adjective), etc.
+        `Translate the following text to ${language}: "${text}".
+Output ONLY the translation(s), without any additional text, explanations, quotes, examples, or formatting.
+If the word or short phrase commonly has more than one natural translation, provide 2–3 of the most common, separated by commas (e.g., "перевод1, перевод2, перевод3"). If it is clearly unambiguous, return just one.
+Do not include definitions, examples, notes, or part of speech information like (noun), (verb), (adjective), etc.
 Only provide the clean translated word or phrase without any parenthetical information.`,
       
       examples: (word: string, sourceLanguage?: string) => {
@@ -171,7 +175,8 @@ Keep the description under 50 words and make sure it is purely descriptive witho
   public async translateText(
     text: string, 
     translateToLanguage: string = 'ru',
-    customPrompt: string = ''
+    customPrompt: string = '',
+    abortSignal?: AbortSignal
   ): Promise<string | null> {
     // Track API request
     const tracker = getGlobalApiTracker();
@@ -187,85 +192,106 @@ Keep the description under 50 words and make sure it is purely descriptive witho
       const basePrompt = this.getPrompts().translate(text, translateToLanguage);
       const finalPrompt = customPrompt ? `${basePrompt}. ${customPrompt}` : basePrompt;
       
-      const response = await this.sendRequest(finalPrompt);
+      const response = await this.sendRequest(finalPrompt, { signal: abortSignal });
       if (!response) {
         tracker.errorRequest(requestId);
         return null;
       }
       
-      // Очистка ответа
-      let cleanedTranslation = this.extractPlainText(response);
-      
-      if (cleanedTranslation) {
-        // Более строгая очистка перевода
-        cleanedTranslation = cleanedTranslation
-          .replace(/^translation[:\s-]*/i, '')    // Удаляем "Translation:" префикс
-          .replace(/^["']|["']$/g, '')           // Удаляем кавычки
-          .replace(/^.*?:\s*/i, '')              // Удаляем любой префикс с двоеточием
-          .replace(/^\s*-\s*/, '')               // Удаляем начальное тире
-          .replace(/^translated\s*as\s*:?\s*/i, '') // Удаляем "Translated as:"
-          .replace(/^перевод\s*:?\s*/i, '')      // Удаляем "Перевод:"
-          .replace(/\s*definition:[\s\S]*$/i, '') // Удаляем все после "Definition:"
-          .replace(/\s*examples:[\s\S]*$/i, '')  // Удаляем все после "Examples:"
-          .replace(/\s*example:[\s\S]*$/i, '')   // Удаляем все после "Example:"
-          .replace(/\s*example sentences:[\s\S]*$/i, '') // Удаляем все после "Example sentences:"
-          .replace(/\s*примеры:[\s\S]*$/i, '')   // Удаляем все после "Примеры:" (русский)
-          .replace(/\s*пример:[\s\S]*$/i, '')    // Удаляем все после "Пример:" (русский)
-          .replace(/\s*notes:[\s\S]*$/i, '')     // Удаляем все после "Notes:"
-          .replace(/\s*определение:[\s\S]*$/i, '') // Удаляем все после "Определение:" (русский)
-          .replace(/\s*here is the response[\s\S]*$/i, '') // Удаляем "Here is the response" и все после
-          .replace(/\s*\(adjective\)[\s\S]*$/i, '') // Удаляем "(adjective)" и все после
-          .replace(/\s*\(noun\)[\s\S]*$/i, '')   // Удаляем "(noun)" и все после
-          .replace(/\s*\(verb\)[\s\S]*$/i, '')   // Удаляем "(verb)" и все после
-          .replace(/\s*\(adverb\)[\s\S]*$/i, '') // Удаляем "(adverb)" и все после
-          .replace(/\s*\(preposition\)[\s\S]*$/i, '') // Удаляем "(preposition)" и все после
-          .replace(/\s*\(pronoun\)[\s\S]*$/i, '') // Удаляем "(pronoun)" и все после
-          .replace(/\s*\(conjunction\)[\s\S]*$/i, '') // Удаляем "(conjunction)" и все после
-          .replace(/\s*\(interjection\)[\s\S]*$/i, '') // Удаляем "(interjection)" и все после
-          .replace(/\s*\([^)]*\)[\s\S]*$/i, '')  // Удаляем любые другие части речи в скобках
-          .replace(/^the word[\s\S]*translated as[\s:]*/i, '') // Удаляем "The word X translated as:"
-          .replace(/^словосочетание[\s\S]*переводится как[\s:]*/i, '') // Удаляем русский эквивалент
-          .replace(/^слово[\s\S]*переводится как[\s:]*/i, '') // Удаляем русский эквивалент
-          .replace(/^.*?это[\s:]*/i, '')        // Удаляем "X - это:" и подобное
-          .replace(/^.*?означает[\s:]*/i, '')   // Удаляем "X означает:"
-          .replace(/^.*?means[\s:]*/i, '')      // Удаляем "X means:"
-          .replace(/^the translation is[\s:]*/i, '') // Удаляем "The translation is:"
-          .split('\n')[0]                        // Берем только первую строку
-          .trim();
-        
-        // Разрешаем больше слов в переводе для фраз и составных слов
-        const MAX_TRANSLATION_WORDS = 8; // Увеличиваем максимум слов в переводе
-        const words = cleanedTranslation.split(/\s+/);
-        
-        // Проверяем, есть ли в переводе запятые (несколько значений)
-        const hasMultipleTranslations = cleanedTranslation.includes(',');
-        
-        if (hasMultipleTranslations) {
-          // Если есть запятые, это несколько переводов - ограничиваем до 3 переводов
-          const translations = cleanedTranslation.split(',')
-            .map(t => t.trim())
-            .filter(t => t.length > 0)
-            .slice(0, 3); // Максимум 3 перевода
-          
-          cleanedTranslation = translations.join(', ');
-        } else if (words.length > MAX_TRANSLATION_WORDS) {
-          // Если это один перевод, но слишком много слов
-          const originalWords = text.split(/\s+/).length;
-          if (originalWords <= 5 || words.length <= originalWords * 2) {
-            // Это нормально, фраза может требовать развернутого перевода
-          } else {
-            // Слишком много слов, вероятно это предложение - берем только разумное количество слов
-            console.log('Translation too long, trimming:', cleanedTranslation);
-            cleanedTranslation = words.slice(0, MAX_TRANSLATION_WORDS).join(' ');
-          }
-        }
-        
-        // Если после всех очисток получился пустой результат, вернуть весь ответ
-        if (!cleanedTranslation && response) {
-          return response.split('\n')[0].trim();
+      // Очистка ответа (с сохранением вариантов, если модель вернула список)
+      const raw = this.extractPlainText(response) || response || '';
+
+      // Базовая очистка от служебных префиксов/шумов, но НЕ отбрасываем остальные строки
+      let normalized = raw
+        .replace(/^translation[:\s-]*/i, '')
+        .replace(/^["']|["']$/g, '')
+        .replace(/^.*?:\s*/i, '')
+        .replace(/^\s*-\s*/, '')
+        .replace(/^translated\s*as\s*:?\s*/i, '')
+        .replace(/^перевод\s*:?\s*/i, '')
+        .replace(/\s*definition:[\s\S]*$/i, '')
+        .replace(/\s*examples:[\s\S]*$/i, '')
+        .replace(/\s*example:[\s\S]*$/i, '')
+        .replace(/\s*example sentences:[\s\S]*$/i, '')
+        .replace(/\s*примеры:[\s\S]*$/i, '')
+        .replace(/\s*пример:[\s\S]*$/i, '')
+        .replace(/\s*notes:[\s\S]*$/i, '')
+        .replace(/\s*определение:[\s\S]*$/i, '')
+        .replace(/\s*here is the response[\s\S]*$/i, '')
+        .replace(/\s*\(adjective\)\s*/ig, '')
+        .replace(/\s*\(noun\)\s*/ig, '')
+        .replace(/\s*\(verb\)\s*/ig, '')
+        .replace(/\s*\(adverb\)\s*/ig, '')
+        .replace(/\s*\(preposition\)\s*/ig, '')
+        .replace(/\s*\(pronoun\)\s*/ig, '')
+        .replace(/\s*\(conjunction\)\s*/ig, '')
+        .replace(/\s*\(interjection\)\s*/ig, '')
+        // Удаляем любые скобочные пометки, НЕ отбрасывая остальной текст
+        .replace(/\s*\([^)]*\)\s*/g, ' ')
+        .replace(/^the word[\s\S]*translated as[\s:]*/i, '')
+        .replace(/^словосочетание[\s\S]*переводится как[\s:]*/i, '')
+        .replace(/^слово[\s\S]*переводится как[\s:]*/i, '')
+        .replace(/^.*?это[\s:]*/i, '')
+        .replace(/^.*?означает[\s:]*/i, '')
+        .replace(/^.*?means[\s:]*/i, '')
+        .replace(/^the translation is[\s:]*/i, '')
+        .trim();
+
+      // Попытка собрать несколько вариантов, если модель вернула список построчно
+      const lines = normalized.split(/\n+/).map(l => l.trim()).filter(Boolean);
+      let variants: string[] = [];
+
+      if (lines.length > 1) {
+        // Часто модели выдают варианты списком — убираем нумерацию и соединяем
+        for (const line of lines) {
+          const noIndex = line
+            .replace(/^[-–•\u2022\*\u00B7]?\s*/, '') // маркеры буллетов
+            .replace(/^\d+\s*[\.)-]\s*/, '')         // 1) 1. 1- и т.п.
+            .trim();
+          if (noIndex) variants.push(noIndex);
         }
       }
-      
+
+      if (variants.length === 0 && normalized) {
+        // Пытаемся разбить по типовым разделителям (/, ;, |, or, или)
+        const parts = normalized
+          .split(/\s*(?:,|\/|;|\||\bor\b|\bили\b)\s*/i)
+          .map(p => p.trim())
+          .filter(Boolean);
+        if (parts.length > 1) {
+          variants = parts;
+        } else if (parts.length === 1) {
+          variants = [parts[0]];
+        }
+      }
+
+      // Нормализуем/фильтруем варианты
+      variants = Array.from(new Set(variants.map(v => v.replace(/^["']|["']$/g, '').trim())));
+
+      // Ограничиваем длину вариантов для слов/кратких фраз
+      const MAX_TRANSLATION_WORDS = 8;
+      variants = variants.map(v => {
+        const words = v.split(/\s+/);
+        const originalWords = text.split(/\s+/).length;
+        if (words.length > MAX_TRANSLATION_WORDS && !(originalWords <= 5 || words.length <= originalWords * 2)) {
+          return words.slice(0, MAX_TRANSLATION_WORDS).join(' ');
+        }
+        return v;
+      });
+
+      // Максимум 3 наиболее коротких/адекватных варианта
+      variants = variants
+        .filter(v => v.length > 0)
+        .sort((a, b) => a.length - b.length)
+        .slice(0, 3);
+
+      // Если ничего не получилось распарсить — вернем первую строку как есть
+      let cleanedTranslation = variants.length > 0 ? variants.join(', ') : (normalized.split('\n')[0] || '').trim();
+
+      if (!cleanedTranslation && response) {
+        cleanedTranslation = (response.split('\n')[0] || '').trim();
+      }
+
       console.log('Original translation:', response);
       console.log('Cleaned translation:', cleanedTranslation);
       
@@ -286,7 +312,8 @@ Keep the description under 50 words and make sure it is purely descriptive witho
     translateToLanguage: string,
     translate: boolean = false,
     customPrompt: string = '',
-    sourceLanguage?: string
+    sourceLanguage?: string,
+    abortSignal?: AbortSignal
   ): Promise<Array<[string, string | null]>> {
     // Track API request
     const tracker = getGlobalApiTracker();
@@ -304,7 +331,7 @@ Keep the description under 50 words and make sure it is purely descriptive witho
         ? `${basePrompt} ${customPrompt.replace(/\{word\}/g, word)}` 
         : basePrompt;
       
-      const response = await this.sendRequest(finalPrompt);
+      const response = await this.sendRequest(finalPrompt, { signal: abortSignal });
       
       if (!response) {
         throw new Error("Failed to generate examples. Please try again with a different word.");
@@ -370,7 +397,7 @@ Keep the description under 50 words and make sure it is purely descriptive witho
         if (translate) {
           try {
             const hint = sourceLanguage ? ` Source text language (ISO 639-1): ${sourceLanguage}. Translate strictly from ${sourceLanguage} to ${translateToLanguage}.` : '';
-            translatedExample = await this.translateText(example, translateToLanguage, hint);
+            translatedExample = await this.translateText(example, translateToLanguage, hint, abortSignal);
           } catch (translationError) {
             console.error('Error translating example:', translationError);
           }
@@ -403,7 +430,8 @@ Keep the description under 50 words and make sure it is purely descriptive witho
   public async getDescriptionImage(
     word: string,
     customInstructions: string = '',
-    sourceLanguage?: string
+    sourceLanguage?: string,
+    abortSignal?: AbortSignal
   ): Promise<string> {
     // Track API request
     const tracker = getGlobalApiTracker();
@@ -421,7 +449,7 @@ Keep the description under 50 words and make sure it is purely descriptive witho
         ? `${basePrompt} ${customInstructions}` 
         : basePrompt;
       
-      const response = await this.sendRequest(finalPrompt);
+      const response = await this.sendRequest(finalPrompt, { signal: abortSignal });
       
       if (!response) {
         tracker.errorRequest(requestId);
@@ -438,7 +466,7 @@ Keep the description under 50 words and make sure it is purely descriptive witho
           description = cached;
         } else {
           try {
-            const translated = await this.translateText(description, sourceLanguage);
+            const translated = await this.translateText(description, sourceLanguage, '', abortSignal);
             if (translated) {
               description = translated;
               saveCachedPrompt(cacheKey, translated);
@@ -463,7 +491,8 @@ Keep the description under 50 words and make sure it is purely descriptive witho
    * Создание лицевой стороны карточки Anki
    */
   public async generateAnkiFront(
-    text: string
+    text: string,
+    abortSignal?: AbortSignal
   ): Promise<string | null> {
     // Track API request
     const tracker = getGlobalApiTracker();
@@ -483,7 +512,7 @@ For example: if input is "hello", return "hello"
 If input is "beautiful", return "beautiful"
 Your response should contain ONLY the word/phrase, no pronunciation, no IPA, no additional text.`;
       
-      const response = await this.sendRequest(prompt);
+      const response = await this.sendRequest(prompt, { signal: abortSignal });
       
       if (!response) {
         tracker.errorRequest(requestId);
@@ -747,11 +776,11 @@ export class OpenAIProvider extends BaseAIProvider {
   }
 
   // НОВАЯ ОПТИМИЗИРОВАННАЯ функция для быстрой генерации изображений
-  public async getOptimizedImageUrl(word: string, customInstructions: string = '', sourceLanguage?: string): Promise<string | null> {
+  public async getOptimizedImageUrl(word: string, customInstructions: string = '', sourceLanguage?: string, abortSignal?: AbortSignal): Promise<string | null> {
     const { getOptimizedImageUrl } = await import('./openaiApi');
     
     try {
-      return await getOptimizedImageUrl(this.apiKey, word, customInstructions, sourceLanguage);
+      return await getOptimizedImageUrl(this.apiKey, word, customInstructions, sourceLanguage, abortSignal);
     } catch (error) {
       console.error('Error generating optimized image:', error);
       throw error;
@@ -903,7 +932,8 @@ export class GroqProvider extends BaseAIProvider {
             ],
             ...options,
           }),
-        }
+        },
+        options?.signal
       );
 
       const data = await response.json();
