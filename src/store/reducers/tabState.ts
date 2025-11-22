@@ -23,6 +23,8 @@ import {
     SET_TRANSCRIPTION,
     SET_IS_GENERATING_CARD,
     SET_CURRENT_CARD_ID as SET_GLOBAL_CURRENT_CARD_ID,
+    SAVE_CARD_TO_STORAGE as GLOBAL_SAVE_CARD_TO_STORAGE,
+    UPDATE_STORED_CARD as GLOBAL_UPDATE_STORED_CARD,
 } from '../actions/cards';
 import { Modes } from '../../constants';
 
@@ -45,6 +47,7 @@ export interface TabSpecificState {
     storedCards: StoredCard[];
     fieldIdPrefix: string; // Уникальный префикс для ID полей этой вкладки
     currentPage: string; // Текущая страница интерфейса для этой вкладки
+    lastSavedCard?: StoredCard | null; // Последняя явно сохраненная карточка на этой вкладке
 }
 
 export interface TabStateState {
@@ -70,7 +73,8 @@ const createDefaultTabState = (tabId: number): TabSpecificState => ({
     cardData: createDefaultTabCardData(),
     storedCards: [],
     fieldIdPrefix: `tab_${tabId}_${Date.now()}_`, // Уникальный префикс для полей этой вкладки
-    currentPage: 'createCard' // По умолчанию показываем создание карточек
+    currentPage: 'createCard', // По умолчанию показываем создание карточек
+    lastSavedCard: null,
 });
 
 const initialState: TabStateState = {
@@ -216,7 +220,8 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                     ...newState.tabStates,
                     [updateStoredTabId]: {
                         ...tabState,
-                        storedCards: updatedStoredCards
+                        storedCards: updatedStoredCards,
+                        lastSavedCard: updatedCard
                     }
                 };
             }
@@ -407,6 +412,34 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                             ...newState.tabStates[tId].cardData,
                             currentCardId: action.payload,
                         },
+                    },
+                };
+            }
+            break;
+        }
+
+        // Обновляем lastSavedCard для текущей вкладки на глобальные события сохранения
+        case GLOBAL_SAVE_CARD_TO_STORAGE: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        lastSavedCard: action.payload,
+                    },
+                };
+            }
+            break;
+        }
+        case GLOBAL_UPDATE_STORED_CARD: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        lastSavedCard: action.payload,
                     },
                 };
             }

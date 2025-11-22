@@ -254,7 +254,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const noop = useCallback(() => {}, []);
 
     const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, fieldIdPrefix, tabId } = tabAware;
-    const lastDraftCard = useSelector((state: RootState) => state.cards.lastDraftCard);
+    // Latest card to preview: prefer last saved on this tab; else freeze first seen global draft
+    const tabLastSavedCard = useSelector((state: RootState) => state.tabState.tabStates[tabId]?.lastSavedCard || null);
+    const globalLastDraft = useSelector((state: RootState) => state.cards.lastDraftCard);
+    const frozenGlobalDraftRef = useRef<StoredCard | null>(null);
+    useEffect(() => {
+        if (!tabLastSavedCard && !frozenGlobalDraftRef.current && globalLastDraft) {
+            frozenGlobalDraftRef.current = globalLastDraft;
+        }
+    }, [tabLastSavedCard, globalLastDraft]);
+    const lastDraftCard = tabLastSavedCard || frozenGlobalDraftRef.current;
 
     // Tab-scoped localStorage helpers to avoid cross-tab leaks
     const getTabScopedLS = useCallback((key: string): string | null => {
