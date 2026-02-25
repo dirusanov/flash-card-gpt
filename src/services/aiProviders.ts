@@ -632,7 +632,44 @@ Your response should contain ONLY the word/phrase, no pronunciation, no IPA, no 
       }
       
       // Парсим ответ для извлечения транскрипций
-      const result = this.parseTranscriptionResponse(response);
+      const result = this.parseTranscriptionResponse(response, userLanguage);
+
+      if (result.userLanguageTranscription) {
+        const isValid = await this.validateUserLanguageTranscriptionWithAI(
+          text,
+          userLanguage,
+          result.userLanguageTranscription
+        );
+
+        if (!isValid) {
+        const strictRetryPrompt = `${prompt}
+
+CRITICAL RETRY RULE (must follow):
+- USER_LANG must be written in the native writing system of ${userLanguage}.
+- Do not transliterate into another script unless that script is the native script of ${userLanguage}.
+- Return exactly two lines: USER_LANG and IPA.`;
+
+        const retryResponse = await this.sendRequest(strictRetryPrompt);
+        if (retryResponse) {
+          const retryResult = this.parseTranscriptionResponse(retryResponse, userLanguage);
+          if (retryResult.userLanguageTranscription) {
+            const isRetryValid = await this.validateUserLanguageTranscriptionWithAI(
+              text,
+              userLanguage,
+              retryResult.userLanguageTranscription
+            );
+            if (isRetryValid) {
+            tracker.completeRequest(requestId);
+            return retryResult;
+            }
+          }
+        }
+
+        // Keep IPA if available, hide invalid USER_LANG output.
+        result.userLanguageTranscription = null;
+      }
+      }
+
       tracker.completeRequest(requestId);
       return result;
     } catch (error) {
@@ -653,6 +690,8 @@ Your response should contain ONLY the word/phrase, no pronunciation, no IPA, no 
 
 IMPORTANT:
 - For user language: Write how "${text}" sounds using ${userLanguage} pronunciation system
+- USER_LANG must use the native writing system of ${userLanguage}
+- If the user language uses non-Latin script (e.g., Chinese, Arabic, Korean, Japanese, Russian), never transliterate USER_LANG into Latin letters
 - For IPA: Use proper IPA symbols [ˈ ˌ ə ɪ ɛ æ ɑ ɔ ʊ ʌ θ ð ʃ ʒ ʧ ʤ ŋ etc.]
 - Format exactly as shown below:
 
@@ -669,7 +708,7 @@ Provide ONLY the two lines as shown above, no additional text.`;
   /**
    * Парсинг ответа для извлечения транскрипций
    */
-  protected parseTranscriptionResponse(response: string): TranscriptionResult {
+  protected parseTranscriptionResponse(response: string, userLanguage: string): TranscriptionResult {
     const cleanResponse = this.extractPlainText(response) || response;
     
     let userLanguageTranscription: string | null = null;
@@ -683,6 +722,8 @@ Provide ONLY the two lines as shown above, no additional text.`;
         // Some models still prepend language labels (e.g., "Русский: ...").
         .replace(/^[A-Za-zА-Яа-яЁё\s-]{2,40}:\s*/u, '')
         .trim();
+
+      // Structural validation by script is performed by AI validator to avoid hardcoded language-script mappings.
     }
 
     // Извлекаем IPA транскрипцию
@@ -703,6 +744,32 @@ Provide ONLY the two lines as shown above, no additional text.`;
       userLanguageTranscription,
       ipaTranscription
     };
+  }
+
+  private async validateUserLanguageTranscriptionWithAI(
+    text: string,
+    userLanguage: string,
+    userLangTranscription: string
+  ): Promise<boolean> {
+    const validationPrompt = `Validate whether USER_LANG uses the native writing system of the target language.
+
+Target language: ${userLanguage}
+Original word/phrase: ${text}
+USER_LANG value: ${userLangTranscription}
+
+Rules:
+- VALID if USER_LANG is written in the native script normally used by the target language for pronunciation hints.
+- INVALID if USER_LANG is transliterated into a different script (for example, non-native Latin transliteration when target language is non-Latin).
+- Ignore punctuation and spaces.
+
+Return exactly one word:
+VALID
+or
+INVALID`;
+
+    const response = await this.sendRequest(validationPrompt);
+    if (!response) return false;
+    return /\bVALID\b/i.test(response) && !/\bINVALID\b/i.test(response);
   }
 }
 
