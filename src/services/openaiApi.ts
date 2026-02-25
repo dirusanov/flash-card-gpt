@@ -24,6 +24,13 @@ const detectImageStyle = (customInstructions: string | undefined | null): ImageS
 let quotaExceededCache: { timestamp: number; message: string; notificationShown: boolean } | null = null;
 const QUOTA_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
+const isAbortLikeError = (error: unknown): boolean => {
+  if (!error) return false;
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /abort|aborted|cancelled|canceled/i.test(message);
+};
+
 // Check if we recently got a quota exceeded error
 export const isQuotaExceededCached = (): boolean => {
   if (!quotaExceededCache) return false;
@@ -172,7 +179,9 @@ export const translateText = async (
     tracker.completeRequest(requestId);
     return data.choices[0]?.message?.content?.trim() ?? null;
   } catch (error) {
-    console.error('Error during translation:', error);
+    if (!isAbortLikeError(error)) {
+      console.error('Error during translation:', error);
+    }
     tracker.errorRequest(requestId);
     
     // Enhanced error handling to prevent window disappearing
@@ -351,7 +360,9 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
     tracker.completeRequest(requestId);
     return resultExamples;
   } catch (error) {
-    console.error('Error during getting examples:', error);
+    if (!isAbortLikeError(error)) {
+      console.error('Error during getting examples:', error);
+    }
     tracker.errorRequest(requestId);
     throw error; // Пробрасываем ошибку вверх, чтобы компонент мог ее обработать
   }

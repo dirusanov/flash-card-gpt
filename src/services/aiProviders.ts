@@ -12,6 +12,13 @@ type ChatMessage = {
   content: string;
 };
 
+const isAbortLikeError = (error: unknown): boolean => {
+  if (!error) return false;
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /abort|aborted|cancelled|canceled/i.test(message);
+};
+
 /**
  * Интерфейс для работы с AI-провайдерами
  */
@@ -465,7 +472,9 @@ Rules:
       tracker.completeRequest(requestId);
       return resultExamples;
     } catch (error) {
-      console.error('Error getting examples:', error);
+      if (!isAbortLikeError(error)) {
+        console.error('Error getting examples:', error);
+      }
       tracker.errorRequest(requestId);
       throw error;
     }
@@ -747,7 +756,9 @@ export class OpenAIProvider extends BaseAIProvider {
 
       return data.choices?.[0]?.message?.content?.trim() || null;
     } catch (error) {
-      console.error('Error in OpenAI request:', error);
+      if (!isAbortLikeError(error)) {
+        console.error('Error in OpenAI request:', error);
+      }
       throw error;
     }
   }

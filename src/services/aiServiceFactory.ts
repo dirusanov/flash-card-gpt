@@ -33,6 +33,13 @@ const isApiKeyErrorMessage = (message: string | undefined | null): boolean => {
   return API_KEY_ERROR_INDICATORS.some((indicator) => normalized.includes(indicator));
 };
 
+const isAbortLikeError = (error: unknown): boolean => {
+  if (!error) return false;
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /abort|aborted|cancelled|canceled/i.test(message);
+};
+
 // Функция для быстрого retry с backoff для критически важных API вызовов
 const retryWithBackoff = async <T>(
   fn: () => Promise<T>,
@@ -415,7 +422,9 @@ export const createExamples = async (
       translated
     }));
   } catch (error) {
-    console.error('Error in unified examples generation:', error);
+    if (!isAbortLikeError(error)) {
+      console.error('Error in unified examples generation:', error);
+    }
     // Throw error to be handled by the UI instead of returning empty array
     throw error instanceof Error 
       ? error 

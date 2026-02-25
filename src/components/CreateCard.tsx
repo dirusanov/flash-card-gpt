@@ -251,44 +251,19 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
 
-    // Auto-resume generation after hard reload if there was a pending job for this tab
-    useEffect(() => {
-        let mounted = true;
-        const pendingKey = `anki_pending_job_${tabAware.tabId}`;
-        try {
-            chrome.storage?.local?.get?.([pendingKey], (res) => {
-                if (!mounted) return;
-                const pending = res?.[pendingKey];
-                if (!pending || !pending.text) return;
-                if (tabAware.isGeneratingCard) return; // already running
-                if (!text || text.trim() === '') {
-                    tabAware.setText(pending.text);
-                }
-                setTimeout(() => {
-                    try {
-                        const fakeEvt = { preventDefault: () => { } } as unknown as React.FormEvent;
-                        handleSubmit(fakeEvt);
-                    } catch { }
-                }, 200);
-            });
-        } catch { }
-        return () => { mounted = false; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    const noop = useCallback(() => {}, []);
 
-    const noop = useCallback(() => { }, []);
-
-    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, fieldIdPrefix, tabId } = tabAware;
-    // Latest card to preview: prefer last saved on this tab; else freeze first seen global draft
-    const tabLastSavedCard = useSelector((state: RootState) => state.tabState.tabStates[tabId]?.lastSavedCard || null);
-    const globalLastDraft = useSelector((state: RootState) => state.cards.lastDraftCard);
-    const frozenGlobalDraftRef = useRef<StoredCard | null>(null);
-    useEffect(() => {
-        if (!tabLastSavedCard && !frozenGlobalDraftRef.current && globalLastDraft) {
-            frozenGlobalDraftRef.current = globalLastDraft;
+    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, fieldIdPrefix, tabId, storedCards } = tabAware;
+    const lastDraftCard = useSelector((state: RootState) => state.cards.lastDraftCard);
+    const existingCardIdByText = useMemo(() => {
+        const index = new Map<string, string>();
+        for (const card of storedCards) {
+            if (card?.text) {
+                index.set(card.text, card.id);
+            }
         }
-    }, [tabLastSavedCard, globalLastDraft]);
-    const lastDraftCard = tabLastSavedCard || frozenGlobalDraftRef.current;
+        return index;
+    }, [storedCards]);
 
     // Tab-scoped localStorage helpers to avoid cross-tab leaks
     const getTabScopedLS = useCallback((key: string): string | null => {
@@ -306,13 +281,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             localStorage.setItem(tabKey, value);
             // also write legacy global key for backward compatibility
             localStorage.setItem(key, value);
-        } catch { }
+        } catch {}
     }, [tabId]);
     const removeTabScopedLS = useCallback((key: string) => {
         try {
             localStorage.removeItem(`${key}_${tabId}`);
             localStorage.removeItem(key);
-        } catch { }
+        } catch {}
     }, [tabId]);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
@@ -573,15 +548,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [localAIInstructions, setLocalAIInstructions] = useState(aiInstructions);
     const [localImageInstructions, setLocalImageInstructions] = useState(imageInstructions);
     const { showError, renderErrorNotification } = useErrorNotification()
-
+    
     // Function to check if an error is related to quota exhaustion
     const isQuotaError = (error: Error): boolean => {
         const message = error.message.toLowerCase();
-        return message.includes('quota') ||
-            message.includes('insufficient_quota') ||
-            message.includes('billing') ||
-            message.includes('exceeded') ||
-            message.includes('429');
+        return message.includes('quota') || 
+               message.includes('insufficient_quota') ||
+               message.includes('billing') ||
+               message.includes('exceeded') ||
+               message.includes('429');
     };
 
     // (moved) Persist/restore of target language is placed after language list
@@ -595,13 +570,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [createdCards, setCreatedCards] = useState<StoredCard[]>([]);
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
     const [isMultipleCards, setIsMultipleCards] = useState(false);
-
+    
     // State for general card creation
     const [selectedTemplate, setSelectedTemplate] = useState<GeneralCardTemplate | null>(null);
     const [showTemplateModal, setShowTemplateModal] = useState(false);
     const [customPrompt, setCustomPrompt] = useState('');
     // Removed isGeneratingGeneralCard - now using unified loadingGetResult
-
+    
     // State for AI cards preview
     const [previewCards, setPreviewCards] = useState<StoredCard[]>([]);
     const [showPreview, setShowPreview] = useState(false);
@@ -632,7 +607,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             timerRef.current = null;
         }
 
-        setGlobalProgressCallback(() => { });
+        setGlobalProgressCallback(() => {});
         resetGlobalApiTracker();
         tabAware.setIsGeneratingCard(false);
 
@@ -651,9 +626,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setCurrentProgress,
         setElapsedTime
     ]);
-
-    // Получаем сохраненные карточки из tab-aware контекста
-    const { storedCards } = tabAware;
 
     // Get the appropriate AI service based on the selected provider
     const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
@@ -911,14 +883,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, [latestDraftSnapshot, dispatch, lastDraftCard]);
 
     // Add more detailed logging to debug the issue
-    debugLog('Card state details:', {
-        isNewSubmission,
-        explicitlySaved,
-        isSaved,
-        currentCardId,
-        text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
-        localStorage_explicitly_saved: getTabScopedLS('explicitly_saved')
-    });
+    useEffect(() => {
+        debugLog('Card state details:', {
+            isNewSubmission,
+            explicitlySaved,
+            isSaved,
+            currentCardId,
+            text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
+            localStorage_explicitly_saved: getTabScopedLS('explicitly_saved')
+        });
+    }, [isNewSubmission, explicitlySaved, isSaved, currentCardId, text, getTabScopedLS]);
 
     const popularLanguages = [
         { code: 'ru', name: 'Русский' },
@@ -984,17 +958,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
-        // Load cards directly from storage to ensure we have the latest data
-        const storedCards = loadCardsFromStorage();
-        const exactMatch = storedCards.find((card: StoredCard) => card.text === textToCheck);
-
-        if (exactMatch) {
-            debugLog('Found existing card with matching text:', exactMatch?.text || textToCheck, 'ID:', exactMatch.id);
+        const existingCardId = existingCardIdByText.get(textToCheck);
+        if (existingCardId) {
+            debugLog('Found existing card with matching text:', textToCheck, 'ID:', existingCardId);
             debugLog('Setting currentCardId but NOT setting explicitlySaved');
 
             // Only set the ID for reference, but DON'T mark as explicitly saved
             // This ensures "Saved to Collection" only appears after user explicitly saves
-            dispatch(setCurrentCardId(exactMatch.id));
+            dispatch(setCurrentCardId(existingCardId));
 
             // IMPORTANT: We do NOT set explicitlySaved to true here, as that would cause
             // the "Saved to Collection" message to appear prematurely
@@ -1002,7 +973,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
 
         return false;
-    }, [dispatch]);
+    }, [dispatch, existingCardIdByText]);
 
     // Update the handle text change to check for existing cards
     const handleTextChange = (newText: string) => {
@@ -1048,7 +1019,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 debugLog('New image generation cancelled');
                 return;
             }
-
+            
             const descriptionImage = await aiService.getDescriptionImage(
                 apiKey,
                 text,
@@ -1080,7 +1051,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 handlePotentialApiKeyIssue(error.message);
                 return;
             }
-
+            
             console.error('Error generating image:', error);
             const imageErrorMessage = error instanceof Error ? error.message : "Failed to generate image";
             showError(imageErrorMessage);
@@ -1102,7 +1073,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 debugLog('New examples generation cancelled');
                 return;
             }
-
+            
             // Определяем исходный язык
             const textLanguage = isAutoDetectLanguage ? detectedLanguage : sourceLanguage;
 
@@ -1132,7 +1103,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 handlePotentialApiKeyIssue(error.message);
                 return;
             }
-
+            
             console.error('Error getting examples:', error);
             const examplesErrorMessage = error instanceof Error ? error.message : "Failed to generate examples";
             showError(examplesErrorMessage);
@@ -1161,7 +1132,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 customInstruction.toLowerCase().includes('картин')) {
 
                 // Generate new image based on instructions
-                const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction, undefined, sourceLanguage || undefined);
+            const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction, undefined, sourceLanguage || undefined);
                 const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, customInstruction, sourceLanguage || undefined);
 
                 if (imageUrl) {
@@ -1263,7 +1234,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 handlePotentialApiKeyIssue(error.message);
                 return;
             }
-
+            
             console.error('Error applying custom instructions:', error);
             const customInstructionError = error instanceof Error ? error.message : "Failed to apply custom instructions";
             showError(customInstructionError);
@@ -1808,17 +1779,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Используем useCallback для стабильной ссылки на функцию обработки выделения
     const handleTextSelection = useCallback((selectedText: string) => {
         debugLog('Text selection handled for tab-specific state:', selectedText);
-
+        
         // Принудительно закрываем модальное окно перед анализом нового текста
         setShowTextOptionsModal(false);
-
+        
         // Сначала очищаем предыдущие выбранные опции и список опций
         setSelectedOptionsMap({});
         setSelectedTextOptions([]);
-
+        
         // Устанавливаем выделенный текст через tabAware (tab-specific)
         tabAware.setText(selectedText);
-
+        
         // Логируем для отладки
         debugLog('Text set via tabAware.setText:', selectedText);
     }, [tabAware]);
@@ -2008,12 +1979,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // Set card generation state to true to disable navigation buttons
         tabAware.setIsGeneratingCard(true);
-        // Persist a small "pending job" marker so we can auto-resume after page reloads
-        try {
-            const pendingKey = `anki_pending_job_${tabAware.tabId}`;
-            const pendingPayload = { text, ts: Date.now() } as const;
-            chrome.storage?.local?.set?.({ [pendingKey]: pendingPayload }, () => { });
-        } catch { }
 
         // IMPORTANT: Explicitly clear saved state when creating a new card
         setExplicitlySaved(false);
@@ -2078,7 +2043,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             debugLog("Source Language:", isAutoDetectLanguage ? detectedLanguageForSubmit : sourceLanguage);
 
             // Определяем язык исходного текста для API запросов
-            const sourceLanguageForSubmit = isAutoDetectLanguage
+            const sourceLanguageForSubmit = isAutoDetectLanguage 
                 ? detectedLanguageForSubmit
                 : sourceLanguage;
 
@@ -2086,7 +2051,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (mode !== Modes.LanguageLearning) {
                 // For General mode, use FAST AI agent workflow for complete cards
                 debugLog('🚀 General mode - using fast AI agent workflow for complete cards...');
-
+                
                 try {
                     // Extract page context for multimedia
                     let pageContext: PageContentContext | undefined;
@@ -2101,10 +2066,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                     // Create AI Agent Service instance
                     const aiAgentService = createAIAgentService(aiService, apiKey);
-
+                    
                     // Use fast AI agent workflow for complete cards
                     const createdCards = await aiAgentService.createCardsFromTextFast(text, pageContext, abortSignal);
-
+                    
                     if (createdCards && createdCards.length > 0) {
                         const firstCard = createdCards[0];
                         // Set the first created card data
@@ -2120,7 +2085,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         if (firstCard.imageUrl) {
                             tabAware.setImageUrl(firstCard.imageUrl);
                         }
-
+                        
                         debugLog(`✅ General mode: Created ${createdCards.length} cards with fast workflow`);
                     }
                 } catch (error) {
@@ -2129,24 +2094,24 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     debugLog('🔄 Falling back to simple flashcard creation...');
                     const { createFlashcard } = await import('../services/aiServiceFactory');
                     const flashcardResult = await createFlashcard(aiService, apiKey, text, abortSignal);
-
+                    
                     if (flashcardResult && flashcardResult.front) {
                         tabAware.setFront(flashcardResult.front);
                     }
                 }
-
+                
                 // For General mode, we're done - return early
                 setExplicitlySaved(false);
                 removeTabScopedLS('explicitly_saved');
                 setShowResult(true);
                 return;
             }
-
+            
             // НОВЫЙ ПАРАЛЛЕЛЬНЫЙ РЕЖИМ - получаем все компоненты карточки одновременно (только для Language Learning)
             debugLog('🚀 Using parallel card creation for Language Learning mode...');
-
+            
             const { createCardComponentsParallel } = await import('../services/aiServiceFactory');
-
+            
             const startTime = Date.now();
             const result = await createCardComponentsParallel(
                 aiService,
@@ -2159,7 +2124,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 abortSignal,
                 imageGenerationMode
             );
-
+            
             const duration = Date.now() - startTime;
             debugLog(`⚡ Parallel card creation completed in ${duration}ms`);
 
@@ -2245,7 +2210,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Обработка ошибок
             if (result.errors.length > 0) {
                 console.warn('Some components failed:', result.errors);
-
+                
                 // Показываем предупреждения для неудачных компонентов
                 for (const error of result.errors) {
                     const detailsMessage = error.error || '';
@@ -2268,7 +2233,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         }
                     }
                 }
-
+                
                 // Если перевод не удался, останавливаем создание карточки
                 if (!completedOperations.translation) {
                     const errorMessageForThrow = translationErrorMessage
@@ -2293,20 +2258,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             removeTabScopedLS('explicitly_saved');
             // Показываем результат только если есть перевод
             setShowResult(true);
-
+            
             debugLog('Setting showResult to true after successful parallel card creation');
-
+            
             // Generate a unique ID for this card
             const cardId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             tabAware.setCurrentCardId(cardId);
-
+            
             debugLog('Created card with ID:', cardId);
 
             // Show modal if we have at least some data
             if (completedOperations.translation) {
                 setShowModal(true);
                 setIsNewSubmission(true);
-
+                
                 // Hide loading when content is ready and visible
                 setTimeout(() => {
                     debugLog('🎯 Parallel content is ready - hiding loading');
@@ -2342,9 +2307,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Check if this is a cancellation
             if (abortSignal.aborted) {
                 debugLog('Card generation was cancelled by user');
-                throw new Error('Operation cancelled by user');
+                setLoadingGetResult(false);
+                setCurrentLoadingMessage(null);
+                setCurrentProgress({ completed: 0, total: 0 });
+                tabAware.setIsGeneratingCard(false);
+                return;
             }
-
+            
             // Check if this is a quota error
             if (error instanceof Error && isQuotaError(error)) {
                 console.error('Quota error detected in main catch:', error.message);
@@ -2356,7 +2325,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Don't close modal for quota errors - user might want to try again
                 return;
             }
-
+            
             console.error('Error processing text:', error);
             const errorMessage = error instanceof Error
                 ? `${error.message}`
@@ -2378,11 +2347,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Reset card generation state to enable navigation buttons
             tabAware.setIsGeneratingCard(false);
-            // Clear pending job marker so auto-resume doesn't retrigger once finished
-            try {
-                const pendingKey = `anki_pending_job_${tabAware.tabId}`;
-                chrome.storage?.local?.remove?.(pendingKey);
-            } catch { }
 
             // Clear abort controller
             abortControllerRef.current = null;
@@ -2619,9 +2583,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             type="button"
                             onClick={() => {
                                 const stripped = (localImageInstructions || '')
-                                    .replace(/photoreal(?:istic)?|photo[-\s]?real|realistic/gi, '')
-                                    .replace(/painting|painted|oil\s?painting|watercolor|brush|canvas|illustration|живопис|картина|маслом|акварел/gi, '')
-                                    .trim();
+                                  .replace(/photoreal(?:istic)?|photo[-\s]?real|realistic/gi, '')
+                                  .replace(/painting|painted|oil\s?painting|watercolor|brush|canvas|illustration|живопис|картина|маслом|акварел/gi, '')
+                                  .trim();
                                 const preset = 'Use photorealistic style with natural lighting and realistic materials.';
                                 setLocalImageInstructions(stripped ? preset + ' ' + stripped : preset);
                             }}
@@ -2640,9 +2604,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             type="button"
                             onClick={() => {
                                 const stripped = (localImageInstructions || '')
-                                    .replace(/photoreal(?:istic)?|photo[-\s]?real|realistic/gi, '')
-                                    .replace(/painting|painted|oil\s?painting|watercolor|brush|canvas|illustration|живопис|картина|маслом|акварел/gi, '')
-                                    .trim();
+                                  .replace(/photoreal(?:istic)?|photo[-\s]?real|realistic/gi, '')
+                                  .replace(/painting|painted|oil\s?painting|watercolor|brush|canvas|illustration|живопис|картина|маслом|акварел/gi, '')
+                                  .trim();
                                 const preset = 'Use painting style (oil painting), visible brush strokes and canvas texture.';
                                 setLocalImageInstructions(stripped ? preset + ' ' + stripped : preset);
                             }}
@@ -2711,14 +2675,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Add a way to cancel the current card and reset to fresh state
     const handleCancel = () => {
         debugLog('Canceling current card, clearing all state');
-
+        
         // Cancel any ongoing AI requests
         if (abortControllerRef.current) {
             debugLog('Aborting ongoing AI requests');
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
         }
-
+        
         setShowResult(false);
         setIsEdited(false);
         dispatch(setCurrentCardId(null));
@@ -2729,7 +2693,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // Reset card generation state to enable navigation buttons
         tabAware.setIsGeneratingCard(false);
-
+        
         // Reset loading state
         setLoadingGetResult(false);
 
@@ -2749,12 +2713,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
         dispatch(setTranscription('')); // Очищаем транскрипцию
         setOriginalSelectedText('');
-
-        // Clear pending job marker so auto-resume doesn't trigger after manual cancel
-        try {
-            const pendingKey = `anki_pending_job_${tabAware.tabId}`;
-            chrome.storage?.local?.remove?.(pendingKey);
-        } catch { }
 
         dispatch(setLastDraftCard(null));
     };
@@ -3275,7 +3233,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setShowTextOptionsModal(false);
         setForceHideLoader(false);
         setLoadingGetResult(true);
-
+        
         // Set card generation state to true to disable navigation buttons
         tabAware.setIsGeneratingCard(true);
 
@@ -3306,23 +3264,23 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 removeTabScopedLS('explicitly_saved');
 
                 try {
-                    let detectedLanguageForOption = detectedLanguage;
+                let detectedLanguageForOption = detectedLanguage;
 
-                    if (isAutoDetectLanguage) {
-                        try {
-                            const detectionResult = await detectLanguage(option);
-                            if (detectionResult) {
-                                detectedLanguageForOption = detectionResult;
-                            }
-                        } catch (languageError) {
-                            console.error(`Language detection failed for option "${option}":`, languageError);
+                if (isAutoDetectLanguage) {
+                    try {
+                        const detectionResult = await detectLanguage(option);
+                        if (detectionResult) {
+                            detectedLanguageForOption = detectionResult;
                         }
+                    } catch (languageError) {
+                        console.error(`Language detection failed for option "${option}":`, languageError);
                     }
+                }
 
-                    // 1. Получаем перевод
-                    const translation = await createTranslation(
-                        aiService,
-                        apiKey,
+                // 1. Получаем перевод
+                const translation = await createTranslation(
+                    aiService,
+                    apiKey,
                         option,
                         translateToLanguage,
                         aiInstructions,
@@ -3369,13 +3327,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                     // 3. Создаем переднюю часть карточки
                     const flashcard = await createFlashcard(aiService, apiKey, option, abortSignal);
-
+                    
                     // Check if cancelled after flashcard
                     if (abortSignal.aborted) {
                         debugLog('Multiple cards creation cancelled by user after flashcard');
                         return;
                     }
-
+                    
                     if (flashcard.front) {
                         dispatch(setFront(flashcard.front));
                     }
@@ -3383,11 +3341,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // 3.5 Создаем лингвистическое описание конкретно для этого слова/фразы с итеративной валидацией
                     const sourceLanguageForLinguistic = isAutoDetectLanguage ? detectedLanguageForOption : sourceLanguage;
                     let generatedLinguisticInfo = "";
-
+                    
                     // Проверяем настройку множественной валидации
                     if (sourceLanguageForLinguistic) {
                         let result;
-
+                        
                         debugLog(`Using optimized linguistic info creation for "${option}" (max 2 requests)`);
                         result = await createOptimizedLinguisticInfo(
                             aiService,
@@ -3474,7 +3432,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 const analysis = await shouldGenerateImageForText(option);
                                 shouldGenerate = analysis.shouldGenerate;
                                 analysisReason = analysis.reason;
-
+                                
                                 debugLog(`Smart image analysis for "${option}": ${shouldGenerate ? 'YES' : 'NO'} - ${analysisReason}`);
                             }
 
@@ -3498,7 +3456,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             console.error(`Image generation failed for "${option}":`, imageError);
                             // Image errors are not critical - continue with the card creation
                         }
-
+                        
                         // НЕ обновляем глобальное Redux состояние для изображений внутри цикла
                         // Это позволяет каждой карточке сохранить свои изображения
                         // dispatch(setImageUrl(imageUrl)); - УДАЛЕНО
@@ -3548,16 +3506,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         console.error('Quota error detected, stopping multiple cards creation:', error.message);
                         showError(error.message);
                         throw error; // Throw to reach finally block
-                    }
-
-                    console.error(`Error creating card for "${option}":`, error);
-                    const singleCardErrorMessage = error instanceof Error ? error.message : 'Unknown error';
-                    showError(`Failed to create card for "${option.substring(0, 20)}...": ${singleCardErrorMessage}`, "error");
-                    handlePotentialApiKeyIssue(singleCardErrorMessage);
                 }
+                
+                console.error(`Error creating card for "${option}":`, error);
+                const singleCardErrorMessage = error instanceof Error ? error.message : 'Unknown error';
+                showError(`Failed to create card for "${option.substring(0, 20)}...": ${singleCardErrorMessage}`, "error");
+                handlePotentialApiKeyIssue(singleCardErrorMessage);
             }
+        }
 
-            if (newCards.length > 0) {
+        if (newCards.length > 0) {
                 setCreatedCards(newCards);
                 setCurrentCardIndex(0);
                 setIsMultipleCards(newCards.length > 1);
@@ -3607,7 +3565,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     } else {
                         dispatch(setTranscription(''));
                     }
-
+                    
                     debugLog('First card loaded into Redux state successfully');
                 }
 
@@ -3638,9 +3596,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Check if this is a cancellation
             if (abortSignal.aborted) {
                 debugLog('Multiple cards creation was cancelled by user');
-                throw new Error('Operation cancelled by user');
+                setLoadingGetResult(false);
+                setCurrentLoadingMessage(null);
+                setCurrentProgress({ completed: 0, total: 0 });
+                tabAware.setIsGeneratingCard(false);
+                return;
             }
-
+            
             // Check if this is a quota error
             if (error instanceof Error && isQuotaError(error)) {
                 console.error('Quota error detected in multiple cards creation:', error.message);
@@ -3648,7 +3610,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 handlePotentialApiKeyIssue(error.message);
                 return;
             }
-
+            
             console.error('Error processing selected options:', error);
             const outerErrorMessage = error instanceof Error ? error.message : "Failed to create cards. Please try again.";
             showError(outerErrorMessage);
@@ -3841,7 +3803,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             debugLog('No transcription found for this card');
             dispatch(setTranscription(''));
         }
-
+        
         debugLog('Card data loaded successfully, image status:', {
             hasImage: !!card.image,
             hasImageUrl: !!card.imageUrl
@@ -3873,7 +3835,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         debugLog('=== ANALYZE SELECTED TEXT ===');
         debugLog('Selected text:', selectedText);
         debugLog('Text length:', selectedText.length);
-
+        
         if (!selectedText || selectedText.length < 3) {
             tabAware.setText(selectedText);
             return;
@@ -3892,7 +3854,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             debugLog('Using short text directly (≤3 words)');
             // Принудительно закрываем модальное окно
             setShowTextOptionsModal(false);
-
+            
             // Clean the text by removing leading dashes/hyphens and whitespace
             const cleanedText = selectedText.replace(/^[-–—•\s]+/, '').trim();
             tabAware.setText(cleanedText);
@@ -3910,7 +3872,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 .filter(word => word.length > 1)
                 .map(word => word.trim())
                 .filter(Boolean);
-
+            
             debugLog('Extracted words from text:', rawWords);
 
             // Universal word filtering without language-specific stop words
@@ -3924,7 +3886,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // For short-medium texts (4-10 words), always include individual words and full phrase
             if (wordCount >= 4 && wordCount <= 10) {
                 debugLog('Processing short-medium text (4-10 words)');
-
+                
                 // Add the full phrase as an option
                 const cleanedFullText = selectedText.replace(/^[-–—•\s]+/, '').trim();
                 options.push(cleanedFullText);
@@ -3980,7 +3942,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         }
                     }
                 }
-
+                
                 // Always mark as processed for short-medium texts
                 phrasesExtracted = true;
                 debugLog('Short-medium processing complete. Options so far:', options);
@@ -4015,7 +3977,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // For medium-length selections, try to extract meaningful phrases
             if (!phrasesExtracted && selectedText.length > 30 && selectedText.length <= 200) {
                 debugLog('Processing medium-length text:', selectedText.length, 'chars, words:', wordCount);
-
+                
                 // For texts with 4-15 words, also add individual words even in this section
                 if (wordCount >= 4 && wordCount <= 15) {
                     // Add individual meaningful words
@@ -4029,7 +3991,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         }
                     });
                 }
-
+                
                 // Split text into sentences
                 const sentences = selectedText.split(/[.!?]+/).filter(s => s.trim().length > 0);
 
@@ -4048,7 +4010,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         }
                     }
                 });
-
+                
                 // Set flag to indicate we processed this text
                 phrasesExtracted = true;
             }
@@ -4056,7 +4018,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Add individual important words if we don't have many options yet
             if (options.length < 5 || (wordCount >= 4 && wordCount <= 15 && !phrasesExtracted)) {
                 debugLog('Adding individual words, current options count:', options.length, 'wordCount:', wordCount, 'phrasesExtracted:', phrasesExtracted);
-
+                
                 // Find potentially important words (longer words are often more significant)
                 const importantWords = words
                     .filter(word => word.length > 2)  // Lowered from 5 to 3 to include more words
@@ -4928,30 +4890,30 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Офлайн определение языка по паттернам (с учетом языка страницы для коротких строк)
     const detectLanguageOffline = useCallback((text: string, pageHint?: string | null): string | null => {
         const cleanText = text.trim().toLowerCase();
-
+        
         // Скрипты
         if (/[а-яё]/i.test(cleanText)) return 'ru';
         if (/[\u4e00-\u9fff]/.test(cleanText)) return 'zh';
         if (/[\u3040-\u309f\u30a0-\u30ff]/.test(cleanText)) return 'ja';
         if (/[\uac00-\ud7af]/.test(cleanText)) return 'ko';
         if (/[\u0600-\u06ff]/.test(cleanText)) return 'ar';
-
+        
         // Латиница с диакритиками
         if (/[ñáéíóúü]/i.test(cleanText)) return 'es';
         if (/[àâäéèêëïîôöùûüÿç]/i.test(cleanText)) return 'fr';
         if (/[äöüß]/i.test(cleanText)) return 'de';
         if (/[àèéìíîòóù]/i.test(cleanText)) return 'it';
-
+        
         // Чистая латиница без диакритики
         if (/^[a-z\s\.,!?\-'"]+$/i.test(cleanText)) {
-            const englishWords = ['the', 'and', 'is', 'in', 'to', 'of', 'a', 'for', 'with', 'on', 'at', 'by', 'from', 'this', 'that', 'it', 'he', 'she', 'they', 'we', 'you', 'was', 'were', 'are', 'have', 'has', 'had', 'can', 'will', 'would', 'could', 'should'];
+            const englishWords = ['the','and','is','in','to','of','a','for','with','on','at','by','from','this','that','it','he','she','they','we','you','was','were','are','have','has','had','can','will','would','could','should'];
             const words = cleanText.split(/\s+/);
             const englishMatches = words.filter(word => englishWords.includes(word.replace(/[^\w]/g, ''))).length;
             if (englishMatches > 0) return 'en';
             // Для однословных латинских слов доверимся языку страницы
             if (words.length === 1 && pageHint && pageHint.length === 2) return pageHint;
         }
-
+        
         return null;
     }, []);
 
@@ -4966,7 +4928,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             .replace(/\s+/g, 'S')    // пробелы
             .replace(/[^\w\s]/g, 'P') // пунктуация
             .slice(0, 50); // первые 50 символов паттерна
-
+        
         return `lang_pattern_${pattern}_${cleanText.length < 20 ? cleanText : cleanText.slice(0, 20)}`;
     }, []);
 
@@ -4975,7 +4937,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         debugLog('=== LANGUAGE DETECTION START ===');
         debugLog('Input text:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
         debugLog('Text length:', text.length);
-
+        
         // Определяем язык, если есть текст
         if (!text || text.trim().length < 2) {
             debugLog('Text too short for language detection');
@@ -5004,33 +4966,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             detectedResult = normalized;
         };
 
-        // 0. CHROME NATIVE DETECTION (Оффлайн, мгновенно, супер-точно, бесплатно)
-        if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.detectLanguage) {
-            try {
-                const chromeDetected = await new Promise<string | null>((resolve) => {
-                    chrome.i18n.detectLanguage(text, (result) => {
-                        if (result && result.isReliable && result.languages && result.languages.length > 0) {
-                            let lang = result.languages[0].language.toLowerCase();
-                            if (lang.includes('-')) {
-                                lang = lang.split('-')[0];
-                            }
-                            resolve(lang);
-                        } else {
-                            resolve(null);
-                        }
-                    });
-                });
-
-                if (chromeDetected) {
-                    debugLog('Language detected via Chrome i18n:', chromeDetected);
-                    recordDetection(chromeDetected, 'chrome i18n');
-                    return detectedResult;
-                }
-            } catch (err) {
-                debugLog('Chrome i18n detection error:', err);
-            }
-        }
-
         // 1. ОФЛАЙН определение (быстро и бесплатно) с учетом языка страницы
         const pageHint = getPageLanguageHint();
         const offlineDetected = detectLanguageOffline(text, pageHint);
@@ -5051,7 +4986,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // 2. УМНОЕ кэширование: проверяем по паттерну
         const smartCacheKey = getSmartCacheKey(text);
         const cachedResult = localStorage.getItem(smartCacheKey);
-
+        
         if (cachedResult && detectedLanguage !== cachedResult) {
             debugLog('Using smart cached language detection result:', cachedResult);
             recordDetection(cachedResult, 'smart cache');
@@ -5093,11 +5028,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         try {
             // Если у нас есть доступ к API OpenAI, используем его для определения языка
-            if ((modelProvider === ModelProvider.OpenAI && openAiKey) ||
+            if ((modelProvider === ModelProvider.OpenAI && openAiKey) || 
                 (modelProvider === ModelProvider.Groq && groqApiKey)) {
-
+                
                 let detectedCode: string | undefined;
-
+                
                 if (modelProvider === ModelProvider.OpenAI) {
                     // Extra check for quota cache before making OpenAI request
                     if (isQuotaExceededCached()) {
@@ -5111,7 +5046,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         }
                         return detectedLanguage ?? detectedResult;
                     }
-
+                    
                     try {
                         const response = await backgroundFetch(
                             'https://api.openai.com/v1/chat/completions',
@@ -5183,7 +5118,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         }
                         return detectedLanguage ?? detectedResult;
                     }
-
+                    
                     const groqResponse = await backgroundFetch(
                         'https://api.groq.com/openai/v1/chat/completions',
                         {
@@ -5301,7 +5236,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
         } catch (error) {
             console.error("Error detecting language:", error);
-
+            
             // Check if this is a quota error first
             if (error instanceof Error && isQuotaError(error)) {
                 console.error('Quota error detected in language detection:', error.message);
@@ -5309,33 +5244,33 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 markQuotaNotificationShown();
                 return detectedLanguage ?? detectedResult;
             }
-
+            
             // Проверяем, связана ли ошибка с API ключом
             const errorMessage = error instanceof Error ? error.message : String(error);
-            const isApiKeyError = errorMessage.includes('401') ||
-                errorMessage.includes('Unauthorized') ||
-                errorMessage.includes('Authentication') ||
-                errorMessage.includes('Invalid API key') ||
-                errorMessage.includes('Incorrect API key') ||
-                errorMessage.includes('API key is missing');
-
+            const isApiKeyError = errorMessage.includes('401') || 
+                                errorMessage.includes('Unauthorized') || 
+                                errorMessage.includes('Authentication') ||
+                                errorMessage.includes('Invalid API key') ||
+                                errorMessage.includes('Incorrect API key') ||
+                                errorMessage.includes('API key is missing');
+            
             if (isApiKeyError) {
                 console.warn("API key error detected, disabling auto-detection to prevent infinite retries");
                 // Отключаем автоопределение языка при ошибке API ключа
                 setIsAutoDetectLanguage(false);
                 localStorage.setItem('auto_detect_language', 'false');
-
+                
                 // Показываем уведомление пользователю об ошибке API ключа
                 // (предполагается, что showError доступна из контекста)
-                const providerName = modelProvider === ModelProvider.OpenAI ? 'OpenAI' :
-                    modelProvider === ModelProvider.Groq ? 'Groq' : 'AI';
-
+                const providerName = modelProvider === ModelProvider.OpenAI ? 'OpenAI' : 
+                                    modelProvider === ModelProvider.Groq ? 'Groq' : 'AI';
+                
                 if (typeof showError === 'function') {
                     const invalidKeyMessage = `Language detection failed: Invalid ${providerName} API key. Please check your API key in settings.`;
                     showError(invalidKeyMessage, 'error');
                     handlePotentialApiKeyIssue(invalidKeyMessage);
                 }
-
+                
                 // Возвращаемся к простой эвристике при ошибке API ключа
                 const textSample = text.trim().toLowerCase().slice(0, 100);
                 const cyrillicPattern = /[а-яё]/gi;
@@ -5673,7 +5608,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                         }
                                         return;
                                     }
-
+                                    
                                     // Повторно определяем язык для текущего текста
                                     if (text) {
                                         debugLog('Manually triggering language detection for:', text.substring(0, 50) + '...');
@@ -6052,7 +5987,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 const result = response.content.trim();
                 const shouldGenerate = result.toUpperCase().startsWith('YES');
                 const reason = result.includes(' - ') ? result.split(' - ')[1] : 'AI analysis';
-
+                
                 return { shouldGenerate, reason };
             }
 
@@ -6066,12 +6001,12 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     // Handle image mode changes
     const handleImageModeChange = (mode: 'off' | 'smart' | 'always') => {
         dispatch(setImageGenerationMode(mode));
-
+        
         // Автоматически включаем shouldGenerateImage для Smart и Always режимов
         if (mode === 'smart' || mode === 'always') {
             debugLog(`🔧 Automatically enabling shouldGenerateImage for ${mode} mode`);
             dispatch(setShouldGenerateImage(true));
-
+            
             // Дополнительная проверка - убеждаемся, что состояние действительно изменилось
             setTimeout(() => {
                 debugLog(`🔍 Verification: shouldGenerateImage should now be true for ${mode} mode`);
@@ -6081,12 +6016,12 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             debugLog('🔧 Disabling shouldGenerateImage for off mode');
             dispatch(setShouldGenerateImage(false));
         }
-
+        
         // If switching to 'always' mode and we have text, try to generate an image
         if (mode === 'always' && text && isImageGenerationAvailable()) {
             handleNewImage();
         }
-
+        
         // If switching to 'off' mode, clear existing images
         if (mode === 'off') {
             dispatch(setImage(null));
@@ -6107,14 +6042,14 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         }
 
         // Using unified loadingGetResult instead of separate isGeneratingGeneralCard
-
+        
         try {
             const finalPrompt = customPrompt || template.prompt;
             const fullPrompt = `${finalPrompt}\n\nText: "${inputText}"\n\nProvide a clear, educational response that would work well as flashcard content. Be concise but informative.`;
-
+            
             // Use the AI service to generate the card content
             const response = await aiService.translateText(apiKey, fullPrompt, 'en');
-
+            
             if (!response) {
                 throw new Error('Failed to generate card content');
             }
@@ -6122,7 +6057,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             // Parse the response for Q&A format
             let front = template.name;
             let back = response;
-
+            
             if (template.id === 'qa' && response.includes('Q:') && response.includes('A:')) {
                 const qIndex = response.indexOf('Q:');
                 const aIndex = response.indexOf('A:');
@@ -6185,7 +6120,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             setExplicitlySaved(false);
             removeTabScopedLS('explicitly_saved');
             setShowResult(true);
-
+            
         } catch (error) {
             console.error('Error generating general card:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -6264,25 +6199,25 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
             // Создаем AI Agent Service
             const aiAgentService = createAIAgentService(aiService, apiKey);
-
+            
             // Извлекаем контент страницы для анализа
             let pageContext: PageContentContext | undefined;
-
+            
             try {
                 // Пытаемся найти элемент с выделенным текстом
                 const selection = window.getSelection();
                 let selectionElement: Element | undefined;
-
+                
                 if (selection && selection.rangeCount > 0) {
                     const range = selection.getRangeAt(0);
-                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE 
                         ? range.commonAncestorContainer as Element
                         : range.commonAncestorContainer.parentElement || undefined;
                 }
-
+                
                 // Извлекаем контент страницы асинхронно для загрузки внешних изображений
                 pageContext = await PageContentExtractor.extractPageContentAsync(text, selectionElement);
-
+                
                 debugLog('📄 Extracted page content:', {
                     images: pageContext.pageImages.length,
                     formulas: pageContext.formulas.length,
@@ -6291,7 +6226,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     metadata: pageContext.metadata,
                     selectedText: text.substring(0, 100) + '...'
                 });
-
+                
                 // Детальное логирование найденных изображений
                 pageContext.pageImages.forEach((img, index) => {
                     debugLog(`🖼️ Изображение ${index}:`, {
@@ -6302,7 +6237,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         hasBase64: !!img.base64
                     });
                 });
-
+                
             } catch (extractError) {
                 console.warn('Failed to extract page content, proceeding without multimedia:', extractError);
                 pageContext = undefined;
@@ -6310,15 +6245,15 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
             // Всегда используем быстрый режим генерации для максимальной скорости
             const createdCards = await aiAgentService.createCardsFromTextFast(text, pageContext, abortSignal);
-
+            
             // Check if cancelled after creation
             if (abortSignal.aborted) {
                 debugLog('AI card creation was cancelled by user');
                 return;
             }
-
+            
             debugLog(`🎉 AI Agents created ${createdCards.length} cards successfully`);
-
+            
             // Логируем финальные карточки для отладки
             createdCards.forEach((card: any, index: number) => {
                 debugLog(`🃏 Карточка ${index}:`, {
@@ -6331,20 +6266,20 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     hasFormulaInBack: card.back.includes('[FORMULA:') || card.back.includes('$$'),
                     hasCodeInBack: card.back.includes('[CODE:') || card.back.includes('```')
                 });
-
+                
                 // Показываем полный back для первой карточки
                 if (index === 0) {
                     debugLog(`🃏 Полный back карточки 0:`, card.back);
                 }
             });
-
+            
             // НЕ сохраняем карточки автоматически, а показываем предварительный просмотр
             setPreviewCards(createdCards);
             setCurrentPreviewIndex(0);
             setShowPreview(true);
-
+            
             // Удалили навязчивое success уведомление
-
+            
         } catch (error) {
             if (abortSignal.aborted) {
                 debugLog('AI card creation was cancelled by user');
@@ -6438,17 +6373,17 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 };
                 dispatch(saveCardToStorage(cardToSave));
             }
-
+            
             // Закрываем предварительный просмотр
             setShowPreview(false);
             setPreviewCards([]);
             setCurrentPreviewIndex(0);
-
+            
             // Удалили навязчивое success уведомление
-
+            
             // Очищаем форму
             dispatch(setText(''));
-
+            
         } catch (error) {
             console.error('Error saving preview cards:', error);
             showError('Error saving cards', 'error');
@@ -6494,12 +6429,12 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 imageUrl: normalized.imageUrl
             };
             dispatch(saveCardToStorage(cardToSave));
-
+            
             // Mark this card as saved
             setSavedCardIndices(prev => new Set(prev).add(currentPreviewIndex));
-
+            
             // Удалили навязчивое success уведомление
-
+            
         } catch (error) {
             console.error('Error saving current card:', error);
             showError('Error saving card', 'error');
@@ -6518,7 +6453,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     const handleConfirmRecreateCard = async () => {
         setShowRecreateModal(false);
         setLoadingAccept(true);
-
+        
         try {
             const currentCard = previewCards[currentPreviewIndex];
             if (!currentCard) {
@@ -6528,7 +6463,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
             // Create AI Agent Service
             const aiAgentService = createAIAgentService(aiService, apiKey);
-
+            
             // Prepare recreation prompt with user comments
             let recreationPrompt = `Please recreate this card with improvements. Original card:
 Question: ${currentCard.front}
@@ -6538,7 +6473,7 @@ Original text: ${text}`;
             if (recreateComments.trim()) {
                 recreationPrompt += `\n\nUser feedback: ${recreateComments.trim()}`;
             }
-
+            
             recreationPrompt += `\n\nPlease create an improved version based on the feedback.`;
 
             // Извлекаем контент страницы для анализа (если возможно)
@@ -6546,14 +6481,14 @@ Original text: ${text}`;
             try {
                 const selection = window.getSelection();
                 let selectionElement: Element | undefined;
-
+                
                 if (selection && selection.rangeCount > 0) {
                     const range = selection.getRangeAt(0);
-                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE 
                         ? range.commonAncestorContainer as Element
                         : range.commonAncestorContainer.parentElement || undefined;
                 }
-
+                
                 pageContext = await PageContentExtractor.extractPageContentAsync(text, selectionElement);
             } catch (extractError) {
                 console.warn('Failed to extract page content for recreation:', extractError);
@@ -6562,25 +6497,25 @@ Original text: ${text}`;
 
             // Recreate single card using fast mode
             const recreatedCards = await aiAgentService.createCardsFromTextFast(recreationPrompt, pageContext);
-
+            
             if (recreatedCards.length > 0) {
                 // Replace the current card with the recreated one
                 const newPreviewCards = [...previewCards];
                 newPreviewCards[currentPreviewIndex] = recreatedCards[0];
                 setPreviewCards(newPreviewCards);
-
+                
                 // Remove saved status for this card since it's been recreated
                 setSavedCardIndices(prev => {
                     const newSet = new Set(prev);
                     newSet.delete(currentPreviewIndex);
                     return newSet;
                 });
-
+                
                 // Удалили навязчивое success уведомление
             } else {
                 showError('Failed to recreate card', 'error');
             }
-
+            
         } catch (error) {
             console.error('Error recreating card:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -6788,7 +6723,7 @@ Original text: ${text}`;
                     padding: '0 20px'
                 }}>
                     <Loader type="spinner" size="large" color="#3B82F6" text="Analyzing selected text..." />
-
+                    
                     {/* Cancel button in the text analysis loader */}
                     <button
                         onClick={() => setTextAnalysisLoader(false)}
@@ -6983,7 +6918,7 @@ Original text: ${text}`;
                                     fontSize: '14px',
                                     margin: 0
                                 }}>Image Generation:</label>
-
+                                
                                 {/* Smart Image Generation Mode Selector */}
                                 <div style={{
                                     display: 'flex',
@@ -7140,7 +7075,7 @@ Original text: ${text}`;
                                     AI Agent Card Creator
                                 </h4>
                             </div>
-
+                            
                             <p style={{
                                 fontSize: '14px',
                                 color: '#6B7280',
@@ -7485,7 +7420,7 @@ Original text: ${text}`;
                                     >
                                         ←
                                     </button>
-
+                                    
                                     <div style={{
                                         fontSize: '13px',
                                         color: '#666666',
@@ -7494,7 +7429,7 @@ Original text: ${text}`;
                                     }}>
                                         {currentPreviewIndex + 1} of {previewCards.length}
                                     </div>
-
+                                    
                                     <button
                                         onClick={nextPreviewCard}
                                         disabled={currentPreviewIndex === previewCards.length - 1}
@@ -7550,10 +7485,10 @@ Original text: ${text}`;
                                         image={previewCards[currentPreviewIndex].image || null}
                                         linguisticInfo=""
                                         transcription={null}
-                                        onNewImage={() => { }}
-                                        onNewExamples={() => { }}
+                                        onNewImage={() => {}}
+                                        onNewExamples={() => {}}
                                         onAccept={handleSaveCurrentCard}
-                                        onViewSavedCards={() => { }}
+                                        onViewSavedCards={() => {}}
                                         loadingNewImage={false}
                                         loadingNewExamples={false}
                                         loadingAccept={loadingAccept}
@@ -7573,7 +7508,7 @@ Original text: ${text}`;
                                             setPreviewCards(newPreviewCards);
                                         }}
                                     />
-
+                                    
                                     {/* Removed unnecessary card metadata - cleaner interface */}
                                 </div>
                             )}
@@ -7890,7 +7825,7 @@ Original text: ${text}`;
                                     e.currentTarget.style.backgroundColor = '#FAFAFA';
                                 }}
                             />
-
+                            
                             <div style={{
                                 marginTop: '16px',
                                 padding: '12px 16px',
