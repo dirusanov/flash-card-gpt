@@ -20,6 +20,25 @@ const detectImageStyle = (customInstructions: string | undefined | null): ImageS
   return null;
 };
 
+const isContentPolicyViolation = (errorPayload: any, messageFallback: string = ''): boolean => {
+  const type = (errorPayload?.error?.type || '').toString().toLowerCase();
+  const code = (errorPayload?.error?.code || '').toString().toLowerCase();
+  const message = ((errorPayload?.error?.message || messageFallback) || '').toString().toLowerCase();
+
+  return (
+    code.includes('content_policy_violation') ||
+    type.includes('image_generation_user_error') ||
+    message.includes('content policy') ||
+    message.includes('safety system') ||
+    message.includes('policy violation')
+  );
+};
+
+const buildPolicySafeImagePrompt = (prompt: string): string => {
+  const normalized = (prompt || '').trim();
+  return `Create a simple, neutral, family-friendly educational illustration of: ${normalized}. Keep it non-graphic, non-sexual, non-violent, and without real persons, minors, hate symbols, weapons, drugs, logos, or brand characters.`;
+};
+
 // Simple cache to prevent API spam when quota is exceeded
 let quotaExceededCache: { timestamp: number; message: string; notificationShown: boolean } | null = null;
 const QUOTA_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -569,34 +588,61 @@ const getImageUrlRequest = async (
     const finalDescription = customInstructions
       ? `${description}. ${customInstructions}`
       : description;
+    const retryPrompt = buildPolicySafeImagePrompt(description);
+    const prompts = [finalDescription];
+    if (retryPrompt && retryPrompt !== finalDescription) {
+      prompts.push(retryPrompt);
+    }
 
-    const response = await backgroundFetch(
-      'https://api.openai.com/v1/images/generations',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+    let lastPolicyViolation = false;
+    let lastErrorMessage = '';
+
+    for (let i = 0; i < prompts.length; i++) {
+      const currentPrompt = prompts[i];
+
+      const response = await backgroundFetch(
+        'https://api.openai.com/v1/images/generations',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'dall-e-3',
+            prompt: currentPrompt,
+            n: 1,
+            size: '1024x1024',
+            response_format: 'url',
+          }),
         },
-        body: JSON.stringify({
-          model: 'dall-e-3',
-          prompt: finalDescription,
-          n: 1,
-          size: '1024x1024',
-          response_format: 'url',
-        }),
-      },
-      abortSignal
-    );
+        abortSignal
+      );
 
-    const data = await response.json();
+      const data = await response.json();
 
-    if (!response.ok) {
+      if (response.ok) {
+        if (!data?.data?.[0]?.url) {
+          tracker.errorRequest(requestId);
+          throw new Error('OpenAI did not return an image URL. Please try again.');
+        }
+        tracker.completeRequest(requestId);
+        return data.data[0].url as string;
+      }
+
       if (data && data.error) {
         const errorMessage = formatOpenAIErrorMessage(data);
+        lastErrorMessage = errorMessage;
 
         if (data.error.code === 'insufficient_quota' || response.status === 429) {
           cacheQuotaExceededError(errorMessage);
+          throw new Error(errorMessage);
+        }
+
+        const isPolicy = isContentPolicyViolation(data, errorMessage);
+        if (isPolicy && i < prompts.length - 1) {
+          lastPolicyViolation = true;
+          continue;
         }
 
         throw new Error(errorMessage);
@@ -605,13 +651,13 @@ const getImageUrlRequest = async (
       throw new Error(`OpenAI image API error: ${response.status} ${response.statusText}`);
     }
 
-    if (!data?.data?.[0]?.url) {
-      tracker.errorRequest(requestId);
-      throw new Error('OpenAI did not return an image URL. Please try again.');
+    if (lastPolicyViolation) {
+      throw new Error(
+        'OpenAI content policy violation.\n\nThe image request was flagged even after safe retry. Try a more neutral prompt without sensitive details.'
+      );
     }
 
-    tracker.completeRequest(requestId);
-    return data.data[0].url as string;
+    throw new Error(lastErrorMessage || 'Failed to generate image.');
   } catch (error) {
     console.error('Error during image generation:', error);
     tracker.errorRequest(requestId);
