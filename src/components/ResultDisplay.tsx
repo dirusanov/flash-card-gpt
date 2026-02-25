@@ -1262,54 +1262,18 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     {/* Кнопка сохранения/статус карточки */}
                     <div style={{ marginBottom: '10px' }}>
                         {!isEditMode && !isSaved && (
-                            // Показываем кнопки "Cancel" и "Save Card" для новых карточек, во время генерации или загрузки
+                            // Показываем кнопку "Save Card" для новых карточек
                             <div style={{ 
                                 display: 'flex', 
-                                gap: '8px', 
+                                gap: '8px',
                                 width: '100%' 
                             }}>
-                                <button 
-                                    onClick={onCancel} 
-                                    disabled={loadingAccept}
-                                    style={{
-                                        flex: '1',
-                                        padding: '10px',
-                                        borderRadius: '6px',
-                                        backgroundColor: '#F3F4F6',
-                                        color: '#4B5563',
-                                        fontWeight: '600',
-                                        fontSize: '14px',
-                                        border: '1px solid #E5E7EB',
-                                        cursor: loadingAccept ? 'not-allowed' : 'pointer',
-                                        transition: 'all 0.2s ease',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '8px',
-                                        opacity: loadingAccept ? 0.7 : 1
-                                    }}
-                                    onMouseOver={(e) => {
-                                        if (!loadingAccept) {
-                                            e.currentTarget.style.backgroundColor = '#E5E7EB';
-                                            e.currentTarget.style.color = '#374151';
-                                        }
-                                    }}
-                                    onMouseOut={(e) => {
-                                        if (!loadingAccept) {
-                                            e.currentTarget.style.backgroundColor = '#F3F4F6';
-                                            e.currentTarget.style.color = '#4B5563';
-                                        }
-                                    }}
-                                >
-                                    <FaTimes />
-                                    {loadingGetResult ? 'Cancel Generation' : 'Cancel'}
-                                </button>
                                 {!loadingGetResult && (
                                     <button 
                                         onClick={onAccept} 
                                         disabled={loadingAccept}
                                         style={{
-                                            flex: '2',
+                                            flex: '1',
                                             padding: '10px',
                                             borderRadius: '6px',
                                             backgroundColor: '#22C55E',
@@ -1385,31 +1349,6 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             </p>
                         )}
                     </div>
-                    
-                    <button 
-                        onClick={onViewSavedCards}
-                        style={{
-                            width: '100%',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            backgroundColor: '#4B5563',
-                            color: '#ffffff',
-                            fontWeight: '600',
-                            fontSize: '13px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#374151'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#4B5563'}
-                    >
-                        <FaList size={14} />
-                        View Saved Cards
-                    </button>
                 </>
             )}
         </div>

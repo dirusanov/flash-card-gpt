@@ -47,32 +47,32 @@ const retryWithBackoff = async <T>(
   baseDelay: number = 1000
 ): Promise<T> => {
   let lastError: Error;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
       lastError = error as Error;
-      
+
       // Не ретраим для quota ошибок или отмены операции
-      if (lastError.message.includes('quota') || 
-          lastError.message.includes('cancelled') ||
-          lastError.message.includes('aborted')) {
+      if (lastError.message.includes('quota') ||
+        lastError.message.includes('cancelled') ||
+        lastError.message.includes('aborted')) {
         throw lastError;
       }
-      
+
       // Если это последняя попытка, бросаем ошибку
       if (attempt === maxRetries) {
         throw lastError;
       }
-      
+
       // Exponential backoff: 1s, 2s
       const delay = baseDelay * Math.pow(2, attempt);
       console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms delay`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
-  
+
   throw lastError!;
 };
 
@@ -94,38 +94,38 @@ export interface ExampleItem {
 
 // Определяем интерфейс для лингвистической информации
 export interface LinguisticInfo {
-    info: string;
+  info: string;
 }
 
 // Определяем интерфейс для транскрипции
 export interface TranscriptionResult {
-    userLanguageTranscription: string | null; // Транскрипция на языке пользователя
-    ipaTranscription: string | null; // Транскрипция в IPA
+  userLanguageTranscription: string | null; // Транскрипция на языке пользователя
+  ipaTranscription: string | null; // Транскрипция в IPA
 }
 
 // Определяем интерфейс для результата валидации
 export interface ValidationResult {
-    isValid: boolean;
-    errors: string[];
-    corrections?: string[];
+  isValid: boolean;
+  errors: string[];
+  corrections?: string[];
 }
 
 // Новые интерфейсы для расширенной валидации
 export interface DetailedValidationResult {
-    isValid: boolean;
-    errors: string[];
-    corrections?: string[];
-    confidence: number; // Уровень уверенности от 0 до 1
-    validatorType: string;
+  isValid: boolean;
+  errors: string[];
+  corrections?: string[];
+  confidence: number; // Уровень уверенности от 0 до 1
+  validatorType: string;
 }
 
 export interface MultiValidationResult {
-    overallValid: boolean;
-    confidence: number;
-    validations: DetailedValidationResult[];
-    finalErrors: string[];
-    finalCorrections: string[];
-    attempts: number;
+  overallValid: boolean;
+  confidence: number;
+  validations: DetailedValidationResult[];
+  finalErrors: string[];
+  finalCorrections: string[];
+  attempts: number;
 }
 
 // Интерфейс для сервисов AI (обертка вокруг провайдеров)
@@ -137,7 +137,7 @@ export interface AIService {
     customPrompt?: string,
     abortSignal?: AbortSignal
   ) => Promise<string | null>;
-  
+
   getExamples: (
     apiKey: string,
     word: string,
@@ -147,7 +147,7 @@ export interface AIService {
     sourceLanguage?: string,
     abortSignal?: AbortSignal
   ) => Promise<Array<[string, string | null]>>;
-  
+
   getDescriptionImage: (
     apiKey: string,
     word: string,
@@ -155,12 +155,12 @@ export interface AIService {
     abortSignal?: AbortSignal,
     sourceLanguage?: string
   ) => Promise<string>;
-  
+
   getImageUrl?: (
     apiKey: string,
     description: string
   ) => Promise<string | null>;
-  
+
   getOptimizedImageUrl?: (
     apiKey: string,
     word: string,
@@ -168,25 +168,25 @@ export interface AIService {
     sourceLanguage?: string,
     abortSignal?: AbortSignal
   ) => Promise<string | null>;
-  
+
   generateAnkiFront: (
     apiKey: string,
     text: string,
     abortSignal?: AbortSignal
   ) => Promise<string | null>;
-  
+
   extractKeyTerms: (apiKey: string, text: string) => Promise<string[]>;
 
   createChatCompletion: (
     apiKey: string,
-    messages: Array<{role: string, content: string}>,
+    messages: Array<{ role: string, content: string }>,
     trackingInfo?: {
       title?: string;
-      subtitle?: string; 
+      subtitle?: string;
       icon?: string;
       color?: string;
     }
-  ) => Promise<{content: string} | null>;
+  ) => Promise<{ content: string } | null>;
 
   createTranscription: (
     apiKey: string,
@@ -212,13 +212,13 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       if (abortSignal?.aborted) {
         throw new Error('Request cancelled');
       }
-      
+
       // Создаем провайдер на лету
       const aiProvider = createAIProvider(provider, apiKey);
       // Делегируем выполнение провайдеру (с поддержкой отмены)
       return aiProvider.translateText(text, translateToLanguage, customPrompt, abortSignal);
     },
-    
+
     getExamples: async (
       apiKey: string,
       word: string,
@@ -232,11 +232,11 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       if (abortSignal?.aborted) {
         throw new Error('Request cancelled');
       }
-      
+
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.getExamples(word, translateToLanguage, translate, customPrompt, sourceLanguage, abortSignal);
     },
-    
+
     getDescriptionImage: async (
       apiKey: string,
       word: string,
@@ -248,11 +248,11 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       if (abortSignal?.aborted) {
         throw new Error('Request cancelled');
       }
-      
+
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.getDescriptionImage(word, customInstructions, sourceLanguage, abortSignal);
     },
-    
+
     getImageUrl: async (
       apiKey: string,
       description: string
@@ -271,7 +271,7 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.getOptimizedImageUrl ? aiProvider.getOptimizedImageUrl(word, customInstructions, sourceLanguage, abortSignal) : null;
     },
-    
+
     generateAnkiFront: async (
       apiKey: string,
       text: string,
@@ -281,11 +281,11 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
       if (abortSignal?.aborted) {
         throw new Error('Request cancelled');
       }
-      
+
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.generateAnkiFront(text, abortSignal);
     },
-    
+
     extractKeyTerms: async (apiKey: string, text: string): Promise<string[]> => {
       const aiProvider = createAIProvider(provider, apiKey);
       return aiProvider.extractKeyTerms(text);
@@ -293,14 +293,14 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
 
     createChatCompletion: async (
       apiKey: string,
-      messages: Array<{role: string, content: string}>,
+      messages: Array<{ role: string, content: string }>,
       trackingInfo?: {
         title?: string;
-        subtitle?: string; 
+        subtitle?: string;
         icon?: string;
         color?: string;
       }
-    ): Promise<{content: string} | null> => {
+    ): Promise<{ content: string } | null> => {
       const aiProvider = createAIProvider(provider, apiKey);
       if (aiProvider.createChatCompletion) {
         return aiProvider.createChatCompletion(apiKey, messages, trackingInfo);
@@ -328,8 +328,8 @@ export const getAIService = (provider: ModelProvider): AIService => {
 
 // Функция для получения API-ключа в зависимости от провайдера
 export const getApiKeyForProvider = (
-  provider: ModelProvider, 
-  openAiKey: string, 
+  provider: ModelProvider,
+  openAiKey: string,
   groqKey: string = ''
 ): string => {
   switch (provider) {
@@ -375,7 +375,7 @@ export const createTranslation = async (
       (customPrompt || '') + languageHint,
       abortSignal
     );
-    
+
     return {
       original: text,
       translated: translatedText
@@ -383,8 +383,8 @@ export const createTranslation = async (
   } catch (error) {
     console.error('Error in unified translation:', error);
     // Throw error to be handled by the UI instead of returning null
-    throw error instanceof Error 
-      ? error 
+    throw error instanceof Error
+      ? error
       : new Error("Failed to translate text. Please check your API key and settings.");
   }
 };
@@ -416,7 +416,7 @@ export const createExamples = async (
       sourceLanguage,
       abortSignal
     );
-    
+
     return examples.map(([original, translated]) => ({
       original,
       translated
@@ -426,8 +426,8 @@ export const createExamples = async (
       console.error('Error in unified examples generation:', error);
     }
     // Throw error to be handled by the UI instead of returning empty array
-    throw error instanceof Error 
-      ? error 
+    throw error instanceof Error
+      ? error
       : new Error("Failed to generate examples. Please check your API key and settings.");
   }
 };
@@ -445,21 +445,21 @@ export const createFlashcard = async (
     if (!apiKey) {
       throw new Error("API key is missing. Please check your settings.");
     }
-    
+
     // Получаем только фронт карточки, содержимое для обратной стороны формируется
     // из примеров и перевода в компоненте интерфейса
     const front = await service.generateAnkiFront(apiKey, text, abortSignal);
-    
+
     if (!front) {
       throw new Error("Failed to generate flashcard content. Please try again or check your API key.");
     }
-    
+
     return { front };
   } catch (error) {
     console.error('Error in unified flashcard creation:', error);
     // Throw error to be handled by the UI
-    throw error instanceof Error 
-      ? error 
+    throw error instanceof Error
+      ? error
       : new Error("Failed to create flashcard. Please check your API key and settings.");
   }
 };
@@ -485,17 +485,17 @@ export const createTranscription = async (
       sourceLanguage,
       userLanguage
     );
-    
+
     if (!transcription) {
       throw new Error("Failed to generate transcription. Please try again or check your API key.");
     }
-    
+
     return transcription;
   } catch (error) {
     console.error('Error in unified transcription creation:', error);
     // Throw error to be handled by the UI
-    throw error instanceof Error 
-      ? error 
+    throw error instanceof Error
+      ? error
       : new Error("Failed to create transcription. Please check your API key and settings.");
   }
 };
@@ -513,20 +513,25 @@ export const createCardComponentsParallel = async (
   sourceLanguage?: string,
   shouldGenerateImage: boolean = false,
   abortSignal?: AbortSignal,
-  imageGenerationMode?: 'off' | 'smart' | 'always'
+  imageGenerationMode?: 'off' | 'smart' | 'always',
+  shouldGenerateAudio: boolean = false,
+  audioGenerationMode?: 'off' | 'smart' | 'always',
+  openAiKey?: string,
+  generateAudioData?: (word: string, abortSignal?: AbortSignal) => Promise<string | null>
 ): Promise<{
   translation?: TranslationResult;
   examples?: ExampleItem[];
   flashcard?: FlashcardContent;
   linguisticInfo?: string;
   imageUrl?: string;
+  wordAudio?: string | null;
   transcription?: TranscriptionResult | null;
-  errors: Array<{component: string; error: string}>;
+  errors: Array<{ component: string; error: string }>;
 }> => {
   const startTime = Date.now();
   console.log('🚀 Starting parallel card component creation...');
-  
-  const errors: Array<{component: string; error: string}> = [];
+
+  const errors: Array<{ component: string; error: string }> = [];
   const componentTimings: Array<{ component: string; durationMs: number; status: 'ok' | 'error' }> = [];
   const timed = <T>(component: string, task: Promise<T>) =>
     (async () => {
@@ -540,10 +545,10 @@ export const createCardComponentsParallel = async (
         throw error;
       }
     })();
-  
+
   // Создаем массив промисов для параллельного выполнения
   const promises = [];
-  
+
   // 1. Перевод (всегда выполняется) - с быстрым retry
   promises.push(
     timed('translation', retryWithBackoff(() =>
@@ -558,7 +563,7 @@ export const createCardComponentsParallel = async (
         return { type: 'translation', error: message };
       })
   );
-  
+
   // 2. Примеры (параллельно с переводом)
   promises.push(
     timed('examples', createExamples(service, apiKey, text, translateToLanguage, true, customPrompt, sourceLanguage, abortSignal))
@@ -571,7 +576,7 @@ export const createCardComponentsParallel = async (
         return { type: 'examples', error: message };
       })
   );
-  
+
   // 3. Flashcard (параллельно)
   promises.push(
     timed('flashcard', createFlashcard(service, apiKey, text, abortSignal))
@@ -599,7 +604,7 @@ export const createCardComponentsParallel = async (
         })
     );
   }
-  
+
   // 4. Лингвистическая информация (параллельно, быстрая версия)
   if (sourceLanguage) {
     promises.push(
@@ -614,7 +619,7 @@ export const createCardComponentsParallel = async (
         })
     );
   }
-  
+
   // 5. Изображение (только если запрошено) - с поддержкой Smart режима
   if (shouldGenerateImage && imageGenerationMode !== 'off') {
     // Функция для Smart анализа
@@ -643,7 +648,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
           const result = response.content.trim();
           const shouldGenerate = result.toUpperCase().startsWith('YES');
           const reason = result.includes(' - ') ? result.split(' - ')[1] : 'AI analysis';
-          
+
           console.log(`🤖 Smart image analysis for "${textToAnalyze}": ${shouldGenerate ? 'YES' : 'NO'} - ${reason}`);
           return { shouldGenerate, reason };
         }
@@ -690,7 +695,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
       } else if (imageGenerationMode === 'smart') {
         console.log(`🚫 No image needed for "${text}": ${analysisReason}`);
       }
-      
+
       return null;
     };
 
@@ -706,7 +711,39 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         })
     );
   }
-  
+
+  // 6. Аудио (OpenAI TTS) - параллельно (если переданы функции и ключи)
+  if (shouldGenerateAudio && audioGenerationMode !== 'off' && openAiKey && generateAudioData) {
+    const audioPromise = async () => {
+      if (abortSignal?.aborted) {
+        throw new Error('Card creation was cancelled by user');
+      }
+
+      let shouldGenAudio = audioGenerationMode === 'always';
+
+      if (audioGenerationMode === 'smart') {
+        // Simple heuristic for smart audio: if text is short (1-3 words), generate audio
+        const words = text.trim().split(/\s+/).length;
+        shouldGenAudio = words >= 1 && words <= 4;
+        console.log(`🤖 Smart audio analysis for "${text}": ${shouldGenAudio ? 'YES' : 'NO'}`);
+      }
+
+      if (shouldGenAudio) {
+        return await generateAudioData(text, abortSignal);
+      }
+      return null;
+    };
+
+    promises.push(
+      timed('wordAudio', audioPromise())
+        .then(result => ({ type: 'wordAudio', result }))
+        .catch(error => {
+          const message = error instanceof Error ? error.message : String(error);
+          return { type: 'wordAudio', error: message };
+        })
+    );
+  }
+
   let results;
   try {
     // Выполняем все запросы параллельно
@@ -717,22 +754,22 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     }
     throw error;
   }
-  
+
   // Обрабатываем результаты
   const finalResult: any = { errors };
-  
+
   for (const result of results) {
     if (abortSignal?.aborted) {
       throw new Error('Card creation was cancelled by user');
     }
-    
+
     if ('error' in result) {
       errors.push({ component: result.type, error: result.error });
     } else {
       finalResult[result.type] = result.result;
     }
   }
-  
+
   const duration = Date.now() - startTime;
   console.log(`⚡ Parallel card creation completed in ${duration}ms`);
   console.log(`📊 Success: ${Object.keys(finalResult).length - 1}/${promises.length}, Errors: ${errors.length}`);
@@ -740,40 +777,40 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     const sortedTimings = [...componentTimings].sort((a, b) => b.durationMs - a.durationMs);
     console.log('⏱️ Component timings (slowest first):', sortedTimings);
   }
-  
+
   return finalResult;
 };
 
 // Создаем функцию для получения качественного лингвистического описания с валидацией
 export async function createLinguisticInfo(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    sourceLanguage: string,
-    userLanguage: string = 'ru' // Добавляем параметр языка пользователя
+  aiService: AIService,
+  apiKey: string,
+  text: string,
+  sourceLanguage: string,
+  userLanguage: string = 'ru' // Добавляем параметр языка пользователя
 ): Promise<string | null> {
-    try {
-        console.log(`Creating validated linguistic info for "${text}" in ${sourceLanguage}, interface: ${userLanguage}`);
-        
-        // Используем новую функцию с валидацией
-        const result = await createValidatedLinguisticInfo(
-            aiService,
-            apiKey,
-            text,
-            sourceLanguage,
-            userLanguage
-        );
-        
-        if (result) {
-            console.log(`Generated and validated linguistic info for "${text}"`);
-            return result;
-        }
-        
-        return null;
-    } catch (error) {
-        console.error('Error creating linguistic info:', error);
-        return null;
+  try {
+    console.log(`Creating validated linguistic info for "${text}" in ${sourceLanguage}, interface: ${userLanguage}`);
+
+    // Используем новую функцию с валидацией
+    const result = await createValidatedLinguisticInfo(
+      aiService,
+      apiKey,
+      text,
+      sourceLanguage,
+      userLanguage
+    );
+
+    if (result) {
+      console.log(`Generated and validated linguistic info for "${text}"`);
+      return result;
     }
+
+    return null;
+  } catch (error) {
+    console.error('Error creating linguistic info:', error);
+    return null;
+  }
 }
 
 /**
@@ -820,9 +857,8 @@ export function createFormatPreservingTranslationPrompt(
   targetLanguage: string,
   sourceLanguage?: string
 ): string {
-  return `TASK: Translate the content into ${targetLanguage}${
-    sourceLanguage ? ` from ${sourceLanguage}` : ""
-  }.
+  return `TASK: Translate the content into ${targetLanguage}${sourceLanguage ? ` from ${sourceLanguage}` : ""
+    }.
 
 HARD REQUIREMENTS (DO NOT VIOLATE):
 - Preserve ALL original formatting EXACTLY (tags, attributes, classes, Markdown syntax, code blocks, inline code, links, whitespace, line breaks, punctuation, emojis).
@@ -844,7 +880,7 @@ Return ONLY the translated content with formatting 100% unchanged, except for tr
 
 // Упрощенный валидатор (менее строгий, только по существу)
 function createSimpleValidatorPrompt(originalReference: string, word: string, userLanguage: string): string {
-    return `Проверь справку для "${word}" и исправь только существенные ошибки:
+  return `Проверь справку для "${word}" и исправь только существенные ошибки:
 
 СПРАВКА:
 ${originalReference}
@@ -862,96 +898,96 @@ ${originalReference}
 
 // Агент-валидатор грамматической справки
 async function validateAndCorrectLinguisticInfo(
-    aiService: AIService,
-    apiKey: string,
-    originalReference: string,
-    word: string,
-    userLanguage: string = 'ru'
+  aiService: AIService,
+  apiKey: string,
+  originalReference: string,
+  word: string,
+  userLanguage: string = 'ru'
 ): Promise<string> {
-    try {
-        console.log(`Validating linguistic reference for "${word}"`);
-        
-        const validatorPrompt = createSimpleValidatorPrompt(originalReference, word, userLanguage);
-        
-        const completion = await aiService.createChatCompletion(apiKey, [
-            {
-                role: "user",
-                content: validatorPrompt
-            }
-        ]);
-        
-        if (!completion || !completion.content) {
-            console.log('Validator failed, returning original reference');
-            return originalReference;
-        }
-        
-        const response = completion.content.trim();
-        
-        // Если агент сказал что справка корректна, возвращаем оригинал
-        if (response.includes('СПРАВКА КОРРЕКТНА') || response.includes('КОРРЕКТНА')) {
-            console.log('Reference validated as correct');
-            return originalReference;
-        }
-        
-        // Если агент предложил исправления, возвращаем их
-        console.log('Reference corrected by validator');
-        return response;
-        
-    } catch (error) {
-        console.error('Error in validator:', error);
-        return originalReference; // В случае ошибки возвращаем оригинал
+  try {
+    console.log(`Validating linguistic reference for "${word}"`);
+
+    const validatorPrompt = createSimpleValidatorPrompt(originalReference, word, userLanguage);
+
+    const completion = await aiService.createChatCompletion(apiKey, [
+      {
+        role: "user",
+        content: validatorPrompt
+      }
+    ]);
+
+    if (!completion || !completion.content) {
+      console.log('Validator failed, returning original reference');
+      return originalReference;
     }
+
+    const response = completion.content.trim();
+
+    // Если агент сказал что справка корректна, возвращаем оригинал
+    if (response.includes('СПРАВКА КОРРЕКТНА') || response.includes('КОРРЕКТНА')) {
+      console.log('Reference validated as correct');
+      return originalReference;
+    }
+
+    // Если агент предложил исправления, возвращаем их
+    console.log('Reference corrected by validator');
+    return response;
+
+  } catch (error) {
+    console.error('Error in validator:', error);
+    return originalReference; // В случае ошибки возвращаем оригинал
+  }
 }
 
 // Обновленная функция создания справки с валидацией
 export async function createValidatedLinguisticInfo(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    sourceLanguage: string,
-    userLanguage: string = 'ru'
+  aiService: AIService,
+  apiKey: string,
+  text: string,
+  sourceLanguage: string,
+  userLanguage: string = 'ru'
 ): Promise<string | null> {
-    try {
-        console.log(`Creating validated linguistic info for "${text}"`);
-        
-        // 1. Создаем первоначальную справку
-        const prompt = createQualityLinguisticPrompt(text, sourceLanguage);
+  try {
+    console.log(`Creating validated linguistic info for "${text}"`);
 
-        const completion = await aiService.createChatCompletion(apiKey, [
-            {
-                role: "user",
-                content: prompt
-            }
-        ]);
-        
-        if (!completion || !completion.content) {
-            return null;
-        }
-        
-        const originalReference = completion.content.trim();
-        
-        // 2. Проверяем и исправляем справку через валидатора
-        const validatedReference = await validateAndCorrectLinguisticInfo(
-            aiService,
-            apiKey,
-            originalReference,
-            text,
-            userLanguage
-        );
-        
-        console.log(`Final linguistic info for "${text}" created`);
-        return validatedReference;
-        
-    } catch (error) {
-        console.error('Error creating validated linguistic info:', error);
-        return null;
+    // 1. Создаем первоначальную справку
+    const prompt = createQualityLinguisticPrompt(text, sourceLanguage);
+
+    const completion = await aiService.createChatCompletion(apiKey, [
+      {
+        role: "user",
+        content: prompt
+      }
+    ]);
+
+    if (!completion || !completion.content) {
+      return null;
     }
+
+    const originalReference = completion.content.trim();
+
+    // 2. Проверяем и исправляем справку через валидатора
+    const validatedReference = await validateAndCorrectLinguisticInfo(
+      aiService,
+      apiKey,
+      originalReference,
+      text,
+      userLanguage
+    );
+
+    console.log(`Final linguistic info for "${text}" created`);
+    return validatedReference;
+
+  } catch (error) {
+    console.error('Error creating validated linguistic info:', error);
+    return null;
+  }
 }
 
 
 // Функция для создания универсального промпта валидации
 function createValidationPrompt(text: string, linguisticInfo: string, sourceLanguage: string, userLanguage: string): string {
-    return `You are an expert linguist specializing in grammar validation. Your task is to verify the grammatical accuracy of a linguistic reference.
+  return `You are an expert linguist specializing in grammar validation. Your task is to verify the grammatical accuracy of a linguistic reference.
 
 ANALYSIS TARGET:
 - Word/Phrase: "${text}"
@@ -998,128 +1034,128 @@ Be thorough and precise. Focus on grammatical accuracy for ${sourceLanguage} lan
 
 // Функция для валидации лингвистической информации
 export async function validateLinguisticInfo(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    linguisticInfo: string,
-    sourceLanguage: string,
-    userLanguage: string = 'ru'
+  aiService: AIService,
+  apiKey: string,
+  text: string,
+  linguisticInfo: string,
+  sourceLanguage: string,
+  userLanguage: string = 'ru'
 ): Promise<ValidationResult> {
-    try {
-        console.log(`Validating linguistic info for "${text}" in ${sourceLanguage}`);
-        
-        const validationPrompt = createValidationPrompt(text, linguisticInfo, sourceLanguage, userLanguage);
-        
-        const completion = await aiService.createChatCompletion(apiKey, [
-            {
-                role: "user",
-                content: validationPrompt
-            }
-        ]);
-        
-        if (!completion || !completion.content) {
-            return {
-                isValid: false,
-                errors: ['Failed to validate linguistic information']
-            };
-        }
-        
-        // Парсим ответ валидатора
-        const response = completion.content.trim();
-        console.log('Validation response:', response);
-        
-        // Ищем маркеры валидации
-        const isValid = response.includes('VALIDATION: VALID') || response.includes('✅ VALID');
-        const errorSection = response.match(/ERRORS?:([\s\S]*?)(?:CORRECTIONS?:|$)/);
-        const correctionSection = response.match(/CORRECTIONS?:([\s\S]*?)$/);
-        
-        const errors: string[] = [];
-        const corrections: string[] = [];
-        
-        if (errorSection && errorSection[1]) {
-            const errorText = errorSection[1].trim();
-            if (errorText && errorText !== 'None' && errorText !== 'Нет') {
-                errors.push(...errorText.split('\n').filter(line => line.trim()).map(line => line.replace(/^[•\-*]\s*/, '').trim()));
-            }
-        }
-        
-        if (correctionSection && correctionSection[1]) {
-            const correctionText = correctionSection[1].trim();
-            if (correctionText && correctionText !== 'None' && correctionText !== 'Нет') {
-                corrections.push(...correctionText.split('\n').filter(line => line.trim()).map(line => line.replace(/^[•\-*]\s*/, '').trim()));
-            }
-        }
-        
-        return {
-            isValid,
-            errors,
-            corrections: corrections.length > 0 ? corrections : undefined
-        };
-        
-    } catch (error) {
-        console.error('Error validating linguistic info:', error);
-        return {
-            isValid: false,
-            errors: ['Validation service unavailable']
-        };
+  try {
+    console.log(`Validating linguistic info for "${text}" in ${sourceLanguage}`);
+
+    const validationPrompt = createValidationPrompt(text, linguisticInfo, sourceLanguage, userLanguage);
+
+    const completion = await aiService.createChatCompletion(apiKey, [
+      {
+        role: "user",
+        content: validationPrompt
+      }
+    ]);
+
+    if (!completion || !completion.content) {
+      return {
+        isValid: false,
+        errors: ['Failed to validate linguistic information']
+      };
     }
+
+    // Парсим ответ валидатора
+    const response = completion.content.trim();
+    console.log('Validation response:', response);
+
+    // Ищем маркеры валидации
+    const isValid = response.includes('VALIDATION: VALID') || response.includes('✅ VALID');
+    const errorSection = response.match(/ERRORS?:([\s\S]*?)(?:CORRECTIONS?:|$)/);
+    const correctionSection = response.match(/CORRECTIONS?:([\s\S]*?)$/);
+
+    const errors: string[] = [];
+    const corrections: string[] = [];
+
+    if (errorSection && errorSection[1]) {
+      const errorText = errorSection[1].trim();
+      if (errorText && errorText !== 'None' && errorText !== 'Нет') {
+        errors.push(...errorText.split('\n').filter(line => line.trim()).map(line => line.replace(/^[•\-*]\s*/, '').trim()));
+      }
+    }
+
+    if (correctionSection && correctionSection[1]) {
+      const correctionText = correctionSection[1].trim();
+      if (correctionText && correctionText !== 'None' && correctionText !== 'Нет') {
+        corrections.push(...correctionText.split('\n').filter(line => line.trim()).map(line => line.replace(/^[•\-*]\s*/, '').trim()));
+      }
+    }
+
+    return {
+      isValid,
+      errors,
+      corrections: corrections.length > 0 ? corrections : undefined
+    };
+
+  } catch (error) {
+    console.error('Error validating linguistic info:', error);
+    return {
+      isValid: false,
+      errors: ['Validation service unavailable']
+    };
+  }
 }
 
 // Функция для исправления лингвистической информации на основе валидации
 export async function correctLinguisticInfo(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    originalLinguisticInfo: string,
-    validationErrors: string[],
-    corrections: string[],
-    sourceLanguage: string,
-    userLanguage: string = 'ru'
+  aiService: AIService,
+  apiKey: string,
+  text: string,
+  originalLinguisticInfo: string,
+  validationErrors: string[],
+  corrections: string[],
+  sourceLanguage: string,
+  userLanguage: string = 'ru'
 ): Promise<string | null> {
-    try {
-        console.log(`Correcting linguistic info for "${text}" based on validation errors`);
-        
-        const correctionPrompt = createCorrectionPrompt(
-            text, 
-            originalLinguisticInfo, 
-            validationErrors, 
-            corrections, 
-            sourceLanguage, 
-            userLanguage
-        );
-        
-        const completion = await aiService.createChatCompletion(apiKey, [
-            {
-                role: "user",
-                content: correctionPrompt
-            }
-        ]);
-        
-        if (!completion || !completion.content) {
-            return null;
-        }
-        
-        return completion.content.trim();
-        
-    } catch (error) {
-        console.error('Error correcting linguistic info:', error);
-        return null;
+  try {
+    console.log(`Correcting linguistic info for "${text}" based on validation errors`);
+
+    const correctionPrompt = createCorrectionPrompt(
+      text,
+      originalLinguisticInfo,
+      validationErrors,
+      corrections,
+      sourceLanguage,
+      userLanguage
+    );
+
+    const completion = await aiService.createChatCompletion(apiKey, [
+      {
+        role: "user",
+        content: correctionPrompt
+      }
+    ]);
+
+    if (!completion || !completion.content) {
+      return null;
     }
+
+    return completion.content.trim();
+
+  } catch (error) {
+    console.error('Error correcting linguistic info:', error);
+    return null;
+  }
 }
 
 // Функция для создания промпта исправления
 function createCorrectionPrompt(
-    text: string,
-    originalInfo: string, 
-    errors: string[], 
-    corrections: string[], 
-    sourceLanguage: string, 
-    userLanguage: string
+  text: string,
+  originalInfo: string,
+  errors: string[],
+  corrections: string[],
+  sourceLanguage: string,
+  userLanguage: string
 ): string {
-    const errorList = errors.map(error => `• ${error}`).join('\n');
-    const correctionList = corrections.map(correction => `• ${correction}`).join('\n');
-    
-    return `Ты эксперт-лингвист. Исправь грамматическую справку на основе найденных ошибок.
+  const errorList = errors.map(error => `• ${error}`).join('\n');
+  const correctionList = corrections.map(correction => `• ${correction}`).join('\n');
+
+  return `Ты эксперт-лингвист. Исправь грамматическую справку на основе найденных ошибок.
 
 СЛОВО ДЛЯ АНАЛИЗА: "${text}" (язык: ${sourceLanguage})
 
@@ -1146,13 +1182,13 @@ ${correctionList}
 
 // Новая функция для создания специализированных промптов валидации
 function createSpecializedValidationPrompt(
-    text: string, 
-    linguisticInfo: string, 
-    sourceLanguage: string, 
-    userLanguage: string, 
-    validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency' | 'completeness'
+  text: string,
+  linguisticInfo: string,
+  sourceLanguage: string,
+  userLanguage: string,
+  validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency' | 'completeness'
 ): string {
-    const baseInfo = `
+  const baseInfo = `
 ANALYSIS TARGET:
 - Word/Phrase: "${text}"
 - Source Language: ${sourceLanguage}
@@ -1161,9 +1197,9 @@ ANALYSIS TARGET:
 LINGUISTIC REFERENCE TO VALIDATE:
 ${linguisticInfo}`;
 
-    switch (validatorType) {
-        case 'morphology':
-            return `${baseInfo}
+  switch (validatorType) {
+    case 'morphology':
+      return `${baseInfo}
 
 🔬 MORPHOLOGY SPECIALIST VALIDATION
 
@@ -1196,8 +1232,8 @@ CONFIDENCE: [0.0-1.0]
 ERRORS: [morphological errors only, or "None"]
 CORRECTIONS: [morphological corrections only, or "None"]`;
 
-        case 'syntax':
-            return `${baseInfo}
+    case 'syntax':
+      return `${baseInfo}
 
 🏗️ SYNTAX SPECIALIST VALIDATION
 
@@ -1224,8 +1260,8 @@ CONFIDENCE: [0.0-1.0]
 ERRORS: [syntactic errors only, or "None"]
 CORRECTIONS: [syntactic corrections only, or "None"]`;
 
-        case 'semantics':
-            return `${baseInfo}
+    case 'semantics':
+      return `${baseInfo}
 
 💭 SEMANTICS SPECIALIST VALIDATION
 
@@ -1252,8 +1288,8 @@ CONFIDENCE: [0.0-1.0]
 ERRORS: [semantic errors only, or "None"]
 CORRECTIONS: [semantic corrections only, or "None"]`;
 
-        case 'consistency':
-            return `${baseInfo}
+    case 'consistency':
+      return `${baseInfo}
 
 ⚖️ CONSISTENCY SPECIALIST VALIDATION
 
@@ -1286,8 +1322,8 @@ CONFIDENCE: [0.0-1.0]
 ERRORS: [consistency errors only, or "None"]
 CORRECTIONS: [consistency corrections only, or "None"]`;
 
-        case 'completeness':
-            return `${baseInfo}
+    case 'completeness':
+      return `${baseInfo}
 
 📋 COMPLETENESS SPECIALIST VALIDATION
 
@@ -1326,283 +1362,283 @@ CONFIDENCE: [0.0-1.0]
 ERRORS: [completeness issues only, or "None"]
 CORRECTIONS: [suggestions for missing info, or "None"]`;
 
-        default:
-            return createValidationPrompt(text, linguisticInfo, sourceLanguage, userLanguage);
-    }
+    default:
+      return createValidationPrompt(text, linguisticInfo, sourceLanguage, userLanguage);
+  }
 }
 
 // Функция для запуска одного специализированного валидатора
 async function runSpecializedValidator(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    linguisticInfo: string,
-    sourceLanguage: string,
-    userLanguage: string,
-    validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency' | 'completeness'
+  aiService: AIService,
+  apiKey: string,
+  text: string,
+  linguisticInfo: string,
+  sourceLanguage: string,
+  userLanguage: string,
+  validatorType: 'morphology' | 'syntax' | 'semantics' | 'consistency' | 'completeness'
 ): Promise<DetailedValidationResult> {
-    try {
-        console.log(`Running ${validatorType} validator for "${text}"`);
-        
-        const prompt = createSpecializedValidationPrompt(
-            text, 
-            linguisticInfo, 
-            sourceLanguage, 
-            userLanguage, 
-            validatorType
-        );
-        
-        const completion = await aiService.createChatCompletion(apiKey, [
-            {
-                role: "user",
-                content: prompt
-            }
-        ]);
-        
-        if (!completion || !completion.content) {
-            return {
-                isValid: false,
-                errors: [`${validatorType} validation failed - no response`],
-                confidence: 0,
-                validatorType
-            };
-        }
-        
-        const response = completion.content.trim();
-        console.log(`${validatorType} validator response:`, response);
-        
-        // Парсим ответ
-        const isValid = response.includes('VALIDATION: VALID');
-        const confidenceMatch = response.match(/CONFIDENCE:\s*([\d.]+)/);
-        const confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.5;
-        
-        const errorSection = response.match(/ERRORS?:([\s\S]*?)(?:CORRECTIONS?:|$)/);
-        const correctionSection = response.match(/CORRECTIONS?:([\s\S]*?)$/);
-        
-        const errors: string[] = [];
-        const corrections: string[] = [];
-        
-        if (errorSection && errorSection[1]) {
-            const errorText = errorSection[1].trim();
-            if (errorText && errorText !== 'None' && errorText !== 'Нет') {
-                errors.push(...errorText.split('\n')
-                    .filter(line => line.trim())
-                    .map(line => line.replace(/^[•\-*]\s*/, '').trim())
-                    .filter(line => line.length > 0));
-            }
-        }
-        
-        if (correctionSection && correctionSection[1]) {
-            const correctionText = correctionSection[1].trim();
-            if (correctionText && correctionText !== 'None' && correctionText !== 'Нет') {
-                corrections.push(...correctionText.split('\n')
-                    .filter(line => line.trim())
-                    .map(line => line.replace(/^[•\-*]\s*/, '').trim())
-                    .filter(line => line.length > 0));
-            }
-        }
-        
-        return {
-            isValid,
-            errors,
-            corrections: corrections.length > 0 ? corrections : undefined,
-            confidence,
-            validatorType
-        };
-        
-    } catch (error) {
-        console.error(`Error in ${validatorType} validator:`, error);
-        return {
-            isValid: false,
-            errors: [`${validatorType} validator error: ${error instanceof Error ? error.message : 'Unknown error'}`],
-            confidence: 0,
-            validatorType
-        };
+  try {
+    console.log(`Running ${validatorType} validator for "${text}"`);
+
+    const prompt = createSpecializedValidationPrompt(
+      text,
+      linguisticInfo,
+      sourceLanguage,
+      userLanguage,
+      validatorType
+    );
+
+    const completion = await aiService.createChatCompletion(apiKey, [
+      {
+        role: "user",
+        content: prompt
+      }
+    ]);
+
+    if (!completion || !completion.content) {
+      return {
+        isValid: false,
+        errors: [`${validatorType} validation failed - no response`],
+        confidence: 0,
+        validatorType
+      };
     }
+
+    const response = completion.content.trim();
+    console.log(`${validatorType} validator response:`, response);
+
+    // Парсим ответ
+    const isValid = response.includes('VALIDATION: VALID');
+    const confidenceMatch = response.match(/CONFIDENCE:\s*([\d.]+)/);
+    const confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.5;
+
+    const errorSection = response.match(/ERRORS?:([\s\S]*?)(?:CORRECTIONS?:|$)/);
+    const correctionSection = response.match(/CORRECTIONS?:([\s\S]*?)$/);
+
+    const errors: string[] = [];
+    const corrections: string[] = [];
+
+    if (errorSection && errorSection[1]) {
+      const errorText = errorSection[1].trim();
+      if (errorText && errorText !== 'None' && errorText !== 'Нет') {
+        errors.push(...errorText.split('\n')
+          .filter(line => line.trim())
+          .map(line => line.replace(/^[•\-*]\s*/, '').trim())
+          .filter(line => line.length > 0));
+      }
+    }
+
+    if (correctionSection && correctionSection[1]) {
+      const correctionText = correctionSection[1].trim();
+      if (correctionText && correctionText !== 'None' && correctionText !== 'Нет') {
+        corrections.push(...correctionText.split('\n')
+          .filter(line => line.trim())
+          .map(line => line.replace(/^[•\-*]\s*/, '').trim())
+          .filter(line => line.length > 0));
+      }
+    }
+
+    return {
+      isValid,
+      errors,
+      corrections: corrections.length > 0 ? corrections : undefined,
+      confidence,
+      validatorType
+    };
+
+  } catch (error) {
+    console.error(`Error in ${validatorType} validator:`, error);
+    return {
+      isValid: false,
+      errors: [`${validatorType} validator error: ${error instanceof Error ? error.message : 'Unknown error'}`],
+      confidence: 0,
+      validatorType
+    };
+  }
 }
 
 // Функция для запуска множественной валидации
 export async function runMultipleValidation(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    linguisticInfo: string,
-    sourceLanguage: string,
-    userLanguage: string = 'ru'
+  aiService: AIService,
+  apiKey: string,
+  text: string,
+  linguisticInfo: string,
+  sourceLanguage: string,
+  userLanguage: string = 'ru'
 ): Promise<MultiValidationResult> {
-    console.log(`Running multiple validation for "${text}"`);
-    
-    const validators: Array<'morphology' | 'syntax' | 'semantics' | 'consistency' | 'completeness'> = [
-        'morphology',
-        'syntax', 
-        'semantics',
-        'consistency',
-        'completeness'
-    ];
-    
-    // Запускаем всех валидаторов параллельно
-    const validationPromises = validators.map(validator => 
-        runSpecializedValidator(
-            aiService, 
-            apiKey, 
-            text, 
-            linguisticInfo, 
-            sourceLanguage, 
-            userLanguage, 
-            validator
-        )
-    );
-    
-    const validations = await Promise.all(validationPromises);
-    
-    // Анализируем результаты
-    const validValidations = validations.filter(v => v.isValid);
-    const invalidValidations = validations.filter(v => !v.isValid);
-    
-    // Вычисляем общую уверенность
-    const averageConfidence = validations.reduce((sum, v) => sum + v.confidence, 0) / validations.length;
-    
-    // Определяем общую валидность
-    const validationRatio = validValidations.length / validations.length;
-    const overallValid = validationRatio >= 0.75; // 75% валидаторов должны согласиться
-    
-    // Собираем финальные ошибки и исправления
-    const finalErrors: string[] = [];
-    const finalCorrections: string[] = [];
-    
-    invalidValidations.forEach(validation => {
-        validation.errors.forEach(error => {
-            if (!finalErrors.includes(error)) {
-                finalErrors.push(`[${validation.validatorType}] ${error}`);
-            }
-        });
-        
-        if (validation.corrections) {
-            validation.corrections.forEach(correction => {
-                if (!finalCorrections.includes(correction)) {
-                    finalCorrections.push(`[${validation.validatorType}] ${correction}`);
-                }
-            });
-        }
+  console.log(`Running multiple validation for "${text}"`);
+
+  const validators: Array<'morphology' | 'syntax' | 'semantics' | 'consistency' | 'completeness'> = [
+    'morphology',
+    'syntax',
+    'semantics',
+    'consistency',
+    'completeness'
+  ];
+
+  // Запускаем всех валидаторов параллельно
+  const validationPromises = validators.map(validator =>
+    runSpecializedValidator(
+      aiService,
+      apiKey,
+      text,
+      linguisticInfo,
+      sourceLanguage,
+      userLanguage,
+      validator
+    )
+  );
+
+  const validations = await Promise.all(validationPromises);
+
+  // Анализируем результаты
+  const validValidations = validations.filter(v => v.isValid);
+  const invalidValidations = validations.filter(v => !v.isValid);
+
+  // Вычисляем общую уверенность
+  const averageConfidence = validations.reduce((sum, v) => sum + v.confidence, 0) / validations.length;
+
+  // Определяем общую валидность
+  const validationRatio = validValidations.length / validations.length;
+  const overallValid = validationRatio >= 0.75; // 75% валидаторов должны согласиться
+
+  // Собираем финальные ошибки и исправления
+  const finalErrors: string[] = [];
+  const finalCorrections: string[] = [];
+
+  invalidValidations.forEach(validation => {
+    validation.errors.forEach(error => {
+      if (!finalErrors.includes(error)) {
+        finalErrors.push(`[${validation.validatorType}] ${error}`);
+      }
     });
-    
-    console.log(`Multiple validation complete: ${validValidations.length}/${validations.length} passed, confidence: ${averageConfidence.toFixed(2)}`);
-    
-    return {
-        overallValid,
-        confidence: averageConfidence,
-        validations,
-        finalErrors,
-        finalCorrections,
-        attempts: 1
-    };
+
+    if (validation.corrections) {
+      validation.corrections.forEach(correction => {
+        if (!finalCorrections.includes(correction)) {
+          finalCorrections.push(`[${validation.validatorType}] ${correction}`);
+        }
+      });
+    }
+  });
+
+  console.log(`Multiple validation complete: ${validValidations.length}/${validations.length} passed, confidence: ${averageConfidence.toFixed(2)}`);
+
+  return {
+    overallValid,
+    confidence: averageConfidence,
+    validations,
+    finalErrors,
+    finalCorrections,
+    attempts: 1
+  };
 }
 
 // СУПЕР-БЫСТРАЯ ФУНКЦИЯ: только 1 запрос, без валидации
 export async function createFastLinguisticInfo(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    sourceLanguage: string,
-    userLanguage: string = 'ru'
-): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number}> {
-    try {
-        console.log(`Creating fast linguistic info for "${text}" (1 request only)`);
+  aiService: AIService,
+  apiKey: string,
+  text: string,
+  sourceLanguage: string,
+  userLanguage: string = 'ru'
+): Promise<{ linguisticInfo: string | null; wasValidated: boolean; attempts: number }> {
+  try {
+    console.log(`Creating fast linguistic info for "${text}" (1 request only)`);
 
-        // Создаем улучшенный промпт, который сразу выдает качественную справку
-        const promptInit = createQualityLinguisticPrompt(text, sourceLanguage);
-        const prompt = createFormatPreservingTranslationPrompt(promptInit, sourceLanguage);
+    // Создаем улучшенный промпт, который сразу выдает качественную справку
+    const promptInit = createQualityLinguisticPrompt(text, sourceLanguage);
+    const prompt = createFormatPreservingTranslationPrompt(promptInit, sourceLanguage);
 
-        const completion = await aiService.createChatCompletion(apiKey, [
-            {
-                role: "user",
-                content: prompt
-            }
-        ]);
+    const completion = await aiService.createChatCompletion(apiKey, [
+      {
+        role: "user",
+        content: prompt
+      }
+    ]);
 
-        if (!completion || !completion.content) {
-            console.log('Failed to generate linguistic info');
-            return { linguisticInfo: null, wasValidated: false, attempts: 1 };
-        }
-
-        const linguisticInfo = completion.content.trim();
-        console.log('Fast linguistic info created successfully');
-
-        return { linguisticInfo, wasValidated: false, attempts: 1 };
-    } catch (error) {
-        console.error('Error creating fast linguistic info:', error);
-        return { linguisticInfo: null, wasValidated: false, attempts: 1 };
+    if (!completion || !completion.content) {
+      console.log('Failed to generate linguistic info');
+      return { linguisticInfo: null, wasValidated: false, attempts: 1 };
     }
+
+    const linguisticInfo = completion.content.trim();
+    console.log('Fast linguistic info created successfully');
+
+    return { linguisticInfo, wasValidated: false, attempts: 1 };
+  } catch (error) {
+    console.error('Error creating fast linguistic info:', error);
+    return { linguisticInfo: null, wasValidated: false, attempts: 1 };
+  }
 }
 
 // ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: максимум 2 запроса, менее строгий валидатор
 export async function createOptimizedLinguisticInfo(
-    aiService: AIService,
-    apiKey: string,
-    text: string,
-    sourceLanguage: string,
-    userLanguage: string = 'ru'
-): Promise<{linguisticInfo: string | null; wasValidated: boolean; attempts: number}> {
-    try {
-        console.log(`Creating optimized linguistic info for "${text}" (max 2 requests)`);
+  aiService: AIService,
+  apiKey: string,
+  text: string,
+  sourceLanguage: string,
+  userLanguage: string = 'ru'
+): Promise<{ linguisticInfo: string | null; wasValidated: boolean; attempts: number }> {
+  try {
+    console.log(`Creating optimized linguistic info for "${text}" (max 2 requests)`);
 
-        // ШАГ 1: Создаем первоначальную справку
-        const prompt = createQualityLinguisticPrompt(text, sourceLanguage);
+    // ШАГ 1: Создаем первоначальную справку
+    const prompt = createQualityLinguisticPrompt(text, sourceLanguage);
 
-        const completion = await aiService.createChatCompletion(apiKey, [
-            {
-                role: "user",
-                content: prompt
-            }
-        ], {
-            title: 'Creating grammar reference',
-            subtitle: 'Generating detailed grammar and linguistic information',
-            icon: '📚',
-            color: '#9C27B0'
-        });
+    const completion = await aiService.createChatCompletion(apiKey, [
+      {
+        role: "user",
+        content: prompt
+      }
+    ], {
+      title: 'Creating grammar reference',
+      subtitle: 'Generating detailed grammar and linguistic information',
+      icon: '📚',
+      color: '#9C27B0'
+    });
 
-        if (!completion || !completion.content) {
-            console.log('Failed to generate initial linguistic info');
-            return { linguisticInfo: null, wasValidated: false, attempts: 1 };
-        }
-
-        const initialReference = completion.content.trim();
-        console.log('Initial reference created');
-
-        // ШАГ 2: Быстрая проверка и исправление (только если есть явные ошибки)
-        const validatorPrompt = createSimpleValidatorPrompt(initialReference, text, userLanguage);
-
-        const validatorCompletion = await aiService.createChatCompletion(apiKey, [
-            {
-                role: "user",
-                content: validatorPrompt
-            }
-        ], {
-            title: 'Validating grammar reference',
-            subtitle: 'Checking and improving linguistic information',
-            icon: '🔍',
-            color: '#9C27B0'
-        });
-
-        if (!validatorCompletion || !validatorCompletion.content) {
-            console.log('Validator failed, returning initial reference');
-            return { linguisticInfo: initialReference, wasValidated: false, attempts: 2 };
-        }
-
-        const validatorResponse = validatorCompletion.content.trim();
-
-        // Если валидатор говорит что справка корректна - возвращаем исходную
-        if (validatorResponse.includes('СПРАВКА КОРРЕКТНА') || validatorResponse.includes('КОРРЕКТНА')) {
-            console.log('Reference validated as correct');
-            return { linguisticInfo: initialReference, wasValidated: true, attempts: 2 };
-        }
-
-        // Если есть исправления - возвращаем исправленную версию
-        console.log('Reference was corrected by validator');
-        return { linguisticInfo: validatorResponse, wasValidated: true, attempts: 2 };
-
-    } catch (error) {
-        console.error('Error in optimized linguistic info creation:', error);
-        return { linguisticInfo: null, wasValidated: false, attempts: 1 };
+    if (!completion || !completion.content) {
+      console.log('Failed to generate initial linguistic info');
+      return { linguisticInfo: null, wasValidated: false, attempts: 1 };
     }
+
+    const initialReference = completion.content.trim();
+    console.log('Initial reference created');
+
+    // ШАГ 2: Быстрая проверка и исправление (только если есть явные ошибки)
+    const validatorPrompt = createSimpleValidatorPrompt(initialReference, text, userLanguage);
+
+    const validatorCompletion = await aiService.createChatCompletion(apiKey, [
+      {
+        role: "user",
+        content: validatorPrompt
+      }
+    ], {
+      title: 'Validating grammar reference',
+      subtitle: 'Checking and improving linguistic information',
+      icon: '🔍',
+      color: '#9C27B0'
+    });
+
+    if (!validatorCompletion || !validatorCompletion.content) {
+      console.log('Validator failed, returning initial reference');
+      return { linguisticInfo: initialReference, wasValidated: false, attempts: 2 };
+    }
+
+    const validatorResponse = validatorCompletion.content.trim();
+
+    // Если валидатор говорит что справка корректна - возвращаем исходную
+    if (validatorResponse.includes('СПРАВКА КОРРЕКТНА') || validatorResponse.includes('КОРРЕКТНА')) {
+      console.log('Reference validated as correct');
+      return { linguisticInfo: initialReference, wasValidated: true, attempts: 2 };
+    }
+
+    // Если есть исправления - возвращаем исправленную версию
+    console.log('Reference was corrected by validator');
+    return { linguisticInfo: validatorResponse, wasValidated: true, attempts: 2 };
+
+  } catch (error) {
+    console.error('Error in optimized linguistic info creation:', error);
+    return { linguisticInfo: null, wasValidated: false, attempts: 1 };
+  }
 } 
