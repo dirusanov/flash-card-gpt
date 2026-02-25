@@ -18,7 +18,6 @@ import { getImage } from '../apiUtils';
 import { backgroundFetch } from '../services/backgroundFetch';
 import useErrorNotification from './useErrorHandler';
 import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit, FaClock, FaChevronRight, FaKey } from 'react-icons/fa';
-import { loadCardsFromStorage } from '../store/middleware/cardsLocalStorage';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
 import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createOptimizedLinguisticInfo, createTranscription } from '../services/aiServiceFactory';
@@ -253,17 +252,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const noop = useCallback(() => {}, []);
 
-    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, fieldIdPrefix, tabId, storedCards } = tabAware;
+    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, fieldIdPrefix, tabId } = tabAware;
     const lastDraftCard = useSelector((state: RootState) => state.cards.lastDraftCard);
-    const existingCardIdByText = useMemo(() => {
-        const index = new Map<string, string>();
-        for (const card of storedCards) {
-            if (card?.text) {
-                index.set(card.text, card.id);
-            }
-        }
-        return index;
-    }, [storedCards]);
 
     // Tab-scoped localStorage helpers to avoid cross-tab leaks
     const getTabScopedLS = useCallback((key: string): string | null => {
@@ -627,6 +617,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setElapsedTime
     ]);
 
+    // Получаем сохраненные карточки из tab-aware контекста
+    const { storedCards } = tabAware;
+
     // Get the appropriate AI service based on the selected provider
     const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
 
@@ -883,16 +876,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, [latestDraftSnapshot, dispatch, lastDraftCard]);
 
     // Add more detailed logging to debug the issue
-    useEffect(() => {
-        debugLog('Card state details:', {
-            isNewSubmission,
-            explicitlySaved,
-            isSaved,
-            currentCardId,
-            text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
-            localStorage_explicitly_saved: getTabScopedLS('explicitly_saved')
-        });
-    }, [isNewSubmission, explicitlySaved, isSaved, currentCardId, text, getTabScopedLS]);
+    debugLog('Card state details:', {
+        isNewSubmission,
+        explicitlySaved,
+        isSaved,
+        currentCardId,
+        text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
+        localStorage_explicitly_saved: getTabScopedLS('explicitly_saved')
+    });
 
     const popularLanguages = [
         { code: 'ru', name: 'Русский' },
@@ -958,14 +949,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
-        const existingCardId = existingCardIdByText.get(textToCheck);
-        if (existingCardId) {
-            debugLog('Found existing card with matching text:', textToCheck, 'ID:', existingCardId);
+        const exactMatch = storedCards.find((card: StoredCard) => card.text === textToCheck);
+
+        if (exactMatch) {
+            debugLog('Found existing card with matching text:', exactMatch?.text || textToCheck, 'ID:', exactMatch.id);
             debugLog('Setting currentCardId but NOT setting explicitlySaved');
 
             // Only set the ID for reference, but DON'T mark as explicitly saved
             // This ensures "Saved to Collection" only appears after user explicitly saves
-            dispatch(setCurrentCardId(existingCardId));
+            dispatch(setCurrentCardId(exactMatch.id));
 
             // IMPORTANT: We do NOT set explicitlySaved to true here, as that would cause
             // the "Saved to Collection" message to appear prematurely
@@ -973,7 +965,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
 
         return false;
-    }, [dispatch, existingCardIdByText]);
+    }, [dispatch, storedCards]);
 
     // Update the handle text change to check for existing cards
     const handleTextChange = (newText: string) => {
@@ -1833,7 +1825,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     useEffect(() => {
         // Always enforce Language Learning mode and update persisted selection
         localStorage.setItem('selected_mode', Modes.LanguageLearning);
-        dispatch(setMode(Modes.LanguageLearning));
+        if (mode !== Modes.LanguageLearning) {
+            dispatch(setMode(Modes.LanguageLearning));
+        }
 
         if (text && translation && examples.length > 0) {
             setShowResult(true);
@@ -1842,87 +1836,64 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
 
         // Load stored cards from localStorage on initial load
-        dispatch(loadStoredCards());
-    }, [dispatch]);
+        if (!storedCards.length) {
+            dispatch(loadStoredCards());
+        }
+    }, [dispatch, mode, storedCards.length]);
 
     // Ensure cards load correctly on page refresh, and check saved status before showing UI
+    const hasRestoredCardOnMountRef = useRef(false);
     useEffect(() => {
-        // Only run once on component mount
-        const checkSavedCardsOnMount = async () => {
-            debugLog('Running saved cards check on mount');
+        if (hasRestoredCardOnMountRef.current) {
+            return;
+        }
 
-            // First, ensure stored cards are loaded from localStorage
-            dispatch(loadStoredCards());
+        const savedCardId = getTabScopedLS('current_card_id');
+        const explicitlySavedFlag = getTabScopedLS('explicitly_saved');
 
-            // Wait a brief moment to ensure cards are loaded
-            setTimeout(() => {
-                const savedCards = loadCardsFromStorage();
-                debugLog('Loaded cards from storage:', savedCards.length);
+        if (!savedCardId) {
+            hasRestoredCardOnMountRef.current = true;
+            debugLog('No current card ID in localStorage');
+            setIsNewSubmission(true);
+            setExplicitlySaved(false);
+            return;
+        }
 
-                // Get currentCardId from localStorage
-                const savedCardId = getTabScopedLS('current_card_id');
-                const explicitlySavedFlag = getTabScopedLS('explicitly_saved');
+        // Wait until stored cards are present in Redux; avoid direct heavy localStorage parse.
+        if (!storedCards.length) {
+            return;
+        }
 
-                debugLog('localStorage values on mount:', {
-                    savedCardId,
-                    explicitlySavedFlag,
-                    cardCount: savedCards.length
-                });
+        const savedCard = storedCards.find((card: StoredCard) => card.id === savedCardId);
+        if (savedCard) {
+            debugLog('Restoring card from Redux storage:', savedCard.id);
+            setIsEdited(false);
+            setIsNewSubmission(false);
+            setExplicitlySaved(explicitlySavedFlag === 'true');
 
-                if (savedCardId) {
-                    debugLog('Found current card ID in localStorage:', savedCardId);
-                    // Find the card by ID
-                    const savedCard = savedCards.find((card: StoredCard) => card.id === savedCardId);
+            tabAware.setCurrentCardId(savedCardId);
+            tabAware.setText(savedCard.text);
+            if (savedCard.translation) tabAware.setTranslation(savedCard.translation);
+            if (savedCard.examples) tabAware.setExamples(savedCard.examples);
+            if (savedCard.image) tabAware.setImage(savedCard.image);
+            if (savedCard.imageUrl) tabAware.setImageUrl(savedCard.imageUrl);
+            if (savedCard.front) tabAware.setFront(savedCard.front);
+            if (savedCard.back) tabAware.setBack(savedCard.back);
+            if (savedCard.linguisticInfo) tabAware.setLinguisticInfo(savedCard.linguisticInfo);
+            if (savedCard.transcription) tabAware.setTranscription(savedCard.transcription);
+            setOriginalSelectedText(savedCard.text);
+            setShowResult(true);
+        } else {
+            debugLog('Card ID from localStorage not found in Redux storage, resetting');
+            removeTabScopedLS('current_card_id');
+            removeTabScopedLS('explicitly_saved');
+            tabAware.setCurrentCardId(null);
+            setIsNewSubmission(true);
+            setExplicitlySaved(false);
+        }
 
-                    if (savedCard) {
-                        debugLog('Restoring card from storage:', savedCard);
-                        // If card is found by ID, update the state
-                        setIsEdited(false);
-                        setIsNewSubmission(false);
-
-                        // Set explicitlySaved based on localStorage flag
-                        if (explicitlySavedFlag === 'true') {
-                            debugLog('Setting explicitlySaved to TRUE based on localStorage flag');
-                            setExplicitlySaved(true);
-                        } else {
-                            debugLog('Setting explicitlySaved to FALSE based on localStorage flag');
-                            setExplicitlySaved(false);
-                        }
-
-                        // Restore card data
-                        tabAware.setCurrentCardId(savedCardId);
-                        tabAware.setText(savedCard.text);
-                        if (savedCard.translation) tabAware.setTranslation(savedCard.translation);
-                        if (savedCard.examples) tabAware.setExamples(savedCard.examples);
-                        if (savedCard.image) tabAware.setImage(savedCard.image);
-                        if (savedCard.imageUrl) tabAware.setImageUrl(savedCard.imageUrl);
-                        if (savedCard.front) tabAware.setFront(savedCard.front);
-                        if (savedCard.back) tabAware.setBack(savedCard.back);
-                        if (savedCard.linguisticInfo) tabAware.setLinguisticInfo(savedCard.linguisticInfo);
-                        if (savedCard.transcription) tabAware.setTranscription(savedCard.transcription);
-                        setOriginalSelectedText(savedCard.text);
-
-                        setShowResult(true);
-                    } else {
-                        debugLog('Card ID from localStorage not found in storage, resetting');
-                        // If card with this ID no longer exists, clear the ID
-                        removeTabScopedLS('current_card_id');
-                        removeTabScopedLS('explicitly_saved');
-                        tabAware.setCurrentCardId(null);
-                        setIsNewSubmission(true);
-                        setExplicitlySaved(false);
-                    }
-                } else {
-                    debugLog('No current card ID in localStorage');
-                    setIsNewSubmission(true);
-                    setExplicitlySaved(false);
-                }
-            }, 200); // Increased timeout to ensure cards are loaded
-        };
-
-        checkSavedCardsOnMount();
-        // This effect should only run once on mount, so empty dependency array
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+        hasRestoredCardOnMountRef.current = true;
+    }, [storedCards, getTabScopedLS, removeTabScopedLS, tabAware]);
 
     // Проверка при загрузке или изменении текста, была ли карточка уже сохранена
     useEffect(() => {

@@ -19,6 +19,8 @@ const isAbortLikeError = (error: unknown): boolean => {
   return /abort|aborted|cancelled|canceled/i.test(message);
 };
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * Интерфейс для работы с AI-провайдерами
  */
@@ -724,37 +726,66 @@ export class OpenAIProvider extends BaseAIProvider {
         ],
         ...restOptions,
       };
+      const maxRetries = 2;
+      let lastError: Error | null = null;
 
-      const response = await backgroundFetch(
-        `${this.baseUrl}/chat/completions`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`,
-          },
-          body: JSON.stringify(body),
-        },
-        signal
-      );
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const response = await backgroundFetch(
+            `${this.baseUrl}/chat/completions`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${this.apiKey}`,
+              },
+              body: JSON.stringify(body),
+            },
+            signal
+          );
 
-      const data = await response.json();
+          const data = await response.json();
 
-      if (!response.ok) {
-        if (data?.error) {
-          const errorMessage = formatOpenAIErrorMessage(data);
+          if (!response.ok) {
+            if (data?.error) {
+              const errorMessage = formatOpenAIErrorMessage(data);
 
-          if (data.error.code === 'insufficient_quota' || response.status === 429) {
-            cacheQuotaExceededError(errorMessage);
+              if (data.error.code === 'insufficient_quota' || response.status === 429) {
+                cacheQuotaExceededError(errorMessage);
+              }
+
+              const isServerError = response.status >= 500 || data.error.type === 'server_error';
+              if (isServerError && attempt < maxRetries) {
+                await sleep(400 * Math.pow(2, attempt));
+                continue;
+              }
+
+              throw new Error(errorMessage);
+            }
+
+            if (response.status >= 500 && attempt < maxRetries) {
+              await sleep(400 * Math.pow(2, attempt));
+              continue;
+            }
+
+            throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
           }
 
-          throw new Error(errorMessage);
-        }
+          return data.choices?.[0]?.message?.content?.trim() || null;
+        } catch (requestError) {
+          if (isAbortLikeError(requestError)) {
+            throw requestError as Error;
+          }
 
-        throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+          lastError = requestError instanceof Error ? requestError : new Error(String(requestError));
+          if (attempt < maxRetries) {
+            await sleep(400 * Math.pow(2, attempt));
+            continue;
+          }
+        }
       }
 
-      return data.choices?.[0]?.message?.content?.trim() || null;
+      throw lastError || new Error('OpenAI request failed after retries');
     } catch (error) {
       if (!isAbortLikeError(error)) {
         console.error('Error in OpenAI request:', error);
