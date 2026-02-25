@@ -112,7 +112,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           headers[key] = value;
         });
 
-        const bodyText = await response.text();
+        let bodyText = '';
+        if (options.responseType === 'dataUrl' && response.ok) {
+          const blob = await response.blob();
+          bodyText = await new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onloadend = () => resolve(fr.result || '');
+            fr.onerror = reject;
+            fr.readAsDataURL(blob);
+          });
+        } else {
+          bodyText = await response.text();
+        }
 
         sendResponse({
           ok: response.ok,

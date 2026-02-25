@@ -20,6 +20,7 @@ export const UPDATE_STORED_CARD = 'UPDATE_STORED_CARD';
 export const SET_CURRENT_CARD_ID = 'SET_CURRENT_CARD_ID';
 export const SET_LINGUISTIC_INFO = 'SET_LINGUISTIC_INFO';
 export const SET_TRANSCRIPTION = 'SET_TRANSCRIPTION';
+export const SET_WORD_AUDIO = 'SET_WORD_AUDIO';
 
 // Add new actions for card generation state
 export const SET_IS_GENERATING_CARD = 'SET_IS_GENERATING_CARD';
@@ -51,6 +52,7 @@ export const saveCardToStorage = (
         examples?: Array<[string, string | null]>;
         image?: string | null;
         imageUrl?: string | null;
+        wordAudio?: string | null;
         createdAt: Date;
     }
 ) => {
@@ -172,6 +174,13 @@ export const setTranscription = (transcription: string) => {
     return {
         type: SET_TRANSCRIPTION,
         payload: transcription,
+    };
+};
+
+export const setWordAudio = (wordAudio: string | null) => {
+    return {
+        type: SET_WORD_AUDIO,
+        payload: wordAudio,
     };
 };
 

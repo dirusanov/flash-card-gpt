@@ -23,6 +23,8 @@ export interface CardLangLearning {
     image_base64: string | null;
     linguisticInfo?: string;
     transcription?: string; // HTML with user-language + IPA
+    word_audio_base64?: string | null; // base64 audio or data URL
+    ankiAudioTag?: string;
 }
 
 export interface CardGeneral {
@@ -84,6 +86,56 @@ function renderTranscriptionForAnki(card: CardLangLearning): string {
         </div>
     `;
 }
+
+const extractRawBase64 = (value: string | null | undefined): string | null => {
+    if (!value) return null;
+    const trimmed = value.trim();
+    const dataPrefixIndex = trimmed.indexOf('base64,');
+    if (dataPrefixIndex !== -1) {
+        return trimmed.substring(dataPrefixIndex + 'base64,'.length).trim() || null;
+    }
+    return trimmed || null;
+};
+
+const sanitizeForFilename = (text: string): string => {
+    const cleaned = (text || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    return cleaned || 'word';
+};
+
+const storeMediaFile = async (
+    ankiConnectUrl: string,
+    ankiConnectApiKey: string | null,
+    filename: string,
+    base64Data: string
+): Promise<void> => {
+    const payload = JSON.stringify({
+        action: 'storeMediaFile',
+        version: 6,
+        key: ankiConnectApiKey,
+        params: {
+            filename,
+            data: base64Data,
+        },
+    });
+
+    const response = await backgroundFetch(ankiConnectUrl, {
+        method: 'POST',
+        body: payload,
+        headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to store audio media file in Anki.');
+    }
+
+    const result = await response.json();
+    if (result?.error) {
+        throw new Error(`Anki error while storing media: ${result.error}`);
+    }
+};
 
 function format_back_lang_learning(card: CardLangLearning): string {
     const formatted_examples = card.examples
@@ -163,7 +215,10 @@ function format_back_lang_learning(card: CardLangLearning): string {
     // Transcription block (inline-styled for Anki)
     const transcriptionHtml = renderTranscriptionForAnki(card);
 
+    const audioTag = card.ankiAudioTag || '';
+
     return `
+        ${audioTag ? `<div style="margin-bottom:8px; text-align:center;">${audioTag}</div>` : ''}
         ${transcriptionHtml}
         <div style="margin-top: 10px;"><b>${card.translation}</b></div>
         <br>${formatted_examples}<br><br>
@@ -282,12 +337,21 @@ export const createAnkiCards = async (
             throw new Error('Failed to create deck.');
         }
 
-        const notes = cards.map((card) => {
+        const notes = await Promise.all(cards.map(async (card, index) => {
             let fields;
             if (mode === Modes.LanguageLearning && 'translation' in card && 'examples' in card && 'image_base64' in card) {
+                const langCard = card as CardLangLearning;
+                const rawAudioBase64 = extractRawBase64(langCard.word_audio_base64);
+                let audioTag = '';
+                if (rawAudioBase64) {
+                    const filename = `${sanitizeForFilename(langCard.text)}_${Date.now()}_${index}.mp3`;
+                    await storeMediaFile(ankiConnectUrl, ankiConnectApiKey, filename, rawAudioBase64);
+                    audioTag = `[sound:${filename}]`;
+                }
+                const cardForRender: CardLangLearning = { ...langCard, ankiAudioTag: audioTag };
                 fields = {
-                    Front: card.text,
-                    Back: format_back_lang_learning(card as CardLangLearning),
+                    Front: cardForRender.text,
+                    Back: format_back_lang_learning(cardForRender),
                 };
             } else if (mode === Modes.GeneralTopic && 'back' in card) {
                 const generalCard = card as CardGeneral;
@@ -304,7 +368,7 @@ export const createAnkiCards = async (
                 options: { allowDuplicate: false },
                 tags: [],
             };
-        });
+        }));
 
         const addNotesPayload = JSON.stringify({
             action: 'addNotes',

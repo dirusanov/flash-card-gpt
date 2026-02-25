@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaCheck, FaList, FaPen, FaTrash, FaPlus, FaTimes, FaEdit, FaSave, FaSync, FaChevronDown, FaChevronUp, FaBook, FaInfoCircle } from 'react-icons/fa';
+import { FaCheck, FaList, FaPen, FaTrash, FaPlus, FaTimes, FaEdit, FaSave, FaSync, FaChevronDown, FaChevronUp, FaBook, FaInfoCircle, FaVolumeUp } from 'react-icons/fa';
 import { FaLanguage, FaGraduationCap, FaBookOpen, FaQuoteRight, FaTags } from 'react-icons/fa';
 import { Modes } from "../constants";
 import Loader from './Loader';
@@ -19,13 +19,16 @@ interface ResultDisplayProps {
     image: string | null;
     linguisticInfo?: string;
     transcription: string | null;
+    wordAudio?: string | null;
     onNewImage: () => void;
     onNewExamples: () => void;
+    onGenerateAudio?: () => void;
     onAccept: () => void;
     onViewSavedCards: () => void;
     onCancel?: () => void;
     loadingNewImage: boolean;
     loadingNewExamples: boolean;
+    loadingAudio?: boolean;
     loadingAccept: boolean;
     loadingGetResult?: boolean;
     mode?: Modes; 
@@ -88,14 +91,17 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             image,
             linguisticInfo,
             transcription,
+            wordAudio = null,
             onNewImage,
             onNewExamples,
+            onGenerateAudio,
             onAccept,
             onViewSavedCards,
             onCancel,
             mode = Modes.LanguageLearning,
             loadingNewImage,
             loadingNewExamples,
+            loadingAudio = false,
             loadingAccept,
             loadingGetResult = false,
             shouldGenerateImage = true,
@@ -211,6 +217,16 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
         if (!isEditMode) return;
         setIsEditingTranslation(true);
         setLocalTranslation(translation || '');
+    };
+
+    const handlePlayAudio = async () => {
+        if (!wordAudio) return;
+        try {
+            const audio = new Audio(wordAudio);
+            await audio.play();
+        } catch (error) {
+            console.warn('Failed to play word audio:', error);
+        }
     };
 
     const handleTranslationSave = () => {
@@ -601,6 +617,57 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             __html: transcription
                         }}
                     />
+                </div>
+            )}
+
+            {(mode === Modes.LanguageLearning && (wordAudio || onGenerateAudio)) && (
+                <div style={{
+                    marginBottom: '12px',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    gap: '8px'
+                }}>
+                    {wordAudio && (
+                        <button
+                            onClick={handlePlayAudio}
+                            style={{
+                                border: '1px solid #BFDBFE',
+                                backgroundColor: '#EFF6FF',
+                                color: '#1D4ED8',
+                                borderRadius: '8px',
+                                padding: '6px 10px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                            title="Play pronunciation audio"
+                        >
+                            <FaVolumeUp size={12} />
+                            Play audio
+                        </button>
+                    )}
+                    {onGenerateAudio && !wordAudio && (
+                        <button
+                            onClick={onGenerateAudio}
+                            disabled={loadingAudio}
+                            style={{
+                                border: '1px solid #D1D5DB',
+                                backgroundColor: loadingAudio ? '#F3F4F6' : '#FFFFFF',
+                                color: '#374151',
+                                borderRadius: '8px',
+                                padding: '6px 10px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: loadingAudio ? 'not-allowed' : 'pointer'
+                            }}
+                            title="Generate pronunciation audio"
+                        >
+                            {loadingAudio ? 'Generating audio...' : 'Generate audio'}
+                        </button>
+                    )}
                 </div>
             )}
             

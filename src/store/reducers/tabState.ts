@@ -21,6 +21,7 @@ import {
     SET_BACK,
     SET_LINGUISTIC_INFO,
     SET_TRANSCRIPTION,
+    SET_WORD_AUDIO,
     SET_IS_GENERATING_CARD,
     SET_CURRENT_CARD_ID as SET_GLOBAL_CURRENT_CARD_ID,
     SAVE_CARD_TO_STORAGE as GLOBAL_SAVE_CARD_TO_STORAGE,
@@ -35,6 +36,7 @@ export interface TabCardData {
     examples: Array<[string, string | null]>;
     image: string | null;
     imageUrl: string | null;
+    wordAudio: string | null;
     front: string;
     back: string | null;
     linguisticInfo: string;
@@ -62,6 +64,7 @@ const createDefaultTabCardData = (): TabCardData => ({
     examples: [],
     image: null,
     imageUrl: null,
+    wordAudio: null,
     front: "",
     back: null,
     linguisticInfo: "",
@@ -97,6 +100,7 @@ const normalizeStoredCard = (card: StoredCard): StoredCard => ({
     examples: Array.isArray(card.examples) ? card.examples : [],
     image: card.image ?? null,
     imageUrl: card.imageUrl ?? null,
+    wordAudio: card.wordAudio ?? null,
     translation: card.translation ?? null,
     front: card.front ?? card.text,
     back: card.back ?? null,
@@ -410,6 +414,22 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                         cardData: {
                             ...newState.tabStates[tId].cardData,
                             transcription: action.payload,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_WORD_AUDIO: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            wordAudio: action.payload ?? null,
                         },
                     },
                 };

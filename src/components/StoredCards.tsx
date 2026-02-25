@@ -306,7 +306,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         examples: card.examples || [],
                         image_base64: processedImageBase64,
                         linguisticInfo: card.linguisticInfo,
-                        transcription: card.transcription || ''
+                        transcription: card.transcription || '',
+                        word_audio_base64: card.wordAudio || null
                     };
 
                     debugLog(`Adding language learning card to Anki export:`, {
@@ -1148,7 +1149,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 image: localEditingCardData.image || editingCard.image || null, // base64 данные (приоритет)
                 imageUrl: localEditingCardData.imageUrl || editingCard.imageUrl || null, // URL как резерв
                 linguisticInfo: localEditingCardData.linguisticInfo || editingCard.linguisticInfo || '',
-                transcription: localEditingCardData.transcription || editingCard.transcription || ''
+                transcription: localEditingCardData.transcription || editingCard.transcription || '',
+                wordAudio: localEditingCardData.wordAudio || editingCard.wordAudio || null
             };
 
             // Validate form data
@@ -1387,7 +1389,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             return null;
         }
 
-        const { text, translation, examples, front, back, image, imageUrl, linguisticInfo, transcription } = localEditingCardData;
+        const { text, translation, examples, front, back, image, imageUrl, linguisticInfo, transcription, wordAudio } = localEditingCardData;
         // Ensure studied word is visible in modal: for LanguageLearning use text as front fallback
         const displayFront = editingCard.mode === Modes.LanguageLearning
             ? (text || front || '')
@@ -1583,6 +1585,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         image={image || null}
                         linguisticInfo={linguisticInfo || undefined}
                         transcription={transcription || null}
+                        wordAudio={wordAudio || null}
                         onNewImage={handleNewImageInModal}
                         onNewExamples={handleNewExamplesInModal}
                         onAccept={handleSaveEditFromModal}

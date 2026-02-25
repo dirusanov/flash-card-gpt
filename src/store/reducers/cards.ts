@@ -16,6 +16,7 @@ import {
     SET_CURRENT_CARD_ID,
     SET_LINGUISTIC_INFO,
     SET_TRANSCRIPTION,
+    SET_WORD_AUDIO,
     SET_IS_GENERATING_CARD,
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
@@ -44,6 +45,7 @@ export interface StoredCard {
     exportStatus: ExportStatus;
     linguisticInfo?: string;
     transcription?: string;
+    wordAudio?: string | null;
 }
 
 const initialState: CardState = {
@@ -61,6 +63,7 @@ const initialState: CardState = {
         currentCardId: null,
         linguisticInfo: "",
         transcription: "",
+        wordAudio: null,
         isGeneratingCard: false
     },
 };
@@ -79,6 +82,7 @@ export interface CardState {
     currentCardId: string | null;
     linguisticInfo: string;
     transcription: string;
+    wordAudio: string | null;
     isGeneratingCard: boolean;
 }
 
@@ -126,7 +130,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 imageUrl: action.payload.imageUrl !== undefined ? action.payload.imageUrl : null,
                 exportStatus: action.payload.exportStatus || 'not_exported',
                 linguisticInfo: action.payload.linguisticInfo || "",
-                transcription: action.payload.transcription || ""
+                transcription: action.payload.transcription || "",
+                wordAudio: action.payload.wordAudio ?? null
             };
             const newCard: StoredCard = {
                 ...newCardData,
@@ -200,7 +205,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                             createdAt: ensureDate(action.payload.createdAt ?? card.createdAt),
                             exportStatus: action.payload.exportStatus || card.exportStatus,
                             linguisticInfo: action.payload.linguisticInfo || card.linguisticInfo,
-                            transcription: action.payload.transcription || card.transcription
+                            transcription: action.payload.transcription || card.transcription,
+                            wordAudio: action.payload.wordAudio ?? card.wordAudio ?? null
                         }
                         : card
                 );
@@ -211,7 +217,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                     createdAt: ensureDate(action.payload.createdAt),
                     exportStatus: action.payload.exportStatus || 'not_exported',
                     linguisticInfo: action.payload.linguisticInfo || "",
-                    transcription: action.payload.transcription || ""
+                    transcription: action.payload.transcription || "",
+                    wordAudio: action.payload.wordAudio ?? null
                 };
                 newState.storedCards = [...state.storedCards, newCardToAdd];
                 debugLog('UPDATE_STORED_CARD: Added new card with ID:', action.payload.id, 'image:', !!newCardToAdd.image);
@@ -223,7 +230,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
         case SET_STORED_CARDS:
             const normalizedCards = (action.payload || []).map((card: StoredCard) => ({
                 ...card,
-                createdAt: ensureDate(card.createdAt)
+                createdAt: ensureDate(card.createdAt),
+                wordAudio: card.wordAudio ?? null
             }));
             newState.storedCards = normalizedCards;
             break;
@@ -238,6 +246,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 debugLog('Text cleared completely, also clearing images');
                 newState.image = null;
                 newState.imageUrl = null;
+                newState.wordAudio = null;
             }
             // Otherwise, preserve images for text changes (editing existing cards)
             break;
@@ -274,6 +283,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             return { ...state, linguisticInfo: action.payload };
         case SET_TRANSCRIPTION:
             return { ...state, transcription: action.payload };
+        case SET_WORD_AUDIO:
+            return { ...state, wordAudio: action.payload ?? null };
         case SET_IS_GENERATING_CARD:
             return { ...state, isGeneratingCard: action.payload };
         default:

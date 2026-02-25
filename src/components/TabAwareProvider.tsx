@@ -7,6 +7,7 @@ import {
     setTabExamples, 
     setTabImage, 
     setTabImageUrl, 
+    setTabWordAudio,
     setTabFront, 
     setTabBack, 
     setTabLinguisticInfo, 
@@ -21,6 +22,7 @@ import {
     setExamples, 
     setImage, 
     setImageUrl, 
+    setWordAudio,
     setFront, 
     setBack, 
     setLinguisticInfo, 
@@ -44,6 +46,7 @@ interface TabAwareContextType {
     examples: Array<[string, string | null]>;
     image: string | null;
     imageUrl: string | null;
+    wordAudio: string | null;
     front: string;
     back: string | null;
     linguisticInfo: string;
@@ -60,6 +63,7 @@ interface TabAwareContextType {
     setExamples: (examples: Array<[string, string | null]>) => void;
     setImage: (image: string | null) => void;
     setImageUrl: (imageUrl: string | null) => void;
+    setWordAudio: (wordAudio: string | null) => void;
     setFront: (front: string) => void;
     setBack: (back: string | null) => void;
     setLinguisticInfo: (linguisticInfo: string) => void;
@@ -79,6 +83,7 @@ interface TabAwareContextType {
         examples: Array<[string, string | null]>;
         image: string | null;
         imageUrl: string | null;
+        wordAudio: string | null;
         front: string;
         back: string | null;
         linguisticInfo: string;
@@ -112,6 +117,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
             examples: state.cards.examples,
             image: state.cards.image,
             imageUrl: state.cards.imageUrl,
+            wordAudio: state.cards.wordAudio,
             front: state.cards.front,
             back: state.cards.back,
             linguisticInfo: state.cards.linguisticInfo,
@@ -136,6 +142,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
             examples: globalCardData.examples,
             image: globalCardData.image,
             imageUrl: globalCardData.imageUrl,
+            wordAudio: globalCardData.wordAudio,
             front: globalCardData.front,
             back: globalCardData.back,
             linguisticInfo: globalCardData.linguisticInfo,
@@ -161,6 +168,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
             examples: cardData.examples,
             image: cardData.image,
             imageUrl: cardData.imageUrl,
+            wordAudio: cardData.wordAudio,
             front: cardData.front,
             back: cardData.back,
             linguisticInfo: cardData.linguisticInfo,
@@ -210,6 +218,14 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                     dispatch(setTabImageUrl(tabId, imageUrl));
                 } else {
                     dispatch(setImageUrl(imageUrl));
+                }
+            },
+            setWordAudio: (wordAudio: string | null) => {
+                if (isSameValue('wordAudio', wordAudio)) return;
+                if (tabState) {
+                    dispatch(setTabWordAudio(tabId, wordAudio));
+                } else {
+                    dispatch(setWordAudio(wordAudio));
                 }
             },
             setFront: (front: string) => {
@@ -287,6 +303,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 examples: Array<[string, string | null]>;
                 image: string | null;
                 imageUrl: string | null;
+                wordAudio: string | null;
                 front: string;
                 back: string | null;
                 linguisticInfo: string;
@@ -324,6 +341,11 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                                     if (isSameValue('imageUrl', value)) break;
                                     if (tabState) dispatch(setTabImageUrl(tabId, value as string | null));
                                     else dispatch(setImageUrl(value as string | null));
+                                    break;
+                                case 'wordAudio':
+                                    if (isSameValue('wordAudio', value)) break;
+                                    if (tabState) dispatch(setTabWordAudio(tabId, value as string | null));
+                                    else dispatch(setWordAudio(value as string | null));
                                     break;
                                 case 'front':
                                     if (isSameValue('front', value)) break;

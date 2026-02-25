@@ -223,6 +223,91 @@ export const translateText = async (
   }
 };
 
+export const getOpenAiSpeechAudioDataUrl = async (
+  apiKey: string,
+  text: string,
+  _sourceLanguage?: string,
+  abortSignal?: AbortSignal
+): Promise<string | null> => {
+  const tracker = getGlobalApiTracker();
+  const requestId = tracker.startRequest(
+    'Generating pronunciation audio',
+    `Creating audio for "${text}"`,
+    '🔊',
+    '#06B6D4'
+  );
+
+  try {
+    if (!apiKey) {
+      tracker.errorRequest(requestId);
+      throw new Error('OpenAI API key is missing. Please check your settings.');
+    }
+
+    const normalizedText = (text || '').trim();
+    if (!normalizedText) {
+      tracker.errorRequest(requestId);
+      throw new Error('No text provided for audio generation.');
+    }
+
+    tracker.setInProgress(requestId);
+
+    const response = await backgroundFetch(
+      'https://api.openai.com/v1/audio/speech',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini-tts',
+          voice: 'alloy',
+          input: normalizedText,
+          response_format: 'mp3',
+        }),
+        responseType: 'dataUrl',
+      },
+      abortSignal
+    );
+
+    if (!response.ok) {
+      let errorData: any = null;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = null;
+      }
+
+      if (errorData && errorData.error) {
+        const errorMessage = formatOpenAIErrorMessage(errorData);
+        if (errorData.error.code === 'insufficient_quota' || response.status === 429) {
+          cacheQuotaExceededError(errorMessage);
+        }
+        tracker.errorRequest(requestId);
+        throw new Error(errorMessage);
+      }
+
+      tracker.errorRequest(requestId);
+      throw new Error(`OpenAI TTS API error: ${response.status} ${response.statusText}`);
+    }
+
+    const audioDataUrl = await response.text();
+    if (!audioDataUrl || !audioDataUrl.startsWith('data:audio')) {
+      tracker.errorRequest(requestId);
+      throw new Error('OpenAI TTS response did not contain audio data.');
+    }
+
+    tracker.completeRequest(requestId);
+    return audioDataUrl;
+  } catch (error) {
+    tracker.errorRequest(requestId);
+    if (!isAbortLikeError(error)) {
+      console.error('Error during speech generation:', error);
+    }
+    throw error;
+  }
+};
+
 export const getExamples = async (
   apiKey: string,
   word: string,

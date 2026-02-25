@@ -7,6 +7,7 @@ export interface BackgroundFetchOptions {
   body?: string;
   redirect?: RequestRedirect;
   credentials?: RequestCredentials;
+  responseType?: 'text' | 'dataUrl';
 }
 
 interface BackgroundFetchResponsePayload {
@@ -96,6 +97,7 @@ export async function backgroundFetch(
           body: options.body ?? null,
           redirect: options.redirect,
           credentials: options.credentials,
+          responseType: options.responseType || 'text',
         },
       },
       (response: BackgroundFetchResponsePayload | undefined) => {

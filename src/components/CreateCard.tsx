@@ -5,8 +5,8 @@ import { useTabAware } from './TabAwareProvider';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
-import { setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription } from "../store/actions/cards";
-import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage } from "../services/openaiApi";
+import { setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio } from "../store/actions/cards";
+import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { setMode, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
 import { Modes } from "../constants";
 import ResultDisplay from "./ResultDisplay";
@@ -160,7 +160,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
 
-    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
+    const { text, translation, examples, image, imageUrl, wordAudio, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
 
     // Tab-scoped localStorage helpers to avoid cross-tab leaks
     const getTabScopedLS = useCallback((key: string): string | null => {
@@ -207,6 +207,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setImageUrl(null));
         dispatch(setLinguisticInfo(''));
         dispatch(setTranscription(''));
+        dispatch(setWordAudio(null));
         dispatch(setCurrentCardId(null));
 
         // Reset general card state
@@ -270,6 +271,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [loadingGetResult, setLoadingGetResult] = useState(false);
     const [loadingNewImage, setLoadingNewImage] = useState(false);
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
+    const [loadingWordAudio, setLoadingWordAudio] = useState(false);
     const [loadingAccept, setLoadingAccept] = useState(false);
     const [currentLoadingMessage, setCurrentLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
     const [currentProgress, setCurrentProgress] = useState({ completed: 0, total: 0 });
@@ -285,6 +287,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
     const [shouldGenerateImage, setShouldGenerateImageState] = useState(true);
     const [imageGenerationMode, setImageGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
+    const [audioGenerationMode, setAudioGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
     const [showAISettings, setShowAISettings] = useState(false);
 
     // Keep tab-level generation lock strictly in sync with loader visibility.
@@ -297,7 +300,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const IMAGE_MODE_STORAGE_KEY = `anki_image_generation_mode_${tabId}`;
     const LEGACY_IMAGE_MODE_STORAGE_KEY = 'anki_image_generation_mode';
+    const AUDIO_MODE_STORAGE_KEY = `anki_audio_generation_mode_${tabId}`;
+    const LEGACY_AUDIO_MODE_STORAGE_KEY = 'anki_audio_generation_mode';
     const loadedImageModeTabsRef = useRef<Set<number>>(new Set());
+    const loadedAudioModeTabsRef = useRef<Set<number>>(new Set());
 
     // Persist image generation mode changes
     useEffect(() => {
@@ -310,6 +316,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.warn('Failed to persist image generation mode:', error);
         }
     }, [imageGenerationMode, IMAGE_MODE_STORAGE_KEY, tabId]);
+
+    // Persist audio generation mode changes
+    useEffect(() => {
+        if (!loadedAudioModeTabsRef.current.has(tabId)) return;
+        try {
+            localStorage.setItem(AUDIO_MODE_STORAGE_KEY, audioGenerationMode);
+            localStorage.setItem(LEGACY_AUDIO_MODE_STORAGE_KEY, audioGenerationMode);
+        } catch (error) {
+            console.warn('Failed to persist audio generation mode:', error);
+        }
+    }, [audioGenerationMode, AUDIO_MODE_STORAGE_KEY, tabId]);
 
     // Restore saved image generation mode on first mount
     useEffect(() => {
@@ -330,6 +347,24 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             console.warn('Failed to restore image generation mode:', error);
         }
     }, [IMAGE_MODE_STORAGE_KEY, tabId]);
+
+    // Restore saved audio generation mode on first mount
+    useEffect(() => {
+        if (loadedAudioModeTabsRef.current.has(tabId)) return;
+        loadedAudioModeTabsRef.current.add(tabId);
+        try {
+            const savedMode = (
+                localStorage.getItem(AUDIO_MODE_STORAGE_KEY) ||
+                localStorage.getItem(LEGACY_AUDIO_MODE_STORAGE_KEY)
+            ) as 'off' | 'smart' | 'always' | null;
+            if (savedMode) {
+                setAudioGenerationModeState(savedMode);
+                localStorage.setItem(AUDIO_MODE_STORAGE_KEY, savedMode);
+            }
+        } catch (error) {
+            console.warn('Failed to restore audio generation mode:', error);
+        }
+    }, [AUDIO_MODE_STORAGE_KEY, tabId]);
     const [showImageSettings, setShowImageSettings] = useState(false);
     const [localAIInstructions, setLocalAIInstructions] = useState(aiInstructions);
     const [localImageInstructions, setLocalImageInstructions] = useState(imageInstructions);
@@ -683,6 +718,51 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     }
 
+    const generateWordAudioData = useCallback(async (studiedWord: string, abortSignal?: AbortSignal): Promise<string | null> => {
+        if (!studiedWord.trim() || !openAiKey) return null;
+        return getOpenAiSpeechAudioDataUrl(
+            openAiKey,
+            studiedWord.trim(),
+            undefined,
+            abortSignal
+        );
+    }, [openAiKey]);
+
+    const handleGenerateWordAudio = async () => {
+        const studiedWord = (originalSelectedText || text || front || '').trim();
+        if (!studiedWord) {
+            showError('No word to generate audio for', 'warning');
+            return;
+        }
+
+        if (!openAiKey) {
+            showError('OpenAI API key is required to generate audio', 'warning');
+            return;
+        }
+
+        try {
+            setLoadingWordAudio(true);
+            const audioDataUrl = await generateWordAudioData(studiedWord, abortControllerRef.current?.signal);
+
+            if (!audioDataUrl) {
+                showError('Failed to generate pronunciation audio', 'error');
+                return;
+            }
+
+            tabAware.setWordAudio(audioDataUrl);
+            if (isSaved) {
+                setIsEdited(true);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to generate pronunciation audio';
+            console.error('Error generating word audio:', error);
+            showError(message, 'error');
+            handlePotentialApiKeyIssue(message);
+        } finally {
+            setLoadingWordAudio(false);
+        }
+    };
+
     const handleNewExamples = async () => {
         setLoadingNewExamples(true);
         try {
@@ -910,7 +990,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     front,
                     back: back || null,
                     linguisticInfo: linguisticInfo || '',
-                    transcription: transcription || ''
+                    transcription: transcription || '',
+                    wordAudio: wordAudio || null
                 };
             }
 
@@ -1144,6 +1225,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     examples,
                     linguisticInfo, // Добавляем лингвистическое описание
                     transcription: transcription || '',
+                    wordAudio: wordAudio || null,
                     // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
                     image: normalizedImage, // base64 данные (постоянные, приоритет)
                     imageUrl: normalizedImageUrl, // URL как резерв
@@ -1208,6 +1290,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     text: cardText,
                     linguisticInfo, // Добавляем лингвистическое описание
                     transcription: transcription || '',
+                    wordAudio: wordAudio || null,
                     // Сохраняем оба типа изображений для надежности
                     image: normalizedImage,
                     imageUrl: normalizedImageUrl,
@@ -1382,6 +1465,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (savedCard.back) tabAware.setBack(savedCard.back);
             if (savedCard.linguisticInfo) tabAware.setLinguisticInfo(savedCard.linguisticInfo);
             if (savedCard.transcription) tabAware.setTranscription(savedCard.transcription);
+            tabAware.setWordAudio(savedCard.wordAudio ?? null);
             setOriginalSelectedText(savedCard.text);
             setShowResult(true);
         } else {
@@ -1389,6 +1473,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             removeTabScopedLS('current_card_id');
             removeTabScopedLS('explicitly_saved');
             tabAware.setCurrentCardId(null);
+            tabAware.setWordAudio(null);
             setIsNewSubmission(true);
             setExplicitlySaved(false);
         }
@@ -1479,6 +1564,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Only clear linguistic info and transcription as they are text-specific
         tabAware.setLinguisticInfo("");
         tabAware.setTranscription('');
+        tabAware.setWordAudio(null);
 
         setForceHideLoader(false);
         setLoadingGetResult(true);
@@ -1718,6 +1804,29 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const fallbackMessage = translationErrorMessage
                     || 'Translation failed - cannot create card without translation';
                 throw new Error(fallbackMessage);
+            }
+
+            // Optional audio generation based on selected audio mode
+            if (audioGenerationMode !== 'off' && openAiKey) {
+                const studiedWord = (result.flashcard?.front && result.flashcard.front.trim())
+                    ? result.flashcard.front.trim()
+                    : (text || '').trim();
+
+                if (studiedWord) {
+                    const smartAudioDecision = shouldGenerateAudioForText(studiedWord);
+                    const shouldGenerateAudioNow = audioGenerationMode === 'always' || smartAudioDecision.shouldGenerate;
+
+                    if (shouldGenerateAudioNow) {
+                        try {
+                            const audioDataUrl = await generateWordAudioData(studiedWord, abortSignal);
+                            if (audioDataUrl) {
+                                tabAware.setWordAudio(audioDataUrl);
+                            }
+                        } catch (audioError) {
+                            console.warn('Audio generation skipped due to error:', audioError);
+                        }
+                    }
+                }
             }
 
             debugLog('Parallel card creation completed with:', completedOperations);
@@ -2181,7 +2290,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             front: '',
             back: null,
             linguisticInfo: '',
-            transcription: ''
+            transcription: '',
+            wordAudio: null
         });
 
         setOriginalSelectedText('');
@@ -2257,7 +2367,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 front: '',
                 back: null,
                 linguisticInfo: '',
-                transcription: ''
+                transcription: '',
+                wordAudio: null
             });
         }
     };
@@ -2625,13 +2736,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         image={image}
                         linguisticInfo={linguisticInfo}
                         transcription={transcription}
+                        wordAudio={wordAudio}
                         onNewImage={handleNewImage}
                         onNewExamples={handleNewExamples}
+                        onGenerateAudio={handleGenerateWordAudio}
                         onAccept={handleAccept}
                         onViewSavedCards={handleViewSavedCards}
                         onCancel={handleCancel}
                         loadingNewImage={loadingNewImage}
                         loadingNewExamples={loadingNewExamples}
+                        loadingAudio={loadingWordAudio}
                         createdAt={new Date()}
                         loadingAccept={loadingAccept}
                         loadingGetResult={loadingGetResult}
@@ -2715,6 +2829,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 dispatch(setTranslation(''));
                 dispatch(setExamples([]));
                 dispatch(setLinguisticInfo('')); // Важно: очищаем лингвистическое описание
+                dispatch(setWordAudio(null));
 
                 // Установка текста для текущей карточки (после очистки)
                 dispatch(setText(option));
@@ -2881,6 +2996,27 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         // Transcription is not critical - continue with the card creation
                     }
 
+                    // 3.8 Создание аудио произношения (опционально)
+                    let generatedWordAudio: string | null = null;
+                    try {
+                        if (audioGenerationMode !== 'off' && openAiKey) {
+                            const smartAudioDecision = shouldGenerateAudioForText(option);
+                            const shouldGenerateAudioNow = audioGenerationMode === 'always' || smartAudioDecision.shouldGenerate;
+
+                            if (shouldGenerateAudioNow) {
+                                generatedWordAudio = await generateWordAudioData(option, abortSignal);
+                                if (generatedWordAudio) {
+                                    dispatch(setWordAudio(generatedWordAudio));
+                                    debugLog(`Audio generated for "${option}"`);
+                                }
+                            } else if (audioGenerationMode === 'smart') {
+                                debugLog(`No audio needed for "${option}": ${smartAudioDecision.reason}`);
+                            }
+                        }
+                    } catch (audioError) {
+                        console.error(`Audio generation failed for "${option}":`, audioError);
+                    }
+
                     // 4. Генерируем изображение, если нужно
                     let currentImageUrl = null;
                     let currentImage = null;
@@ -2938,6 +3074,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         examples: examplesResult.map(example => [example.original, example.translated]) as [string, string | null][],
                         linguisticInfo: generatedLinguisticInfo, // Используем локальную переменную
                         transcription: generatedTranscription, // Добавляем транскрипцию
+                        wordAudio: generatedWordAudio,
                         front: flashcard.front || '',
                         back: translation.translated || '',
                         // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64  
@@ -3029,6 +3166,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     } else {
                         dispatch(setTranscription(''));
                     }
+                    dispatch(setWordAudio(currentCard.wordAudio ?? null));
                     
                     debugLog('First card loaded into Redux state successfully');
                 }
@@ -3188,7 +3326,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             front,
             back: back || null,
             linguisticInfo: linguisticInfo || '',
-            transcription: transcription || ''
+            transcription: transcription || '',
+            wordAudio: wordAudio || null
         };
 
         // Обновляем массив карточек, заменяя текущую карточку на обновленную
@@ -3221,6 +3360,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setBack(null));
         dispatch(setLinguisticInfo(''));
         dispatch(setTranscription(''));
+        dispatch(setWordAudio(null));
 
         // Затем загружаем данные из карточки
 
@@ -3266,6 +3406,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             debugLog('No transcription found for this card');
             dispatch(setTranscription(''));
         }
+
+        dispatch(setWordAudio(card.wordAudio ?? null));
         
         debugLog('Card data loaded successfully, image status:', {
             hasImage: !!card.image,
@@ -5369,6 +5511,22 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         }
     }, [aiService, apiKey]);
 
+    const shouldGenerateAudioForText = useCallback((value: string): { shouldGenerate: boolean; reason: string } => {
+        const textToCheck = (value || '').trim();
+        if (!textToCheck) return { shouldGenerate: false, reason: 'No text provided' };
+
+        // Skip obvious non-pronunciation content
+        if (/[\n\r]/.test(textToCheck)) return { shouldGenerate: false, reason: 'Multi-line text' };
+        if (/[{}<>_=^`~\\]/.test(textToCheck)) return { shouldGenerate: false, reason: 'Looks like code/formula' };
+        if (/\d{3,}/.test(textToCheck)) return { shouldGenerate: false, reason: 'Mostly numeric content' };
+
+        const words = textToCheck.split(/\s+/).filter(Boolean);
+        if (words.length === 0) return { shouldGenerate: false, reason: 'No words found' };
+        if (words.length > 5) return { shouldGenerate: false, reason: 'Long phrase' };
+
+        return { shouldGenerate: true, reason: words.length === 1 ? 'Single word' : 'Short phrase' };
+    }, []);
+
     // Handle image mode changes
     const handleImageModeChange = (mode: 'off' | 'smart' | 'always') => {
         setImageGenerationModeState(mode);
@@ -5397,6 +5555,29 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         if (mode === 'off') {
             dispatch(setImage(null));
             dispatch(setImageUrl(null));
+        }
+    };
+
+    const handleAudioModeChange = (mode: 'off' | 'smart' | 'always') => {
+        setAudioGenerationModeState(mode);
+
+        if (mode === 'off') {
+            tabAware.setWordAudio(null);
+            return;
+        }
+
+        // Auto-generate immediately for better UX if possible
+        const studiedWord = (originalSelectedText || text || front || '').trim();
+        if (!studiedWord || !openAiKey) return;
+
+        if (mode === 'always') {
+            handleGenerateWordAudio();
+            return;
+        }
+
+        const smart = shouldGenerateAudioForText(studiedWord);
+        if (smart.shouldGenerate) {
+            handleGenerateWordAudio();
         }
     };
 
@@ -6388,6 +6569,137 @@ Original text: ${text}`;
                                     </div>
                                 )}
                             </div>
+
+                            <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                width: '100%',
+                                gap: '8px',
+                                marginTop: '0px'
+                            }}>
+                                <label style={{
+                                    color: '#111827',
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    margin: 0
+                                }}>Audio Pronunciation:</label>
+
+                                <div style={{
+                                    display: 'flex',
+                                    width: '100%',
+                                    backgroundColor: '#F3F4F6',
+                                    borderRadius: '8px',
+                                    padding: '4px',
+                                    gap: '2px',
+                                    opacity: openAiKey ? 1 : 0.55
+                                }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAudioModeChange('off')}
+                                        style={{
+                                            flex: 1,
+                                            whiteSpace: 'nowrap',
+                                            padding: '8px 12px',
+                                            borderRadius: '6px',
+                                            border: 'none',
+                                            backgroundColor: audioGenerationMode === 'off' ? '#FFFFFF' : 'transparent',
+                                            color: audioGenerationMode === 'off' ? '#111827' : '#6B7280',
+                                            fontSize: '11px',
+                                            fontWeight: audioGenerationMode === 'off' ? '600' : '500',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '4px',
+                                            boxShadow: audioGenerationMode === 'off' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
+                                        }}
+                                    >
+                                        🔇 Off
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAudioModeChange('smart')}
+                                        style={{
+                                            flex: 1,
+                                            whiteSpace: 'nowrap',
+                                            padding: '8px 12px',
+                                            borderRadius: '6px',
+                                            border: 'none',
+                                            backgroundColor: audioGenerationMode === 'smart' ? '#FFFFFF' : 'transparent',
+                                            color: audioGenerationMode === 'smart' ? '#111827' : '#6B7280',
+                                            fontSize: '11px',
+                                            fontWeight: audioGenerationMode === 'smart' ? '600' : '500',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '4px',
+                                            boxShadow: audioGenerationMode === 'smart' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
+                                        }}
+                                    >
+                                        🧠 Smart
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAudioModeChange('always')}
+                                        style={{
+                                            flex: 1,
+                                            whiteSpace: 'nowrap',
+                                            padding: '8px 12px',
+                                            borderRadius: '6px',
+                                            border: 'none',
+                                            backgroundColor: audioGenerationMode === 'always' ? '#FFFFFF' : 'transparent',
+                                            color: audioGenerationMode === 'always' ? '#111827' : '#6B7280',
+                                            fontSize: '11px',
+                                            fontWeight: audioGenerationMode === 'always' ? '600' : '500',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '4px',
+                                            boxShadow: audioGenerationMode === 'always' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
+                                        }}
+                                    >
+                                        🔊 Always
+                                    </button>
+                                </div>
+
+                                <div style={{ position: 'relative', minHeight: '2.8em', marginTop: '2px' }}>
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        fontSize: '11px',
+                                        color: '#6B7280',
+                                        lineHeight: '1.4',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                    }}>
+                                        {audioGenerationMode === 'off' && 'Audio pronunciation will not be generated automatically.'}
+                                        {audioGenerationMode === 'smart' && 'Auto-generates audio for single words and short clean phrases only.'}
+                                        {audioGenerationMode === 'always' && 'Audio pronunciation generated for every created language card.'}
+                                    </div>
+                                </div>
+
+                                {!openAiKey && (
+                                    <div style={{
+                                        fontSize: '11px',
+                                        color: '#B45309',
+                                        backgroundColor: '#FFFBEB',
+                                        padding: '6px 8px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #FDE68A'
+                                    }}>
+                                        OpenAI API key required for audio generation
+                                    </div>
+                                )}
+                            </div>
                             {imageGenerationMode !== 'off' && isImageGenerationAvailable() && renderImageSettings()}
                         </div>
                     )}
@@ -6827,6 +7139,7 @@ Original text: ${text}`;
                                         image={previewCards[currentPreviewIndex].image || null}
                                         linguisticInfo=""
                                         transcription={null}
+                                        wordAudio={previewCards[currentPreviewIndex].wordAudio || null}
                                         onNewImage={() => {}}
                                         onNewExamples={() => {}}
                                         onAccept={handleSaveCurrentCard}
