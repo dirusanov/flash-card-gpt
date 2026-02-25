@@ -730,48 +730,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         {cardCounts.exported}
                     </span>
                 </div>
-                <button
-                    onClick={() => setActiveFilter('not_exported')}
-                    title="Draft cards"
-                    style={{
-                        marginLeft: '6px',
-                        marginRight: '6px',
-                        marginTop: '6px',
-                        marginBottom: '6px',
-                        minWidth: '36px',
-                        borderRadius: '8px',
-                        border: activeFilter === 'not_exported' ? '1px solid #BFDBFE' : '1px solid #D1D5DB',
-                        backgroundColor: activeFilter === 'not_exported' ? '#EFF6FF' : '#FFFFFF',
-                        color: activeFilter === 'not_exported' ? '#2563EB' : '#6B7280',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        position: 'relative'
-                    }}
-                >
-                    <FaEdit size={12} />
-                    {cardCounts.not_exported > 0 && (
-                        <span style={{
-                            position: 'absolute',
-                            top: '-5px',
-                            right: '-5px',
-                            backgroundColor: '#EF4444',
-                            color: '#fff',
-                            borderRadius: '9999px',
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            minWidth: '16px',
-                            height: '16px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '0 4px'
-                        }}>
-                            {cardCounts.not_exported > 99 ? '99+' : cardCounts.not_exported}
-                        </span>
-                    )}
-                </button>
             </div>
         );
     };
