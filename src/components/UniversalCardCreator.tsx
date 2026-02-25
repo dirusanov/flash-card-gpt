@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
-import { setFront, setBack, setText, setImageUrl, setCurrentCardId, saveCardToStorage } from '../store/actions/cards';
+import { setFront, setBack, setText, setImageUrl } from '../store/actions/cards';
+import { useTabAware } from './TabAwareProvider';
 import { getAIService, getApiKeyForProvider } from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
 import { Modes } from '../constants';
@@ -94,6 +95,7 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
     onCancel 
 }) => {
     const dispatch = useDispatch();
+    const tabAware = useTabAware();
     const { showError, renderErrorNotification } = useErrorNotification();
     
     const [selectedTemplate, setSelectedTemplate] = useState<GeneralCardTemplate | null>(null);
@@ -461,8 +463,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 exportStatus: 'not_exported'
             };
 
-            dispatch(saveCardToStorage(card));
-            dispatch(setCurrentCardId(cardId));
+            tabAware.saveCardToStorage(card);
+            tabAware.setCurrentCardId(cardId);
             
             if (onCardCreated) {
                 onCardCreated(card);
@@ -474,7 +476,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             console.error('Error saving card:', error);
             showError('Failed to save card', 'error');
         }
-    }, [generatedCard, inputText, dispatch, onCardCreated, showError]);
+    }, [generatedCard, inputText, tabAware, onCardCreated, showError]);
 
     // Function to handle template selection
     const handleTemplateSelect = useCallback((template: GeneralCardTemplate) => {

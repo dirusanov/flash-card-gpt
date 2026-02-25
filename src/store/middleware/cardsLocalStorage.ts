@@ -1,18 +1,62 @@
 import { Middleware } from 'redux';
 import { RootState } from '..';
-import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS, SET_LAST_DRAFT_CARD, setLastDraftCard } from '../actions/cards';
-import { SAVE_TAB_CARD, DELETE_TAB_CARD, UPDATE_TAB_STORED_CARD, UPDATE_TAB_CARD_EXPORT_STATUS, SET_TAB_CARD_FIELD } from '../actions/tabState';
+import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS } from '../actions/cards';
+import { SAVE_TAB_CARD, DELETE_TAB_CARD, UPDATE_TAB_STORED_CARD, UPDATE_TAB_CARD_EXPORT_STATUS, SET_CURRENT_TAB_ID } from '../actions/tabState';
 import { StoredCard } from '../reducers/cards';
 
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
-const LAST_DRAFT_STORAGE_KEY = 'anki_last_draft_card';
 const TAB_STORAGE_KEY_PREFIX = 'anki_tab_cards';
+const PERSIST_DEBOUNCE_MS = 300;
 
 const isDev = process.env.NODE_ENV !== 'production';
 const debugLog = (...args: unknown[]) => {
     if (isDev) {
         console.log(...args);
     }
+};
+
+const runWhenIdle = (callback: () => void) => {
+    const globalScope = globalThis as any;
+    if (typeof globalScope.requestIdleCallback === 'function') {
+        globalScope.requestIdleCallback(callback, { timeout: 1000 });
+        return;
+    }
+    setTimeout(callback, 0);
+};
+
+let globalPersistTimer: number | null = null;
+let pendingGlobalCards: StoredCard[] | null = null;
+
+let tabPersistTimer: number | null = null;
+let pendingTabCards: StoredCard[] | null = null;
+let pendingTabId: number | null = null;
+
+const flushPendingGlobalPersistence = () => {
+    if (globalPersistTimer !== null) {
+        clearTimeout(globalPersistTimer);
+        globalPersistTimer = null;
+    }
+
+    const cardsToSave = pendingGlobalCards;
+    pendingGlobalCards = null;
+
+    if (!cardsToSave) return;
+    saveCardsToStorage(cardsToSave);
+};
+
+const flushPendingTabPersistence = () => {
+    if (tabPersistTimer !== null) {
+        clearTimeout(tabPersistTimer);
+        tabPersistTimer = null;
+    }
+
+    const nextTabId = pendingTabId;
+    const nextCards = pendingTabCards;
+    pendingTabId = null;
+    pendingTabCards = null;
+
+    if (!nextTabId || !nextCards) return;
+    saveTabCardsToStorage(nextTabId, nextCards);
 };
 
 // Helper function to compress base64 images
@@ -119,17 +163,6 @@ export const loadCardsFromStorage = (): StoredCard[] => {
                 const storedCards: StoredCard[] = JSON.parse(storedCardsJson);
                 debugLog('Successfully parsed cards from localStorage, total count:', storedCards.length);
                 
-                // List first few and last few cards to help diagnose issues
-                if (storedCards.length > 0) {
-                    const firstFew = storedCards.slice(0, Math.min(3, storedCards.length));
-                    const lastFew = storedCards.length > 3 ? storedCards.slice(-3) : [];
-                    
-                    debugLog('First few cards:', firstFew.map(c => ({ id: c.id, text: c.text?.substring(0, 20) })));
-                    if (lastFew.length > 0) {
-                        debugLog('Last few cards:', lastFew.map(c => ({ id: c.id, text: c.text?.substring(0, 20) })));
-                    }
-                }
-                
                 // Check for data format issues
                 if (!Array.isArray(storedCards)) {
                     console.error('Stored cards is not an array!', storedCards);
@@ -160,20 +193,6 @@ export const loadCardsFromStorage = (): StoredCard[] => {
                     createdAt: new Date(card.createdAt)
                 }));
                 
-                // Check images in loaded cards
-                const loadedCardsWithImages = cardsWithDates.filter(card => card.image || card.imageUrl);
-                debugLog('Loaded cards with images:', loadedCardsWithImages.length);
-                loadedCardsWithImages.forEach(card => {
-                    debugLog(`Loaded card ${card.id} image data:`, {
-                        hasImage: !!card.image,
-                        hasImageUrl: !!card.imageUrl,
-                        imageLength: card.image?.length,
-                        imageUrlLength: card.imageUrl?.length,
-                        imagePreview: card.image?.substring(0, 50),
-                        imageUrlPreview: card.imageUrl?.substring(0, 50)
-                    });
-                });
-                
                 return cardsWithDates;
             } catch (parseError) {
                 console.error('JSON parse error:', parseError);
@@ -195,68 +214,43 @@ export const loadCardsFromStorage = (): StoredCard[] => {
     return [];
 };
 
-const ensureStoredDate = (value: StoredCard['createdAt'] | undefined): Date => {
-    if (value instanceof Date) {
-        return value;
+const scheduleGlobalPersistence = (cards: StoredCard[]) => {
+    pendingGlobalCards = cards;
+
+    if (globalPersistTimer !== null) {
+        window.clearTimeout(globalPersistTimer);
     }
 
-    if (typeof value === 'string' || typeof value === 'number') {
-        const parsed = new Date(value);
-        if (!Number.isNaN(parsed.getTime())) {
-            return parsed;
-        }
-    }
+    globalPersistTimer = window.setTimeout(() => {
+        globalPersistTimer = null;
+        const cardsToSave = pendingGlobalCards;
+        pendingGlobalCards = null;
 
-    return new Date();
+        if (!cardsToSave) return;
+        runWhenIdle(() => {
+            saveCardsToStorage(cardsToSave);
+        });
+    }, PERSIST_DEBOUNCE_MS);
 };
 
-const loadLastDraftCardFromStorage = (): StoredCard | null => {
-    try {
-        const raw = localStorage.getItem(LAST_DRAFT_STORAGE_KEY);
-        if (!raw) {
-            return null;
-        }
+const scheduleTabPersistence = (tabId: number, cards: StoredCard[]) => {
+    pendingTabId = tabId;
+    pendingTabCards = cards;
 
-        const parsed: StoredCard = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') {
-            return null;
-        }
-
-        return {
-            ...parsed,
-            createdAt: ensureStoredDate(parsed.createdAt),
-            examples: Array.isArray(parsed.examples) ? parsed.examples : [],
-            image: parsed.image ?? null,
-            imageUrl: parsed.imageUrl ?? null,
-            translation: parsed.translation ?? null,
-            front: parsed.front ?? parsed.text,
-            back: parsed.back ?? null,
-            linguisticInfo: parsed.linguisticInfo ?? '',
-            transcription: parsed.transcription ?? ''
-        };
-    } catch (error) {
-        console.error('Error loading last draft card from storage:', error);
-        localStorage.removeItem(LAST_DRAFT_STORAGE_KEY);
-        return null;
+    if (tabPersistTimer !== null) {
+        window.clearTimeout(tabPersistTimer);
     }
-};
 
-const saveLastDraftCardToStorage = (card: StoredCard | null) => {
-    try {
-        if (!card) {
-            localStorage.removeItem(LAST_DRAFT_STORAGE_KEY);
-            return;
-        }
+    tabPersistTimer = window.setTimeout(() => {
+        tabPersistTimer = null;
+        const nextTabId = pendingTabId;
+        const nextCards = pendingTabCards;
+        pendingTabId = null;
+        pendingTabCards = null;
 
-        const payload = {
-            ...card,
-            createdAt: ensureStoredDate(card.createdAt).toISOString(),
-        };
-
-        localStorage.setItem(LAST_DRAFT_STORAGE_KEY, JSON.stringify(payload));
-    } catch (error) {
-        console.error('Error saving last draft card to storage:', error);
-    }
+        if (!nextTabId || !nextCards) return;
+        runWhenIdle(() => saveTabCardsToStorage(nextTabId, nextCards));
+    }, PERSIST_DEBOUNCE_MS);
 };
 
 // Tab-specific functions
@@ -303,17 +297,6 @@ export const saveTabCardsToStorage = (tabId: number, cards: StoredCard[]): void 
 
 const saveCardsToStorageWithErrorHandling = (tabId: number, cards: StoredCard[], error: any): void => {
     const tabStorageKey = `${TAB_STORAGE_KEY_PREFIX}_${tabId}`;
-    let originalSize = 0;
-    
-    try {
-        const tempSerialized = JSON.stringify(cards, (key, value) => {
-            if (value instanceof Date) return value.toISOString();
-            return value;
-        });
-        originalSize = new Blob([tempSerialized]).size;
-    } catch (e) {
-        console.error('Could not determine original size:', e);
-    }
     
     if (error instanceof DOMException && (
         error.name === 'QuotaExceededError' ||
@@ -340,22 +323,7 @@ const saveCardsToStorageWithErrorHandling = (tabId: number, cards: StoredCard[],
 // Вспомогательная функция для сохранения карточек в localStorage
 export const saveCardsToStorage = (cards: StoredCard[]): void => {
     try {
-        debugLog('Saving cards to localStorage:', cards);
-        debugLog('Total cards count:', cards.length);
-        
-        // Check images in cards being saved
-        const cardsWithImages = cards.filter(card => card.image || card.imageUrl);
-        debugLog('Cards with images:', cardsWithImages.length);
-        cardsWithImages.forEach(card => {
-            debugLog(`Card ${card.id} image data:`, {
-                hasImage: !!card.image,
-                hasImageUrl: !!card.imageUrl,
-                imageLength: card.image?.length,
-                imageUrlLength: card.imageUrl?.length,
-                imagePreview: card.image?.substring(0, 50),
-                imageUrlPreview: card.imageUrl?.substring(0, 50)
-            });
-        });
+        debugLog('Saving cards to localStorage. Total cards count:', cards.length);
         
         // Pre-optimize cards to manage storage quota intelligently
         const optimizedCards = manageStorageQuota(cards);
@@ -528,15 +496,15 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
     switch (action.type) {
         case LOAD_STORED_CARDS:
             try {
+                // Prevent stale localStorage reads when there is pending debounced persistence.
+                flushPendingGlobalPersistence();
+                flushPendingTabPersistence();
+
                 const cards = loadCardsFromStorage();
-                // Dispatch a new action to set the loaded cards in state
                 store.dispatch({
                     type: 'SET_STORED_CARDS',
                     payload: cards
                 });
-
-                const lastDraftCard = loadLastDraftCardFromStorage();
-                store.dispatch(setLastDraftCard(lastDraftCard));
             } catch (error) {
                 console.error('Error in LOAD_STORED_CARDS middleware:', error);
                 // Initialize with empty array on error
@@ -544,9 +512,22 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                     type: 'SET_STORED_CARDS',
                     payload: []
                 });
-                store.dispatch(setLastDraftCard(null));
             }
             break;
+
+        case SET_CURRENT_TAB_ID: {
+            try {
+                flushPendingTabPersistence();
+                const nextTabId = action.payload as number | null;
+                if (!nextTabId) {
+                    break;
+                }
+
+            } catch (error) {
+                console.error('Error loading tab-specific state on tab switch:', error);
+            }
+            break;
+        }
             
         case SAVE_CARD_TO_STORAGE:
         case DELETE_STORED_CARD:
@@ -554,22 +535,13 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
         case UPDATE_CARD_EXPORT_STATUS:
             try {
                 // Get the current state after the action has been processed
-                const { cards: { storedCards, lastDraftCard } } = store.getState();
-                saveCardsToStorage(storedCards);
-                saveLastDraftCardToStorage(lastDraftCard);
+                const state = store.getState();
+                const { cards: { storedCards } } = state;
+                scheduleGlobalPersistence(storedCards);
             } catch (error) {
                 console.error('Error in card storage middleware:', error);
             }
             break;
-        case SET_LAST_DRAFT_CARD:
-            try {
-                const { cards: { lastDraftCard } } = store.getState();
-                saveLastDraftCardToStorage(lastDraftCard);
-            } catch (error) {
-                console.error('Error saving last draft card:', error);
-            }
-            break;
-            
         // Handle tab-specific actions
         case SAVE_TAB_CARD:
         case DELETE_TAB_CARD:
@@ -581,7 +553,7 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 
                 if (tabId && tabStates[tabId]) {
                     const tabStoredCards = tabStates[tabId].storedCards;
-                    saveTabCardsToStorage(tabId, tabStoredCards);
+                    scheduleTabPersistence(tabId, tabStoredCards);
                 }
             } catch (error) {
                 console.error('Error in tab storage middleware:', error);
@@ -593,18 +565,17 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
             try {
                 const state = store.getState();
                 const tabId = state?.tabState?.currentTabId;
+                if (!tabId) {
+                    break;
+                }
                 const tabKey = (base: string) => tabId ? `${base}_${tabId}` : base;
                 if (action.payload) {
-                    // Set the current card ID in tab-scoped localStorage and legacy key
+                    // Set current card ID only in tab-scoped localStorage.
                     localStorage.setItem(tabKey('current_card_id'), action.payload);
-                    localStorage.setItem('current_card_id', action.payload);
-                    // Do not set explicitly_saved here
                 } else {
-                    // Clear both tab-scoped and legacy keys
+                    // Clear tab-scoped keys
                     localStorage.removeItem(tabKey('current_card_id'));
-                    localStorage.removeItem('current_card_id');
                     localStorage.removeItem(tabKey('explicitly_saved'));
-                    localStorage.removeItem('explicitly_saved');
                 }
             } catch (error) {
                 console.error('Error updating tab-scoped current_card_id:', error);
@@ -615,10 +586,12 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
         // Автоматически проверяем сохраненные карточки при изменении текста
         case SET_TEXT:
             // При изменении текста загружаем сохраненные карточки, если они еще не загружены
-            const { cards: { storedCards } } = store.getState();
+            const state = store.getState();
+            const { cards: { storedCards } } = state;
             if (storedCards.length === 0) {
                 store.dispatch({
-                    type: LOAD_STORED_CARDS
+                    type: LOAD_STORED_CARDS,
+                    payload: { tabId: state?.tabState?.currentTabId }
                 });
             }
             break;

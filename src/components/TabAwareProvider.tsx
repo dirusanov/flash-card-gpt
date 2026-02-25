@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useMemo, useRef } from 'react';
-import { useSelector, useDispatch, shallowEqual } from 'react-redux';
+import { useSelector, useDispatch, shallowEqual, batch } from 'react-redux';
 import { RootState } from '../store';
 import { 
     setTabText, 
@@ -13,7 +13,7 @@ import {
     setTabTranscription, 
     setTabIsGeneratingCard, 
     setTabCurrentCardId,
-    setTabCurrentPage
+    setTabCurrentPage,
 } from '../store/actions/tabState';
 import { 
     setText, 
@@ -30,11 +30,10 @@ import {
     saveCardToStorage,
     updateStoredCard,
     deleteStoredCard,
-    updateCardExportStatus
+    updateCardExportStatus,
 } from '../store/actions/cards';
 import { setCurrentPage } from '../store/actions/page';
 import { StoredCard } from '../store/reducers/cards';
-import { Modes } from '../constants';
 
 interface TabAwareContextType {
     // Tab identity
@@ -123,7 +122,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
         shallowEqual
     );
 
-    const storedCards = useSelector((state: RootState) => state.cards.storedCards);
+    const storedCards = useSelector((state: RootState) => state.cards.storedCards, shallowEqual);
     const globalCurrentPage = useSelector((state: RootState) => state.currentPage);
 
     const fallbackFieldIdPrefixRef = useRef(`fallback_${tabId}_${Date.now()}_`);
@@ -145,11 +144,14 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
             currentCardId: globalCardData.currentCardId,
         };
 
-        // storedCards всегда должны быть глобальными, не tab-specific
         const fieldIdPrefix = tabState?.fieldIdPrefix || fallbackFieldIdPrefixRef.current;
 
         // currentPage - tab-specific, но с fallback на глобальный
         const currentPage = tabState?.currentPage || globalCurrentPage;
+
+        const isSameValue = (field: keyof typeof cardData, nextValue: unknown) => {
+            return cardData[field] === nextValue;
+        };
 
         return {
             tabId,
@@ -171,6 +173,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
             
             // Action dispatchers - prefer tab-specific if available
             setText: (text: string) => {
+                if (isSameValue('text', text)) return;
                 if (tabState) {
                     dispatch(setTabText(tabId, text));
                 } else {
@@ -178,6 +181,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setTranslation: (translation: string) => {
+                if (isSameValue('translation', translation)) return;
                 if (tabState) {
                     dispatch(setTabTranslation(tabId, translation));
                 } else {
@@ -185,6 +189,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setExamples: (examples: Array<[string, string | null]>) => {
+                if (isSameValue('examples', examples)) return;
                 if (tabState) {
                     dispatch(setTabExamples(tabId, examples));
                 } else {
@@ -192,6 +197,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setImage: (image: string | null) => {
+                if (isSameValue('image', image)) return;
                 if (tabState) {
                     dispatch(setTabImage(tabId, image));
                 } else {
@@ -199,6 +205,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setImageUrl: (imageUrl: string | null) => {
+                if (isSameValue('imageUrl', imageUrl)) return;
                 if (tabState) {
                     dispatch(setTabImageUrl(tabId, imageUrl));
                 } else {
@@ -206,6 +213,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setFront: (front: string) => {
+                if (isSameValue('front', front)) return;
                 if (tabState) {
                     dispatch(setTabFront(tabId, front));
                 } else {
@@ -213,6 +221,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setBack: (back: string | null) => {
+                if (isSameValue('back', back)) return;
                 if (tabState) {
                     dispatch(setTabBack(tabId, back));
                 } else {
@@ -220,6 +229,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setLinguisticInfo: (linguisticInfo: string) => {
+                if (isSameValue('linguisticInfo', linguisticInfo)) return;
                 if (tabState) {
                     dispatch(setTabLinguisticInfo(tabId, linguisticInfo));
                 } else {
@@ -227,6 +237,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setTranscription: (transcription: string) => {
+                if (isSameValue('transcription', transcription)) return;
                 if (tabState) {
                     dispatch(setTabTranscription(tabId, transcription));
                 } else {
@@ -234,6 +245,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setIsGeneratingCard: (isGenerating: boolean) => {
+                if (isSameValue('isGeneratingCard', isGenerating)) return;
                 if (tabState) {
                     dispatch(setTabIsGeneratingCard(tabId, isGenerating));
                 } else {
@@ -241,13 +253,14 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setCurrentCardId: (cardId: string | null) => {
+                if (isSameValue('currentCardId', cardId)) return;
                 if (tabState) {
                     dispatch(setTabCurrentCardId(tabId, cardId));
                 } else {
                     dispatch(setCurrentCardId(cardId));
                 }
             },
-            // Операции с сохраненными карточками всегда идут в глобальное хранилище
+            // Saved cards are global and shared between tabs.
             saveCardToStorage: (card: any) => {
                 dispatch(saveCardToStorage(card));
             },
@@ -281,57 +294,70 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 isGeneratingCard: boolean;
                 currentCardId: string | null;
             }>) => {
-                // Update only provided fields
-                Object.keys(updates).forEach(key => {
-                    const value = updates[key as keyof typeof updates];
-                    if (value !== undefined) {
-                        switch (key) {
-                            case 'text':
-                                if (tabState) dispatch(setTabText(tabId, value as string));
-                                else dispatch(setText(value as string));
-                                break;
-                            case 'translation':
-                                if (tabState) dispatch(setTabTranslation(tabId, value as string));
-                                else dispatch(setTranslation(value as string));
-                                break;
-                            case 'examples':
-                                if (tabState) dispatch(setTabExamples(tabId, value as Array<[string, string | null]>));
-                                else dispatch(setExamples(value as Array<[string, string | null]>));
-                                break;
-                            case 'image':
-                                if (tabState) dispatch(setTabImage(tabId, value as string | null));
-                                else dispatch(setImage(value as string | null));
-                                break;
-                            case 'imageUrl':
-                                if (tabState) dispatch(setTabImageUrl(tabId, value as string | null));
-                                else dispatch(setImageUrl(value as string | null));
-                                break;
-                            case 'front':
-                                if (tabState) dispatch(setTabFront(tabId, value as string));
-                                else dispatch(setFront(value as string));
-                                break;
-                            case 'back':
-                                if (tabState) dispatch(setTabBack(tabId, value as string | null));
-                                else dispatch(setBack(value as string | null));
-                                break;
-                            case 'linguisticInfo':
-                                if (tabState) dispatch(setTabLinguisticInfo(tabId, value as string));
-                                else dispatch(setLinguisticInfo(value as string));
-                                break;
-                            case 'transcription':
-                                if (tabState) dispatch(setTabTranscription(tabId, value as string));
-                                else dispatch(setTranscription(value as string));
-                                break;
-                            case 'isGeneratingCard':
-                                if (tabState) dispatch(setTabIsGeneratingCard(tabId, value as boolean));
-                                else dispatch(setIsGeneratingCard(value as boolean));
-                                break;
-                            case 'currentCardId':
-                                if (tabState) dispatch(setTabCurrentCardId(tabId, value as string | null));
-                                else dispatch(setCurrentCardId(value as string | null));
-                                break;
+                // Batch updates to avoid many intermediate renders on restore/open flows.
+                batch(() => {
+                    Object.keys(updates).forEach(key => {
+                        const value = updates[key as keyof typeof updates];
+                        if (value !== undefined) {
+                            switch (key) {
+                                case 'text':
+                                    if (isSameValue('text', value)) break;
+                                    if (tabState) dispatch(setTabText(tabId, value as string));
+                                    else dispatch(setText(value as string));
+                                    break;
+                                case 'translation':
+                                    if (isSameValue('translation', value)) break;
+                                    if (tabState) dispatch(setTabTranslation(tabId, value as string));
+                                    else dispatch(setTranslation(value as string));
+                                    break;
+                                case 'examples':
+                                    if (isSameValue('examples', value)) break;
+                                    if (tabState) dispatch(setTabExamples(tabId, value as Array<[string, string | null]>));
+                                    else dispatch(setExamples(value as Array<[string, string | null]>));
+                                    break;
+                                case 'image':
+                                    if (isSameValue('image', value)) break;
+                                    if (tabState) dispatch(setTabImage(tabId, value as string | null));
+                                    else dispatch(setImage(value as string | null));
+                                    break;
+                                case 'imageUrl':
+                                    if (isSameValue('imageUrl', value)) break;
+                                    if (tabState) dispatch(setTabImageUrl(tabId, value as string | null));
+                                    else dispatch(setImageUrl(value as string | null));
+                                    break;
+                                case 'front':
+                                    if (isSameValue('front', value)) break;
+                                    if (tabState) dispatch(setTabFront(tabId, value as string));
+                                    else dispatch(setFront(value as string));
+                                    break;
+                                case 'back':
+                                    if (isSameValue('back', value)) break;
+                                    if (tabState) dispatch(setTabBack(tabId, value as string | null));
+                                    else dispatch(setBack(value as string | null));
+                                    break;
+                                case 'linguisticInfo':
+                                    if (isSameValue('linguisticInfo', value)) break;
+                                    if (tabState) dispatch(setTabLinguisticInfo(tabId, value as string));
+                                    else dispatch(setLinguisticInfo(value as string));
+                                    break;
+                                case 'transcription':
+                                    if (isSameValue('transcription', value)) break;
+                                    if (tabState) dispatch(setTabTranscription(tabId, value as string));
+                                    else dispatch(setTranscription(value as string));
+                                    break;
+                                case 'isGeneratingCard':
+                                    if (isSameValue('isGeneratingCard', value)) break;
+                                    if (tabState) dispatch(setTabIsGeneratingCard(tabId, value as boolean));
+                                    else dispatch(setIsGeneratingCard(value as boolean));
+                                    break;
+                                case 'currentCardId':
+                                    if (isSameValue('currentCardId', value)) break;
+                                    if (tabState) dispatch(setTabCurrentCardId(tabId, value as string | null));
+                                    else dispatch(setCurrentCardId(value as string | null));
+                                    break;
+                            }
                         }
-                    }
+                    });
                 });
             }
         };

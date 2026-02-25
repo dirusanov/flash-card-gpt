@@ -17,7 +17,6 @@ import {
     SET_LINGUISTIC_INFO,
     SET_TRANSCRIPTION,
     SET_IS_GENERATING_CARD,
-    SET_LAST_DRAFT_CARD,
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
 import { Modes } from '../../constants';
@@ -62,8 +61,7 @@ const initialState: CardState = {
         currentCardId: null,
         linguisticInfo: "",
         transcription: "",
-        isGeneratingCard: false,
-        lastDraftCard: null
+        isGeneratingCard: false
     },
 };
 
@@ -82,7 +80,6 @@ export interface CardState {
     linguisticInfo: string;
     transcription: string;
     isGeneratingCard: boolean;
-    lastDraftCard: StoredCard | null;
 }
 
 const ensureDate = (value: StoredCard['createdAt'] | string | number | undefined): Date => {
@@ -98,23 +95,6 @@ const ensureDate = (value: StoredCard['createdAt'] | string | number | undefined
     }
 
     return new Date();
-};
-
-const findLatestCard = (cards: StoredCard[]): StoredCard | null => {
-    if (!cards.length) {
-        return null;
-    }
-
-    return cards.reduce<StoredCard>((latest, current) => {
-        const latestDate = ensureDate(latest.createdAt);
-        const currentDate = ensureDate(current.createdAt);
-
-        if (currentDate.getTime() >= latestDate.getTime()) {
-            return { ...current, createdAt: currentDate };
-        }
-
-        return latest;
-    }, { ...cards[0], createdAt: ensureDate(cards[0].createdAt) });
 };
 
 const cardsReducer = (state = initialState, action: any): CardState => {
@@ -182,7 +162,6 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 debugLog('Added new card with ID:', newCard.id, 'text:', newCard.text);
                 debugLog('Total stored cards after addition:', newState.storedCards.length);
             }
-            newState.lastDraftCard = newCard;
             break;
         case UPDATE_CARD_EXPORT_STATUS:
             newState.storedCards = state.storedCards.map(card => 
@@ -237,7 +216,6 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 newState.storedCards = [...state.storedCards, newCardToAdd];
                 debugLog('UPDATE_STORED_CARD: Added new card with ID:', action.payload.id, 'image:', !!newCardToAdd.image);
             }
-            newState.lastDraftCard = findLatestCard(newState.storedCards);
             break;
         case LOAD_STORED_CARDS:
             // This will be handled by the persistence middleware
@@ -251,7 +229,6 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             break;
         case DELETE_STORED_CARD:
             newState.storedCards = state.storedCards.filter(card => card.id !== action.payload);
-            newState.lastDraftCard = findLatestCard(newState.storedCards);
             break;
         case SET_TEXT:
             newState.text = action.payload;
@@ -299,8 +276,6 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             return { ...state, transcription: action.payload };
         case SET_IS_GENERATING_CARD:
             return { ...state, isGeneratingCard: action.payload };
-        case SET_LAST_DRAFT_CARD:
-            return { ...state, lastDraftCard: action.payload ? { ...action.payload, createdAt: ensureDate(action.payload.createdAt) } : null };
         default:
             return state;
     }

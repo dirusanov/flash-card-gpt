@@ -158,6 +158,25 @@ UIStateManager.prototype.set = function (tabId, patch) {
 };
 
 const uiState = new UIStateManager();
+const FALLBACK_TAB_ID_KEY = 'anki_fallback_tab_id_v1';
+
+const getStableFallbackTabId = () => {
+  try {
+    const raw = sessionStorage.getItem(FALLBACK_TAB_ID_KEY);
+    if (raw) {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
+
+  const generated = Math.floor(Math.random() * 1000000);
+  try {
+    sessionStorage.setItem(FALLBACK_TAB_ID_KEY, String(generated));
+  } catch {}
+  return generated;
+};
 
 // ---------- Применить состояние сайдбара к DOM ----------
 const clearHiddenStyles = () => {
@@ -194,11 +213,11 @@ const StoreInitializer = () => {
         chrome.runtime.sendMessage({ action: 'getTabId' }, (response) => {
           const currentTabId = (response && typeof response.tabId !== 'undefined')
             ? response.tabId
-            : Math.floor(Math.random() * 1000000);
+            : getStableFallbackTabId();
           resolve(currentTabId);
         });
       } catch {
-        resolve(Math.floor(Math.random() * 1000000));
+        resolve(getStableFallbackTabId());
       }
     });
 

@@ -10,6 +10,8 @@ interface MathContentRendererProps {
     onProcessingComplete?: (hasFormulas: boolean) => void;
 }
 
+const mathRenderCache = new Map<string, { html: string; hasFormulas: boolean }>();
+
 /**
  * Компонент для красивого отображения контента с математическими формулами
  * Автоматически обнаруживает и рендерит формулы как в ChatGPT
@@ -25,25 +27,43 @@ const MathContentRenderer: React.FC<MathContentRendererProps> = ({
     const [isProcessing, setIsProcessing] = useState<boolean>(false);
     const [hasFormulas, setHasFormulas] = useState<boolean>(false);
     const contentRef = useRef<HTMLDivElement>(null);
-    const processedRef = useRef<string>('');
+    const processedKeyRef = useRef<string>('');
+    const requestIdRef = useRef(0);
 
     // Обработка контента при изменении
     useEffect(() => {
-        if (content === processedRef.current) return;
-        processedRef.current = content;
-        
-        processContent(content);
+        const cacheKey = `${enableAI ? '1' : '0'}::${content}`;
+        if (cacheKey === processedKeyRef.current) return;
+        processedKeyRef.current = cacheKey;
+
+        const cached = mathRenderCache.get(cacheKey);
+        if (cached) {
+            setProcessedContent(cached.html);
+            setHasFormulas(cached.hasFormulas);
+            setIsProcessing(false);
+            onProcessingComplete?.(cached.hasFormulas);
+            return;
+        }
+
+        const requestId = requestIdRef.current + 1;
+        requestIdRef.current = requestId;
+        processContent(content, enableAI, cacheKey, requestId);
     }, [content, enableAI]);
 
-    const processContent = async (text: string) => {
+    useEffect(() => () => {
+        requestIdRef.current += 1;
+    }, []);
+
+    const processContent = async (text: string, useAI: boolean, cacheKey: string, requestId: number) => {
         if (!text?.trim()) {
+            if (requestIdRef.current !== requestId) return;
             setProcessedContent('');
             setHasFormulas(false);
             onProcessingComplete?.(false);
             return;
         }
 
-        console.log('🔧 MathContentRenderer processing:', text);
+        if (requestIdRef.current !== requestId) return;
         setIsProcessing(true);
 
         try {
@@ -59,8 +79,6 @@ const MathContentRenderer: React.FC<MathContentRendererProps> = ({
                 .replace(/−/g, '-')
                 // Убираем незакрытые формулы
                 .replace(/\$\$[^$]*$/g, '');
-            
-            console.log('🧹 Cleaned text:', cleanedText);
 
             // 2) ГРУБЫЕ ЭВРИСТИКИ: автоматическое оборачивание одиночных уравнений в $$ .. $$
             // 1) После фразы "по формуле:" часто следует строка-уравнение — оборачиваем её в блочную формулу
@@ -100,50 +118,55 @@ const MathContentRenderer: React.FC<MathContentRendererProps> = ({
             // Проверяем, были ли найдены формулы
             const formulaCount = (processedText.match(/\$\$[^$]+\$\$/g) || []).length + 
                                (processedText.match(/(?<!\$)\$[^$\n]+\$(?!\$)/g) || []).length;
-            
-            console.log('📊 Found formulas:', formulaCount);
-            setHasFormulas(formulaCount > 0);
+            let finalHasFormulas = formulaCount > 0;
+            if (requestIdRef.current !== requestId) return;
+            setHasFormulas(finalHasFormulas);
             
             // Если не нашли формулы, попробуем AI или простые правила
             if (formulaCount === 0) {
-                if (enableAI && shouldUseAIForFormulas(text)) {
+                if (useAI && shouldUseAIForFormulas(text)) {
                     try {
-                        console.log('🤖 Trying AI formula detection...');
                         const result = await detectAndConvertFormulas(text, true);
                         if (result.formulasDetected > 0) {
                             processedText = result.processedText;
+                            finalHasFormulas = true;
+                            if (requestIdRef.current !== requestId) return;
                             setHasFormulas(true);
-                            console.log('✅ AI found formulas:', result.formulasDetected);
                         }
                     } catch (aiError) {
-                        console.warn('❌ AI formula detection failed, using simple rules:', aiError);
+                        console.warn('AI formula detection failed, using simple rules:', aiError);
                         const fallbackResult = await detectAndConvertFormulas(text, false);
                         processedText = fallbackResult.processedText;
-                        setHasFormulas(fallbackResult.formulasDetected > 0);
+                        finalHasFormulas = fallbackResult.formulasDetected > 0;
+                        if (requestIdRef.current !== requestId) return;
+                        setHasFormulas(finalHasFormulas);
                     }
                 } else {
-                    console.log('📝 Using simple formula rules...');
                     const result = await detectAndConvertFormulas(text, false);
                     processedText = result.processedText;
-                    setHasFormulas(result.formulasDetected > 0);
+                    finalHasFormulas = result.formulasDetected > 0;
+                    if (requestIdRef.current !== requestId) return;
+                    setHasFormulas(finalHasFormulas);
                 }
             }
 
-            console.log('🎨 Rendering with KaTeX:', processedText);
             // Рендерим LaTeX формулы с помощью KaTeX
             const finalContent = await processLatexInContentAsync(processedText);
-            console.log('✨ Final rendered content:', finalContent);
+            if (requestIdRef.current !== requestId) return;
             
+            mathRenderCache.set(cacheKey, { html: finalContent, hasFormulas: finalHasFormulas });
             setProcessedContent(finalContent);
-            onProcessingComplete?.(hasFormulas);
+            onProcessingComplete?.(finalHasFormulas);
 
         } catch (error) {
-            console.error('❌ Content processing error:', error);
+            if (requestIdRef.current !== requestId) return;
+            console.error('Content processing error:', error);
             // В случае ошибки показываем оригинальный текст
-            setProcessedContent(content);
+            setProcessedContent(text);
             setHasFormulas(false);
             onProcessingComplete?.(false);
         } finally {
+            if (requestIdRef.current !== requestId) return;
             setIsProcessing(false);
         }
     };

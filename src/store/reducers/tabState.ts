@@ -9,7 +9,7 @@ import {
     UPDATE_TAB_STORED_CARD,
     SET_TAB_CURRENT_PAGE
 } from '../actions/tabState';
-import { ExportStatus, StoredCard } from './cards';
+import { StoredCard } from './cards';
 // Listen to global card actions so we can mirror them into the current tab's state
 import {
     SET_TEXT,
@@ -25,8 +25,9 @@ import {
     SET_CURRENT_CARD_ID as SET_GLOBAL_CURRENT_CARD_ID,
     SAVE_CARD_TO_STORAGE as GLOBAL_SAVE_CARD_TO_STORAGE,
     UPDATE_STORED_CARD as GLOBAL_UPDATE_STORED_CARD,
+    DELETE_STORED_CARD as GLOBAL_DELETE_STORED_CARD,
+    UPDATE_CARD_EXPORT_STATUS as GLOBAL_UPDATE_CARD_EXPORT_STATUS,
 } from '../actions/cards';
-import { Modes } from '../../constants';
 
 export interface TabCardData {
     text: string;
@@ -75,6 +76,32 @@ const createDefaultTabState = (tabId: number): TabSpecificState => ({
     fieldIdPrefix: `tab_${tabId}_${Date.now()}_`, // Уникальный префикс для полей этой вкладки
     currentPage: 'createCard', // По умолчанию показываем создание карточек
     lastSavedCard: null,
+});
+
+const ensureDate = (value: StoredCard['createdAt'] | string | number | undefined): Date => {
+    if (value instanceof Date) {
+        return value;
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed;
+        }
+    }
+    return new Date();
+};
+
+const normalizeStoredCard = (card: StoredCard): StoredCard => ({
+    ...card,
+    createdAt: ensureDate(card.createdAt),
+    examples: Array.isArray(card.examples) ? card.examples : [],
+    image: card.image ?? null,
+    imageUrl: card.imageUrl ?? null,
+    translation: card.translation ?? null,
+    front: card.front ?? card.text,
+    back: card.back ?? null,
+    linguisticInfo: card.linguisticInfo ?? '',
+    transcription: card.transcription ?? '',
 });
 
 const initialState: TabStateState = {
@@ -137,15 +164,19 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                     id: card.id || `${tabState.fieldIdPrefix}${Date.now()}`,
                     createdAt: card.createdAt || new Date()
                 };
+                const normalizedCard = normalizeStoredCard(cardWithId as StoredCard);
 
-                const existingCardIndex = tabState.storedCards.findIndex(c => c.text === cardWithId.text);
+                const existingCardIndex = tabState.storedCards.findIndex(c => c.id === normalizedCard.id);
                 
                 let updatedStoredCards;
                 if (existingCardIndex >= 0) {
                     updatedStoredCards = [...tabState.storedCards];
-                    updatedStoredCards[existingCardIndex] = { ...cardWithId, id: tabState.storedCards[existingCardIndex].id };
+                    updatedStoredCards[existingCardIndex] = normalizeStoredCard({
+                        ...normalizedCard,
+                        id: tabState.storedCards[existingCardIndex].id,
+                    } as StoredCard);
                 } else {
-                    updatedStoredCards = [...tabState.storedCards, cardWithId];
+                    updatedStoredCards = [...tabState.storedCards, normalizedCard];
                 }
 
                 newState.tabStates = {
@@ -179,7 +210,7 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                     ...newState.tabStates,
                     [setTabId]: {
                         ...newState.tabStates[setTabId],
-                        storedCards: cards
+                        storedCards: cards.map(normalizeStoredCard)
                     }
                 };
             }
@@ -210,10 +241,10 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                 let updatedStoredCards;
                 if (cardExists) {
                     updatedStoredCards = tabState.storedCards.map(card =>
-                        card.id === updatedCard.id ? { ...updatedCard } : card
+                        card.id === updatedCard.id ? normalizeStoredCard({ ...updatedCard }) : card
                     );
                 } else {
-                    updatedStoredCards = [...tabState.storedCards, updatedCard];
+                    updatedStoredCards = [...tabState.storedCards, normalizeStoredCard(updatedCard)];
                 }
 
                 newState.tabStates = {
@@ -422,11 +453,23 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
         case GLOBAL_SAVE_CARD_TO_STORAGE: {
             const tId = newState.currentTabId;
             if (tId && newState.tabStates[tId]) {
+                const tabState = newState.tabStates[tId];
+                const normalizedCard = normalizeStoredCard({
+                    ...(action.payload || {}),
+                    id: action.payload?.id || `${tabState.fieldIdPrefix}${Date.now()}`,
+                    createdAt: action.payload?.createdAt || new Date(),
+                });
+                const nextStoredCards = (() => {
+                    const idx = tabState.storedCards.findIndex((card) => card.id === normalizedCard.id);
+                    if (idx === -1) return [...tabState.storedCards, normalizedCard];
+                    return tabState.storedCards.map((card, i) => (i === idx ? normalizedCard : card));
+                })();
                 newState.tabStates = {
                     ...newState.tabStates,
                     [tId]: {
-                        ...newState.tabStates[tId],
-                        lastSavedCard: action.payload,
+                        ...tabState,
+                        storedCards: nextStoredCards,
+                        lastSavedCard: normalizedCard,
                     },
                 };
             }
@@ -435,11 +478,53 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
         case GLOBAL_UPDATE_STORED_CARD: {
             const tId = newState.currentTabId;
             if (tId && newState.tabStates[tId]) {
+                const tabState = newState.tabStates[tId];
+                const normalizedCard = normalizeStoredCard(action.payload);
+                const nextStoredCards = (() => {
+                    const idx = tabState.storedCards.findIndex((card) => card.id === normalizedCard.id);
+                    if (idx === -1) return [...tabState.storedCards, normalizedCard];
+                    return tabState.storedCards.map((card, i) => (i === idx ? normalizedCard : card));
+                })();
                 newState.tabStates = {
                     ...newState.tabStates,
                     [tId]: {
-                        ...newState.tabStates[tId],
-                        lastSavedCard: action.payload,
+                        ...tabState,
+                        storedCards: nextStoredCards,
+                        lastSavedCard: normalizedCard,
+                    },
+                };
+            }
+            break;
+        }
+        case GLOBAL_DELETE_STORED_CARD: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                const tabState = newState.tabStates[tId];
+                const nextStoredCards = tabState.storedCards.filter((card) => card.id !== action.payload);
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...tabState,
+                        storedCards: nextStoredCards,
+                    },
+                };
+            }
+            break;
+        }
+        case GLOBAL_UPDATE_CARD_EXPORT_STATUS: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                const tabState = newState.tabStates[tId];
+                const nextStoredCards = tabState.storedCards.map((card) => (
+                    card.id === action.payload.cardId
+                        ? { ...card, exportStatus: action.payload.status }
+                        : card
+                ));
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...tabState,
+                        storedCards: nextStoredCards,
                     },
                 };
             }

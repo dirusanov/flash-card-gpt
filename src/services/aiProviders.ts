@@ -678,13 +678,18 @@ Provide ONLY the two lines as shown above, no additional text.`;
     // Извлекаем транскрипцию на языке пользователя
     const userLangMatch = cleanResponse.match(/USER_LANG:\s*(.+)/i);
     if (userLangMatch) {
-      userLanguageTranscription = userLangMatch[1].trim();
+      userLanguageTranscription = userLangMatch[1]
+        .trim()
+        // Some models still prepend language labels (e.g., "Русский: ...").
+        .replace(/^[A-Za-zА-Яа-яЁё\s-]{2,40}:\s*/u, '')
+        .trim();
     }
 
     // Извлекаем IPA транскрипцию
     const ipaMatch = cleanResponse.match(/IPA:\s*(.+)/i);
     if (ipaMatch) {
       ipaTranscription = ipaMatch[1].trim()
+        .replace(/^IPA:\s*/i, '')
         .replace(/^\[|\]$/g, '') // Удаляем квадратные скобки
         .replace(/^\/|\/$/g, ''); // Удаляем прямые скобки
       

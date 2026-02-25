@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store';
 import { hideNotification } from '../store/actions/notifications';
@@ -8,11 +8,24 @@ import { FaTimesCircle, FaCheckCircle, FaExclamationTriangle, FaInfoCircle, FaTi
 const GlobalNotifications: React.FC = () => {
   const notifications = useSelector((state: RootState) => state.notifications.notifications);
   const dispatch = useDispatch();
+  const notificationTimersRef = useRef<Map<string, number>>(new Map());
 
   // Auto-hide notifications
   useEffect(() => {
+    const activeIds = new Set(notifications.map((n: Notification) => n.id));
+
+    notificationTimersRef.current.forEach((timeoutId, notificationId) => {
+      if (!activeIds.has(notificationId)) {
+        window.clearTimeout(timeoutId);
+        notificationTimersRef.current.delete(notificationId);
+      }
+    });
+
     notifications.forEach((notification: Notification) => {
       const { id, type } = notification;
+      if (notificationTimersRef.current.has(id)) {
+        return;
+      }
       
       let timeout = 0;
       if (type === 'success' || type === 'info') {
@@ -23,12 +36,21 @@ const GlobalNotifications: React.FC = () => {
       // errors don't auto-hide
       
       if (timeout > 0) {
-        setTimeout(() => {
+        const timerId = window.setTimeout(() => {
+          notificationTimersRef.current.delete(id);
           dispatch(hideNotification(id));
         }, timeout);
+        notificationTimersRef.current.set(id, timerId);
       }
     });
   }, [notifications, dispatch]);
+
+  useEffect(() => {
+    return () => {
+      notificationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      notificationTimersRef.current.clear();
+    };
+  }, []);
 
   const handleClose = (id: string) => {
     dispatch(hideNotification(id));

@@ -23,7 +23,6 @@ export const SET_TRANSCRIPTION = 'SET_TRANSCRIPTION';
 
 // Add new actions for card generation state
 export const SET_IS_GENERATING_CARD = 'SET_IS_GENERATING_CARD';
-export const SET_LAST_DRAFT_CARD = 'SET_LAST_DRAFT_CARD';
 
 export const saveAnkiCards = (
         mode: Modes, 
@@ -75,8 +74,9 @@ export const saveCardToStorage = (
     };
 };
 
-export const loadStoredCards = () => ({
+export const loadStoredCards = (tabId?: number) => ({
     type: LOAD_STORED_CARDS,
+    payload: tabId ? { tabId } : undefined,
 });
 
 export const setStoredCards = (cards: any[]) => ({
@@ -182,8 +182,3 @@ export const setIsGeneratingCard = (isGenerating: boolean) => {
         payload: isGenerating,
     };
 };
-
-export const setLastDraftCard = (card: StoredCard | null) => ({
-    type: SET_LAST_DRAFT_CARD,
-    payload: card,
-});

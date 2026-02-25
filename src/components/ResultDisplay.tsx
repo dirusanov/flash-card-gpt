@@ -1194,7 +1194,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                 <>
                     {/* Кнопка сохранения/статус карточки */}
                     <div style={{ marginBottom: '10px' }}>
-                        {!isEditMode && (!isSaved || isGeneratingCard || loadingGetResult) && (
+                        {!isEditMode && !isSaved && (
                             // Показываем кнопки "Cancel" и "Save Card" для новых карточек, во время генерации или загрузки
                             <div style={{ 
                                 display: 'flex', 
@@ -1235,9 +1235,9 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     }}
                                 >
                                     <FaTimes />
-                                    {isGeneratingCard || loadingGetResult ? 'Cancel Generation' : 'Cancel'}
+                                    {loadingGetResult ? 'Cancel Generation' : 'Cancel'}
                                 </button>
-                                {!isGeneratingCard && !loadingGetResult && (
+                                {!loadingGetResult && (
                                     <button 
                                         onClick={onAccept} 
                                         disabled={loadingAccept}
@@ -1307,7 +1307,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         )}
 
                         {/* Пояснительный текст под кнопкой */}
-                        {!isEditMode && !isSaved && (
+                        {!isEditMode && !isSaved && !loadingGetResult && (
                             <p style={{
                                 fontSize: '11px',
                                 color: '#6B7280',

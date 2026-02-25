@@ -296,7 +296,6 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   useEffect(() => {
     const init = async () => {
       try {
-        dispatch(loadStoredCards());
         try {
           const decks = await fetchDecks(ankiConnectUrl, ankiConnectApiKey);
           if ((decks as any).error) dispatch(setAnkiAvailability(false));
@@ -312,7 +311,12 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       }
     };
     if (isInitialLoad) init();
-  }, [dispatch, ankiConnectUrl, ankiConnectApiKey, isInitialLoad]);
+  }, [dispatch, ankiConnectUrl, ankiConnectApiKey, isInitialLoad, tabId]);
+
+  // Load cards for current tab context.
+  useEffect(() => {
+    dispatch(loadStoredCards(tabId));
+  }, [dispatch, tabId]);
 
   useEffect(() => {
     dispatch<any>(hydrateView()).finally(() => setViewHydrated(true));
@@ -564,14 +568,13 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     flexDirection: 'column',
     position: 'relative'
   }), [sharedContentStyle]);
-
   // Контент страниц (без safeTop — он теперь у контейнера header)
   const renderMainContent = () => {
     switch (currentPage) {
       case 'settings':
         return <div style={sharedContentStyle}><Settings onBackClick={() => handlePageChange('createCard')} popup={false} /></div>;
       case 'storedCards':
-        return <div style={sharedContentStyle}><StoredCards onBackClick={() => handlePageChange('createCard')} /></div>;
+        return <div style={sharedContentStyle}><StoredCards onBackClick={() => handlePageChange('createCard')} initialFilter="all" /></div>;
       case 'createCard':
       default:
         return (
@@ -584,7 +587,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
 
   // Шапка (кнопки + хэндл)
   const renderHeaderButtons = () => {
-    const unsavedCardsCount = tabAware.storedCards.filter(c => c.exportStatus === 'not_exported').length;
+    const shouldHideBottomNav = tabAware.isGeneratingCard;
     return (
       <>
         {isFloating && (
@@ -677,59 +680,48 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
           </div>
         )}
 
+        {!shouldHideBottomNav && (
         <div style={{ position: 'absolute', bottom: '8px', left: '12px', right: '12px', display: 'flex', gap: '6px', zIndex: 100 }}>
           <button
             onClick={() => handlePageChange('storedCards')}
-            disabled={tabAware.isGeneratingCard}
             className="nav-button"
             style={{
               backgroundColor: currentPage === 'storedCards' ? '#EFF6FF' : '#F9FAFB',
               border: `1px solid ${currentPage === 'storedCards' ? '#BFDBFE' : '#E5E7EB'}`,
-              cursor: tabAware.isGeneratingCard ? 'not-allowed' : 'pointer', padding: '10px 14px',
-              color: tabAware.isGeneratingCard ? '#9CA3AF' : (currentPage === 'storedCards' ? '#2563EB' : '#6B7280'),
+              cursor: 'pointer', padding: '10px 14px',
+              color: currentPage === 'storedCards' ? '#2563EB' : '#6B7280',
               borderRadius: '10px', transition: 'all 0.2s ease', display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', flex: 1, gap: '3px', fontSize: '11px',
               fontWeight: currentPage === 'storedCards' ? 600 : 500,
               boxShadow: currentPage === 'storedCards' ? '0 2px 4px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
-              position: 'relative', opacity: tabAware.isGeneratingCard ? 0.6 : 1
+              position: 'relative', opacity: 1
             }}
-            title={tabAware.isGeneratingCard ? "Please wait while card is being generated" : "View your saved cards"}
+            title="View your saved cards"
           >
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <FaList size={16} />
-              {unsavedCardsCount > 0 && (
-                <span style={{
-                  position: 'absolute', top: '-6px', right: '-8px', backgroundColor: '#EF4444', color: 'white',
-                  borderRadius: '10px', fontSize: '10px', fontWeight: 'bold', padding: '2px 6px', minWidth: '16px', height: '16px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
-                }}>
-                  {unsavedCardsCount > 99 ? '99+' : unsavedCardsCount}
-                </span>
-              )}
-            </div>
+            <FaList size={16} />
             <span>Cards</span>
           </button>
 
           <button
             onClick={() => handlePageChange('settings')}
-            disabled={tabAware.isGeneratingCard}
             className="nav-button"
             style={{
               backgroundColor: currentPage === 'settings' ? '#EFF6FF' : '#F9FAFB',
               border: `1px solid ${currentPage === 'settings' ? '#BFDBFE' : '#E5E7EB'}`,
-              cursor: tabAware.isGeneratingCard ? 'not-allowed' : 'pointer', padding: '10px 14px',
-              color: tabAware.isGeneratingCard ? '#9CA3AF' : (currentPage === 'settings' ? '#2563EB' : '#6B7280'),
+              cursor: 'pointer', padding: '10px 14px',
+              color: currentPage === 'settings' ? '#2563EB' : '#6B7280',
               borderRadius: '10px', transition: 'all 0.2s ease', display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', flex: 1, gap: '3px', fontSize: '11px', fontWeight: currentPage === 'settings' ? 600 : 500,
               boxShadow: currentPage === 'settings' ? '0 2px 4px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
-              opacity: tabAware.isGeneratingCard ? 0.6 : 1
+              opacity: 1
             }}
-            title={tabAware.isGeneratingCard ? "Please wait while card is being generated" : "App settings and API configuration"}
+            title="App settings and API configuration"
           >
             <FaCog size={16} />
             <span>Settings</span>
           </button>
         </div>
+        )}
 
         {/* Ручка ресайза */}
         {isFloating && (

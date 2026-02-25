@@ -29,4 +29,40 @@ export type RootState = ReturnType<typeof rootReducer>;
 const storeCreator = (preloadedState?: RootState) => 
   createStore(rootReducer, preloadedState, applyMiddleware(thunk, cardsLocalStorageMiddleware));
 
-export const instantiateStore = setupReduxed(storeCreator);
+const instantiateStoreBase = setupReduxed(storeCreator);
+
+const isExtensionContextInvalidatedError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message || '';
+  return message.includes('Extension context invalidated');
+};
+
+const wrapStoreDispatchWithContextGuard = (store: any) => {
+  if (!store || typeof store.dispatch !== 'function') {
+    return store;
+  }
+
+  const originalDispatch = store.dispatch.bind(store);
+  store.dispatch = (action: any) => {
+    try {
+      return originalDispatch(action);
+    } catch (error) {
+      if (isExtensionContextInvalidatedError(error)) {
+        // Happens when content script from old extension context is still alive after reload.
+        console.warn('Skipping dispatch: extension context invalidated');
+        return action;
+      }
+      throw error;
+    }
+  };
+
+  return store;
+};
+
+export const instantiateStore = async () => {
+  const store = await instantiateStoreBase();
+  return wrapStoreDispatchWithContextGuard(store);
+};

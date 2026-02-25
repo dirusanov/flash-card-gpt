@@ -5,29 +5,25 @@ import { useTabAware } from './TabAwareProvider';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
-import { setDeckId } from "../store/actions/decks";
-import { saveCardToStorage, setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, updateStoredCard, setCurrentCardId, setLinguisticInfo, setTranscription, setLastDraftCard } from "../store/actions/cards";
-import { CardLangLearning, CardGeneral } from '../services/ankiService';
-import { getDescriptionImage, getExamples, translateText, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage } from "../services/openaiApi";
-import { setMode, setShouldGenerateImage, setTranslateToLanguage, setAIInstructions, setImageInstructions, setImageGenerationMode } from "../store/actions/settings";
+import { setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription } from "../store/actions/cards";
+import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage } from "../services/openaiApi";
+import { setMode, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
 import { Modes } from "../constants";
 import ResultDisplay from "./ResultDisplay";
-import { getLoadingMessage, getDetailedLoadingMessage, type LoadingMessage, type DetailedLoadingMessage } from '../services/loadingMessages';
+import { type DetailedLoadingMessage } from '../services/loadingMessages';
 import { setGlobalProgressCallback, getGlobalApiTracker, resetGlobalApiTracker } from '../services/apiTracker';
 import { getImage } from '../apiUtils';
 import { backgroundFetch } from '../services/backgroundFetch';
 import useErrorNotification from './useErrorHandler';
-import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaGraduationCap, FaBrain, FaToggleOn, FaToggleOff, FaRobot, FaSave, FaEdit, FaClock, FaChevronRight, FaKey } from 'react-icons/fa';
+import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaRobot, FaSave, FaEdit, FaClock, FaChevronRight, FaKey } from 'react-icons/fa';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
 import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createOptimizedLinguisticInfo, createTranscription } from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
-import UniversalCardCreator from './UniversalCardCreator';
 import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
 import { imageUrlToBase64 } from '../services/ankiService';
 import { PageContentExtractor } from '../services/pageContentExtractor';
 
-// Добавляем интерфейс для типов общих карточек
 interface GeneralCardTemplate {
     id: string;
     name: string;
@@ -36,52 +32,6 @@ interface GeneralCardTemplate {
     prompt: string;
 }
 
-// Шаблоны для создания общих карточек
-const GENERAL_CARD_TEMPLATES: GeneralCardTemplate[] = [
-    {
-        id: 'qa',
-        name: 'Q&A',
-        description: 'Question and answer format',
-        icon: '❓',
-        prompt: 'Create a question and answer based on this text. Format as Q: [question] A: [answer]'
-    },
-    {
-        id: 'definition',
-        name: 'Definition',
-        description: 'Key term and definition',
-        icon: '📖',
-        prompt: 'Extract the main concept and provide a clear definition'
-    },
-    {
-        id: 'summary',
-        name: 'Summary',
-        description: 'Key points summary',
-        icon: '📝',
-        prompt: 'Summarize the key points from this text in bullet points'
-    },
-    {
-        id: 'facts',
-        name: 'Facts',
-        description: 'Important facts and details',
-        icon: '💡',
-        prompt: 'Extract the most important facts and details from this text'
-    },
-    {
-        id: 'process',
-        name: 'Process',
-        description: 'Step-by-step explanation',
-        icon: '🔄',
-        prompt: 'Break down any process or procedure mentioned in this text into clear steps'
-    },
-    {
-        id: 'concept',
-        name: 'Concept',
-        description: 'Explain the concept',
-        icon: '🧠',
-        prompt: 'Explain the main concept from this text in simple terms with examples'
-    }
-];
-
 const isDev = process.env.NODE_ENV !== 'production';
 const debugLog = (...args: unknown[]) => {
     if (isDev) {
@@ -89,70 +39,31 @@ const debugLog = (...args: unknown[]) => {
     }
 };
 
-const ensureDraftDate = (value: StoredCard['createdAt'] | undefined): Date => {
-    if (value instanceof Date) {
-        return value;
+const normalizeTranscriptionValue = (value: string | null | undefined, isIpa: boolean = false): string | null => {
+    if (!value) {
+        return null;
     }
-    if (typeof value === 'string' || typeof value === 'number') {
-        const parsed = new Date(value);
-        if (!Number.isNaN(parsed.getTime())) {
-            return parsed;
+
+    let cleaned = value
+        .trim()
+        .replace(/^IPA:\s*/i, '')
+        .replace(/^[A-Za-zА-Яа-яЁё\s-]{2,40}:\s*/u, '')
+        .trim();
+
+    if (!cleaned) {
+        return null;
+    }
+
+    if (isIpa) {
+        cleaned = cleaned.replace(/^\[|\]$/g, '').replace(/^\/|\/$/g, '').trim();
+        if (!cleaned) {
+            return null;
         }
+        return `[${cleaned}]`;
     }
-    return new Date();
+
+    return cleaned;
 };
-
-const normalizeDraftCard = (card: StoredCard): StoredCard => ({
-    ...card,
-    createdAt: ensureDraftDate(card.createdAt),
-    examples: card.examples ?? [],
-    image: card.image ?? null,
-    imageUrl: card.imageUrl ?? null,
-    translation: card.translation ?? null,
-    front: card.front ?? card.text,
-    back: card.back ?? null,
-    linguisticInfo: card.linguisticInfo ?? '',
-    transcription: card.transcription ?? '',
-});
-
-const serializeDraftForCompare = (card: StoredCard): string => {
-    const normalizedExamples = (card.examples ?? []).map(example => ([example[0], example[1] ?? null])) as Array<[string, string | null]>;
-
-    return JSON.stringify({
-        id: card.id,
-        mode: card.mode,
-        text: card.text,
-        translation: card.translation ?? null,
-        front: card.front ?? '',
-        back: card.back ?? null,
-        examples: normalizedExamples,
-        image: card.image ?? null,
-        imageUrl: card.imageUrl ?? null,
-        createdAt: ensureDraftDate(card.createdAt).toISOString(),
-        linguisticInfo: card.linguisticInfo ?? '',
-        transcription: card.transcription ?? '',
-    });
-};
-
-const getDraftContentHash = (card: StoredCard): string => {
-    const normalizedExamples = (card.examples ?? []).map(example => ([example[0], example[1] ?? null])) as Array<[string, string | null]>;
-
-    return JSON.stringify({
-        id: card.id,
-        mode: card.mode,
-        text: card.text,
-        translation: card.translation ?? null,
-        front: card.front ?? '',
-        back: card.back ?? null,
-        examples: normalizedExamples,
-        image: card.image ?? null,
-        imageUrl: card.imageUrl ?? null,
-        linguisticInfo: card.linguisticInfo ?? '',
-        transcription: card.transcription ?? '',
-    });
-};
-
-type DraftSnapshot = Omit<StoredCard, 'id' | 'createdAt'> & { id?: string; createdAt?: StoredCard['createdAt'] };
 
 interface CreateCardProps {
     // Пустой интерфейс, так как больше не нужен onSettingsClick
@@ -237,7 +148,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, []);
 
     const [showResult, setShowResult] = useState(false);
-    const deckId = useSelector((state: RootState) => state.deck.deckId);
     const tabAware = useTabAware();
 
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
@@ -250,17 +160,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
 
-    const noop = useCallback(() => {}, []);
-
-    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, fieldIdPrefix, tabId } = tabAware;
-    const lastDraftCard = useSelector((state: RootState) => state.cards.lastDraftCard);
+    const { text, translation, examples, image, imageUrl, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
 
     // Tab-scoped localStorage helpers to avoid cross-tab leaks
     const getTabScopedLS = useCallback((key: string): string | null => {
         try {
             const tabKey = `${key}_${tabId}`;
-            const v = localStorage.getItem(tabKey);
-            return v !== null ? v : localStorage.getItem(key);
+            return localStorage.getItem(tabKey);
         } catch {
             return null;
         }
@@ -269,121 +175,18 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         try {
             const tabKey = `${key}_${tabId}`;
             localStorage.setItem(tabKey, value);
-            // also write legacy global key for backward compatibility
-            localStorage.setItem(key, value);
         } catch {}
     }, [tabId]);
     const removeTabScopedLS = useCallback((key: string) => {
         try {
             localStorage.removeItem(`${key}_${tabId}`);
-            localStorage.removeItem(key);
         } catch {}
     }, [tabId]);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
-    const decks = useSelector((state: RootState) => state.deck.decks);
     const mode = useSelector((state: RootState) => state.settings.mode);
     const [originalSelectedText, setOriginalSelectedText] = useState('');
-    const latestCardPreview = useMemo(() => {
-        if (!lastDraftCard) {
-            return null;
-        }
-
-        let createdAtValue: Date;
-        if (lastDraftCard.createdAt instanceof Date) {
-            createdAtValue = lastDraftCard.createdAt;
-        } else {
-            createdAtValue = new Date(lastDraftCard.createdAt as unknown as string);
-        }
-
-        if (Number.isNaN(createdAtValue.getTime())) {
-            createdAtValue = new Date();
-        }
-
-        const normalizedExamples = Array.isArray(lastDraftCard.examples)
-            ? lastDraftCard.examples
-            : [];
-
-        const normalizedRaw: StoredCard = {
-            ...lastDraftCard,
-            createdAt: createdAtValue,
-            examples: normalizedExamples
-        };
-
-        const hasMeaningfulContent = Boolean(
-            (normalizedRaw.text && normalizedRaw.text.trim()) ||
-            (normalizedRaw.translation && normalizedRaw.translation.trim()) ||
-            (normalizedRaw.front && normalizedRaw.front.trim()) ||
-            (normalizedRaw.back && normalizedRaw.back.trim()) ||
-            (normalizedRaw.examples && normalizedRaw.examples.length > 0) ||
-            normalizedRaw.image ||
-            normalizedRaw.imageUrl ||
-            (normalizedRaw.linguisticInfo && normalizedRaw.linguisticInfo.trim()) ||
-            (normalizedRaw.transcription && normalizedRaw.transcription.trim())
-        );
-
-        if (!hasMeaningfulContent) {
-            return null;
-        }
-
-        const isLanguageMode = lastDraftCard.mode === Modes.LanguageLearning;
-        const frontText = isLanguageMode
-            ? normalizedRaw.text
-            : (normalizedRaw.front || normalizedRaw.text);
-        const translationText = isLanguageMode
-            ? normalizedRaw.translation || ''
-            : (normalizedRaw.back || normalizedRaw.translation || '');
-
-        const snippetSource = (frontText || translationText || normalizedRaw.text || '')
-            .replace(/\s+/g, ' ')
-            .trim();
-        const snippet = snippetSource.length > 0
-            ? snippetSource
-            : 'Saved card is ready to preview';
-        const previewSnippet = snippet.length > 110
-            ? `${snippet.slice(0, 107).trim()}…`
-            : snippet;
-
-        const englishLocale = 'en-GB';
-        const fullTimestampFormatter = new Intl.DateTimeFormat(englishLocale, {
-            dateStyle: 'medium',
-            timeStyle: 'short'
-        });
-        const shortTimeFormatter = new Intl.DateTimeFormat(englishLocale, {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-        });
-
-        const fullTimestampLabel = fullTimestampFormatter.format(createdAtValue);
-        const shortTimeLabel = shortTimeFormatter.format(createdAtValue);
-
-        return {
-            raw: normalizedRaw,
-            front: frontText || '',
-            translation: translationText || '',
-            examples: normalizedExamples,
-            createdAt: createdAtValue,
-            snippet,
-            previewSnippet,
-            timeLabel: fullTimestampLabel,
-            shortTimeLabel,
-            modeLabel: isLanguageMode ? 'Language Learning' : 'General Topic'
-        };
-    }, [lastDraftCard]);
-
-    const draftIdRef = useRef<string | null>(lastDraftCard?.id ?? null);
-    const lastDraftSerializedRef = useRef<string | null>(lastDraftCard ? serializeDraftForCompare(normalizeDraftCard(lastDraftCard)) : null);
-    const lastDraftContentHashRef = useRef<string | null>(lastDraftCard ? getDraftContentHash(normalizeDraftCard(lastDraftCard)) : null);
-
-    useEffect(() => {
-        if (lastDraftCard) {
-            draftIdRef.current = lastDraftCard.id;
-            lastDraftSerializedRef.current = serializeDraftForCompare(normalizeDraftCard(lastDraftCard));
-            lastDraftContentHashRef.current = getDraftContentHash(normalizeDraftCard(lastDraftCard));
-        }
-    }, [lastDraftCard]);
 
     const enforceLanguageMode = useCallback(() => {
         localStorage.setItem('selected_mode', Modes.LanguageLearning);
@@ -407,9 +210,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setCurrentCardId(null));
 
         // Reset general card state
-        setSelectedTemplate(null);
-        setCustomPrompt('');
-        setShowTemplateModal(false);
         setShowResult(false);
         setIsMultipleCards(false);
         setCreatedCards([]);
@@ -418,11 +218,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Clear API tracker state to prevent Language Learning UI from persisting
         resetGlobalApiTracker();
     }, [mode, dispatch]);
-
-    // Function to toggle between modes (now always enforces Language Learning)
-    const toggleMode = useCallback(() => {
-        enforceLanguageMode();
-    }, [enforceLanguageMode]);
 
     // Function to switch to specific mode now enforces Language Learning
     const switchToMode = useCallback((_targetMode: string) => {
@@ -472,9 +267,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             document.removeEventListener('keydown', handleKeyDown);
         };
     }, [switchToMode]);
-    const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
-    const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
-    const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const [loadingGetResult, setLoadingGetResult] = useState(false);
     const [loadingNewImage, setLoadingNewImage] = useState(false);
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
@@ -491,49 +283,53 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const groqApiKey = useSelector((state: RootState) => state.settings.groqApiKey);
     const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
     const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
-    const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
-    const imageGenerationMode = useSelector((state: RootState) => state.settings.imageGenerationMode);
+    const [shouldGenerateImage, setShouldGenerateImageState] = useState(true);
+    const [imageGenerationMode, setImageGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
     const [showAISettings, setShowAISettings] = useState(false);
 
-    const IMAGE_MODE_STORAGE_KEY = 'anki_image_generation_mode';
-    const hasLoadedImageModeRef = useRef(false);
+    // Keep tab-level generation lock strictly in sync with loader visibility.
+    // App uses this flag to hide Cards/Settings during loading overlay.
+    useEffect(() => {
+        if (loadingGetResult !== isGeneratingCard) {
+            tabAware.setIsGeneratingCard(loadingGetResult);
+        }
+    }, [loadingGetResult, isGeneratingCard, tabAware]);
+
+    const IMAGE_MODE_STORAGE_KEY = `anki_image_generation_mode_${tabId}`;
+    const LEGACY_IMAGE_MODE_STORAGE_KEY = 'anki_image_generation_mode';
+    const loadedImageModeTabsRef = useRef<Set<number>>(new Set());
 
     // Persist image generation mode changes
     useEffect(() => {
-        if (!hasLoadedImageModeRef.current) return;
+        if (!loadedImageModeTabsRef.current.has(tabId)) return;
         try {
             localStorage.setItem(IMAGE_MODE_STORAGE_KEY, imageGenerationMode);
+            // Keep legacy key for restore when tab id changes after browser restart.
+            localStorage.setItem(LEGACY_IMAGE_MODE_STORAGE_KEY, imageGenerationMode);
         } catch (error) {
             console.warn('Failed to persist image generation mode:', error);
         }
-    }, [imageGenerationMode]);
+    }, [imageGenerationMode, IMAGE_MODE_STORAGE_KEY, tabId]);
 
     // Restore saved image generation mode on first mount
     useEffect(() => {
-        if (hasLoadedImageModeRef.current) return;
-        hasLoadedImageModeRef.current = true;
+        if (loadedImageModeTabsRef.current.has(tabId)) return;
+        loadedImageModeTabsRef.current.add(tabId);
         try {
-            const savedMode = localStorage.getItem(IMAGE_MODE_STORAGE_KEY) as 'off' | 'smart' | 'always' | null;
-            if (savedMode && savedMode !== imageGenerationMode) {
-                dispatch(setImageGenerationMode(savedMode));
-                if (savedMode === 'off') {
-                    dispatch(setShouldGenerateImage(false));
-                }
+            const savedMode = (
+                localStorage.getItem(IMAGE_MODE_STORAGE_KEY) ||
+                localStorage.getItem(LEGACY_IMAGE_MODE_STORAGE_KEY)
+            ) as 'off' | 'smart' | 'always' | null;
+            if (savedMode) {
+                setImageGenerationModeState(savedMode);
+                setShouldGenerateImageState(savedMode !== 'off');
+                // Freeze inherited value for this tab to keep tab-local independence.
+                localStorage.setItem(IMAGE_MODE_STORAGE_KEY, savedMode);
             }
         } catch (error) {
             console.warn('Failed to restore image generation mode:', error);
         }
-    }, [dispatch, imageGenerationMode]);
-
-    // Initialize shouldGenerateImage based on current imageGenerationMode
-    React.useEffect(() => {
-        if (imageGenerationMode === 'smart' || imageGenerationMode === 'always') {
-            if (!shouldGenerateImage) {
-                debugLog(`🔧 Initializing: Setting shouldGenerateImage=true for ${imageGenerationMode} mode`);
-                dispatch(setShouldGenerateImage(true));
-            }
-        }
-    }, [imageGenerationMode, shouldGenerateImage, dispatch]);
+    }, [IMAGE_MODE_STORAGE_KEY, tabId]);
     const [showImageSettings, setShowImageSettings] = useState(false);
     const [localAIInstructions, setLocalAIInstructions] = useState(aiInstructions);
     const [localImageInstructions, setLocalImageInstructions] = useState(imageInstructions);
@@ -562,9 +358,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [isMultipleCards, setIsMultipleCards] = useState(false);
     
     // State for general card creation
-    const [selectedTemplate, setSelectedTemplate] = useState<GeneralCardTemplate | null>(null);
-    const [showTemplateModal, setShowTemplateModal] = useState(false);
-    const [customPrompt, setCustomPrompt] = useState('');
     // Removed isGeneratingGeneralCard - now using unified loadingGetResult
     
     // State for AI cards preview
@@ -724,181 +517,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         return false;
     }, [currentCardId, explicitlySaved, isMultipleCards, currentCardIndex, createdCards, isCardExplicitlySaved]);
 
-    const draftMatchesExplicitlySavedCard = useMemo(() => {
-        if (!lastDraftCard || isEdited) {
-            return false;
-        }
-
-        const savedFlagFromStorage = typeof window !== 'undefined'
-            ? getTabScopedLS('explicitly_saved') === 'true'
-            : false;
-
-        if (!explicitlySaved && !savedFlagFromStorage) {
-            return false;
-        }
-
-        const savedId = currentCardId || (typeof window !== 'undefined' ? getTabScopedLS('current_card_id') : null);
-        if (!savedId) {
-            return false;
-        }
-
-        return lastDraftCard.id === savedId;
-    }, [lastDraftCard, explicitlySaved, currentCardId, isEdited]);
-
-    useEffect(() => {
-        if (!lastDraftCard) {
-            return;
-        }
-
-        const savedFlagFromStorage = typeof window !== 'undefined'
-            ? getTabScopedLS('explicitly_saved') === 'true'
-            : false;
-
-        const savedIdFromStorage = typeof window !== 'undefined'
-            ? getTabScopedLS('current_card_id')
-            : null;
-
-        const effectiveSavedId = currentCardId || savedIdFromStorage;
-        const matchesSavedCard = effectiveSavedId ? lastDraftCard.id === effectiveSavedId : false;
-
-        if (!isEdited && (isSaved || explicitlySaved || (savedFlagFromStorage && matchesSavedCard))) {
-            dispatch(setLastDraftCard(null));
-        }
-    }, [lastDraftCard, isSaved, explicitlySaved, isEdited, currentCardId, dispatch]);
-
-    const latestDraftSnapshot = useMemo<DraftSnapshot | null>(() => {
-        if (!showResult) {
-            return null;
-        }
-
-        const trimmedOriginal = (originalSelectedText || '').trim();
-        const baseFrontCandidate = (trimmedOriginal || front || '').trim();
-        const baseTextCandidate = (trimmedOriginal || text || front || '').trim();
-        const hasMeaningfulContent = Boolean(
-            baseTextCandidate ||
-            (translation && translation.trim()) ||
-            (back && back.trim()) ||
-            examples.length > 0 ||
-            image ||
-            imageUrl ||
-            (linguisticInfo && linguisticInfo.trim()) ||
-            (transcription && transcription.trim())
-        );
-
-        if (!hasMeaningfulContent) {
-            return null;
-        }
-
-        const savedFlagFromStorage = typeof window !== 'undefined'
-            ? getTabScopedLS('explicitly_saved') === 'true'
-            : false;
-
-        if ((isSaved || savedFlagFromStorage || explicitlySaved) && !isEdited) {
-            return null;
-        }
-
-        const cardText = baseTextCandidate || text || front || '';
-        const draftFront = baseFrontCandidate || front || cardText;
-        const draftTranslation = translation || (mode === Modes.GeneralTopic ? (back || '') : translation);
-
-        return {
-            id: currentCardId ?? undefined,
-            mode,
-            text: cardText,
-            translation: draftTranslation && draftTranslation.length > 0 ? draftTranslation : null,
-            examples: examples.length ? examples : [],
-            image: image || null,
-            imageUrl: imageUrl || null,
-            createdAt: lastDraftCard?.createdAt,
-            exportStatus: 'not_exported',
-            front: draftFront,
-            back: back ?? null,
-            linguisticInfo: linguisticInfo || '',
-            transcription: transcription || ''
-        };
-    }, [
-        showResult,
-        originalSelectedText,
-        text,
-        front,
-        translation,
-        back,
-        examples,
-        image,
-        imageUrl,
-        linguisticInfo,
-        transcription,
-        currentCardId,
-        mode,
-        lastDraftCard,
-        isSaved,
-        isEdited,
-        explicitlySaved
-    ]);
-
-    useEffect(() => {
-        if (!latestDraftSnapshot) {
-            return;
-        }
-
-        let candidateId = latestDraftSnapshot.id ?? draftIdRef.current ?? lastDraftCard?.id ?? null;
-        if (!candidateId) {
-            candidateId = `draft-${Date.now()}`;
-        }
-
-        draftIdRef.current = candidateId;
-
-        const draft: StoredCard = {
-            ...latestDraftSnapshot,
-            id: candidateId,
-            createdAt: ensureDraftDate(latestDraftSnapshot.createdAt ?? lastDraftCard?.createdAt),
-        } as StoredCard;
-
-        const normalizedDraft = normalizeDraftCard(draft);
-        const draftContentHash = getDraftContentHash(normalizedDraft);
-        const hasContentChanges = draftContentHash !== lastDraftContentHashRef.current;
-        const nextCreatedAt = hasContentChanges
-            ? new Date()
-            : ensureDraftDate(lastDraftCard?.createdAt);
-
-        const normalizedDraftWithTimestamp: StoredCard = {
-            ...normalizedDraft,
-            createdAt: nextCreatedAt
-        };
-
-        const serializedCandidate = serializeDraftForCompare(normalizedDraftWithTimestamp);
-
-        if (serializedCandidate !== lastDraftSerializedRef.current) {
-            lastDraftSerializedRef.current = serializedCandidate;
-            lastDraftContentHashRef.current = draftContentHash;
-            dispatch(setLastDraftCard(normalizedDraftWithTimestamp));
-        }
-    }, [latestDraftSnapshot, dispatch, lastDraftCard]);
-
-    // Add more detailed logging to debug the issue
-    debugLog('Card state details:', {
-        isNewSubmission,
-        explicitlySaved,
-        isSaved,
-        currentCardId,
-        text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
-        localStorage_explicitly_saved: getTabScopedLS('explicitly_saved')
-    });
-
-    const popularLanguages = [
-        { code: 'ru', name: 'Русский' },
-        { code: 'en', name: 'English' },
-        { code: 'es', name: 'Español' },
-        { code: 'fr', name: 'Français' },
-        { code: 'de', name: 'Deutsch' },
-        { code: 'it', name: 'Italiano' },
-        { code: 'pt', name: 'Português' },
-        { code: 'ja', name: '日本語' },
-        { code: 'ko', name: '한국어' },
-        { code: 'zh', name: '中文' },
-        { code: 'ar', name: 'العربية' },
-    ];
-
     // Timer effect for CreateCard
     useEffect(() => {
         debugLog('🔄 Loading state changed:', {
@@ -953,11 +571,19 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         if (exactMatch) {
             debugLog('Found existing card with matching text:', exactMatch?.text || textToCheck, 'ID:', exactMatch.id);
-            debugLog('Setting currentCardId but NOT setting explicitlySaved');
+            debugLog('Evaluating currentCardId sync for existing card:', {
+                currentCardId,
+                matchedId: exactMatch.id
+            });
 
             // Only set the ID for reference, but DON'T mark as explicitly saved
             // This ensures "Saved to Collection" only appears after user explicitly saves
-            dispatch(setCurrentCardId(exactMatch.id));
+            if (currentCardId !== exactMatch.id) {
+                debugLog('Syncing currentCardId to existing card ID');
+                dispatch(setCurrentCardId(exactMatch.id));
+            } else {
+                debugLog('Skipping setCurrentCardId dispatch to prevent update loop');
+            }
 
             // IMPORTANT: We do NOT set explicitlySaved to true here, as that would cause
             // the "Saved to Collection" message to appear prematurely
@@ -965,7 +591,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
 
         return false;
-    }, [dispatch, storedCards]);
+    }, [dispatch, storedCards, currentCardId]);
 
     // Update the handle text change to check for existing cards
     const handleTextChange = (newText: string) => {
@@ -1244,33 +870,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     };
 
-    const handleSettingsClick = () => {
-        // Эта функция больше не нужна, но оставим ее пустой, чтобы не рефакторить весь код
-    };
-
     // Function to determine if image generation is available for the current provider
     const isImageGenerationAvailable = () => {
         return modelProvider !== ModelProvider.Groq;
-    };
-
-    const handleImageToggle = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const isChecked = e.target.checked;
-
-        // Don't allow toggling on if image generation is not available
-        if (isChecked && !isImageGenerationAvailable()) {
-            return;
-        }
-
-        dispatch(setShouldGenerateImage(isChecked));
-
-        // If toggling on, try to generate an image
-        if (isChecked && text) {
-            try {
-                await handleNewImage();
-            } catch (error) {
-                console.error("Failed to generate image on toggle:", error);
-            }
-        }
     };
 
     // Save All function for multiple cards
@@ -1344,7 +946,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                     if (existingCardIndex === -1) {
                         // Card is not saved yet
-                        dispatch(saveCardToStorage(card));
+                        tabAware.saveCardToStorage(card);
                         savedCards++;
 
                         // Add to our explicitly saved IDs list
@@ -1355,7 +957,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     } else {
                         debugLog(`Card #${i} (${card.id}) already in storage, updating`);
                         // Update existing card
-                        dispatch(updateStoredCard(card));
+                        tabAware.updateStoredCard(card);
                         updatedCards++;
 
                         // Add to our explicitly saved IDs list
@@ -1388,17 +990,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 setTabScopedLS('current_card_id', currentCard.id);
             }
 
-            // Show detailed success message
             if (errorCount === 0) {
-                const successMessage =
-                    savedCards > 0 && updatedCards > 0
-                        ? `Saved ${savedCards} new cards and updated ${updatedCards} existing cards.`
-                        : savedCards > 0
-                            ? `Saved ${savedCards} cards successfully!`
-                            : updatedCards > 0
-                                ? `Updated ${updatedCards} cards successfully!`
-                                : `All ${successCount} cards are now saved!`;
-
                 // Удалили навязчивое success уведомление
             } else {
                 showError(`Saved ${successCount} cards, ${errorCount} failed.`, 'warning');
@@ -1409,7 +1001,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setIsNewSubmission(false);
 
             // Force Redux to refresh stored cards
-            dispatch(loadStoredCards());
+            dispatch(loadStoredCards(tabId));
 
         } catch (error) {
             console.error('Error in save all cards operation:', error);
@@ -1495,7 +1087,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 });
 
                 // Force reload stored cards
-                dispatch(loadStoredCards());
+                dispatch(loadStoredCards(tabId));
 
                 // Set current card's ID for reference
                 tabAware.setCurrentCardId(cardToPersist.id);
@@ -1506,8 +1098,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 setTabScopedLS('explicitly_saved', 'true');
                 setIsEdited(false);
                 // showError('Card saved successfully!', 'success'); // Убрали уведомление
-
-                dispatch(setLastDraftCard(null));
 
                 return; // Exit early for multi-card save
             }
@@ -1588,8 +1178,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     tabAware.setCurrentCardId(cardId);
                 }
 
-                dispatch(setLastDraftCard(null));
-
             } else if (mode === Modes.GeneralTopic) {
                 // Для GeneralTopic будем использовать front вместо back
                 if (!front) {
@@ -1639,7 +1227,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     tabAware.setCurrentCardId(cardId);
                 }
 
-                dispatch(setLastDraftCard(null));
             }
 
             // Important: When the user explicitly saves the card, mark it as explicitly saved
@@ -1665,43 +1252,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     };
 
-    // Add a function to create a new card after saving
-    const handleCreateNew = () => {
-        // Always clear all data when creating a new card to prevent confusion
-        // This ensures a clean slate for each new card
-        setShowResult(false);
-        setIsEdited(false);
-        dispatch(setCurrentCardId(null));
-        setIsNewSubmission(true);
-
-        debugLog('Creating new card, clearing all state completely');
-
-        // Reset all saved state tracking
-        setExplicitlySaved(false);
-        setExplicitlySavedIds([]);
-        removeTabScopedLS('explicitly_saved');
-        removeTabScopedLS('current_card_id');
-
-        // Сбрасываем историю карточек
-        setCreatedCards([]);
-        setIsMultipleCards(false);
-        setCurrentCardIndex(0);
-
-        // Очищаем все поля через tabAware
-        tabAware.updateCard({
-            text: '',
-            translation: '',
-            examples: [],
-            image: null,
-            imageUrl: null,
-            front: '',
-            back: null,
-            linguisticInfo: '',
-            transcription: ''
-        });
-        setOriginalSelectedText('');
-    };
-
     const handleViewSavedCards = useCallback(() => {
         tabAware.setCurrentPage('storedCards');
     }, [tabAware]);
@@ -1715,61 +1265,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setShowMissingApiKeyNotice(false);
     }, []);
 
-    const loadLastDraftIntoState = useCallback((card: StoredCard) => {
-        const normalized = normalizeDraftCard(card);
-        const effectiveTranslation = normalized.mode === Modes.LanguageLearning
-            ? (normalized.translation ?? '')
-            : ((normalized.back ?? normalized.translation ?? ''));
-
-        tabAware.updateCard({
-            text: normalized.text,
-            translation: effectiveTranslation,
-            examples: normalized.examples ?? [],
-            image: normalized.image ?? null,
-            imageUrl: normalized.imageUrl ?? null,
-            front: normalized.front ?? normalized.text,
-            back: normalized.back ?? null,
-            linguisticInfo: normalized.linguisticInfo ?? '',
-            transcription: normalized.transcription ?? ''
-        });
-
-        if (normalized.id) {
-            tabAware.setCurrentCardId(normalized.id);
-        } else {
-            tabAware.setCurrentCardId(null);
-        }
-
-        setOriginalSelectedText(normalized.mode === Modes.LanguageLearning ? normalized.text : '');
-        tabAware.setIsGeneratingCard(false);
-        // Ensure saved flags are cleared before showing result to avoid flicker
-        setExplicitlySaved(false);
-        removeTabScopedLS('explicitly_saved');
-        setShowResult(true);
-        setIsEdited(false);
-        setIsNewSubmission(false);
-        setExplicitlySavedIds([]);
-        setIsMultipleCards(false);
-        setCreatedCards([]);
-        setCurrentCardIndex(0);
-    }, [tabAware]);
-
-    const handleOpenLatestCard = () => {
-        if (!latestCardPreview) {
-            return;
-        }
-
-        const hasTranslation = Boolean((latestCardPreview.translation ?? '').trim());
-        const hasExamples = Array.isArray(latestCardPreview.examples) && latestCardPreview.examples.length > 0;
-        if (!hasTranslation || !hasExamples) {
-            return;
-        }
-
-        loadLastDraftIntoState(latestCardPreview.raw);
-        setShowModal(true);
-    };
-
     // Используем useCallback для стабильной ссылки на функцию обработки выделения
     const handleTextSelection = useCallback((selectedText: string) => {
+        if (!selectedText || selectedText === text) {
+            return;
+        }
+
         debugLog('Text selection handled for tab-specific state:', selectedText);
         
         // Принудительно закрываем модальное окно перед анализом нового текста
@@ -1784,7 +1285,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         
         // Логируем для отладки
         debugLog('Text set via tabAware.setText:', selectedText);
-    }, [tabAware]);
+    }, [tabAware, text]);
 
     useEffect(() => {
         const handleMouseUp = (event: MouseEvent) => {
@@ -1837,9 +1338,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // Load stored cards from localStorage on initial load
         if (!storedCards.length) {
-            dispatch(loadStoredCards());
+            dispatch(loadStoredCards(tabId));
         }
-    }, [dispatch, mode, storedCards.length]);
+    }, [dispatch, mode, storedCards.length, tabId]);
 
     // Ensure cards load correctly on page refresh, and check saved status before showing UI
     const hasRestoredCardOnMountRef = useRef(false);
@@ -2149,11 +1650,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (result.transcription) {
                 try {
                     const languageName = await getLanguageName(translateToLanguage);
-                    const userLang = result.transcription.userLanguageTranscription || null;
-                    let ipa = result.transcription.ipaTranscription || null;
-                    if (ipa && !ipa.startsWith('[')) {
-                        ipa = `[${ipa}]`;
-                    }
+                    const userLang = normalizeTranscriptionValue(result.transcription.userLanguageTranscription);
+                    const ipa = normalizeTranscriptionValue(result.transcription.ipaTranscription, true);
                     const transcriptionHtml = [
                         userLang && `
                             <div class="transcription-item user-lang">
@@ -2656,36 +2154,39 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         
         setShowResult(false);
         setIsEdited(false);
-        dispatch(setCurrentCardId(null));
         setIsNewSubmission(true);
         setExplicitlySaved(false); // Reset explicit save
         removeTabScopedLS('explicitly_saved'); // Also remove from localStorage (tab-scoped)
         removeTabScopedLS('current_card_id'); // Clear current card ID too
 
-        // Reset card generation state to enable navigation buttons
-        tabAware.setIsGeneratingCard(false);
-        
         // Reset loading state
         setLoadingGetResult(false);
+        setCurrentLoadingMessage(null);
+        setCurrentProgress({ completed: 0, total: 0 });
 
         // Сбрасываем историю карточек
         setCreatedCards([]);
         setIsMultipleCards(false);
         setCurrentCardIndex(0);
 
-        // Reset all form fields completely
-        dispatch(setText(''));
-        dispatch(setTranslation(''));
-        dispatch(setExamples([]));
-        dispatch(setImage(null));
-        dispatch(setImageUrl(null));
-        dispatch(setFront(''));
-        dispatch(setBack(null));
-        dispatch(setLinguisticInfo('')); // Очищаем лингвистическое описание
-        dispatch(setTranscription('')); // Очищаем транскрипцию
+        // Reset all card fields in tab-aware state so nav lock clears immediately.
+        tabAware.updateCard({
+            isGeneratingCard: false,
+            currentCardId: null,
+            text: '',
+            translation: '',
+            examples: [],
+            image: null,
+            imageUrl: null,
+            front: '',
+            back: null,
+            linguisticInfo: '',
+            transcription: ''
+        });
+
         setOriginalSelectedText('');
 
-        dispatch(setLastDraftCard(null));
+        // Draft shortcut removed: keep flow focused on explicit save operations.
     };
 
     // Add a function to render the AI provider badge
@@ -2740,36 +2241,25 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
-        // If the card is not saved but has content, clear data without asking
-        // Только для режима одной карточки и только если есть содержимое
-        if (showResult && !isSaved && !isEdited && translation && !isMultipleCards) {
-            // Clear ALL data including images when closing without saving
-            debugLog('Closing without saving, clearing all card data');
-            dispatch(setText(''));
-            dispatch(setTranslation(''));
-            dispatch(setExamples([]));
-            dispatch(setImage(null));
-            dispatch(setImageUrl(null));
-            dispatch(setFront(''));
-            dispatch(setBack(null));
-            dispatch(setLinguisticInfo(''));
-            dispatch(setTranscription(''));
-            setShowResult(false);
-        } else if (!isSaved) {
-            // If not saved, clear ALL data including images when closing
-            debugLog('Card not saved, clearing all data');
-            dispatch(setText(''));
-            dispatch(setTranslation(''));
-            dispatch(setExamples([]));
-            dispatch(setImage(null));
-            dispatch(setImageUrl(null));
-            dispatch(setFront(''));
-            dispatch(setBack(null));
-            dispatch(setLinguisticInfo(''));
-            dispatch(setTranscription(''));
-            setShowResult(false);
-        }
+        // Close modal immediately for responsive UI.
         setShowModal(false);
+
+        // For unsaved single-card flow, clear editor state in one batched update.
+        if (!isSaved) {
+            setShowResult(false);
+            setOriginalSelectedText('');
+            tabAware.updateCard({
+                text: '',
+                translation: '',
+                examples: [],
+                image: null,
+                imageUrl: null,
+                front: '',
+                back: null,
+                linguisticInfo: '',
+                transcription: ''
+            });
+        }
     };
 
     // Render the modal
@@ -3360,17 +2850,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 // Получаем название языка пользователя через AI
                                 const languageName = await getLanguageName(translateToLanguage);
 
+                                const userLang = normalizeTranscriptionValue(transcriptionResult.userLanguageTranscription);
+                                const ipa = normalizeTranscriptionValue(transcriptionResult.ipaTranscription, true);
+
                                 // Создаем красивую HTML-разметку для транскрипции
                                 const transcriptionHtml = [
-                                    transcriptionResult.userLanguageTranscription &&
+                                    userLang &&
                                     `<div class="transcription-item user-lang">
                                             <span class="transcription-label">${languageName}:</span>
-                                            <span class="transcription-text">${transcriptionResult.userLanguageTranscription}</span>
+                                            <span class="transcription-text">${userLang}</span>
                                         </div>`,
-                                    transcriptionResult.ipaTranscription &&
+                                    ipa &&
                                     `<div class="transcription-item ipa">
                                             <span class="transcription-label">IPA:</span>
-                                            <span class="transcription-text">${transcriptionResult.ipaTranscription}</span>
+                                            <span class="transcription-text">${ipa}</span>
                                         </div>`
                                 ].filter(Boolean).join('\n');
 
@@ -3596,13 +3089,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         } finally {
             debugLog('🎯 Multiple cards creation finally block reached');
 
+            // Always unlock navigation immediately once the main generation flow ends.
+            // Background/fallback requests should not keep Cards/Settings disabled.
+            tabAware.setIsGeneratingCard(false);
+
             if (criticalApiErrorRef.current) {
                 debugLog('🚫 Critical API error detected - skipping delayed loader hide');
                 criticalApiErrorRef.current = false;
                 setLoadingGetResult(false);
                 setCurrentLoadingMessage(null);
                 setCurrentProgress({ completed: 0, total: 0 });
-                tabAware.setIsGeneratingCard(false);
                 setSelectedOptionsMap({});
                 abortControllerRef.current = null;
                 return;
@@ -3622,9 +3118,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     debugLog('✅ No pending operations in multiple cards - hiding loader');
                     setLoadingGetResult(false);
 
-                    // Reset card generation state to enable navigation buttons
-                    tabAware.setIsGeneratingCard(false);
-
                     // Очищаем карту выбранных опций
                     setSelectedOptionsMap({});
                 } else {
@@ -3636,7 +3129,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         if (finalCheckStats.inProgress === 0) {
                             debugLog('✅ Multiple cards operations completed - hiding loader');
                             setLoadingGetResult(false);
-                            tabAware.setIsGeneratingCard(false);
                             setSelectedOptionsMap({});
                         }
                     }, 3000);
@@ -5308,98 +4800,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     };
 
-    const renderLatestCardShortcut = () => {
-        if (!latestCardPreview || isSaved || draftMatchesExplicitlySavedCard) {
-            return null;
-        }
-
-        const hasTranslation = Boolean((latestCardPreview.translation ?? '').trim());
-        const hasExamples = Array.isArray(latestCardPreview.examples) && latestCardPreview.examples.length > 0;
-        if (!hasTranslation || !hasExamples) {
-            return null;
-        }
-
-        return (
-            <button
-                type="button"
-                onClick={handleOpenLatestCard}
-                style={{
-                    width: '100%',
-                    border: '1px solid #E5E7EB',
-                    borderRadius: '10px',
-                    padding: '16px',
-                    backgroundColor: '#FFFFFF',
-                    color: '#1F2937',
-                    cursor: 'pointer',
-                    position: 'relative',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '16px',
-                    transition: 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
-                    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
-                    marginTop: '12px'
-                }}
-                onMouseOver={(e) => {
-                    e.currentTarget.style.backgroundColor = '#F9FAFB';
-                    e.currentTarget.style.borderColor = '#D1D5DB';
-                    e.currentTarget.style.boxShadow = '0 8px 18px -12px rgba(30, 64, 175, 0.35)';
-                }}
-                onMouseOut={(e) => {
-                    e.currentTarget.style.backgroundColor = '#FFFFFF';
-                    e.currentTarget.style.borderColor = '#E5E7EB';
-                    e.currentTarget.style.boxShadow = '0 1px 2px rgba(15, 23, 42, 0.04)';
-                }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative', zIndex: 1 }}>
-                    <div style={{
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '50%',
-                        backgroundColor: '#EEF2FF',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#4338CA',
-                        fontSize: '13px'
-                    }}>
-                        <FaClock size={14} />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
-                        <span style={{ fontWeight: 600, fontSize: '13px', color: '#111827' }}>Latest draft card</span>
-                        <span style={{ fontSize: '11px', color: '#6B7280' }}>Saved on {latestCardPreview.timeLabel}</span>
-                    </div>
-                </div>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    flex: 1,
-                    justifyContent: 'flex-end'
-                }}>
-                    <span
-                        style={{
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            fontSize: '12px',
-                            fontWeight: 500,
-                            color: '#1F2937',
-                            textAlign: 'right',
-                            maxWidth: '60%'
-                        }}
-                    >
-                        {latestCardPreview.previewSnippet}
-                    </span>
-                    <FaChevronRight size={14} style={{ color: '#9CA3AF' }} />
-                </div>
-            </button>
-        );
-    };
-
     // Компонент выбора изучаемого языка
     const renderSourceLanguageSelector = () => {
         // Если модальное окно не открыто, показываем кнопку выбора
@@ -5971,12 +5371,12 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
     // Handle image mode changes
     const handleImageModeChange = (mode: 'off' | 'smart' | 'always') => {
-        dispatch(setImageGenerationMode(mode));
+        setImageGenerationModeState(mode);
         
         // Автоматически включаем shouldGenerateImage для Smart и Always режимов
         if (mode === 'smart' || mode === 'always') {
             debugLog(`🔧 Automatically enabling shouldGenerateImage for ${mode} mode`);
-            dispatch(setShouldGenerateImage(true));
+            setShouldGenerateImageState(true);
             
             // Дополнительная проверка - убеждаемся, что состояние действительно изменилось
             setTimeout(() => {
@@ -5985,7 +5385,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         } else if (mode === 'off') {
             // При выключении режима также выключаем общий переключатель
             debugLog('🔧 Disabling shouldGenerateImage for off mode');
-            dispatch(setShouldGenerateImage(false));
+            setShouldGenerateImageState(false);
         }
         
         // If switching to 'always' mode and we have text, try to generate an image
@@ -6112,34 +5512,6 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         notifyMissingApiKey,
         handlePotentialApiKeyIssue
     ]);
-
-    // Function to handle template selection
-    const handleTemplateSelect = useCallback((template: GeneralCardTemplate) => {
-        setSelectedTemplate(template);
-        if (text.trim()) {
-            generateGeneralCard(template, text);
-        }
-        setShowTemplateModal(false);
-    }, [text, generateGeneralCard]);
-
-    // Function to handle custom prompt submission
-    const handleCustomPromptSubmit = useCallback(async () => {
-        if (!customPrompt.trim() || !text.trim()) {
-            showError('Please enter both text and a custom prompt', 'error');
-            return;
-        }
-
-        const customTemplate: GeneralCardTemplate = {
-            id: 'custom',
-            name: 'Custom',
-            description: 'Custom prompt',
-            icon: '⚡',
-            prompt: customPrompt
-        };
-
-        await generateGeneralCard(customTemplate, text, customPrompt);
-        setCustomPrompt('');
-    }, [customPrompt, text, generateGeneralCard, showError]);
 
     // Function to handle AI agent card creation
     const handleCreateAICards = useCallback(async () => {
@@ -6342,7 +5714,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     image: normalized.image,
                     imageUrl: normalized.imageUrl
                 };
-                dispatch(saveCardToStorage(cardToSave));
+                tabAware.saveCardToStorage(cardToSave);
             }
             
             // Закрываем предварительный просмотр
@@ -6399,7 +5771,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 image: normalized.image,
                 imageUrl: normalized.imageUrl
             };
-            dispatch(saveCardToStorage(cardToSave));
+            tabAware.saveCardToStorage(cardToSave);
             
             // Mark this card as saved
             setSavedCardIndices(prev => new Set(prev).add(currentPreviewIndex));
@@ -7244,7 +6616,6 @@ Original text: ${text}`;
                         </div>
                     )}
 
-                    {renderLatestCardShortcut()}
                 </div>
             </div>
 

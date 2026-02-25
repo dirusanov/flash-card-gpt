@@ -1,6 +1,5 @@
 import { imageUrlToBase64 } from "./services/ankiService";
 import { getOpenAiImageUrl } from "./services/openaiApi";
-import { arrayBufferToBase64 } from "./utils";
 
 const isDev = process.env.NODE_ENV !== 'production';
 const debugLog = (...args: unknown[]) => {

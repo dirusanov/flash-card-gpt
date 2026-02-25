@@ -1,4 +1,3 @@
-import { Dispatch } from 'redux';
 import { StoredCard, ExportStatus } from '../reducers/cards';
 import { Modes } from '../../constants';
 
