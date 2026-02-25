@@ -228,7 +228,17 @@ export const getExamples = async (
 
   const processedCustomPrompt = customPrompt.replace(/\{word\}/g, word);
   
-  const basePrompt = `Give me three example sentences using the word '${word}' in the original language (the language of this word). 
+  const basePrompt = translate
+    ? `Create exactly 3 natural example sentences using the word '${word}' in its original language.
+Then translate each sentence to ${translateToLanguage}.
+Return exactly 3 lines in this strict format:
+[original sentence] || [translated sentence]
+Rules:
+- No numbering
+- No bullets
+- No extra text
+- Keep each line as one source sentence and one translated sentence separated by "||"`
+    : `Give me three example sentences using the word '${word}' in the original language (the language of this word). 
 Each example should show natural usage of '${word}' in its native language context.
 Return ONLY the examples, one per line, without any numbering, explanations, or translations.`;
   
@@ -279,31 +289,58 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
 
     const data = await response.json();
     const resultText = data.choices[0]?.message?.content;
-    const examples = resultText?.trim().split('\n') ?? [];
+    const examples: string[] = resultText?.trim().split('\n') ?? [];
+    let resultExamples: Array<[string, string | null]> = [];
 
-    const resultExamples: Array<[string, string | null]> = [];
+    if (translate) {
+      const parsedBilingualExamples = examples
+        .map((line: string) => line.trim())
+        .filter(Boolean)
+        .map((line: string) => {
+          const normalizedLine = line.replace(/^\d+\s*[\.)-]\s*/, '').trim();
+          const separatorIndex = normalizedLine.indexOf('||');
+          if (separatorIndex === -1) {
+            return null;
+          }
+          const original = normalizedLine.slice(0, separatorIndex).trim().replace(/^["']|["']$/g, '');
+          const translated = normalizedLine.slice(separatorIndex + 2).trim().replace(/^["']|["']$/g, '');
+          if (!original || !translated) {
+            return null;
+          }
+          return [original, translated] as [string, string];
+        })
+        .filter((item): item is [string, string] => item !== null)
+        .slice(0, 3);
 
-    for (const example of examples) {
-      if (!example.trim()) continue; // Skip empty lines
-      
-      let translatedExample: string | null = null;
-
-      if (translate) {
-        try {
-          translatedExample = await translateText(
-            apiKey,
-            example,
-            translateToLanguage
-          );
-        } catch (translationError) {
-          console.error('Error translating example:', translationError);
-          // Если перевод не удался, оставляем null
-        } finally {
-          // Ensure we don't break the parsing
-        }
+      if (parsedBilingualExamples.length > 0) {
+        resultExamples = parsedBilingualExamples;
       }
+    }
 
-      resultExamples.push([example, translatedExample]);
+    if (resultExamples.length === 0) {
+      const cleanedExamples = examples.filter((example: string) => !!example.trim());
+      resultExamples = await Promise.all(
+        cleanedExamples.map(async (example: string): Promise<[string, string | null]> => {
+          let translatedExample: string | null = null;
+
+          if (translate) {
+            try {
+              translatedExample = await translateText(
+                apiKey,
+                example,
+                translateToLanguage
+              );
+            } catch (translationError) {
+              console.error('Error translating example:', translationError);
+              // Если перевод не удался, оставляем null
+            } finally {
+              // Ensure we don't break the parsing
+            }
+          }
+
+          return [example, translatedExample];
+        })
+      );
     }
 
     if (resultExamples.length === 0) {

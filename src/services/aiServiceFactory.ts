@@ -518,15 +518,28 @@ export const createCardComponentsParallel = async (
   console.log('🚀 Starting parallel card component creation...');
   
   const errors: Array<{component: string; error: string}> = [];
+  const componentTimings: Array<{ component: string; durationMs: number; status: 'ok' | 'error' }> = [];
+  const timed = <T>(component: string, task: Promise<T>) =>
+    (async () => {
+      const componentStart = Date.now();
+      try {
+        const result = await task;
+        componentTimings.push({ component, durationMs: Date.now() - componentStart, status: 'ok' });
+        return result;
+      } catch (error) {
+        componentTimings.push({ component, durationMs: Date.now() - componentStart, status: 'error' });
+        throw error;
+      }
+    })();
   
   // Создаем массив промисов для параллельного выполнения
   const promises = [];
   
   // 1. Перевод (всегда выполняется) - с быстрым retry
   promises.push(
-    retryWithBackoff(() =>
+    timed('translation', retryWithBackoff(() =>
       createTranslation(service, apiKey, text, translateToLanguage, customPrompt, sourceLanguage, abortSignal)
-    )
+    ))
       .then(result => ({ type: 'translation', result }))
       .catch(error => {
         const message = error instanceof Error ? error.message : String(error);
@@ -539,7 +552,7 @@ export const createCardComponentsParallel = async (
   
   // 2. Примеры (параллельно с переводом)
   promises.push(
-    createExamples(service, apiKey, text, translateToLanguage, true, customPrompt, sourceLanguage, abortSignal)
+    timed('examples', createExamples(service, apiKey, text, translateToLanguage, true, customPrompt, sourceLanguage, abortSignal))
       .then(result => ({ type: 'examples', result }))
       .catch(error => {
         const message = error instanceof Error ? error.message : String(error);
@@ -552,7 +565,7 @@ export const createCardComponentsParallel = async (
   
   // 3. Flashcard (параллельно)
   promises.push(
-    createFlashcard(service, apiKey, text, abortSignal)
+    timed('flashcard', createFlashcard(service, apiKey, text, abortSignal))
       .then(result => ({ type: 'flashcard', result }))
       .catch(error => {
         const message = error instanceof Error ? error.message : String(error);
@@ -566,7 +579,7 @@ export const createCardComponentsParallel = async (
   // 4. Транскрипция (параллельно, если известен язык источника)
   if (sourceLanguage) {
     promises.push(
-      service.createTranscription(apiKey, text, sourceLanguage, translateToLanguage)
+      timed('transcription', service.createTranscription(apiKey, text, sourceLanguage, translateToLanguage))
         .then(result => ({ type: 'transcription', result }))
         .catch(error => {
           const message = error instanceof Error ? error.message : String(error);
@@ -581,7 +594,7 @@ export const createCardComponentsParallel = async (
   // 4. Лингвистическая информация (параллельно, быстрая версия)
   if (sourceLanguage) {
     promises.push(
-      createFastLinguisticInfo(service, apiKey, text, sourceLanguage, translateToLanguage)
+      timed('linguisticInfo', createFastLinguisticInfo(service, apiKey, text, sourceLanguage, translateToLanguage))
         .then(result => ({ type: 'linguisticInfo', result: result.linguisticInfo }))
         .catch(error => {
           const message = error instanceof Error ? error.message : String(error);
@@ -673,7 +686,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     };
 
     promises.push(
-      imagePromise()
+      timed('imageUrl', imagePromise())
         .then(result => ({ type: 'imageUrl', result }))
         .catch(error => {
           const message = error instanceof Error ? error.message : String(error);
@@ -714,6 +727,10 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
   const duration = Date.now() - startTime;
   console.log(`⚡ Parallel card creation completed in ${duration}ms`);
   console.log(`📊 Success: ${Object.keys(finalResult).length - 1}/${promises.length}, Errors: ${errors.length}`);
+  if (componentTimings.length > 0) {
+    const sortedTimings = [...componentTimings].sort((a, b) => b.durationMs - a.durationMs);
+    console.log('⏱️ Component timings (slowest first):', sortedTimings);
+  }
   
   return finalResult;
 };

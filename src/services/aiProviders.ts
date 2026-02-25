@@ -326,7 +326,22 @@ Keep the description under 50 words and make sure it is purely descriptive witho
 
     try {
       tracker.setInProgress(requestId);
-      const basePrompt = this.getPrompts().examples(word, sourceLanguage);
+      const basePrompt = translate
+        ? (() => {
+            const sourceInstruction = sourceLanguage
+              ? `in language code "${sourceLanguage}"`
+              : 'in the original language of the word';
+            return `Create exactly 3 natural example sentences using "${word}" ${sourceInstruction}.
+Then translate each sentence to ${translateToLanguage}.
+Return exactly 3 lines in this strict format:
+[original sentence] || [translated sentence]
+Rules:
+- No numbering
+- No bullets
+- No extra text
+- Keep each line as one source sentence and one translated sentence separated by "||"`;
+          })()
+        : this.getPrompts().examples(word, sourceLanguage);
       const finalPrompt = customPrompt 
         ? `${basePrompt} ${customPrompt.replace(/\{word\}/g, word)}` 
         : basePrompt;
@@ -341,6 +356,39 @@ Keep the description under 50 words and make sure it is purely descriptive witho
       
       // Очистка текста
       const cleanedText = this.extractPlainText(response) || '';
+
+      if (translate) {
+        const bilingualLines = cleanedText
+          .split(/\n+/)
+          .map(line => line.trim())
+          .filter(Boolean)
+          .slice(0, 6);
+
+        const parsedBilingualExamples = bilingualLines
+          .map(line => {
+            const normalizedLine = line.replace(/^\d+\s*[\.)-]\s*/, '').trim();
+            const separatorIndex = normalizedLine.indexOf('||');
+            if (separatorIndex === -1) {
+              return null;
+            }
+
+            const original = normalizedLine.slice(0, separatorIndex).trim().replace(/^["']|["']$/g, '');
+            const translated = normalizedLine.slice(separatorIndex + 2).trim().replace(/^["']|["']$/g, '');
+
+            if (!original || !translated) {
+              return null;
+            }
+
+            return [original, translated] as [string, string];
+          })
+          .filter((item): item is [string, string] => item !== null)
+          .slice(0, 3);
+
+        if (parsedBilingualExamples.length > 0) {
+          tracker.completeRequest(requestId);
+          return parsedBilingualExamples;
+        }
+      }
       
       // Удаляем любые заголовки перед первым примером
       const contentWithoutHeaders = cleanedText
@@ -386,28 +434,27 @@ Keep the description under 50 words and make sure it is purely descriptive witho
       
       console.log('Processed examples:', examples);
       
-      // Формируем результат
-      const resultExamples: Array<[string, string | null]> = [];
-      
-      for (const example of examples) {
-        if (!example.trim()) continue;
-        
-        let translatedExample: string | null = null;
-        
-        if (translate) {
-          try {
-            const hint = sourceLanguage ? ` Source text language (ISO 639-1): ${sourceLanguage}. Translate strictly from ${sourceLanguage} to ${translateToLanguage}.` : '';
-            translatedExample = await this.translateText(example, translateToLanguage, hint, abortSignal);
-          } catch (translationError) {
-            console.error('Error translating example:', translationError);
+      const cleanedExamples = examples
+        .filter(example => !!example.trim())
+        .slice(0, 3);
+
+      // Формируем результат. Переводы примеров выполняем параллельно.
+      const resultExamples = await Promise.all(
+        cleanedExamples.map(async (example): Promise<[string, string | null]> => {
+          let translatedExample: string | null = null;
+
+          if (translate) {
+            try {
+              const hint = sourceLanguage ? ` Source text language (ISO 639-1): ${sourceLanguage}. Translate strictly from ${sourceLanguage} to ${translateToLanguage}.` : '';
+              translatedExample = await this.translateText(example, translateToLanguage, hint, abortSignal);
+            } catch (translationError) {
+              console.error('Error translating example:', translationError);
+            }
           }
-        }
-        
-        resultExamples.push([example, translatedExample]);
-        
-        // Ограничиваем до 3 примеров
-        if (resultExamples.length >= 3) break;
-      }
+
+          return [example, translatedExample];
+        })
+      );
       
       if (resultExamples.length === 0) {
         console.warn("No examples were generated, but continuing with card creation");
