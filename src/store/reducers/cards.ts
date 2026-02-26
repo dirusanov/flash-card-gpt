@@ -17,6 +17,7 @@ import {
     SET_LINGUISTIC_INFO,
     SET_TRANSCRIPTION,
     SET_WORD_AUDIO,
+    SET_EXAMPLES_AUDIO,
     SET_IS_GENERATING_CARD,
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
@@ -46,6 +47,7 @@ export interface StoredCard {
     linguisticInfo?: string;
     transcription?: string;
     wordAudio?: string | null;
+    examplesAudio?: Array<string | null>;
 }
 
 const initialState: CardState = {
@@ -64,6 +66,7 @@ const initialState: CardState = {
         linguisticInfo: "",
         transcription: "",
         wordAudio: null,
+        examplesAudio: [],
         isGeneratingCard: false
     },
 };
@@ -83,6 +86,7 @@ export interface CardState {
     linguisticInfo: string;
     transcription: string;
     wordAudio: string | null;
+    examplesAudio: Array<string | null>;
     isGeneratingCard: boolean;
 }
 
@@ -131,7 +135,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 exportStatus: action.payload.exportStatus || 'not_exported',
                 linguisticInfo: action.payload.linguisticInfo || "",
                 transcription: action.payload.transcription || "",
-                wordAudio: action.payload.wordAudio ?? null
+                wordAudio: action.payload.wordAudio ?? null,
+                examplesAudio: Array.isArray(action.payload.examplesAudio) ? action.payload.examplesAudio : []
             };
             const newCard: StoredCard = {
                 ...newCardData,
@@ -206,7 +211,10 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                             exportStatus: action.payload.exportStatus || card.exportStatus,
                             linguisticInfo: action.payload.linguisticInfo || card.linguisticInfo,
                             transcription: action.payload.transcription || card.transcription,
-                            wordAudio: action.payload.wordAudio ?? card.wordAudio ?? null
+                            wordAudio: action.payload.wordAudio ?? card.wordAudio ?? null,
+                            examplesAudio: Array.isArray(action.payload.examplesAudio)
+                                ? action.payload.examplesAudio
+                                : (Array.isArray(card.examplesAudio) ? card.examplesAudio : [])
                         }
                         : card
                 );
@@ -218,7 +226,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                     exportStatus: action.payload.exportStatus || 'not_exported',
                     linguisticInfo: action.payload.linguisticInfo || "",
                     transcription: action.payload.transcription || "",
-                    wordAudio: action.payload.wordAudio ?? null
+                    wordAudio: action.payload.wordAudio ?? null,
+                    examplesAudio: Array.isArray(action.payload.examplesAudio) ? action.payload.examplesAudio : []
                 };
                 newState.storedCards = [...state.storedCards, newCardToAdd];
                 debugLog('UPDATE_STORED_CARD: Added new card with ID:', action.payload.id, 'image:', !!newCardToAdd.image);
@@ -231,7 +240,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             const normalizedCards = (action.payload || []).map((card: StoredCard) => ({
                 ...card,
                 createdAt: ensureDate(card.createdAt),
-                wordAudio: card.wordAudio ?? null
+                wordAudio: card.wordAudio ?? null,
+                examplesAudio: Array.isArray(card.examplesAudio) ? card.examplesAudio : []
             }));
             newState.storedCards = normalizedCards;
             break;
@@ -247,6 +257,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 newState.image = null;
                 newState.imageUrl = null;
                 newState.wordAudio = null;
+                newState.examplesAudio = [];
             }
             // Otherwise, preserve images for text changes (editing existing cards)
             break;
@@ -255,6 +266,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             break;
         case SET_EXAMPLES:
             newState.examples = action.payload;
+            newState.examplesAudio = (action.payload || []).map((_item: unknown, index: number) => newState.examplesAudio[index] ?? null);
             break;
         case SET_IMAGE:
             debugLog('*** REDUCER: SET_IMAGE called with:', {
@@ -285,6 +297,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             return { ...state, transcription: action.payload };
         case SET_WORD_AUDIO:
             return { ...state, wordAudio: action.payload ?? null };
+        case SET_EXAMPLES_AUDIO:
+            return { ...state, examplesAudio: Array.isArray(action.payload) ? action.payload : [] };
         case SET_IS_GENERATING_CARD:
             return { ...state, isGeneratingCard: action.payload };
         default:

@@ -694,10 +694,10 @@ const getImageUrlRequest = async (
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: 'dall-e-3',
+            model: 'dall-e-2',
             prompt: currentPrompt,
             n: 1,
-            size: '1024x1024',
+            size: '512x512',
             response_format: 'url',
           }),
         },

@@ -5,7 +5,7 @@ import { useTabAware } from './TabAwareProvider';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
-import { setBack, setExamples, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio } from "../store/actions/cards";
+import { setBack, setExamples, setExamplesAudio, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio } from "../store/actions/cards";
 import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { setMode, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
 import { Modes } from "../constants";
@@ -160,7 +160,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
 
-    const { text, translation, examples, image, imageUrl, wordAudio, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
+    const { text, translation, examples, examplesAudio, image, imageUrl, wordAudio, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
 
     // Tab-scoped localStorage helpers to avoid cross-tab leaks
     const getTabScopedLS = useCallback((key: string): string | null => {
@@ -203,6 +203,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setBack(null));
         dispatch(setTranslation(null));
         dispatch(setExamples([]));
+        dispatch(setExamplesAudio([]));
         dispatch(setImage(null));
         dispatch(setImageUrl(null));
         dispatch(setLinguisticInfo(''));
@@ -658,7 +659,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Handler for examples update
     const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
+        const nextExamplesAudio = normalizeExamplesAudioFor(newExamples, examples, examplesAudio || []);
         tabAware.setExamples(newExamples);
+        tabAware.setExamplesAudio(nextExamplesAudio);
         if (isSaved) {
             setIsEdited(true);
         }
@@ -728,10 +731,71 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         );
     }, [openAiKey]);
 
-    const handleGenerateWordAudio = async () => {
+    const shouldAutoGenerateExamplesAudioForMode = useCallback((
+        mode: 'off' | 'smart' | 'always',
+        studiedWord: string
+    ): boolean => {
+        if (mode === 'off') return false;
+        if (mode === 'always') return true;
+        const normalized = (studiedWord || '').trim();
+        if (!normalized) return false;
+        if (/[\n\r]/.test(normalized)) return false;
+        if (/[{}<>_=^`~\\]/.test(normalized)) return false;
+        if (/\d{3,}/.test(normalized)) return false;
+        const words = normalized.split(/\s+/).filter(Boolean);
+        if (words.length === 0 || words.length > 5) return false;
+        return true;
+    }, []);
+
+    const generateExamplesAudioBatch = useCallback(async (
+        examplesToVoice: Array<[string, string | null]>,
+        baseAudio: Array<string | null>,
+        abortSignal?: AbortSignal
+    ): Promise<Array<string | null>> => {
+        const nextAudio = Array.from({ length: examplesToVoice.length }, (_v, i) => baseAudio[i] ?? null);
+        const missingIndexes = examplesToVoice
+            .map((_example, index) => index)
+            .filter((index) => !nextAudio[index] && examplesToVoice[index]?.[0]?.trim());
+
+        if (!missingIndexes.length) {
+            return nextAudio;
+        }
+
+        const generationResults = await Promise.allSettled(
+            missingIndexes.map(async (index) => ({
+                index,
+                audioDataUrl: await generateWordAudioData(examplesToVoice[index][0], abortSignal),
+            }))
+        );
+
+        generationResults.forEach((result) => {
+            if (result.status === 'fulfilled' && result.value.audioDataUrl) {
+                nextAudio[result.value.index] = result.value.audioDataUrl;
+            }
+        });
+
+        return nextAudio;
+    }, [generateWordAudioData]);
+
+    const normalizeExamplesAudioFor = useCallback((
+        nextExamples: Array<[string, string | null]>,
+        prevExamples: Array<[string, string | null]>,
+        prevAudio: Array<string | null>
+    ): Array<string | null> => {
+        return nextExamples.map((examplePair, index) => {
+            const previousPair = prevExamples[index];
+            if (!previousPair) return null;
+            if (previousPair[0] !== examplePair[0]) return null;
+            return prevAudio[index] ?? null;
+        });
+    }, []);
+
+    const handleGenerateAudio = async () => {
         const studiedWord = (originalSelectedText || text || front || '').trim();
-        if (!studiedWord) {
-            showError('No word to generate audio for', 'warning');
+        const hasWordToGenerate = !!studiedWord && !wordAudio;
+        const hasExamplesToGenerate = examples.some((example, index) => !examplesAudio?.[index] && example?.[0]?.trim());
+
+        if (!hasWordToGenerate && !hasExamplesToGenerate) {
             return;
         }
 
@@ -742,20 +806,29 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         try {
             setLoadingWordAudio(true);
-            const audioDataUrl = await generateWordAudioData(studiedWord, abortControllerRef.current?.signal);
 
-            if (!audioDataUrl) {
-                showError('Failed to generate pronunciation audio', 'error');
-                return;
+            if (hasWordToGenerate) {
+                const audioDataUrl = await generateWordAudioData(studiedWord, abortControllerRef.current?.signal);
+                if (audioDataUrl) {
+                    tabAware.setWordAudio(audioDataUrl);
+                }
             }
 
-            tabAware.setWordAudio(audioDataUrl);
+            if (hasExamplesToGenerate) {
+                const nextExamplesAudio = await generateExamplesAudioBatch(
+                    examples,
+                    Array.from({ length: examples.length }, (_v, i) => examplesAudio?.[i] ?? null),
+                    abortControllerRef.current?.signal
+                );
+                tabAware.setExamplesAudio(nextExamplesAudio);
+            }
+
             if (isSaved) {
                 setIsEdited(true);
             }
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to generate pronunciation audio';
-            console.error('Error generating word audio:', error);
+            const message = error instanceof Error ? error.message : 'Failed to generate audio';
+            console.error('Error generating audio:', error);
             showError(message, 'error');
             handlePotentialApiKeyIssue(message);
         } finally {
@@ -792,6 +865,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     [example.original, example.translated] as [string, string | null]
                 );
                 tabAware.setExamples(formattedExamples);
+                tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
             }
         } catch (error) {
             // Check if this is a quota error and show appropriate message
@@ -860,6 +934,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const newExamples = newExamplesResult.map(ex => [ex.original, ex.translated] as [string, string | null]);
                 debugLog('📚 Examples generation completed');
                 tabAware.setExamples(newExamples);
+                tabAware.setExamplesAudio(new Array(newExamples.length).fill(null));
             } else if (customInstruction.toLowerCase().includes('translat') ||
                 customInstruction.toLowerCase().includes('перевод')) {
 
@@ -915,9 +990,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     tabAware.setTranslation(result.translation.translated);
                 }
 
+                let formattedExamples: Array<[string, string | null]> = [];
                 if (result.examples) {
-                    const formattedExamples = result.examples.map(ex => [ex.original, ex.translated] as [string, string | null]);
+                    formattedExamples = result.examples.map(ex => [ex.original, ex.translated] as [string, string | null]);
                     tabAware.setExamples(formattedExamples);
+                    tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
                 }
 
                 if (result.imageUrl) {
@@ -928,6 +1005,23 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 if (result.wordAudio) {
                     tabAware.setWordAudio(result.wordAudio);
+                }
+
+                if (formattedExamples.length > 0) {
+                    const effectiveAudioMode = needsAudio ? 'always' : audioGenerationMode;
+                    const studiedWordForAudio = (result.flashcard?.front || text || '').trim();
+                    if (openAiKey && shouldAutoGenerateExamplesAudioForMode(effectiveAudioMode, studiedWordForAudio)) {
+                        try {
+                            const examplesAudioData = await generateExamplesAudioBatch(
+                                formattedExamples,
+                                new Array(formattedExamples.length).fill(null),
+                                abortControllerRef.current?.signal
+                            );
+                            tabAware.setExamplesAudio(examplesAudioData);
+                        } catch (examplesAudioError) {
+                            console.warn('Examples audio generation skipped due to error:', examplesAudioError);
+                        }
+                    }
                 }
 
                 if (result.linguisticInfo) {
@@ -1036,7 +1130,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     back: back || null,
                     linguisticInfo: linguisticInfo || '',
                     transcription: transcription || '',
-                    wordAudio: wordAudio || null
+                    wordAudio: wordAudio || null,
+                    examplesAudio: examplesAudio || []
                 };
             }
 
@@ -1271,6 +1366,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     linguisticInfo, // Добавляем лингвистическое описание
                     transcription: transcription || '',
                     wordAudio: wordAudio || null,
+                    examplesAudio: examplesAudio || [],
                     // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
                     image: normalizedImage, // base64 данные (постоянные, приоритет)
                     imageUrl: normalizedImageUrl, // URL как резерв
@@ -1336,6 +1432,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     linguisticInfo, // Добавляем лингвистическое описание
                     transcription: transcription || '',
                     wordAudio: wordAudio || null,
+                    examplesAudio: examplesAudio || [],
                     // Сохраняем оба типа изображений для надежности
                     image: normalizedImage,
                     imageUrl: normalizedImageUrl,
@@ -1504,6 +1601,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             tabAware.setText(savedCard.text);
             if (savedCard.translation) tabAware.setTranslation(savedCard.translation);
             if (savedCard.examples) tabAware.setExamples(savedCard.examples);
+            tabAware.setExamplesAudio(savedCard.examplesAudio ?? []);
             if (savedCard.image) tabAware.setImage(savedCard.image);
             if (savedCard.imageUrl) tabAware.setImageUrl(savedCard.imageUrl);
             if (savedCard.front) tabAware.setFront(savedCard.front);
@@ -1519,6 +1617,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             removeTabScopedLS('explicitly_saved');
             tabAware.setCurrentCardId(null);
             tabAware.setWordAudio(null);
+            tabAware.setExamplesAudio([]);
             setIsNewSubmission(true);
             setExplicitlySaved(false);
         }
@@ -1725,7 +1824,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 sourceLanguageForSubmit || undefined,
                 shouldGenerateImage,
                 abortSignal,
-                imageGenerationMode
+                imageGenerationMode,
+                audioGenerationMode !== 'off',
+                audioGenerationMode,
+                openAiKey,
+                generateWordAudioData
             );
 
             const duration = Date.now() - startTime;
@@ -1754,11 +1857,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 completedOperations.translation = true;
             }
 
+            let formattedExamples: Array<[string, string | null]> = [];
             if (result.examples && result.examples.length > 0) {
-                const formattedExamples = result.examples.map(example =>
+                formattedExamples = result.examples.map(example =>
                     [example.original, example.translated] as [string, string | null]
                 );
                 tabAware.setExamples(formattedExamples);
+                tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
                 completedOperations.examples = true;
             }
 
@@ -1869,6 +1974,19 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             }
                         } catch (audioError) {
                             console.warn('Audio generation skipped due to error:', audioError);
+                        }
+                    }
+
+                    if (formattedExamples.length > 0 && shouldGenerateAudioNow) {
+                        try {
+                            const examplesAudioData = await generateExamplesAudioBatch(
+                                formattedExamples,
+                                new Array(formattedExamples.length).fill(null),
+                                abortSignal
+                            );
+                            tabAware.setExamplesAudio(examplesAudioData);
+                        } catch (examplesAudioError) {
+                            console.warn('Examples audio generation skipped due to error:', examplesAudioError);
                         }
                     }
                 }
@@ -2336,7 +2454,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             back: null,
             linguisticInfo: '',
             transcription: '',
-            wordAudio: null
+            wordAudio: null,
+            examplesAudio: []
         });
 
         setOriginalSelectedText('');
@@ -2413,7 +2532,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 back: null,
                 linguisticInfo: '',
                 transcription: '',
-                wordAudio: null
+                wordAudio: null,
+                examplesAudio: []
             });
         }
     };
@@ -2777,6 +2897,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         front={front}
                         translation={translation}
                         examples={examples}
+                        examplesAudio={examplesAudio}
                         imageUrl={imageUrl}
                         image={image}
                         linguisticInfo={linguisticInfo}
@@ -2784,7 +2905,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         wordAudio={wordAudio}
                         onNewImage={handleNewImage}
                         onNewExamples={handleNewExamples}
-                        onGenerateAudio={handleGenerateWordAudio}
+                        onGenerateAudio={handleGenerateAudio}
                         onAccept={handleAccept}
                         onViewSavedCards={handleViewSavedCards}
                         onCancel={handleCancel}
@@ -2929,12 +3050,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         // Create card object
                         const cardId = `general_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${newCards.length}`;
 
+                        const cardExamples = (result.examples || []).map(example => [example.original, example.translated]) as [string, string | null][];
+                        let cardExamplesAudio = new Array(cardExamples.length).fill(null) as Array<string | null>;
+                        const studiedWordForAudio = (result.flashcard?.front || option || '').trim();
+                        if (openAiKey && shouldAutoGenerateExamplesAudioForMode(audioGenerationMode, studiedWordForAudio) && cardExamples.length > 0) {
+                            cardExamplesAudio = await generateExamplesAudioBatch(cardExamples, cardExamplesAudio, abortSignal);
+                        }
+
                         const cardData: StoredCard = {
                             id: cardId,
                             mode,
                             text: option,
                             translation: result.translation?.translated || '',
-                            examples: (result.examples || []).map(example => [example.original, example.translated]) as [string, string | null][],
+                            examples: cardExamples,
+                            examplesAudio: cardExamplesAudio,
                             linguisticInfo: result.linguisticInfo || "",
                             transcription: transcriptionHtml,
                             wordAudio: result.wordAudio || null,
@@ -3005,6 +3134,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                     // Examples всегда должен быть массивом
                     dispatch(setExamples(Array.isArray(currentCard.examples) ? currentCard.examples : []));
+                    dispatch(setExamplesAudio(Array.isArray(currentCard.examplesAudio) ? currentCard.examplesAudio : []));
 
                     // Image может быть null, но не undefined
                     dispatch(setImage(currentCard.image === undefined ? null : currentCard.image));
@@ -3190,7 +3320,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             back: back || null,
             linguisticInfo: linguisticInfo || '',
             transcription: transcription || '',
-            wordAudio: wordAudio || null
+            wordAudio: wordAudio || null,
+            examplesAudio: examplesAudio || []
         };
 
         // Обновляем массив карточек, заменяя текущую карточку на обновленную
@@ -3224,6 +3355,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setLinguisticInfo(''));
         dispatch(setTranscription(''));
         dispatch(setWordAudio(null));
+        dispatch(setExamplesAudio([]));
 
         // Затем загружаем данные из карточки
 
@@ -3237,6 +3369,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         // Examples всегда должен быть массивом
         dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
+        dispatch(setExamplesAudio(Array.isArray(card.examplesAudio) ? card.examplesAudio : []));
 
         // Image может быть null, но не undefined
         dispatch(setImage(card.image === undefined ? null : card.image));
@@ -5434,13 +5567,13 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         if (!studiedWord || !openAiKey) return;
 
         if (mode === 'always') {
-            handleGenerateWordAudio();
+            handleGenerateAudio();
             return;
         }
 
         const smart = shouldGenerateAudioForText(studiedWord);
         if (smart.shouldGenerate) {
-            handleGenerateWordAudio();
+            handleGenerateAudio();
         }
     };
 

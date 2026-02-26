@@ -5,14 +5,18 @@ function format_example(
     example: string,
     word: string,
     translation: string | null = null,
-    font_size: string = "0.8em"
+    font_size: string = "0.8em",
+    audioTag: string = ''
 ): string {
     const formatted_example = example.replace(word, `<b>${word}</b>`);
+    const audioPrefix = audioTag
+        ? `<div style="margin:0 0 4px 0; color:#1E40AF;">${audioTag}</div>`
+        : '';
     if (translation) {
         const translated_sentence = translation.split(" ").slice(1).join(" ");
-        return `${formatted_example}<br><span style='font-size: ${font_size};'><i>${translated_sentence}</i></span>`;
+        return `${audioPrefix}${formatted_example}<br><span style='font-size: ${font_size};'><i>${translated_sentence}</i></span>`;
     } else {
-        return formatted_example;
+        return `${audioPrefix}${formatted_example}`;
     }
 }
 
@@ -24,7 +28,9 @@ export interface CardLangLearning {
     linguisticInfo?: string;
     transcription?: string; // HTML with user-language + IPA
     word_audio_base64?: string | null; // base64 audio or data URL
+    examples_audio_base64?: Array<string | null>;
     ankiAudioTag?: string;
+    exampleAudioTags?: Array<string | null>;
 }
 
 export interface CardGeneral {
@@ -139,7 +145,7 @@ const storeMediaFile = async (
 
 function format_back_lang_learning(card: CardLangLearning): string {
     const formatted_examples = card.examples
-        .map((ex) => format_example(ex[0], card.text, ex[1]))
+        .map((ex, index) => format_example(ex[0], card.text, ex[1], "0.8em", card.exampleAudioTags?.[index] || ''))
         .join('<br><br>');
 
     let imageHtml = '';
@@ -216,9 +222,12 @@ function format_back_lang_learning(card: CardLangLearning): string {
     const transcriptionHtml = renderTranscriptionForAnki(card);
 
     const audioTag = card.ankiAudioTag || '';
+    const wordAudioBlock = audioTag
+        ? `<div style="margin-bottom:8px; text-align:center; padding:6px 10px; border:1px solid #BFDBFE; border-radius:999px; background:#EFF6FF; display:inline-block; color:#1E40AF; font-size:12px;">${audioTag}</div>`
+        : '';
 
     return `
-        ${audioTag ? `<div style="margin-bottom:8px; text-align:center;">${audioTag}</div>` : ''}
+        ${wordAudioBlock ? `<div style="text-align:center;">${wordAudioBlock}</div>` : ''}
         ${transcriptionHtml}
         <div style="margin-top: 10px;"><b>${card.translation}</b></div>
         <br>${formatted_examples}<br><br>
@@ -348,7 +357,23 @@ export const createAnkiCards = async (
                     await storeMediaFile(ankiConnectUrl, ankiConnectApiKey, filename, rawAudioBase64);
                     audioTag = `[sound:${filename}]`;
                 }
-                const cardForRender: CardLangLearning = { ...langCard, ankiAudioTag: audioTag };
+                const exampleAudioTags: Array<string | null> = [];
+                const examplesAudio = Array.isArray(langCard.examples_audio_base64) ? langCard.examples_audio_base64 : [];
+                for (let exampleIndex = 0; exampleIndex < examplesAudio.length; exampleIndex += 1) {
+                    const rawExampleAudio = extractRawBase64(examplesAudio[exampleIndex]);
+                    if (!rawExampleAudio) {
+                        exampleAudioTags.push(null);
+                        continue;
+                    }
+                    const filename = `${sanitizeForFilename(langCard.text)}_ex_${exampleIndex}_${Date.now()}_${index}.mp3`;
+                    await storeMediaFile(ankiConnectUrl, ankiConnectApiKey, filename, rawExampleAudio);
+                    exampleAudioTags.push(`[sound:${filename}]`);
+                }
+                const cardForRender: CardLangLearning = {
+                    ...langCard,
+                    ankiAudioTag: audioTag,
+                    exampleAudioTags
+                };
                 fields = {
                     Front: cardForRender.text,
                     Back: format_back_lang_learning(cardForRender),

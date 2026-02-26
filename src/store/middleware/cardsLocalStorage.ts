@@ -417,7 +417,8 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                         exportStatus: card.exportStatus,
                         linguisticInfo: card.linguisticInfo,
                         transcription: card.transcription,
-                        wordAudio: card.wordAudio
+                        wordAudio: card.wordAudio,
+                        examplesAudio: card.examplesAudio
                     }));
                     
                     console.warn(`Attempting to save cards with compressed images instead of removing them.`);

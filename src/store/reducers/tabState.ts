@@ -22,6 +22,7 @@ import {
     SET_LINGUISTIC_INFO,
     SET_TRANSCRIPTION,
     SET_WORD_AUDIO,
+    SET_EXAMPLES_AUDIO,
     SET_IS_GENERATING_CARD,
     SET_CURRENT_CARD_ID as SET_GLOBAL_CURRENT_CARD_ID,
     SAVE_CARD_TO_STORAGE as GLOBAL_SAVE_CARD_TO_STORAGE,
@@ -37,6 +38,7 @@ export interface TabCardData {
     image: string | null;
     imageUrl: string | null;
     wordAudio: string | null;
+    examplesAudio: Array<string | null>;
     front: string;
     back: string | null;
     linguisticInfo: string;
@@ -65,6 +67,7 @@ const createDefaultTabCardData = (): TabCardData => ({
     image: null,
     imageUrl: null,
     wordAudio: null,
+    examplesAudio: [],
     front: "",
     back: null,
     linguisticInfo: "",
@@ -101,6 +104,7 @@ const normalizeStoredCard = (card: StoredCard): StoredCard => ({
     image: card.image ?? null,
     imageUrl: card.imageUrl ?? null,
     wordAudio: card.wordAudio ?? null,
+    examplesAudio: Array.isArray(card.examplesAudio) ? card.examplesAudio : [],
     translation: card.translation ?? null,
     front: card.front ?? card.text,
     back: card.back ?? null,
@@ -311,6 +315,7 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
         case SET_EXAMPLES: {
             const tId = newState.currentTabId;
             if (tId && newState.tabStates[tId]) {
+                const previousExamplesAudio = newState.tabStates[tId].cardData.examplesAudio || [];
                 newState.tabStates = {
                     ...newState.tabStates,
                     [tId]: {
@@ -318,6 +323,7 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                         cardData: {
                             ...newState.tabStates[tId].cardData,
                             examples: action.payload,
+                            examplesAudio: (action.payload || []).map((_item: unknown, index: number) => previousExamplesAudio[index] ?? null),
                         },
                     },
                 };
@@ -430,6 +436,22 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                         cardData: {
                             ...newState.tabStates[tId].cardData,
                             wordAudio: action.payload ?? null,
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_EXAMPLES_AUDIO: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            examplesAudio: Array.isArray(action.payload) ? action.payload : [],
                         },
                     },
                 };

@@ -42,6 +42,7 @@ export const saveTabCard = (
         image?: string | null;
         imageUrl?: string | null;
         wordAudio?: string | null;
+        examplesAudio?: Array<string | null>;
         createdAt?: Date;
         linguisticInfo?: string;
         transcription?: string;
@@ -114,6 +115,9 @@ export const setTabImageUrl = (tabId: number, imageUrl: string | null) =>
 
 export const setTabWordAudio = (tabId: number, wordAudio: string | null) =>
     setTabCardField(tabId, 'wordAudio', wordAudio);
+
+export const setTabExamplesAudio = (tabId: number, examplesAudio: Array<string | null>) =>
+    setTabCardField(tabId, 'examplesAudio', examplesAudio);
 
 export const setTabFront = (tabId: number, front: string) => 
     setTabCardField(tabId, 'front', front);

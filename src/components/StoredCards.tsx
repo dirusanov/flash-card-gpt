@@ -13,7 +13,7 @@ import { CardLangLearning, CardGeneral, fetchDecks } from '../services/ankiServi
 import useErrorNotification from './useErrorHandler';
 import { setDeckId } from '../store/actions/decks';
 import Loader from './Loader';
-import { getDescriptionImage } from "../services/openaiApi";
+import { getDescriptionImage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { backgroundFetch } from "../services/backgroundFetch";
 import ResultDisplay from './ResultDisplay';
 
@@ -60,6 +60,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const [localEditingCardData, setLocalEditingCardData] = useState<StoredCard | null>(null);
 
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
+    const [loadingAudio, setLoadingAudio] = useState(false);
     const [loadingAccept, setLoadingAccept] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -307,7 +308,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         image_base64: processedImageBase64,
                         linguisticInfo: card.linguisticInfo,
                         transcription: card.transcription || '',
-                        word_audio_base64: card.wordAudio || null
+                        word_audio_base64: card.wordAudio || null,
+                        examples_audio_base64: Array.isArray(card.examplesAudio) ? card.examplesAudio : []
                     };
 
                     debugLog(`Adding language learning card to Anki export:`, {
@@ -1112,6 +1114,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         setCustomInstruction('');
         setIsProcessingCustomInstruction(false);
         setLoadingNewExamples(false);
+        setLoadingAudio(false);
         setLoadingAccept(false);
 
         debugLog('Modal state set for editing card:', card.id);
@@ -1126,6 +1129,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         setCustomInstruction('');
         setIsProcessingCustomInstruction(false);
         setLoadingNewExamples(false);
+        setLoadingAudio(false);
         setLoadingAccept(false);
         debugLog('Edit canceled, modal should be hidden now.');
     };
@@ -1150,7 +1154,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 imageUrl: localEditingCardData.imageUrl || editingCard.imageUrl || null, // URL как резерв
                 linguisticInfo: localEditingCardData.linguisticInfo || editingCard.linguisticInfo || '',
                 transcription: localEditingCardData.transcription || editingCard.transcription || '',
-                wordAudio: localEditingCardData.wordAudio || editingCard.wordAudio || null
+                wordAudio: localEditingCardData.wordAudio || editingCard.wordAudio || null,
+                examplesAudio: Array.isArray(localEditingCardData.examplesAudio)
+                    ? localEditingCardData.examplesAudio
+                    : (Array.isArray(editingCard.examplesAudio) ? editingCard.examplesAudio : [])
             };
 
             // Validate form data
@@ -1227,10 +1234,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         'Authorization': `Bearer ${openAiKey}`
                     },
                     body: JSON.stringify({
-                        model: 'dall-e-3',
+                        model: 'dall-e-2',
                         prompt: finalPrompt,
                         n: 1,
-                        size: '1024x1024',
+                        size: '512x512',
                         response_format: 'url'
                     })
                 }
@@ -1345,10 +1352,74 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
         // Обновляем локальное состояние вместо глобального Redux
         if (localEditingCardData) {
+            const prevExamples = Array.isArray(localEditingCardData.examples) ? localEditingCardData.examples : [];
+            const prevExamplesAudio = Array.isArray(localEditingCardData.examplesAudio) ? localEditingCardData.examplesAudio : [];
+            const nextExamplesAudio = newExamples.map((examplePair, index) => {
+                const prevPair = prevExamples[index];
+                if (!prevPair || prevPair[0] !== examplePair[0]) {
+                    return null;
+                }
+                return prevExamplesAudio[index] ?? null;
+            });
             setLocalEditingCardData({
                 ...localEditingCardData,
-                examples: newExamples
+                examples: newExamples,
+                examplesAudio: nextExamplesAudio
             });
+        }
+    };
+
+    const handleGenerateAudioInModal = async () => {
+        if (!localEditingCardData) return;
+        if (!openAiKey) {
+            showError('OpenAI API key is required to generate audio');
+            return;
+        }
+
+        const examples = Array.isArray(localEditingCardData.examples) ? localEditingCardData.examples : [];
+        const currentAudio = Array.isArray(localEditingCardData.examplesAudio) ? localEditingCardData.examplesAudio : [];
+        const studiedWord = (localEditingCardData.text || localEditingCardData.front || '').trim();
+        const hasWordToGenerate = !!studiedWord && !localEditingCardData.wordAudio;
+        const missingIndexes = examples
+            .map((_example, index) => index)
+            .filter((index) => !currentAudio[index] && examples[index]?.[0]?.trim());
+        const hasExamplesToGenerate = missingIndexes.length > 0;
+
+        if (!hasWordToGenerate && !hasExamplesToGenerate) {
+            return;
+        }
+
+        try {
+            setLoadingAudio(true);
+            if (hasWordToGenerate) {
+                const wordAudioDataUrl = await getOpenAiSpeechAudioDataUrl(openAiKey, studiedWord);
+                if (wordAudioDataUrl) {
+                    setLocalEditingCardData((prev) => prev ? ({ ...prev, wordAudio: wordAudioDataUrl }) : prev);
+                }
+            }
+
+            const nextAudio = Array.from({ length: examples.length }, (_v, i) => currentAudio[i] ?? null);
+            if (hasExamplesToGenerate) {
+                const generationResults = await Promise.allSettled(
+                    missingIndexes.map(async (index) => ({
+                        index,
+                        audioDataUrl: await getOpenAiSpeechAudioDataUrl(openAiKey, examples[index][0]),
+                    }))
+                );
+
+                generationResults.forEach((result) => {
+                    if (result.status === 'fulfilled' && result.value.audioDataUrl) {
+                        nextAudio[result.value.index] = result.value.audioDataUrl;
+                    }
+                });
+
+                setLocalEditingCardData((prev) => prev ? ({ ...prev, examplesAudio: [...nextAudio] }) : prev);
+            }
+        } catch (error: any) {
+            console.error('Error generating audio in modal:', error);
+            showError(error?.message || 'Failed to generate audio');
+        } finally {
+            setLoadingAudio(false);
         }
     };
 
@@ -1389,7 +1460,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             return null;
         }
 
-        const { text, translation, examples, front, back, image, imageUrl, linguisticInfo, transcription, wordAudio } = localEditingCardData;
+        const { text, translation, examples, examplesAudio, front, back, image, imageUrl, linguisticInfo, transcription, wordAudio } = localEditingCardData;
         // Ensure studied word is visible in modal: for LanguageLearning use text as front fallback
         const displayFront = editingCard.mode === Modes.LanguageLearning
             ? (text || front || '')
@@ -1581,6 +1652,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         back={back || null}
                         translation={translation || null}
                         examples={examples || []}
+                        examplesAudio={examplesAudio || []}
                         imageUrl={imageUrl || null}
                         image={image || null}
                         linguisticInfo={linguisticInfo || undefined}
@@ -1588,11 +1660,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         wordAudio={wordAudio || null}
                         onNewImage={handleNewImageInModal}
                         onNewExamples={handleNewExamplesInModal}
+                        onGenerateAudio={handleGenerateAudioInModal}
                         onAccept={handleSaveEditFromModal}
                         onViewSavedCards={() => {}}
                         onCancel={handleCancelEdit}
                         loadingNewImage={false}
                         loadingNewExamples={loadingNewExamples}
+                        loadingAudio={loadingAudio}
                         loadingAccept={loadingAccept}
                         shouldGenerateImage={true}
                         isSaved={true} // Show edit mode since we're editing

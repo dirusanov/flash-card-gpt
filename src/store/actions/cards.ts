@@ -21,6 +21,7 @@ export const SET_CURRENT_CARD_ID = 'SET_CURRENT_CARD_ID';
 export const SET_LINGUISTIC_INFO = 'SET_LINGUISTIC_INFO';
 export const SET_TRANSCRIPTION = 'SET_TRANSCRIPTION';
 export const SET_WORD_AUDIO = 'SET_WORD_AUDIO';
+export const SET_EXAMPLES_AUDIO = 'SET_EXAMPLES_AUDIO';
 
 // Add new actions for card generation state
 export const SET_IS_GENERATING_CARD = 'SET_IS_GENERATING_CARD';
@@ -53,6 +54,7 @@ export const saveCardToStorage = (
         image?: string | null;
         imageUrl?: string | null;
         wordAudio?: string | null;
+        examplesAudio?: Array<string | null>;
         createdAt: Date;
     }
 ) => {
@@ -181,6 +183,13 @@ export const setWordAudio = (wordAudio: string | null) => {
     return {
         type: SET_WORD_AUDIO,
         payload: wordAudio,
+    };
+};
+
+export const setExamplesAudio = (examplesAudio: Array<string | null>) => {
+    return {
+        type: SET_EXAMPLES_AUDIO,
+        payload: examplesAudio,
     };
 };
 

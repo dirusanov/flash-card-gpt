@@ -15,6 +15,7 @@ interface ResultDisplayProps {
     back?: string | null; // Add back field for General mode
     translation: string | null;
     examples: Array<[string, string | null]>;
+    examplesAudio?: Array<string | null>;
     imageUrl: string | null;
     image: string | null;
     linguisticInfo?: string;
@@ -87,6 +88,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             back,
             translation,
             examples,
+            examplesAudio = [],
             imageUrl,
             image,
             linguisticInfo,
@@ -124,6 +126,8 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
     const [isEditMode, setIsEditMode] = useState(false);
     const [expandedExamples, setExpandedExamples] = useState(true);
     const [expandedLinguistics, setExpandedLinguistics] = useState(true);
+    const hasMissingExamplesAudio = examples.some((_example, index) => !examplesAudio[index]);
+    const hasMissingAnyAudio = !wordAudio || hasMissingExamplesAudio;
 
     // Loading messages states
     const [currentImageLoadingMessage, setCurrentImageLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
@@ -226,6 +230,17 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             await audio.play();
         } catch (error) {
             console.warn('Failed to play word audio:', error);
+        }
+    };
+
+    const handlePlayExampleAudio = async (index: number) => {
+        const audioUrl = examplesAudio[index];
+        if (!audioUrl) return;
+        try {
+            const audio = new Audio(audioUrl);
+            await audio.play();
+        } catch (error) {
+            console.warn('Failed to play example audio:', error);
         }
     };
 
@@ -631,25 +646,27 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         <button
                             onClick={handlePlayAudio}
                             style={{
-                                border: '1px solid #BFDBFE',
-                                backgroundColor: '#EFF6FF',
-                                color: '#1D4ED8',
-                                borderRadius: '8px',
-                                padding: '6px 10px',
+                                border: '1px solid #93C5FD',
+                                background: 'linear-gradient(180deg, #F0F9FF 0%, #DBEAFE 100%)',
+                                color: '#1E40AF',
+                                borderRadius: '999px',
+                                padding: '0',
+                                width: '34px',
+                                height: '34px',
                                 fontSize: '12px',
                                 fontWeight: 600,
                                 cursor: 'pointer',
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: '6px'
+                                justifyContent: 'center',
+                                boxShadow: '0 1px 2px rgba(30, 64, 175, 0.15)'
                             }}
                             title="Play pronunciation audio"
                         >
-                            <FaVolumeUp size={12} />
-                            Play audio
+                            <FaVolumeUp size={14} />
                         </button>
                     )}
-                    {onGenerateAudio && !wordAudio && (
+                    {onGenerateAudio && hasMissingAnyAudio && (
                         <button
                             onClick={onGenerateAudio}
                             disabled={loadingAudio}
@@ -663,7 +680,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                 fontWeight: 600,
                                 cursor: loadingAudio ? 'not-allowed' : 'pointer'
                             }}
-                            title="Generate pronunciation audio"
+                            title="Generate missing audio for word and examples"
                         >
                             {loadingAudio ? 'Generating audio...' : 'Generate audio'}
                         </button>
@@ -1100,6 +1117,38 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                         </>
                                     ) : (
                                         <>
+                                            {!isEditMode && (
+                                                <div style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'flex-end',
+                                                    gap: '6px',
+                                                    marginBottom: '6px'
+                                                }}>
+                                                    {examplesAudio[index] && (
+                                                        <button
+                                                            onClick={() => handlePlayExampleAudio(index)}
+                                                            style={{
+                                                                border: '1px solid #BFDBFE',
+                                                                background: 'linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)',
+                                                                color: '#1E40AF',
+                                                                borderRadius: '999px',
+                                                                padding: '0',
+                                                                width: '28px',
+                                                                height: '28px',
+                                                                fontSize: '11px',
+                                                                fontWeight: 600,
+                                                                cursor: 'pointer',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center'
+                                                            }}
+                                                            title="Play example audio"
+                                                        >
+                                                            <FaVolumeUp size={10} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
                                             <div style={{ 
                                                 fontWeight: '500',
                                                 color: '#111827',
