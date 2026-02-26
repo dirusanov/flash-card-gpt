@@ -3,8 +3,6 @@ import { FaCheck, FaList, FaPen, FaTrash, FaPlus, FaTimes, FaEdit, FaSave, FaSyn
 import { FaLanguage, FaGraduationCap, FaBookOpen, FaQuoteRight, FaTags } from 'react-icons/fa';
 import { Modes } from "../constants";
 import Loader from './Loader';
-import '../styles/grammarStyles.css';
-import '../styles/transcriptionStyles.css';
 import { processLatexInContent } from '../utils/katexRenderer';
 import MathContentRenderer from './MathContentRenderer';
 import GrammarCard from './grammar/GrammarCard';
@@ -54,9 +52,9 @@ const renderMarkdownContent = (content: string): string => {
         // Улучшенная логика для alt текста
         const displayAlt = alt && alt !== 'Изображение' && alt !== 'Image' ? alt : '';
         
-        return `<div style="text-align: center; margin: 4px 0;">
-            <img src="${src}" alt="${displayAlt}" style="max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: block; margin: 0 auto;" />
-            ${displayAlt ? `<div style="font-size: 11px; color: #6B7280; margin-top: 2px; font-style: italic;">${displayAlt}</div>` : ''}
+        return `<div class="my-1 text-center">
+            <img src="${src}" alt="${displayAlt}" class="mx-auto block h-auto max-w-full rounded shadow-sm" />
+            ${displayAlt ? `<div class="mt-0.5 text-[11px] italic text-gray-500">${displayAlt}</div>` : ''}
         </div>`;
     });
     
@@ -65,16 +63,16 @@ const renderMarkdownContent = (content: string): string => {
     
     // Конвертируем блоки кода
     html = html.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, language, code) => {
-        return `<div style="margin: 12px 0;">
-            <div style="background: #2D2D2D; color: #F8F8F2; padding: 12px; border-radius: 6px; font-family: monospace; overflow-x: auto; white-space: pre; font-size: 13px;">
-                ${language ? `<div style="color: #6B7280; margin-bottom: 8px; font-size: 11px;">${language}</div>` : ''}
+        return `<div class="my-3">
+            <div class="overflow-x-auto whitespace-pre rounded-md bg-zinc-800 p-3 font-mono text-[13px] text-zinc-100">
+                ${language ? `<div class="mb-2 text-[11px] text-zinc-400">${language}</div>` : ''}
                 ${code}
             </div>
         </div>`;
     });
     
     // Конвертируем инлайн код
-    html = html.replace(/`([^`]+)`/g, '<code style="background: #F3F4F6; padding: 2px 4px; border-radius: 3px; font-family: monospace; font-size: 13px;">$1</code>');
+    html = html.replace(/`([^`]+)`/g, '<code class="rounded bg-gray-100 px-1 py-0.5 font-mono text-[13px]">$1</code>');
     
     // Конвертируем переносы строк
     html = html.replace(/\n/g, '<br />');
@@ -313,31 +311,13 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                 <button
                     onClick={disableEditMode}
                     disabled={loadingAccept}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        backgroundColor: '#3B82F6',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        padding: '10px 12px',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        cursor: 'pointer',
-                        marginBottom: '12px',
-                        width: '100%',
-                        opacity: loadingAccept ? 0.7 : 1
-                    }}
-                    onMouseOver={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#2563EB')}
-                    onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#3B82F6')}
+                    className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md bg-blue-500 px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                     <FaSave size={14} />
                     {loadingAccept ?
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+    <div className="flex items-center justify-center gap-1.5">
         <Loader type="spinner" size="small" inline color="#ffffff" />
-        <span style={{ fontSize: '12px', fontWeight: '500' }}>
+        <span className="text-xs font-medium">
             {currentAcceptLoadingMessage?.currentStepTitle || currentAcceptLoadingMessage?.title || 'Saving'}
         </span>
     </div> : (isSaved ? 'Save & Finish Editing' : 'Finish Editing')}
@@ -350,30 +330,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             return (
                 <button
                     onClick={enableEditMode}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        backgroundColor: '#F3F4F6',
-                        color: '#4B5563',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '6px',
-                        padding: '10px 12px',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        cursor: 'pointer',
-                        marginBottom: '12px',
-                        width: '100%'
-                    }}
-                    onMouseOver={(e) => {
-                        e.currentTarget.style.backgroundColor = '#E5E7EB';
-                        e.currentTarget.style.color = '#1F2937';
-                    }}
-                    onMouseOut={(e) => {
-                        e.currentTarget.style.backgroundColor = '#F3F4F6';
-                        e.currentTarget.style.color = '#4B5563';
-                    }}
+                    className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-gray-200 bg-gray-100 px-3 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-200 hover:text-gray-800"
                 >
                     <FaEdit size={14} />
                     Edit Card
@@ -389,26 +346,12 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
         if (!isEditMode) return null;
         
         return (
-            <div style={{
-                marginBottom: '16px',
-                backgroundColor: '#EFF6FF',
-                borderRadius: '6px',
-                padding: '10px',
-                border: '1px solid #DBEAFE',
-                fontSize: '13px',
-                color: '#1E40AF'
-            }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    marginBottom: '6px',
-                    fontWeight: '600'
-                }}>
+            <div className="mb-4 rounded-md border border-blue-100 bg-blue-50 p-2.5 text-[13px] text-blue-800">
+                <div className="mb-1.5 flex items-center gap-2 font-semibold">
                     <FaEdit size={12} />
                     Editing Mode
                 </div>
-                <p style={{ margin: 0, fontSize: '12px' }}>
+                <p className="m-0 text-xs">
                     Click on text elements to edit them. When finished, click "{isSaved ? 'Save & Finish Editing' : 'Finish Editing'}" at the top of the card.
                 </p>
             </div>
@@ -470,53 +413,12 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
     };
 
     return (
-        <div style={{
-            padding: '16px',
-            borderRadius: '8px',
-            width: '100%',
-            maxWidth: '100%',
-            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-            overflowX: 'hidden',
-            backgroundColor: isEditMode ? '#FAFAFA' : '#ffffff',
-            boxSizing: 'border-box',
-            borderLeft: isEditMode 
-                ? '3px solid #3B82F6' 
-                : '3px solid transparent'
-        }}>
+        <div className={`w-full max-w-full overflow-x-hidden rounded-lg border-l-4 p-4 shadow ${isEditMode ? 'border-l-blue-500 bg-zinc-50' : 'border-l-transparent bg-white'}`}>
             {/* Status indicator with creation time - improved and more intuitive */}
-            <div style={{ 
-                fontSize: '10px', 
-                color: '#9CA3AF', 
-                marginBottom: '12px', 
-                textAlign: 'right',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-end',
-                gap: '4px',
-                padding: '6px 8px',
-                backgroundColor: isEditMode ? '#EFF6FF' : (isSaved ? '#ECFDF5' : '#F9FAFB'),
-                borderRadius: '4px',
-                border: isEditMode ? '1px solid #DBEAFE' : (isSaved ? '1px solid #D1FAE5' : '1px solid #F3F4F6')
-            }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                }}>
-                    <span style={{
-                        display: 'inline-block',
-                        width: '8px',
-                        height: '8px',
-                        borderRadius: '50%',
-                        backgroundColor: isEditMode ? '#3B82F6' : (isSaved 
-                            ? '#10B981'
-                            : '#6B7280')
-                    }}></span>
-                    <strong style={{
-                        color: isEditMode ? '#1E40AF' : (isSaved 
-                            ? '#059669'
-                            : '#4B5563')
-                    }}>{isEditMode 
+            <div className={`mb-3 flex flex-col items-end gap-1 rounded border px-2 py-1.5 text-right text-[10px] ${isEditMode ? 'border-blue-100 bg-blue-50 text-blue-800' : isSaved ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-gray-100 bg-gray-50 text-gray-500'}`}>
+                <div className="flex items-center gap-1">
+                    <span className={`inline-block h-2 w-2 rounded-full ${isEditMode ? 'bg-blue-500' : isSaved ? 'bg-emerald-500' : 'bg-gray-500'}`}></span>
+                    <strong className={`${isEditMode ? 'text-blue-900' : isSaved ? 'text-emerald-600' : 'text-gray-600'}`}>{isEditMode 
                         ? 'Editing' 
                         : (isSaved 
                             ? 'Saved to Collection'
@@ -524,14 +426,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     </strong>
                 </div>
                 {/* Creation time */}
-                <div style={{
-                    fontSize: '9px',
-                    color: '#9CA3AF',
-                    fontStyle: 'italic',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '3px'
-                }}>
+                <div className="flex items-center gap-1 text-[9px] italic text-gray-400">
                     <span>📅</span>
                     {(createdAt || new Date()).toLocaleString('ru-RU', {
                         day: '2-digit',
@@ -550,22 +445,14 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             {renderEditingHint()}
 
             {front && (
-                <div style={{ marginBottom: '12px' }}>
+                <div className="mb-3">
                     {/* Для GeneralTopic или если похоже на формулы — используем MathContentRenderer */}
                     {(mode === Modes.GeneralTopic || /\\(frac|sqrt|sum|int|prod|log|ln|sin|cos|tan|cot|arctan|arcsin|arccos|sinh|cosh|tanh)\b|\$|\\\[|\\\(|\)|\[|\]/.test(front)) ? (
-                        <div style={{
-                            textAlign: 'left',
-                            padding: '10px',
-                            backgroundColor: '#F3F4F6',
-                            borderRadius: '8px'
-                        }}>
+                        <div className="rounded-lg bg-gray-100 p-2.5 text-left">
                             <MathContentRenderer
                                 content={front}
                                 enableAI={true}
-                                style={{
-                                    fontSize: '16px',
-                                    color: '#111827'
-                                }}
+                                className="text-base text-gray-900"
                             />
                         </div>
                     ) : front.includes("/") ? (
@@ -575,59 +462,25 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             const wordPart = parts[0]?.trim() || ''
                             const pronunciation = parts.length > 1 ? `/${parts.slice(1).join('/').replace(/\/$/, '')}` : ''
                             return (
-                                <div style={{
-                                    textAlign: 'center',
-                                    padding: '12px',
-                                    backgroundColor: '#F3F4F6',
-                                    borderRadius: '8px'
-                                }}>
-                                    <h3 style={{
-                                        fontSize: '20px',
-                                        fontWeight: '700',
-                                        margin: '0 0 6px 0',
-                                        color: '#111827'
-                                    }}>{wordPart}</h3>
+                                <div className="rounded-lg bg-gray-100 p-3 text-center">
+                                    <h3 className="m-0 mb-1.5 text-xl font-bold text-gray-900">{wordPart}</h3>
                                     {pronunciation && (
-                                        <div style={{
-                                            fontSize: '14px',
-                                            color: '#6B7280',
-                                            fontStyle: 'italic'
-                                        }}>{pronunciation}</div>
+                                        <div className="text-sm italic text-gray-500">{pronunciation}</div>
                                     )}
                                 </div>
                             )
                         })()
                     ) : (
-                        <h3 style={{
-                            fontSize: '18px',
-                            fontWeight: '600',
-                            textAlign: 'center',
-                            margin: '2px 0',
-                            color: '#111827',
-                            padding: '10px',
-                            backgroundColor: '#F3F4F6',
-                            borderRadius: '8px'
-                        }}>{front}</h3>
+                        <h3 className="my-0.5 rounded-lg bg-gray-100 p-2.5 text-center text-lg font-semibold text-gray-900">{front}</h3>
                     )}
                 </div>
             )}
             
             {/* Транскрипция - отображается между словом и переводом */}
             {transcription && (
-                <div style={{
-                    marginBottom: '12px',
-                    textAlign: 'center',
-                    padding: '8px 12px',
-                    backgroundColor: '#F8FAFC',
-                    border: '1px solid #E2E8F0',
-                    borderRadius: '6px'
-                }}>
+                <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-center">
                     <div 
-                        style={{
-                            fontSize: '14px',
-                            lineHeight: '1.6',
-                            color: '#475569'
-                        }}
+                        className="text-sm leading-relaxed text-slate-600"
                         dangerouslySetInnerHTML={{
                             __html: transcription
                         }}
@@ -636,31 +489,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             )}
 
             {(mode === Modes.LanguageLearning && (wordAudio || onGenerateAudio)) && (
-                <div style={{
-                    marginBottom: '12px',
-                    display: 'flex',
-                    justifyContent: 'center',
-                    gap: '8px'
-                }}>
+                <div className="mb-3 flex justify-center gap-2">
                     {wordAudio && (
                         <button
                             onClick={handlePlayAudio}
-                            style={{
-                                border: '1px solid #93C5FD',
-                                background: 'linear-gradient(180deg, #F0F9FF 0%, #DBEAFE 100%)',
-                                color: '#1E40AF',
-                                borderRadius: '999px',
-                                padding: '0',
-                                width: '34px',
-                                height: '34px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                boxShadow: '0 1px 2px rgba(30, 64, 175, 0.15)'
-                            }}
+                            className="inline-flex h-8.5 w-8.5 items-center justify-center rounded-full border border-blue-300 bg-gradient-to-b from-sky-50 to-blue-100 text-blue-900 shadow-sm"
                             title="Play pronunciation audio"
                         >
                             <FaVolumeUp size={14} />
@@ -670,16 +503,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         <button
                             onClick={onGenerateAudio}
                             disabled={loadingAudio}
-                            style={{
-                                border: '1px solid #D1D5DB',
-                                backgroundColor: loadingAudio ? '#F3F4F6' : '#FFFFFF',
-                                color: '#374151',
-                                borderRadius: '8px',
-                                padding: '6px 10px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                cursor: loadingAudio ? 'not-allowed' : 'pointer'
-                            }}
+                            className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:bg-gray-100"
                             title="Generate missing audio for word and examples"
                         >
                             {loadingAudio ? 'Generating audio...' : 'Generate audio'}
@@ -691,35 +515,17 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             {/* Display translation for Language Learning mode or back for General mode */}
             {(mode === Modes.LanguageLearning ? translation : back) && (
                 <>
-                    <hr style={{
-                        margin: '10px 0',
-                        border: 'none',
-                        borderTop: '1px solid #E5E7EB'
-                    }} />
+                    <hr className="my-2.5 border-0 border-t border-gray-200" />
                     
                     {/* Editing mode for translation (Language Learning) or back (General) */}
                     {(mode === Modes.LanguageLearning ? isEditingTranslation : isEditingBack) && isEditMode ? (
-                        <div style={{
-                            marginBottom: '12px',
-                            position: 'relative'
-                        }}>
+                        <div className="relative mb-3">
                             {mode === Modes.LanguageLearning ? (
                                 <input
                                     type="text"
                                     value={localTranslation}
                                     onChange={(e) => setLocalTranslation(e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        borderRadius: '6px',
-                                        border: '1px solid #3B82F6',
-                                        backgroundColor: '#ffffff',
-                                        color: '#111827',
-                                        fontSize: '14px',
-                                        outline: 'none',
-                                        fontWeight: '600',
-                                        textAlign: 'center',
-                                    }}
+                                    className="w-full rounded-md border border-blue-500 bg-white px-3 py-2 text-center text-sm font-semibold text-gray-900 outline-none"
                                     autoFocus
                                     onBlur={handleTranslationSave}
                                     onKeyDown={(e) => {
@@ -732,20 +538,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                 <textarea
                                     value={localBack}
                                     onChange={(e) => setLocalBack(e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '120px',
-                                        padding: '12px',
-                                        borderRadius: '6px',
-                                        border: '1px solid #3B82F6',
-                                        backgroundColor: '#ffffff',
-                                        color: '#111827',
-                                        fontSize: '14px',
-                                        outline: 'none',
-                                        fontWeight: '400',
-                                        lineHeight: '1.5',
-                                        resize: 'vertical'
-                                    }}
+                                    className="min-h-[120px] w-full resize-y rounded-md border border-blue-500 bg-white p-3 text-sm font-normal leading-6 text-gray-900 outline-none"
                                     autoFocus
                                     onBlur={handleBackSave}
                                     onKeyDown={(e) => {
@@ -755,12 +548,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     }}
                                 />
                             )}
-                            <div style={{
-                                fontSize: '11px',
-                                color: '#6B7280',
-                                textAlign: 'center',
-                                marginTop: '4px'
-                            }}>
+                            <div className="mt-1 text-center text-[11px] text-gray-500">
                                 {mode === Modes.LanguageLearning 
                                     ? 'Press Enter or click outside to save'
                                     : 'Press Ctrl+Enter or click outside to save'
@@ -768,51 +556,17 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             </div>
                         </div>
                     ) : (
-                        <div style={{
-                            marginBottom: '12px',
-                            textAlign: mode === Modes.LanguageLearning ? 'center' : 'left',
-                            position: 'relative',
-                            paddingRight: isEditMode ? '24px' : '0',
-                            ...(isEditMode ? {
-                                padding: '8px',
-                                border: '1px dashed #E5E7EB',
-                                borderRadius: '4px',
-                                transition: 'all 0.2s ease',
-                                cursor: 'pointer',
-                                backgroundColor: '#FAFAFA'
-                            } : {})
-                        }}
+                        <div
+                        className={`relative mb-3 ${mode === Modes.LanguageLearning ? 'text-center' : 'text-left'} ${isEditMode ? 'cursor-pointer rounded border border-dashed border-gray-200 bg-zinc-50 p-2 pr-6 transition-colors hover:border-blue-500 hover:bg-gray-50' : ''}`}
                         onClick={isEditMode ? (mode === Modes.LanguageLearning ? handleTranslationEdit : handleBackEdit) : undefined}
-                        onMouseOver={(e) => {
-                            if (isEditMode) {
-                                e.currentTarget.style.borderColor = '#3B82F6';
-                                e.currentTarget.style.backgroundColor = '#F9FAFB';
-                            }
-                        }}
-                        onMouseOut={(e) => {
-                            if (isEditMode) {
-                                e.currentTarget.style.borderColor = '#E5E7EB';
-                                e.currentTarget.style.backgroundColor = '#FAFAFA';
-                            }
-                        }}
                         >
                             {mode === Modes.LanguageLearning ? (
-                                <p style={{
-                                    fontWeight: '600',
-                                    color: '#111827',
-                                    fontSize: '14px',
-                                    margin: 0
-                                }}>{translation}</p>
+                                <p className="m-0 text-sm font-semibold text-gray-900">{translation}</p>
                             ) : (
                                 <MathContentRenderer
                                     content={back || ''}
                                     enableAI={true}
-                                    style={{
-                                        color: '#111827',
-                                        fontSize: '14px',
-                                        lineHeight: '1.6',
-                                        margin: 0
-                                    }}
+                                    className="m-0 text-sm leading-relaxed text-gray-900"
                                 />
                             )}
                             
@@ -822,29 +576,8 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                         e.stopPropagation(); // Предотвращаем всплытие события
                                         mode === Modes.LanguageLearning ? handleTranslationEdit() : handleBackEdit();
                                     }}
-                                    style={{
-                                        position: 'absolute',
-                                        right: '8px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        background: '#F3F4F6',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        cursor: 'pointer',
-                                        color: '#6B7280',
-                                        display: 'flex',
-                                        padding: '4px',
-                                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                                    }}
+                                    className="absolute right-2 top-1/2 flex -translate-y-1/2 cursor-pointer rounded bg-gray-100 p-1 text-gray-500 shadow-sm transition-colors hover:bg-gray-200 hover:text-blue-500"
                                     title={mode === Modes.LanguageLearning ? "Edit translation" : "Edit content"}
-                                    onMouseOver={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#E5E7EB';
-                                        e.currentTarget.style.color = '#3B82F6';
-                                    }}
-                                    onMouseOut={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#F3F4F6';
-                                        e.currentTarget.style.color = '#6B7280';
-                                    }}
                                 >
                                     <FaPen size={12} />
                                 </button>
@@ -856,38 +589,13 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             
             {/* Лингвистическая справка сразу после перевода */}
             {linguisticInfo && (
-                <div style={{
-                    marginTop: '12px',
-                    marginBottom: '16px',
-                    borderRadius: '10px',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
-                    border: '1px solid',
-                    borderColor: expandedLinguistics ? '#BFDBFE' : '#E5E7EB',
-                    backgroundColor: expandedLinguistics ? '#EFF6FF' : '#F9FAFB',
-                    transition: 'all 0.3s ease',
-                    overflow: 'hidden'
-                }}>
+                <div className={`mb-4 mt-3 overflow-hidden rounded-[10px] border shadow-[0_2px_8px_rgba(0,0,0,0.05)] transition-all duration-300 ${expandedLinguistics ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}>
                     {/* Заголовок секции с разделенной логикой клика */}
                     <div 
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '12px 16px',
-                            borderBottom: expandedLinguistics ? '1px solid #BFDBFE' : 'none',
-                            transition: 'background-color 0.2s'
-                        }}
+                        className={`flex items-center justify-between px-4 py-3 transition-colors ${expandedLinguistics ? 'border-b border-blue-200' : ''}`}
                     >
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                            fontWeight: 600,
-                            fontSize: '14px',
-                            color: expandedLinguistics ? '#1D4ED8' : '#4B5563',
-                            flex: 1
-                        }}>
-                            <FaGraduationCap size={16} color={expandedLinguistics ? '#2563EB' : '#6B7280'} />
+                        <div className={`flex flex-1 items-center gap-2.5 text-sm font-semibold ${expandedLinguistics ? 'text-blue-700' : 'text-gray-600'}`}>
+                            <FaGraduationCap size={16} className={expandedLinguistics ? 'text-blue-600' : 'text-gray-500'} />
                             <span>Grammar & Linguistics</span>
                         </div>
                         <button
@@ -895,86 +603,42 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                 e.stopPropagation();
                                 setExpandedLinguistics(!expandedLinguistics);
                             }}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                padding: '4px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '4px',
-                                transition: 'background-color 0.2s'
-                            }}
-                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.05)'}
-                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            className="flex items-center justify-center rounded p-1 transition-colors hover:bg-black/5"
                         >
                             {expandedLinguistics ? 
-                                <FaChevronUp size={14} color="#6B7280" /> : 
-                                <FaChevronDown size={14} color="#6B7280" />
+                                <FaChevronUp size={14} className="text-gray-500" /> : 
+                                <FaChevronDown size={14} className="text-gray-500" />
                             }
                         </button>
                     </div>
                     
                     {/* Содержимое раздела без onClick */}
                     {expandedLinguistics && (
-                        <div 
-                            style={{ padding: '16px' }}
-                        >
+                        <div className="p-4">
                             {linguisticInfoEditable ? (
-                                <div style={{ width: '100%' }}>
+                                <div className="w-full">
                                     <textarea
                                         value={linguisticInfoValue}
                                         onChange={handleLinguisticInfoChange}
-                                        style={{
-                                            width: '100%',
-                                            minHeight: '120px',
-                                            padding: '10px 12px',
-                                            borderRadius: '6px',
-                                            border: '1px solid #E5E7EB',
-                                            fontSize: '14px',
-                                            lineHeight: '1.5',
-                                            resize: 'vertical',
-                                            marginBottom: '8px'
-                                        }}
+                                        className="mb-2 min-h-[120px] w-full resize-y rounded-md border border-gray-200 px-3 py-2.5 text-sm leading-6"
                                     />
-                                    <div style={{
-                                        display: 'flex',
-                                        justifyContent: 'flex-end',
-                                        gap: '8px'
-                                    }}>
+                                    <div className="flex justify-end gap-2">
                                         <button
                                             onClick={handleLinguisticInfoCancel}
-                                            style={{
-                                                padding: '6px 12px',
-                                                backgroundColor: '#F3F4F6',
-                                                color: '#4B5563',
-                                                border: '1px solid #E5E7EB',
-                                                borderRadius: '6px',
-                                                fontSize: '13px',
-                                                cursor: 'pointer'
-                                            }}
+                                            className="cursor-pointer rounded-md border border-gray-200 bg-gray-100 px-3 py-1.5 text-[13px] text-gray-600 hover:bg-gray-200"
                                         >
                                             Cancel
                                         </button>
                                         <button
                                             onClick={handleLinguisticInfoSave}
-                                            style={{
-                                                padding: '6px 12px',
-                                                backgroundColor: '#2563EB',
-                                                color: 'white',
-                                                border: 'none',
-                                                borderRadius: '6px',
-                                                fontSize: '13px',
-                                                cursor: 'pointer'
-                                            }}
+                                            className="cursor-pointer rounded-md bg-blue-600 px-3 py-1.5 text-[13px] text-white hover:bg-blue-700"
                                         >
                                             Save
                                         </button>
                                     </div>
                                 </div>
                             ) : (
-                                <div style={{ position: 'relative' }}>
+                                <div className="relative">
                                     <GrammarCard 
                                         content={linguisticInfo || ''} 
                                         isEditable={isEditMode} 
@@ -989,81 +653,23 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             
             {examples.length > 0 && (
                 <>
-                    <hr style={{
-                        margin: '10px 0',
-                        border: 'none',
-                        borderTop: '1px solid #E5E7EB'
-                    }} />
-                    <div style={{ marginBottom: '12px' }}>
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            marginBottom: '8px'
-                        }}>
-                            <h4 style={{
-                                fontSize: '14px',
-                                fontWeight: '600',
-                                color: '#374151',
-                                margin: 0
-                            }}>Examples</h4>
+                    <hr className="my-2.5 border-0 border-t border-gray-200" />
+                    <div className="mb-3">
+                        <div className="mb-2 flex items-center justify-between">
+                            <h4 className="m-0 text-sm font-semibold text-gray-700">Examples</h4>
                         </div>
                         
-                        <ul style={{
-                            listStyle: 'none',
-                            padding: 0,
-                            margin: 0,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px'
-                        }}>
+                        <ul className="m-0 flex list-none flex-col gap-2 p-0">
                             {examples.map(([example, translatedExample], index) => (
-                                <li key={index} style={{
-                                    padding: '12px',
-                                    backgroundColor: isEditMode ? '#F9FAFB' : '#F9FAFB',
-                                    borderRadius: '6px',
-                                    position: 'relative',
-                                    minHeight: 'auto',
-                                    wordWrap: 'break-word',
-                                    overflow: 'visible',
-                                    ...(isEditMode ? {
-                                        border: '1px dashed #CBD5E1',
-                                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-                                    } : {})
-                                }}>
+                                <li key={index} className={`relative min-h-0 break-words overflow-visible rounded-md bg-gray-50 p-3 ${isEditMode ? 'border border-dashed border-slate-300 shadow-sm' : ''}`}>
                                     {isEditMode && (
-                                        <div style={{
-                                            position: 'absolute',
-                                            top: '8px',
-                                            right: '8px',
-                                            display: 'flex',
-                                            gap: '8px',
-                                            zIndex: 5
-                                        }}>
+                                        <div className="absolute right-2 top-2 z-[5] flex gap-2">
                                             <button
                                                 onClick={() => handleDeleteExample(index)}
-                                                style={{
-                                                    background: '#FEE2E2',
-                                                    border: 'none',
-                                                    borderRadius: '4px',
-                                                    cursor: 'pointer',
-                                                    color: '#EF4444',
-                                                    padding: '4px 6px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    fontSize: '11px',
-                                                    fontWeight: '500'
-                                                }}
+                                                className="flex cursor-pointer items-center justify-center rounded bg-red-100 px-1.5 py-1 text-[11px] font-medium text-red-500 hover:bg-red-200"
                                                 title="Delete example"
-                                                onMouseOver={(e) => {
-                                                    e.currentTarget.style.backgroundColor = '#FECACA';
-                                                }}
-                                                onMouseOut={(e) => {
-                                                    e.currentTarget.style.backgroundColor = '#FEE2E2';
-                                                }}
                                             >
-                                                <FaTrash size={10} style={{ marginRight: '4px' }} />
+                                                <FaTrash size={10} className="mr-1" />
                                                 Delete
                                             </button>
                                         </div>
@@ -1071,24 +677,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     
                                     {isEditMode ? (
                                         <>
-                                            <div style={{ marginBottom: '8px' }}>
+                                            <div className="mb-2">
                                                 <textarea
                                                     value={example}
                                                     onChange={(e) => handleExampleEdit(index, true, e.target.value)}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '6px 8px',
-                                                        borderRadius: '4px',
-                                                        border: '1px solid #E5E7EB',
-                                                        fontSize: '13px',
-                                                        color: '#111827',
-                                                        fontWeight: '500',
-                                                        backgroundColor: '#ffffff',
-                                                        minHeight: '40px',
-                                                        resize: 'vertical',
-                                                        fontFamily: 'inherit',
-                                                        lineHeight: '1.4'
-                                                    }}
+                                                    className="min-h-10 w-full resize-y rounded border border-gray-200 bg-white px-2 py-1.5 text-[13px] font-medium leading-6 text-gray-900"
                                                     placeholder="Example sentence"
                                                 />
                                             </div>
@@ -1097,20 +690,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                                 <textarea
                                                     value={translatedExample || ''}
                                                     onChange={(e) => handleExampleEdit(index, false, e.target.value)}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '6px 8px',
-                                                        borderRadius: '4px',
-                                                        border: '1px solid #E5E7EB',
-                                                        fontSize: '13px',
-                                                        color: '#6B7280',
-                                                        fontStyle: 'italic',
-                                                        backgroundColor: '#ffffff',
-                                                        minHeight: '40px',
-                                                        resize: 'vertical',
-                                                        fontFamily: 'inherit',
-                                                        lineHeight: '1.4'
-                                                    }}
+                                                    className="min-h-10 w-full resize-y rounded border border-gray-200 bg-white px-2 py-1.5 text-[13px] italic leading-6 text-gray-500"
                                                     placeholder="Translation (optional)"
                                                 />
                                             </div>
@@ -1118,30 +698,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     ) : (
                                         <>
                                             {!isEditMode && (
-                                                <div style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'flex-end',
-                                                    gap: '6px',
-                                                    marginBottom: '6px'
-                                                }}>
+                                                <div className="mb-1.5 flex justify-end gap-1.5">
                                                     {examplesAudio[index] && (
                                                         <button
                                                             onClick={() => handlePlayExampleAudio(index)}
-                                                            style={{
-                                                                border: '1px solid #BFDBFE',
-                                                                background: 'linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)',
-                                                                color: '#1E40AF',
-                                                                borderRadius: '999px',
-                                                                padding: '0',
-                                                                width: '28px',
-                                                                height: '28px',
-                                                                fontSize: '11px',
-                                                                fontWeight: 600,
-                                                                cursor: 'pointer',
-                                                                display: 'inline-flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center'
-                                                            }}
+                                                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-gradient-to-b from-slate-50 to-blue-50 text-blue-900"
                                                             title="Play example audio"
                                                         >
                                                             <FaVolumeUp size={10} />
@@ -1149,28 +710,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                                     )}
                                                 </div>
                                             )}
-                                            <div style={{ 
-                                                fontWeight: '500',
-                                                color: '#111827',
-                                                fontSize: '13px',
-                                                marginBottom: translatedExample ? '6px' : 0,
-                                                lineHeight: '1.4',
-                                                wordWrap: 'break-word',
-                                                overflow: 'visible',
-                                                whiteSpace: 'normal'
-                                            }}>
+                                            <div className={`break-words overflow-visible whitespace-normal text-[13px] font-medium leading-6 text-gray-900 ${translatedExample ? 'mb-1.5' : 'mb-0'}`}>
                                                 {example}
                                             </div>
                                             {translatedExample && (
-                                                <div style={{ 
-                                                    color: '#6B7280',
-                                                    fontSize: '13px',
-                                                    fontStyle: 'italic',
-                                                    lineHeight: '1.4',
-                                                    wordWrap: 'break-word',
-                                                    overflow: 'visible',
-                                                    whiteSpace: 'normal'
-                                                }}>
+                                                <div className="break-words overflow-visible whitespace-normal text-[13px] italic leading-6 text-gray-500">
                                                     {translatedExample}
                                                 </div>
                                             )}
@@ -1183,31 +727,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         {isEditMode && (
                             <button
                                 onClick={handleAddExample}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    backgroundColor: '#EFF6FF',
-                                    color: '#3B82F6',
-                                    fontSize: '14px',
-                                    fontWeight: '500',
-                                    border: '1px dashed #BFDBFE',
-                                    cursor: 'pointer',
-                                    marginTop: '12px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '8px',
-                                    transition: 'all 0.2s ease',
-                                }}
-                                onMouseOver={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#DBEAFE';
-                                    e.currentTarget.style.borderColor = '#93C5FD';
-                                }}
-                                onMouseOut={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#EFF6FF';
-                                    e.currentTarget.style.borderColor = '#BFDBFE';
-                                }}
+                                className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-blue-200 bg-blue-50 px-2.5 py-2.5 text-sm font-medium text-blue-500 transition-colors hover:border-blue-300 hover:bg-blue-100"
                             >
                                 <FaPlus size={12} />
                                 Add Example
@@ -1219,55 +739,29 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             
             {(image || imageUrl) && (
                 <>
-                    <hr style={{
-                        margin: '16px 0',
-                        border: 'none',
-                        borderTop: '1px solid #E5E7EB'
-                    }} />
-                    <div style={{ marginBottom: '16px' }}>
+                    <hr className="my-4 border-0 border-t border-gray-200" />
+                    <div className="mb-4">
                         <img 
                             src={image || imageUrl || ''} 
                             alt="" 
-                            style={{
-                                width: '100%',
-                                borderRadius: '6px',
-                                boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)'
-                            }} 
+                            className="w-full rounded-md shadow-sm" 
                         />
                     </div>
                 </>
             )}
             
             {!isSaved && (
-                <div style={{
-                    display: 'flex',
-                    gap: '6px',
-                    marginBottom: '8px'
-                }}>
+                <div className="mb-2 flex gap-1.5">
                     {(image || imageUrl) && (
                         <button 
                             onClick={onNewImage} 
                             disabled={loadingNewImage}
-                            style={{
-                                flex: 1,
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                backgroundColor: '#F59E0B',
-                                color: '#ffffff',
-                                fontWeight: '600',
-                                fontSize: '13px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                opacity: loadingNewImage ? 0.7 : 1
-                            }}
-                            onMouseOver={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#D97706')}
-                            onMouseOut={(e) => !loadingNewImage && (e.currentTarget.style.backgroundColor = '#F59E0B')}
+                            className="flex-1 rounded-md bg-amber-500 px-3 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                             {loadingNewImage ?
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+    <div className="flex items-center justify-center gap-1.5">
         <Loader type="spinner" size="small" inline color="#ffffff" />
-        <span style={{ fontSize: '12px', fontWeight: '500' }}>
+        <span className="text-xs font-medium">
             {currentImageLoadingMessage?.currentStepTitle || currentImageLoadingMessage?.title || 'Generating'}
         </span>
     </div> : 'New Image'}
@@ -1277,26 +771,12 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         <button 
                             onClick={onNewExamples} 
                             disabled={loadingNewExamples}
-                            style={{
-                                flex: 1,
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                backgroundColor: '#F59E0B',
-                                color: '#ffffff',
-                                fontWeight: '600',
-                                fontSize: '13px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                opacity: loadingNewExamples ? 0.7 : 1
-                            }}
-                            onMouseOver={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#D97706')}
-                            onMouseOut={(e) => !loadingNewExamples && (e.currentTarget.style.backgroundColor = '#F59E0B')}
+                            className="flex-1 rounded-md bg-amber-500 px-3 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                             {loadingNewExamples ?
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+    <div className="flex items-center justify-center gap-1.5">
         <Loader type="spinner" size="small" inline color="#ffffff" />
-        <span style={{ fontSize: '12px', fontWeight: '500' }}>
+        <span className="text-xs font-medium">
             {currentExamplesLoadingMessage?.currentStepTitle || currentExamplesLoadingMessage?.title || 'Loading'}
         </span>
     </div> : 'New Examples'}
@@ -1309,41 +789,19 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             {!hideActionButtons && (
                 <>
                     {/* Кнопка сохранения/статус карточки */}
-                    <div style={{ marginBottom: '10px' }}>
+                    <div className="mb-2.5">
                         {!isEditMode && !isSaved && (
                             // Показываем кнопку "Save Card" для новых карточек
-                            <div style={{ 
-                                display: 'flex', 
-                                gap: '8px',
-                                width: '100%' 
-                            }}>
+                            <div className="flex w-full gap-2">
                                 {!loadingGetResult && (
                                     <button 
                                         onClick={onAccept} 
                                         disabled={loadingAccept}
-                                        style={{
-                                            flex: '1',
-                                            padding: '10px',
-                                            borderRadius: '6px',
-                                            backgroundColor: '#22C55E',
-                                            color: '#ffffff',
-                                            fontWeight: '600',
-                                            fontSize: '14px',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s ease',
-                                            opacity: loadingAccept ? 0.7 : 1,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '8px'
-                                        }}
-                                        onMouseOver={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#15803D')}
-                                        onMouseOut={(e) => !loadingAccept && (e.currentTarget.style.backgroundColor = '#22C55E')}
+                                        className="flex flex-1 items-center justify-center gap-2 rounded-md bg-green-500 px-2.5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-70"
                                     >
                                         <FaCheck />
                                         {loadingAccept ? 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="flex items-center justify-center">
                     <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
                 </div> : 'Save Card'}
                                     </button>
@@ -1353,34 +811,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         
                         {!isEditMode && isSaved && (
                             // Для сохраненных карточек показываем индикатор статуса
-                            <div style={{
-                                width: '100%',
-                                padding: '10px',
-                                borderRadius: '6px',
-                                backgroundColor: '#ECFDF5',
-                                border: '1px solid #D1FAE5',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '8px'
-                            }}>
-                                <div style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: '24px',
-                                    height: '24px',
-                                    borderRadius: '50%',
-                                    backgroundColor: '#10B981',
-                                    color: 'white'
-                                }}>
+                            <div className="flex w-full items-center justify-center gap-2 rounded-md border border-emerald-100 bg-emerald-50 p-2.5">
+                                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
                                     <FaCheck size={12} />
                                 </div>
-                                <span style={{
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    color: '#059669'
-                                }}>
+                                <span className="text-sm font-semibold text-emerald-600">
                                     Saved to Collection
                                 </span>
                             </div>
@@ -1388,12 +823,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
 
                         {/* Пояснительный текст под кнопкой */}
                         {!isEditMode && !isSaved && !loadingGetResult && (
-                            <p style={{
-                                fontSize: '11px',
-                                color: '#6B7280',
-                                textAlign: 'center',
-                                margin: '4px 0 0 0'
-                            }}>
+                            <p className="m-0 mt-1 text-center text-[11px] text-gray-500">
                                 The card will be saved to your collection
                             </p>
                         )}
