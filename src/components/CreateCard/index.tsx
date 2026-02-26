@@ -1476,10 +1476,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     };
 
-    const handleViewSavedCards = useCallback(() => {
-        tabAware.setCurrentPage('storedCards');
-    }, [tabAware]);
-
     const handleOpenSettings = useCallback(() => {
         setShowMissingApiKeyNotice(false);
         tabAware.setCurrentPage('settings');
@@ -4606,7 +4602,6 @@ Original text: ${text}`;
                 onNewExamples={handleNewExamples}
                 onGenerateAudio={handleGenerateAudio}
                 onAccept={handleAccept}
-                onViewSavedCards={handleViewSavedCards}
                 onCancel={handleCancel}
                 loadingNewImage={loadingNewImage}
                 loadingNewExamples={loadingNewExamples}

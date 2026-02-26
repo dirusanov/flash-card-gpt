@@ -2212,32 +2212,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             margin: '0 auto',
             position: 'relative'
         }}>
-            <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginBottom: '16px',
-                paddingBottom: '12px',
-                borderBottom: '1px solid #E5E7EB',
-                marginTop: '20px'
-            }}>
-                <div style={{
-                    fontWeight: '600',
-                    fontSize: '16px',
-                    color: '#111827',
-                    background: 'linear-gradient(to right, #4F46E5, #2563EB)',
-                    backgroundClip: 'text',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    padding: '4px 12px',
-                    borderRadius: '16px',
-                    border: '1px solid #E5E7EB',
-                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-                }}>
-                    Saved Cards ({storedCards.length})
-                </div>
-            </div>
-
             {useAnkiConnect && renderDeckSelector()}
 
             {storedCards.length > 0 ? (

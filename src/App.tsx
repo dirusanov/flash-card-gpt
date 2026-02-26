@@ -19,6 +19,39 @@ import { hydrateView, setPreferredMode, setVisible, setFloatGeometry } from './s
 
 interface AppProps { tabId: number; }
 
+interface CreateCardBoundaryState {
+  hasError: boolean;
+  errorMessage: string;
+}
+
+class CreateCardErrorBoundary extends React.Component<{ children: React.ReactNode }, CreateCardBoundaryState> {
+  state: CreateCardBoundaryState = { hasError: false, errorMessage: '' };
+
+  static getDerivedStateFromError(error: Error): CreateCardBoundaryState {
+    return {
+      hasError: true,
+      errorMessage: error?.message || 'Unknown CreateCard render error'
+    };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[CreateCardErrorBoundary] CreateCard crashed:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="m-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <div className="font-semibold">Create Card crashed</div>
+          <div className="mt-1 break-words">{this.state.errorMessage}</div>
+          <div className="mt-2 text-xs text-red-700">Open DevTools Console for stack trace.</div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const DEFAULT_FLOAT = { width: 360, height: 660, x: 24, y: 24 };
 const MAX_FLOAT_WIDTH = DEFAULT_FLOAT.width + 48; // allow only slight horizontal growth (~1 cm)
@@ -579,7 +612,9 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       default:
         return (
           <div style={cardContentStyle}>
-            <CreateCard />
+            <CreateCardErrorBoundary>
+              <CreateCard />
+            </CreateCardErrorBoundary>
           </div>
         );
     }

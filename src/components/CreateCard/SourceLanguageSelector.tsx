@@ -7,8 +7,8 @@ interface SourceLanguageSelectorProps {
     showModal: boolean;
     setShowModal: (show: boolean) => void;
     currentSourceLanguage: LanguageOption | null;
-    currentLanguage: LanguageOption;
-    filteredSourceLanguages: LanguageOption[];
+    currentLanguage: LanguageOption | null;
+    filteredSourceLanguages: LanguageOption[] | null | undefined;
     sourceLanguage: string;
     isAutoDetectLanguage: boolean;
     isDetectingLanguage: boolean;
@@ -35,6 +35,14 @@ const SourceLanguageSelector: React.FC<SourceLanguageSelectorProps> = ({
     onSelectLanguage,
     onResetDetection,
 }) => {
+    const safeCurrentLanguage: LanguageOption = currentLanguage || {
+        code: 'en',
+        name: 'English',
+        flag: '🌐',
+        englishName: 'English',
+    };
+    const safeFilteredSourceLanguages = filteredSourceLanguages || [];
+
     if (!showModal) {
         return (
             <div className="relative flex w-full flex-col gap-2">
@@ -88,9 +96,9 @@ const SourceLanguageSelector: React.FC<SourceLanguageSelectorProps> = ({
                     <div className="flex items-center gap-1">
                         <span className="text-sm">{currentSourceLanguage ? currentSourceLanguage.flag : '🌐'}</span>
                         <FaExchangeAlt size={12} className="text-gray-500" />
-                        <span className="text-sm">{currentLanguage.flag}</span>
+                        <span className="text-sm">{safeCurrentLanguage.flag}</span>
                     </div>
-                    <span className="text-xs text-gray-600">Translating {currentSourceLanguage ? `from ${currentSourceLanguage.englishName}` : ''} to {currentLanguage.englishName}</span>
+                    <span className="text-xs text-gray-600">Translating {currentSourceLanguage ? `from ${currentSourceLanguage.englishName}` : ''} to {safeCurrentLanguage.englishName}</span>
                     {isAutoDetectLanguage && (
                         <button onClick={onResetDetection} title="Reset language detection" className="ml-auto rounded p-0.5 text-gray-500 hover:bg-gray-200">
                             <FaRedo size={12} />
@@ -134,10 +142,10 @@ const SourceLanguageSelector: React.FC<SourceLanguageSelectorProps> = ({
                     <p className="m-0 text-xs leading-relaxed text-gray-500">Select the language of your text. This helps generate more accurate translations and examples.</p>
                 </div>
                 <div className="max-h-[calc(80vh-140px)] overflow-y-auto py-2">
-                    {filteredSourceLanguages.length === 0 ? (
+                    {safeFilteredSourceLanguages.length === 0 ? (
                         <div className="p-4 text-center text-sm text-gray-500">No languages found matching "{sourceLanguageSearch}"</div>
                     ) : (
-                        filteredSourceLanguages.map((language) => (
+                        safeFilteredSourceLanguages.map((language) => (
                             <button
                                 key={language.code}
                                 onClick={() => onSelectLanguage(language.code)}

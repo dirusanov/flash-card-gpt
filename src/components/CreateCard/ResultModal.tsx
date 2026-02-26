@@ -37,7 +37,7 @@ interface ResultModalProps {
     onNewExamples: () => void;
     onGenerateAudio: () => void;
     onAccept: () => void;
-    onViewSavedCards: () => void;
+    onViewSavedCards?: () => void;
     onCancel: () => void;
     loadingNewImage: boolean;
     loadingNewExamples: boolean;
@@ -207,7 +207,7 @@ const ResultModal: React.FC<ResultModalProps> = ({
                     onNewExamples={onNewExamples}
                     onGenerateAudio={onGenerateAudio}
                     onAccept={onAccept}
-                    onViewSavedCards={onViewSavedCards}
+                    onViewSavedCards={onViewSavedCards || (() => {})}
                     onCancel={onCancel}
                     loadingNewImage={loadingNewImage}
                     loadingNewExamples={loadingNewExamples}

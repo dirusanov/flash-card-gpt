@@ -11,8 +11,8 @@ export interface LanguageOption {
 interface LanguageSelectorProps {
     showModal: boolean;
     setShowModal: (show: boolean) => void;
-    currentLanguage: LanguageOption;
-    filteredLanguages: LanguageOption[];
+    currentLanguage: LanguageOption | null;
+    filteredLanguages: LanguageOption[] | null | undefined;
     search: string;
     setSearch: (value: string) => void;
     onSelect: (code: string) => void;
@@ -27,6 +27,14 @@ const LanguageSelector: React.FC<LanguageSelectorProps> = ({
     setSearch,
     onSelect,
 }) => {
+    const safeLanguage: LanguageOption = currentLanguage || {
+        code: 'en',
+        name: 'English',
+        flag: '🌐',
+        englishName: 'English',
+    };
+    const safeLanguages = filteredLanguages || [];
+
     if (!showModal) {
         return (
             <div className="relative flex w-full flex-col gap-2">
@@ -39,8 +47,8 @@ const LanguageSelector: React.FC<LanguageSelectorProps> = ({
                     className="flex w-full items-center justify-between rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
                 >
                     <span className="flex items-center gap-2">
-                        <span className="text-lg">{currentLanguage.flag}</span>
-                        <span>{currentLanguage.name}</span>
+                        <span className="text-lg">{safeLanguage.flag}</span>
+                        <span>{safeLanguage.name}</span>
                     </span>
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                         <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
@@ -80,24 +88,24 @@ const LanguageSelector: React.FC<LanguageSelectorProps> = ({
                     <p className="m-0 text-xs leading-relaxed text-gray-500">This will be used for both the interface language and translations.</p>
                 </div>
                 <div className="max-h-[calc(80vh-140px)] overflow-y-auto py-2">
-                    {filteredLanguages.length === 0 ? (
+                    {safeLanguages.length === 0 ? (
                         <div className="p-4 text-center text-sm text-gray-500">No languages found matching "{search}"</div>
                     ) : (
-                        filteredLanguages.map((language) => (
+                        safeLanguages.map((language) => (
                             <button
                                 key={language.code}
                                 onClick={() => {
                                     onSelect(language.code);
                                     setShowModal(false);
                                 }}
-                                className={`flex w-full items-center px-4 py-3 text-left transition-colors hover:bg-gray-100 ${language.code === currentLanguage.code ? 'bg-blue-50' : ''}`}
+                                className={`flex w-full items-center px-4 py-3 text-left transition-colors hover:bg-gray-100 ${language.code === safeLanguage.code ? 'bg-blue-50' : ''}`}
                             >
                                 <span className="mr-3 w-7 text-center text-[22px]">{language.flag}</span>
                                 <span className="flex flex-1 flex-col items-start">
-                                    <span className={`text-sm ${language.code === currentLanguage.code ? 'font-semibold text-blue-600' : 'text-gray-900'}`}>{language.name}</span>
+                                    <span className={`text-sm ${language.code === safeLanguage.code ? 'font-semibold text-blue-600' : 'text-gray-900'}`}>{language.name}</span>
                                     {language.englishName !== language.name && <span className="text-xs text-gray-500">{language.englishName}</span>}
                                 </span>
-                                {language.code === currentLanguage.code && (
+                                {language.code === safeLanguage.code && (
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#2563EB" viewBox="0 0 16 16" className="ml-auto">
                                         <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
                                     </svg>
