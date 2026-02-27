@@ -60,8 +60,8 @@ const parseRedirectUri = (authUrl: string): string | null => {
 };
 
 export const googleOAuth = {
-  async signInWithGoogle(): Promise<AuthSession> {
-    const init = await authApi.initGoogleLogin('web');
+  async signInWithGoogle(baseUrl: string): Promise<AuthSession> {
+    const init = await authApi.initGoogleLogin(baseUrl, 'web');
     const identity = getChromeIdentity();
     const expectedRedirect = identity?.getRedirectURL ? identity.getRedirectURL('oauth2') : null;
     const redirectFromAuth = parseRedirectUri(init.authorization_url);
@@ -87,13 +87,13 @@ export const googleOAuth = {
       throw new Error('Missing OAuth response parameters.');
     }
 
-    const loginResult = await authApi.completeGoogleLogin({
+    const loginResult = await authApi.completeGoogleLogin(baseUrl, {
       code,
       state,
       code_verifier: init.code_verifier,
       platform: 'web',
     });
 
-    return authService.completeExternalLogin(loginResult);
+    return authService.completeExternalLogin(baseUrl, loginResult);
   },
 };

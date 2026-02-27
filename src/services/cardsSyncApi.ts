@@ -1,7 +1,5 @@
 import { backgroundFetch } from './backgroundFetch';
 
-const CARDS_SYNC_API_URL = 'https://api-cards.vaultonote.com';
-
 class CardsSyncApiError extends Error {
   status: number;
 
@@ -46,6 +44,7 @@ const parseErrorMessage = async (response: { json: <T>() => Promise<T> } & { sta
 };
 
 const requestJson = async <T>(
+  baseUrl: string,
   path: string,
   init: { method: string; body?: string; headers?: Record<string, string> },
   accessToken: string,
@@ -56,7 +55,7 @@ const requestJson = async <T>(
     Authorization: `Bearer ${accessToken}`,
   };
 
-  const response = await backgroundFetch(`${CARDS_SYNC_API_URL}${path}`, {
+  const response = await backgroundFetch(`${baseUrl}${path}`, {
     method: init.method,
     headers,
     body: init.body,
@@ -75,15 +74,17 @@ const requestJson = async <T>(
 };
 
 export const cardsSyncApi = {
-  listDecks(accessToken: string): Promise<DeckApi[]> {
-    return requestJson<DeckApi[]>('/decks', { method: 'GET' }, accessToken);
+  listDecks(baseUrl: string, accessToken: string): Promise<DeckApi[]> {
+    return requestJson<DeckApi[]>(baseUrl, '/decks', { method: 'GET' }, accessToken);
   },
 
   createDeck(
+    baseUrl: string,
     accessToken: string,
     payload: { name: string; description: string; color: string },
   ): Promise<DeckApi> {
     return requestJson<DeckApi>(
+      baseUrl,
       '/decks',
       {
         method: 'POST',
@@ -94,11 +95,13 @@ export const cardsSyncApi = {
   },
 
   updateDeck(
+    baseUrl: string,
     accessToken: string,
     deckId: string,
     payload: { name?: string; description?: string; color?: string; base_version?: number },
   ): Promise<DeckApi> {
     return requestJson<DeckApi>(
+      baseUrl,
       `/decks/${deckId}`,
       {
         method: 'PATCH',
@@ -108,8 +111,9 @@ export const cardsSyncApi = {
     );
   },
 
-  deleteDeck(accessToken: string, deckId: string): Promise<DeckApi> {
+  deleteDeck(baseUrl: string, accessToken: string, deckId: string): Promise<DeckApi> {
     return requestJson<DeckApi>(
+      baseUrl,
       `/decks/${deckId}`,
       {
         method: 'DELETE',
@@ -118,11 +122,12 @@ export const cardsSyncApi = {
     );
   },
 
-  listNotes(accessToken: string): Promise<NoteApi[]> {
-    return requestJson<NoteApi[]>('/notes', { method: 'GET' }, accessToken);
+  listNotes(baseUrl: string, accessToken: string): Promise<NoteApi[]> {
+    return requestJson<NoteApi[]>(baseUrl, '/notes', { method: 'GET' }, accessToken);
   },
 
   createNote(
+    baseUrl: string,
     accessToken: string,
     payload: {
       deck_id: string;
@@ -134,6 +139,7 @@ export const cardsSyncApi = {
     },
   ): Promise<NoteApi> {
     return requestJson<NoteApi>(
+      baseUrl,
       '/notes',
       {
         method: 'POST',
@@ -144,6 +150,7 @@ export const cardsSyncApi = {
   },
 
   updateNote(
+    baseUrl: string,
     accessToken: string,
     noteId: string,
     payload: {
@@ -154,6 +161,7 @@ export const cardsSyncApi = {
     },
   ): Promise<NoteApi> {
     return requestJson<NoteApi>(
+      baseUrl,
       `/notes/${noteId}`,
       {
         method: 'PATCH',
@@ -163,8 +171,9 @@ export const cardsSyncApi = {
     );
   },
 
-  deleteNote(accessToken: string, noteId: string, baseVersion?: number): Promise<{ applied: number }> {
+  deleteNote(baseUrl: string, accessToken: string, noteId: string, baseVersion?: number): Promise<{ applied: number }> {
     return requestJson<{ applied: number }>(
+      baseUrl,
       '/sync/push',
       {
         method: 'POST',

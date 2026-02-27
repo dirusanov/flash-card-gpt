@@ -10,6 +10,7 @@ import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQ
 import { setMode, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
 import { Modes } from "../constants";
 import ResultDisplay from "./ResultDisplay";
+import DeckSelector from "./CreateCard/DeckSelector";
 import { type DetailedLoadingMessage } from '../services/loadingMessages';
 import { setGlobalProgressCallback, getGlobalApiTracker, resetGlobalApiTracker } from '../services/apiTracker';
 import { getImage } from '../apiUtils';
@@ -290,6 +291,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [imageGenerationMode, setImageGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
     const [audioGenerationMode, setAudioGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
     const [showAISettings, setShowAISettings] = useState(false);
+    const [selectedBackendDeckId, setSelectedBackendDeckId] = useState<string | null>(null);
+    const [selectedAnkiDeckName, setSelectedAnkiDeckName] = useState<string | null>(null);
 
     // Keep tab-level generation lock strictly in sync with loader visibility.
     // App uses this flag to hide Cards/Settings during loading overlay.
@@ -1131,7 +1134,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     linguisticInfo: linguisticInfo || '',
                     transcription: transcription || '',
                     wordAudio: wordAudio || null,
-                    examplesAudio: examplesAudio || []
+                    examplesAudio: examplesAudio || [],
+                    deckId: selectedBackendDeckId,
+                    ankiDeckName: selectedAnkiDeckName
                 };
             }
 
@@ -1271,7 +1276,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const cardToPersist = {
                     ...currentCard,
                     image: normalizedCurrent.image,
-                    imageUrl: normalizedCurrent.imageUrl
+                    imageUrl: normalizedCurrent.imageUrl,
+                    deckId: selectedBackendDeckId,
+                    ankiDeckName: selectedAnkiDeckName
                 };
 
                 setCreatedCards(prevCards => {
@@ -1371,7 +1378,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     image: normalizedImage, // base64 данные (постоянные, приоритет)
                     imageUrl: normalizedImageUrl, // URL как резерв
                     createdAt: new Date(),
-                    exportStatus: 'not_exported' as const
+                    exportStatus: 'not_exported' as const,
+                    deckId: selectedBackendDeckId,
+                    ankiDeckName: selectedAnkiDeckName
                 };
 
                 debugLog('*** CREATECARD: Preparing to save card to storage ***');
@@ -2891,6 +2900,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             </button>
                         </>
                     )}
+
+                    <DeckSelector
+                        onBackendDeckChange={setSelectedBackendDeckId}
+                        onAnkiDeckChange={setSelectedAnkiDeckName}
+                        initialBackendDeckId={selectedBackendDeckId}
+                        initialAnkiDeckName={selectedAnkiDeckName}
+                    />
 
                     <ResultDisplay
                         mode={mode}
@@ -5946,7 +5962,9 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             const cardToSave = {
                 ...currentCard,
                 image: normalized.image,
-                imageUrl: normalized.imageUrl
+                imageUrl: normalized.imageUrl,
+                deckId: selectedBackendDeckId,
+                ankiDeckName: selectedAnkiDeckName
             };
             tabAware.saveCardToStorage(cardToSave);
 
@@ -7126,6 +7144,12 @@ Original text: ${text}`;
                             {/* Current Card Display using ResultDisplay component style */}
                             {previewCards[currentPreviewIndex] && (
                                 <div style={{ animation: 'slideIn 0.3s ease-out' }}>
+                                    <DeckSelector
+                                        onBackendDeckChange={setSelectedBackendDeckId}
+                                        onAnkiDeckChange={setSelectedAnkiDeckName}
+                                        initialBackendDeckId={selectedBackendDeckId}
+                                        initialAnkiDeckName={selectedAnkiDeckName}
+                                    />
                                     <ResultDisplay
                                         front={previewCards[currentPreviewIndex].front || null}
                                         back={previewCards[currentPreviewIndex].back || null}

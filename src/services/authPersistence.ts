@@ -39,7 +39,8 @@ export const initializeAuthPersistence = async (store: Store<RootState>) => {
 
   if (storedSession?.accessToken && storedSession.refreshToken && isTokenExpired(storedSession.expiresAt)) {
     try {
-      const refreshed = await authApi.refresh(storedSession.refreshToken);
+      const { authApiUrl } = store.getState().settings;
+      const refreshed = await authApi.refresh(authApiUrl, storedSession.refreshToken);
       storedSession = {
         accessToken: refreshed.access_token,
         refreshToken: refreshed.refresh_token ?? null,

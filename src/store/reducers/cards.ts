@@ -1,10 +1,10 @@
 import {
-    SAVE_ANKI_CARDS, 
-    SET_EXAMPLES, 
-    SET_IMAGE, 
-    SET_IMAGE_URL, 
-    SET_TRANSLATION, 
-    SET_TEXT, 
+    SAVE_ANKI_CARDS,
+    SET_EXAMPLES,
+    SET_IMAGE,
+    SET_IMAGE_URL,
+    SET_TRANSLATION,
+    SET_TEXT,
     SET_BACK,
     SET_FRONT,
     SAVE_CARD_TO_STORAGE,
@@ -21,7 +21,7 @@ import {
     SET_IS_GENERATING_CARD,
     UPDATE_CARD_SYNC_META,
 } from '../actions/cards';
-import {CardLangLearning, CardGeneral} from "../../services/ankiService";
+import { CardLangLearning, CardGeneral } from "../../services/ankiService";
 import { Modes } from '../../constants';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -53,6 +53,8 @@ export interface StoredCard {
     syncVersion?: number | null;
     syncSource?: string | null;
     syncTags?: string[] | null;
+    deckId?: string | null;
+    ankiDeckName?: string | null;
 }
 
 const initialState: CardState = {
@@ -130,10 +132,10 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 imageUndefinedCheck: action.payload.image !== undefined,
                 imageUrlUndefinedCheck: action.payload.imageUrl !== undefined
             });
-            
+
             const newCardData: StoredCard = {
-                ...(action.payload.id ? 
-                    action.payload : 
+                ...(action.payload.id ?
+                    action.payload :
                     { ...action.payload, id: Date.now().toString() }),
                 image: action.payload.image !== undefined ? action.payload.image : null,
                 imageUrl: action.payload.imageUrl !== undefined ? action.payload.imageUrl : null,
@@ -145,13 +147,15 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 syncId: action.payload.syncId ?? null,
                 syncVersion: typeof action.payload.syncVersion === 'number' ? action.payload.syncVersion : null,
                 syncSource: action.payload.syncSource ?? null,
-                syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null
+                syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null,
+                deckId: action.payload.deckId ?? null,
+                ankiDeckName: action.payload.ankiDeckName ?? null
             };
             const newCard: StoredCard = {
                 ...newCardData,
                 createdAt: ensureDate(newCardData.createdAt)
             };
-            
+
             debugLog('REDUCER: Final card object created:', {
                 cardId: newCard.id,
                 hasImage: !!newCard.image,
@@ -165,14 +169,14 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 imagePreview: newCard.image?.substring(0, 50),
                 imageUrlPreview: newCard.imageUrl?.substring(0, 50)
             });
-            
+
             // Check for existing card by ID only, not by text
             const existingCard = state.storedCards.find(card => card.id === newCard.id);
-            
+
             if (existingCard) {
-                newState.storedCards = state.storedCards.map(card => 
-                    card.id === existingCard.id ? 
-                        { ...newCard, id: existingCard.id } : 
+                newState.storedCards = state.storedCards.map(card =>
+                    card.id === existingCard.id ?
+                        { ...newCard, id: existingCard.id } :
                         card
                 );
                 debugLog('Updated existing card with ID:', newCard.id, 'text:', newCard.text);
@@ -183,8 +187,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             }
             break;
         case UPDATE_CARD_EXPORT_STATUS:
-            newState.storedCards = state.storedCards.map(card => 
-                card.id === action.payload.cardId 
+            newState.storedCards = state.storedCards.map(card =>
+                card.id === action.payload.cardId
                     ? { ...card, exportStatus: action.payload.status }
                     : card
             );
@@ -202,18 +206,18 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 imageLength: action.payload.image?.length,
                 imageUrlLength: action.payload.imageUrl?.length
             });
-            
+
             if (!action.payload.id) {
                 console.error('Cannot update card without ID');
                 return state;
             }
-            
+
             const cardExists = state.storedCards.some(card => card.id === action.payload.id);
-            
+
             if (cardExists) {
                 newState.storedCards = state.storedCards.map(card =>
                     card.id === action.payload.id
-                        ? { 
+                        ? {
                             ...card,
                             ...action.payload,
                             createdAt: ensureDate(action.payload.createdAt ?? card.createdAt),
@@ -231,7 +235,9 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                             syncSource: action.payload.syncSource ?? card.syncSource ?? null,
                             syncTags: Array.isArray(action.payload.syncTags)
                                 ? action.payload.syncTags
-                                : (Array.isArray(card.syncTags) ? card.syncTags : null)
+                                : (Array.isArray(card.syncTags) ? card.syncTags : null),
+                            deckId: action.payload.deckId ?? card.deckId ?? null,
+                            ankiDeckName: action.payload.ankiDeckName ?? card.ankiDeckName ?? null
                         }
                         : card
                 );
@@ -248,7 +254,9 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                     syncId: action.payload.syncId ?? null,
                     syncVersion: typeof action.payload.syncVersion === 'number' ? action.payload.syncVersion : null,
                     syncSource: action.payload.syncSource ?? null,
-                    syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null
+                    syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null,
+                    deckId: action.payload.deckId ?? null,
+                    ankiDeckName: action.payload.ankiDeckName ?? null
                 };
                 newState.storedCards = [...state.storedCards, newCardToAdd];
                 debugLog('UPDATE_STORED_CARD: Added new card with ID:', action.payload.id, 'image:', !!newCardToAdd.image);
@@ -279,7 +287,9 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 syncId: card.syncId ?? null,
                 syncVersion: typeof card.syncVersion === 'number' ? card.syncVersion : null,
                 syncSource: card.syncSource ?? null,
-                syncTags: Array.isArray(card.syncTags) ? card.syncTags : null
+                syncTags: Array.isArray(card.syncTags) ? card.syncTags : null,
+                deckId: card.deckId ?? null,
+                ankiDeckName: card.ankiDeckName ?? null
             }));
             newState.storedCards = normalizedCards;
             break;

@@ -20,11 +20,13 @@ const isTokenExpired = (expiresAt: number | null): boolean => {
   return Date.now() > expiresAt - 60_000;
 };
 
-const ensureValidAccessToken = async (state: RootState, dispatch: (action: any) => void): Promise<string | null> => {
+const ensureValidAccessToken = async (store: any, forceRefresh = false): Promise<string | null> => {
+  const state: RootState = store.getState();
   const { accessToken, refreshToken, expiresAt, user } = state.auth;
+  const { authApiUrl } = state.settings;
   if (!accessToken) return null;
 
-  if (!isTokenExpired(expiresAt)) {
+  if (!forceRefresh && !isTokenExpired(expiresAt)) {
     return accessToken;
   }
 
@@ -32,22 +34,29 @@ const ensureValidAccessToken = async (state: RootState, dispatch: (action: any) 
     return null;
   }
 
-  const refreshed = await authApi.refresh(refreshToken);
-  if (!refreshed.access_token) {
+  try {
+    const refreshed = await authApi.refresh(authApiUrl, refreshToken);
+    if (!refreshed.access_token) {
+      return null;
+    }
+
+    const nextSession = {
+      accessToken: refreshed.access_token,
+      refreshToken: refreshed.refresh_token ?? null,
+      expiresAt: refreshed.expires_in ? Date.now() + refreshed.expires_in * 1000 : null,
+      tokenType: refreshed.token_type ?? 'bearer',
+      user: user ?? null,
+    };
+
+    await authStorage.setSession(nextSession);
+    store.dispatch(setAuthSession(nextSession));
+    return nextSession.accessToken;
+  } catch (error) {
+    console.error('Token refresh failed:', error);
+    await authStorage.clearSession();
+    store.dispatch({ type: CLEAR_AUTH_SESSION });
     return null;
   }
-
-  const nextSession = {
-    accessToken: refreshed.access_token,
-    refreshToken: refreshed.refresh_token ?? null,
-    expiresAt: refreshed.expires_in ? Date.now() + refreshed.expires_in * 1000 : null,
-    tokenType: refreshed.token_type ?? 'bearer',
-    user: user ?? null,
-  };
-
-  await authStorage.setSession(nextSession);
-  dispatch(setAuthSession(nextSession));
-  return nextSession.accessToken;
 };
 
 export const cardsSyncMiddleware: Middleware<{}, RootState> = (store) => (next) => (action) => {
@@ -62,16 +71,18 @@ export const cardsSyncMiddleware: Middleware<{}, RootState> = (store) => (next) 
 
   const stateAfter = store.getState();
 
-  if (action.type === SET_AUTH_SESSION) {
+  // Only run batch sync if we just logged in, avoiding recursive syncs on token refresh.
+  if (action.type === SET_AUTH_SESSION && !stateBefore.auth.accessToken) {
     const accessToken = stateAfter.auth.accessToken;
     if (accessToken) {
       const cards = stateAfter.cards.storedCards;
       enqueue(async () => {
-        const token = await ensureValidAccessToken(stateAfter, store.dispatch);
+        const token = await ensureValidAccessToken(store);
         if (!token) return;
+        const { syncApiUrl } = store.getState().settings;
         for (const card of cards) {
           try {
-            const meta = await cardsSyncService.upsertCard(token, card);
+            const meta = await cardsSyncService.upsertCard(syncApiUrl, token, card);
             store.dispatch({
               type: UPDATE_CARD_SYNC_META,
               payload: {
@@ -83,7 +94,7 @@ export const cardsSyncMiddleware: Middleware<{}, RootState> = (store) => (next) 
               },
             });
           } catch (error) {
-            console.error('Failed to sync card', card.id, error);
+            console.error('Failed to batch sync card', card.id, error);
           }
         }
       });
@@ -110,32 +121,49 @@ export const cardsSyncMiddleware: Middleware<{}, RootState> = (store) => (next) 
   }
 
   const run = async () => {
-    const token = await ensureValidAccessToken(stateAfter, store.dispatch);
+    let token = await ensureValidAccessToken(store);
     if (!token) return;
 
-    if (action.type === DELETE_STORED_CARD) {
-      if (!deletedCard) return;
-      await cardsSyncService.deleteCard(token, deletedCard);
-      return;
+    const executeOp = async (tokenStr: string) => {
+      const { syncApiUrl } = store.getState().settings;
+      if (action.type === DELETE_STORED_CARD) {
+        if (!deletedCard) return;
+        await cardsSyncService.deleteCard(syncApiUrl, tokenStr, deletedCard);
+        return;
+      }
+
+      const cardId = action.payload?.id;
+      if (!cardId) return;
+
+      const card = store.getState().cards.storedCards.find((item) => item.id === cardId);
+      if (!card) return;
+
+      const meta = await cardsSyncService.upsertCard(syncApiUrl, tokenStr, card);
+      store.dispatch({
+        type: UPDATE_CARD_SYNC_META,
+        payload: {
+          cardId,
+          syncId: meta.id,
+          syncVersion: meta.version,
+          syncSource: meta.source,
+          syncTags: meta.tags,
+        },
+      });
+    };
+
+    try {
+      await executeOp(token);
+    } catch (error: any) {
+      if (error?.status === 401) {
+        // Token might have been rejected (e.g., backend restarted), force a refresh and retry
+        token = await ensureValidAccessToken(store, true);
+        if (token) {
+          await executeOp(token);
+        }
+      } else {
+        console.error('Card sync operation failed:', error);
+      }
     }
-
-    const cardId = action.payload?.id;
-    if (!cardId) return;
-
-    const card = stateAfter.cards.storedCards.find((item) => item.id === cardId);
-    if (!card) return;
-
-    const meta = await cardsSyncService.upsertCard(token, card);
-    store.dispatch({
-      type: UPDATE_CARD_SYNC_META,
-      payload: {
-        cardId,
-        syncId: meta.id,
-        syncVersion: meta.version,
-        syncSource: meta.source,
-        syncTags: meta.tags,
-      },
-    });
   };
 
   enqueue(run);

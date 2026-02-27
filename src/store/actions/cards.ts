@@ -1,5 +1,5 @@
 import { Dispatch } from 'redux';
-import {CardLangLearning, CardGeneral, createAnkiCards} from "../../services/ankiService";
+import { CardLangLearning, CardGeneral, createAnkiCards } from "../../services/ankiService";
 import { Modes } from '../../constants';
 import { ExportStatus, StoredCard } from '../reducers/cards';
 
@@ -28,13 +28,13 @@ export const SET_EXAMPLES_AUDIO = 'SET_EXAMPLES_AUDIO';
 export const SET_IS_GENERATING_CARD = 'SET_IS_GENERATING_CARD';
 
 export const saveAnkiCards = (
-        mode: Modes, 
-        ankiConnectUrl: string, 
-        ankiConnectApiKey: string | null = null, 
-        deckName: string, 
-        model_name: string, 
-        cards: CardLangLearning[] | CardGeneral[]
-    ) => async (dispatch: Dispatch) => {
+    mode: Modes,
+    ankiConnectUrl: string,
+    ankiConnectApiKey: string | null = null,
+    deckName: string,
+    model_name: string,
+    cards: CardLangLearning[] | CardGeneral[]
+) => async (dispatch: Dispatch) => {
     try {
         const result = await createAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckName, model_name, cards);
         dispatch({ type: SAVE_ANKI_CARDS, payload: result });
@@ -58,10 +58,12 @@ export const saveCardToStorage = (
         wordAudio?: string | null;
         examplesAudio?: Array<string | null>;
         createdAt: Date;
+        syncTags?: string[] | null;
         syncId?: string | null;
         syncVersion?: number | null;
         syncSource?: string | null;
-        syncTags?: string[] | null;
+        deckId?: string | null;
+        ankiDeckName?: string | null;
     }
 ) => {
     console.log('*** ACTION: saveCardToStorage called with card data ***');
@@ -77,7 +79,7 @@ export const saveCardToStorage = (
         imagePreview: card.image?.substring(0, 50),
         imageUrlPreview: card.imageUrl?.substring(0, 50)
     });
-    
+
     const withId = {
         ...card,
         id: (card as any).id ?? Date.now().toString()
@@ -164,7 +166,7 @@ export const updateStoredCard = (updatedCard: StoredCard) => {
         imagePreview: updatedCard.image?.substring(0, 50),
         imageUrlPreview: updatedCard.imageUrl?.substring(0, 50)
     });
-    
+
     return {
         type: UPDATE_STORED_CARD,
         payload: updatedCard,

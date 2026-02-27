@@ -36,13 +36,13 @@ const buildTags = (card: StoredCard): string[] => {
   return tags;
 };
 
-const loadNotesIndex = async (accessToken: string): Promise<Map<string, NoteApi>> => {
+const loadNotesIndex = async (baseUrl: string, accessToken: string): Promise<Map<string, NoteApi>> => {
   if (notesIndexPromise) {
     return notesIndexPromise;
   }
 
   notesIndexPromise = cardsSyncApi
-    .listNotes(accessToken)
+    .listNotes(baseUrl, accessToken)
     .then((notes) => {
       const map = new Map<string, NoteApi>();
       notes.forEach((note) => {
@@ -60,7 +60,7 @@ const loadNotesIndex = async (accessToken: string): Promise<Map<string, NoteApi>
   return notesIndexPromise;
 };
 
-const ensureDefaultDeck = async (accessToken: string): Promise<DeckApi> => {
+const ensureDefaultDeck = async (baseUrl: string, accessToken: string): Promise<DeckApi> => {
   if (deckCache) {
     return deckCache;
   }
@@ -68,7 +68,7 @@ const ensureDefaultDeck = async (accessToken: string): Promise<DeckApi> => {
   const storedDeckId = await authStorage.getDeckId();
   if (storedDeckId) {
     try {
-      const decks = await cardsSyncApi.listDecks(accessToken);
+      const decks = await cardsSyncApi.listDecks(baseUrl, accessToken);
       const found = decks.find((deck) => deck.id === storedDeckId);
       if (found) {
         deckCache = found;
@@ -79,11 +79,11 @@ const ensureDefaultDeck = async (accessToken: string): Promise<DeckApi> => {
     }
   }
 
-  const decks = await cardsSyncApi.listDecks(accessToken);
+  const decks = await cardsSyncApi.listDecks(baseUrl, accessToken);
   let deck = decks.find((item) => item.name === DEFAULT_DECK_NAME);
 
   if (!deck) {
-    deck = await cardsSyncApi.createDeck(accessToken, {
+    deck = await cardsSyncApi.createDeck(baseUrl, accessToken, {
       name: DEFAULT_DECK_NAME,
       description: DEFAULT_DECK_DESCRIPTION,
       color: DEFAULT_DECK_COLOR,
@@ -96,8 +96,25 @@ const ensureDefaultDeck = async (accessToken: string): Promise<DeckApi> => {
 };
 
 export const cardsSyncService = {
-  async upsertCard(accessToken: string, card: StoredCard): Promise<{ id: string; version: number; source: string; tags: string[] }> {
-    const deck = await ensureDefaultDeck(accessToken);
+  async upsertCard(baseUrl: string, accessToken: string, card: StoredCard): Promise<{ id: string; version: number; source: string; tags: string[] }> {
+    let deck: DeckApi;
+    if (card.deckId) {
+      try {
+        const decks = await cardsSyncApi.listDecks(baseUrl, accessToken);
+        const found = decks.find((d) => d.id === card.deckId);
+        if (found) {
+          deck = found;
+        } else {
+          deck = await ensureDefaultDeck(baseUrl, accessToken);
+        }
+      } catch (error) {
+        console.error('Failed to fetch specific deck, falling back to default:', error);
+        deck = await ensureDefaultDeck(baseUrl, accessToken);
+      }
+    } else {
+      deck = await ensureDefaultDeck(baseUrl, accessToken);
+    }
+
     const fieldsJson = buildFieldsJson(card);
     const tags = buildTags(card);
 
@@ -105,18 +122,18 @@ export const cardsSyncService = {
     if (card.syncId) {
       existingNote = { id: card.syncId } as NoteApi;
     } else {
-      const index = await loadNotesIndex(accessToken);
+      const index = await loadNotesIndex(baseUrl, accessToken);
       existingNote = index.get(card.id);
     }
 
     if (existingNote?.id) {
-      const updated = await cardsSyncApi.updateNote(accessToken, existingNote.id, {
+      const updated = await cardsSyncApi.updateNote(baseUrl, accessToken, existingNote.id, {
         fields_json: fieldsJson,
         tags,
         source: DEFAULT_SOURCE,
         ...(typeof card.syncVersion === 'number' ? { base_version: card.syncVersion } : {}),
       });
-      const index = await loadNotesIndex(accessToken);
+      const index = await loadNotesIndex(baseUrl, accessToken);
       index.set(card.id, updated);
       return {
         id: updated.id,
@@ -126,14 +143,14 @@ export const cardsSyncService = {
       };
     }
 
-    const created = await cardsSyncApi.createNote(accessToken, {
+    const created = await cardsSyncApi.createNote(baseUrl, accessToken, {
       deck_id: deck.id,
       guid: card.id,
       fields_json: fieldsJson,
       tags,
       source: DEFAULT_SOURCE,
     });
-    const index = await loadNotesIndex(accessToken);
+    const index = await loadNotesIndex(baseUrl, accessToken);
     index.set(card.id, created);
 
     return {
@@ -144,13 +161,13 @@ export const cardsSyncService = {
     };
   },
 
-  async deleteCard(accessToken: string, card: StoredCard): Promise<void> {
+  async deleteCard(baseUrl: string, accessToken: string, card: StoredCard): Promise<void> {
     let noteId = card.syncId;
     let baseVersion: number | undefined =
       typeof card.syncVersion === 'number' ? card.syncVersion : undefined;
 
     if (!noteId) {
-      const index = await loadNotesIndex(accessToken);
+      const index = await loadNotesIndex(baseUrl, accessToken);
       const note = index.get(card.id);
       if (note) {
         noteId = note.id;
@@ -162,15 +179,15 @@ export const cardsSyncService = {
       return;
     }
 
-    await cardsSyncApi.deleteNote(accessToken, noteId, baseVersion);
-    const index = await loadNotesIndex(accessToken);
+    await cardsSyncApi.deleteNote(baseUrl, accessToken, noteId, baseVersion);
+    const index = await loadNotesIndex(baseUrl, accessToken);
     index.delete(card.id);
   },
 
-  async syncAll(accessToken: string, cards: StoredCard[]): Promise<void> {
+  async syncAll(baseUrl: string, accessToken: string, cards: StoredCard[]): Promise<void> {
     for (const card of cards) {
       try {
-        await this.upsertCard(accessToken, card);
+        await this.upsertCard(baseUrl, accessToken, card);
       } catch (error) {
         console.error('Failed to sync card', card.id, error);
       }

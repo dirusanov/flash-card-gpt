@@ -15,9 +15,11 @@ import {
     SET_MODEL_PROVIDER,
     SET_GROQ_API_KEY,
     SET_GROQ_MODEL_NAME,
-    SET_SOURCE_LANGUAGE
+    SET_SOURCE_LANGUAGE,
+    SET_AUTH_API_URL,
+    SET_SYNC_API_URL
 } from "../actions/settings";
-import {Modes} from "../../constants";
+import { Modes } from "../../constants";
 
 // Define provider types as a constant
 export enum ModelProvider {
@@ -43,6 +45,8 @@ interface SettingsState {
     imageInstructions: string
     modelProvider: ModelProvider
     sourceLanguage: string
+    authApiUrl: string
+    syncApiUrl: string
 }
 
 const initialState: SettingsState = {
@@ -63,7 +67,9 @@ const initialState: SettingsState = {
     imageInstructions: '',
     modelProvider: ModelProvider.OpenAI,
     // Empty by default; auto-detection or explicit user choice will set it
-    sourceLanguage: ''
+    sourceLanguage: '',
+    authApiUrl: 'https://auth.vaultonote.com',
+    syncApiUrl: 'https://api-cards.vaultonote.com'
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {
@@ -152,6 +158,16 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 sourceLanguage: action.payload,
+            };
+        case SET_AUTH_API_URL:
+            return {
+                ...state,
+                authApiUrl: action.payload,
+            };
+        case SET_SYNC_API_URL:
+            return {
+                ...state,
+                syncApiUrl: action.payload,
             };
         default:
             return state;

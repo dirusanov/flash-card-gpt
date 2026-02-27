@@ -47,6 +47,7 @@ const inputStyle: React.CSSProperties = {
 const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
   const dispatch = useDispatch();
   const auth = useSelector((state: RootState) => state.auth);
+  const authApiUrl = useSelector((state: RootState) => state.settings.authApiUrl);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -69,7 +70,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
     setError('');
     dispatch(setAuthLoading(true));
     try {
-      const session = await authService.completeLogin(email.trim(), password.trim());
+      const session = await authService.completeLogin(authApiUrl, email.trim(), password.trim());
       await authStorage.setSession(session);
       dispatch(setAuthSession(session));
     } catch (err: any) {
@@ -91,8 +92,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
     setError('');
     dispatch(setAuthLoading(true));
     try {
-      await authApi.register(email.trim(), password.trim());
-      const session = await authService.completeLogin(email.trim(), password.trim());
+      await authApi.register(authApiUrl, email.trim(), password.trim());
+      const session = await authService.completeLogin(authApiUrl, email.trim(), password.trim());
       await authStorage.setSession(session);
       dispatch(setAuthSession(session));
     } catch (err: any) {
@@ -106,7 +107,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
     setError('');
     setGoogleLoading(true);
     try {
-      const session = await googleOAuth.signInWithGoogle();
+      const session = await googleOAuth.signInWithGoogle(authApiUrl);
       await authStorage.setSession(session);
       dispatch(setAuthSession(session));
     } catch (err: any) {

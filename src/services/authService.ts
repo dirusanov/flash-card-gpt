@@ -1,12 +1,12 @@
 import { authApi } from './authApi';
 import { AuthSession, AuthTokens, LoginResult } from '../types/auth';
 
-const resolveLoginTokens = async (result: LoginResult): Promise<AuthTokens> => {
+const resolveLoginTokens = async (baseUrl: string, result: LoginResult): Promise<AuthTokens> => {
   if (result.needs_legal_acceptance) {
     if (!result.legal_token) {
       throw new Error('Missing legal acceptance token');
     }
-    return authApi.acceptLegal(result.legal_token);
+    return authApi.acceptLegal(baseUrl, result.legal_token);
   }
 
   if (!result.access_token || !result.refresh_token || !result.expires_in) {
@@ -22,10 +22,10 @@ const resolveLoginTokens = async (result: LoginResult): Promise<AuthTokens> => {
 };
 
 export const authService = {
-  async completeLogin(email: string, password: string): Promise<AuthSession> {
-    const loginResult = await authApi.login(email, password);
-    const tokens = await resolveLoginTokens(loginResult);
-    const user = await authApi.getProfile(tokens.access_token);
+  async completeLogin(baseUrl: string, email: string, password: string): Promise<AuthSession> {
+    const loginResult = await authApi.login(baseUrl, email, password);
+    const tokens = await resolveLoginTokens(baseUrl, loginResult);
+    const user = await authApi.getProfile(baseUrl, tokens.access_token);
     const expiresAt = tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : null;
 
     return {
@@ -37,9 +37,9 @@ export const authService = {
     };
   },
 
-  async completeExternalLogin(result: LoginResult): Promise<AuthSession> {
-    const tokens = await resolveLoginTokens(result);
-    const user = await authApi.getProfile(tokens.access_token);
+  async completeExternalLogin(baseUrl: string, result: LoginResult): Promise<AuthSession> {
+    const tokens = await resolveLoginTokens(baseUrl, result);
+    const user = await authApi.getProfile(baseUrl, tokens.access_token);
     const expiresAt = tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : null;
 
     return {

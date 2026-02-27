@@ -1,20 +1,20 @@
 import React, { useState } from 'react';
-import {useDispatch, useSelector} from 'react-redux';
-import {setAnkiConnectApiKey, setAnkiConnectUrl, setGroqApiKey, setGroqModelName, setOpenAiKey, setUseAnkiConnect, setModelProvider} from "../store/actions/settings";
-import {RootState} from "../store";
+import { useDispatch, useSelector } from 'react-redux';
+import { setAnkiConnectApiKey, setAnkiConnectUrl, setGroqApiKey, setGroqModelName, setOpenAiKey, setUseAnkiConnect, setModelProvider, setAuthApiUrl, setSyncApiUrl } from "../store/actions/settings";
+import { RootState } from "../store";
 import chatGptLogo from '../assets/img/chat-gpt.png';
 import CopyIcon from '../assets/img/copy-icon.svg';
 import { ModelProvider } from '../store/reducers/settings';
 import { backgroundFetch } from '../services/backgroundFetch';
 
 interface SettingsProps {
-    onBackClick: () => void;
-    popup: boolean
+  onBackClick: () => void;
+  popup: boolean
 }
 
 const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const dispatch = useDispatch();
-  const [testResults, setTestResults] = useState<{success: boolean, message: string} | null>(null);
+  const [testResults, setTestResults] = useState<{ success: boolean, message: string } | null>(null);
 
   const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
   const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
@@ -23,6 +23,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
   const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
   const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
+  const authApiUrl = useSelector((state: RootState) => state.settings.authApiUrl);
+  const syncApiUrl = useSelector((state: RootState) => state.settings.syncApiUrl);
 
   const handleOpenAiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     dispatch(setOpenAiKey(event.target.value));
@@ -52,6 +54,14 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
     dispatch(setModelProvider(event.target.value as ModelProvider));
     // Clear test results when changing provider
     setTestResults(null);
+  };
+
+  const handleAuthApiUrlChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    dispatch(setAuthApiUrl(event.target.value));
+  };
+
+  const handleSyncApiUrlChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    dispatch(setSyncApiUrl(event.target.value));
   };
 
 
@@ -124,7 +134,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
       });
 
       const data = await response.json();
-      
+
       if (response.ok) {
         console.log("API test response:", data);
         setTestResults({
@@ -150,7 +160,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   // Function to render test results
   const renderTestResults = () => {
     if (!testResults) return null;
-    
+
     return (
       <div style={{
         padding: '10px',
@@ -169,7 +179,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   // Render OpenAI API key section
   const renderOpenAISection = () => {
     if (modelProvider !== ModelProvider.OpenAI) return null;
-    
+
     return (
       <div style={{ marginBottom: '20px' }}>
         <div style={{
@@ -203,10 +213,10 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           color: '#6B7280'
         }}>
           You can get your OpenAI API key from <a href="https://platform.openai.com/account/api-keys" target="_blank"
-                                                  rel="noopener noreferrer" style={{
-            color: '#2563EB',
-            textDecoration: 'underline'
-          }}>here</a>.
+            rel="noopener noreferrer" style={{
+              color: '#2563EB',
+              textDecoration: 'underline'
+            }}>here</a>.
         </p>
         <div style={{
           position: 'relative',
@@ -233,8 +243,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
           />
         </div>
-        
-        <button 
+
+        <button
           onClick={() => testApiConnection(ModelProvider.OpenAI)}
           style={{
             marginTop: '8px',
@@ -249,7 +259,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         >
           Test API Connection
         </button>
-        
+
         {renderTestResults()}
       </div>
     );
@@ -258,7 +268,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   // Render Groq API key section
   const renderGroqSettings = () => {
     if (modelProvider !== ModelProvider.Groq) return null;
-    
+
     return (
       <div style={{ marginBottom: '20px' }}>
         <label htmlFor="groqApiKey" style={{
@@ -274,10 +284,10 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           color: '#6B7280'
         }}>
           You can get your Groq API key from <a href="https://console.groq.com/keys" target="_blank"
-                                                  rel="noopener noreferrer" style={{
-            color: '#2563EB',
-            textDecoration: 'underline'
-          }}>here</a>.
+            rel="noopener noreferrer" style={{
+              color: '#2563EB',
+              textDecoration: 'underline'
+            }}>here</a>.
         </p>
         <input
           type="text"
@@ -300,7 +310,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           onFocus={(e) => e.target.style.borderColor = '#2563EB'}
           onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
         />
-        
+
         <div style={{
           padding: '8px',
           backgroundColor: '#DBEAFE',
@@ -315,7 +325,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             <strong>Note:</strong> Image generation is not available with Groq.
           </p>
         </div>
-        
+
         <label htmlFor="groqModelName" style={{
           display: 'block',
           fontWeight: '600',
@@ -323,7 +333,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           color: '#111827',
           fontSize: '14px'
         }}>Groq Model</label>
-        
+
         <select
           id="groqModelName"
           value={groqModelName}
@@ -350,8 +360,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
           <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
           <option value="gemma-7b-it">Gemma 7B</option>
         </select>
-        
-        <button 
+
+        <button
           onClick={() => testApiConnection(ModelProvider.Groq)}
           style={{
             marginTop: '8px',
@@ -366,7 +376,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         >
           Test API Connection
         </button>
-        
+
         {renderTestResults()}
       </div>
     );
@@ -449,6 +459,76 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
     );
   }
 
+  const renderDeveloperSection = () => {
+    return (
+      <div style={{ marginTop: '30px', borderTop: '1px solid #E5E7EB', paddingTop: '20px', marginBottom: '20px' }}>
+        <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px' }}>Developer Settings</h3>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label htmlFor="authApiUrl" style={{
+            display: 'block', fontWeight: 600, marginBottom: '6px', color: '#111827', fontSize: '13px'
+          }}>Auth API URL</label>
+          <input
+            type="text"
+            id="authApiUrl"
+            value={authApiUrl}
+            onChange={handleAuthApiUrlChange}
+            placeholder="https://auth.vaultonote.com"
+            style={{
+              width: '100%', padding: '8px 12px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #E5E7EB',
+              backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none', transition: 'all 0.2s ease'
+            }}
+            onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+            onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+          />
+          <p style={{ fontSize: '11px', color: '#6B7280', marginTop: '4px' }}>Default: https://auth.vaultonote.com</p>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label htmlFor="syncApiUrl" style={{
+            display: 'block', fontWeight: 600, marginBottom: '6px', color: '#111827', fontSize: '13px'
+          }}>Cards Sync API URL</label>
+          <input
+            type="text"
+            id="syncApiUrl"
+            value={syncApiUrl}
+            onChange={handleSyncApiUrlChange}
+            placeholder="https://api-cards.vaultonote.com"
+            style={{
+              width: '100%', padding: '8px 12px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #E5E7EB',
+              backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none', transition: 'all 0.2s ease'
+            }}
+            onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+            onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+          />
+          <p style={{ fontSize: '11px', color: '#6B7280', marginTop: '4px' }}>Default: https://api-cards.vaultonote.com</p>
+        </div>
+
+        <button
+          onClick={async () => {
+            setTestResults(null);
+            try {
+              const response = await backgroundFetch(`${syncApiUrl}/system/health`, { method: 'GET' });
+              if (response.ok) {
+                setTestResults({ success: true, message: 'Sync Service is reachable! ✅' });
+              } else {
+                setTestResults({ success: false, message: `Sync Service returned status ${response.status}` });
+              }
+            } catch (e: any) {
+              setTestResults({ success: false, message: `Failed to reach Sync Service: ${e?.message || e}` });
+            }
+          }}
+          style={{
+            padding: '6px 12px', backgroundColor: '#4B5563', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px'
+          }}
+        >
+          Test Sync Connection
+        </button>
+        {renderTestResults()}
+      </div>
+    );
+  }
+
   return (
     <div style={{
       boxSizing: 'border-box',
@@ -514,6 +594,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         {renderOpenAISection()}
         {renderGroqSettings()}
         {renderAnkiConnectSection()}
+        {renderDeveloperSection()}
       </div>
 
       <div>

@@ -277,12 +277,19 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             const modelName = 'Basic';
             const selectedCardsData = storedCards.filter(card => selectedCardIds.has(card.id));
 
-            // Group cards by mode
-            const langLearningCards: CardLangLearning[] = [];
-            const generalTopicCards: CardGeneral[] = [];
+            // Group cards by target deck and mode
+            const exportGroups: Record<string, {
+                lang: CardLangLearning[];
+                general: CardGeneral[];
+            }> = {};
 
             // Process cards one by one to handle async image processing
             for (const card of selectedCardsData) {
+                const targetDeckName = card.ankiDeckName || deckId;
+                if (!exportGroups[targetDeckName]) {
+                    exportGroups[targetDeckName] = { lang: [], general: [] };
+                }
+
                 if (card.mode === Modes.LanguageLearning && card.translation) {
                     // Process image data for Anki
                     let processedImageBase64 = null;
@@ -312,15 +319,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         examples_audio_base64: Array.isArray(card.examplesAudio) ? card.examplesAudio : []
                     };
 
-                    debugLog(`Adding language learning card to Anki export:`, {
+                    debugLog(`Adding language learning card to Anki export (Deck: ${targetDeckName}):`, {
                         cardId: card.id,
-                        text: card.text,
-                        hasImage: !!processedImageBase64,
-                        imageLength: processedImageBase64?.length,
-                        imagePreview: processedImageBase64?.substring(0, 30)
+                        text: card.text
                     });
 
-                    langLearningCards.push(ankiCard);
+                    exportGroups[targetDeckName].lang.push(ankiCard);
                 } else if (card.mode === Modes.GeneralTopic && (card.front || card.text) && (card.back || card.text)) {
                     // Process image data for GeneralTopic cards too
                     let processedImageBase64 = null;
@@ -349,7 +353,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                         const reader = new FileReader();
                                         reader.onloadend = () => {
                                             const result = reader.result as string;
-                                            // Extract base64 part
                                             const base64Prefix = 'base64,';
                                             const prefixIndex = result.indexOf(base64Prefix);
                                             if (prefixIndex !== -1) {
@@ -361,15 +364,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                         reader.readAsDataURL(blob);
                                     });
                                     processedImageBase64 = base64Data;
-                                    debugLog(`Successfully converted URL to base64 for card ${card.id}`);
-                                } else {
-                                    console.warn(`Failed to fetch image from URL for card ${card.id}: ${response.status}`);
                                 }
                             } catch (error) {
                                 console.error(`Error fetching image from URL for card ${card.id}:`, error);
                             }
                         } else {
-                            // Assume it's already base64 data
                             processedImageBase64 = imageSource;
                         }
                     }
@@ -381,44 +380,37 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         image_base64: processedImageBase64
                     };
 
-                    debugLog(`Adding general topic card to Anki export:`, {
+                    debugLog(`Adding general topic card to Anki export (Deck: ${targetDeckName}):`, {
                         cardId: card.id,
-                        text: card.text,
-                        hasImage: !!processedImageBase64,
-                        imageLength: processedImageBase64?.length,
-                        imagePreview: processedImageBase64?.substring(0, 30),
-                        originalImageSource: imageSource?.substring(0, 50),
-                        hadImageField: !!card.image,
-                        hadImageUrlField: !!card.imageUrl,
-                        usedField: card.image ? 'image' : card.imageUrl ? 'imageUrl' : 'none'
+                        text: card.text
                     });
 
-                    generalTopicCards.push(generalCard);
+                    exportGroups[targetDeckName].general.push(generalCard);
                 }
             }
 
-            // Save language learning cards
-            if (langLearningCards.length > 0) {
-                await dispatch(saveAnkiCards(
-                    Modes.LanguageLearning,
-                    ankiConnectUrl,
-                    ankiConnectApiKey,
-                    deckId,
-                    modelName,
-                    langLearningCards
-                ));
-            }
-
-            // Save general topic cards
-            if (generalTopicCards.length > 0) {
-                await dispatch(saveAnkiCards(
-                    Modes.GeneralTopic,
-                    ankiConnectUrl,
-                    ankiConnectApiKey,
-                    deckId,
-                    modelName,
-                    generalTopicCards
-                ));
+            // Export each group to its respective deck
+            for (const [targetDeckName, groups] of Object.entries(exportGroups)) {
+                if (groups.lang.length > 0) {
+                    await dispatch(saveAnkiCards(
+                        Modes.LanguageLearning,
+                        ankiConnectUrl,
+                        ankiConnectApiKey,
+                        targetDeckName,
+                        modelName,
+                        groups.lang
+                    ));
+                }
+                if (groups.general.length > 0) {
+                    await dispatch(saveAnkiCards(
+                        Modes.GeneralTopic,
+                        ankiConnectUrl,
+                        ankiConnectApiKey,
+                        targetDeckName,
+                        modelName,
+                        groups.general
+                    ));
+                }
             }
 
             // Update export status for selected cards
@@ -1109,7 +1101,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         // Просто устанавливаем локальное состояние для редактирования
         // БЕЗ изменения глобального Redux state
         setEditingCard(card);
-        setLocalEditingCardData({...card}); // Создаем копию для локального редактирования
+        setLocalEditingCardData({ ...card }); // Создаем копию для локального редактирования
         setShowEditModal(true);
         setCustomInstruction('');
         setIsProcessingCustomInstruction(false);
@@ -1662,7 +1654,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         onNewExamples={handleNewExamplesInModal}
                         onGenerateAudio={handleGenerateAudioInModal}
                         onAccept={handleSaveEditFromModal}
-                        onViewSavedCards={() => {}}
+                        onViewSavedCards={() => { }}
                         onCancel={handleCancelEdit}
                         loadingNewImage={false}
                         loadingNewExamples={loadingNewExamples}
@@ -2260,13 +2252,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 title={
                                     editingCard !== null ? 'Finish editing first' :
                                         !isAnkiAvailable && useAnkiConnect ? 'Anki Connect is not available' :
-                                        !deckId && useAnkiConnect ? 'Please select a deck first' : ''
+                                            !deckId && useAnkiConnect ? 'Please select a deck first' : ''
                                 }
                             >
                                 {isLoading ?
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader type="spinner" size="small" inline color="#ffffff" text="Saving to Anki" />
-    </div> : 'Save to Anki'}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Loader type="spinner" size="small" inline color="#ffffff" text="Saving to Anki" />
+                                    </div> : 'Save to Anki'}
                             </button>
                             <button
                                 onClick={exportCardsAsFile}
