@@ -54,6 +54,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
     setTestResults(null);
   };
 
+
   const handleBackClick = () => {
     onBackClick();
   };

@@ -6,6 +6,7 @@ import App from '../../App';
 import { Provider } from 'react-redux';
 import { instantiateStore } from '../../store';
 import { initializeApiKeyPersistence } from '../../services/apiKeyStorage';
+import { initializeAuthPersistence } from '../../services/authPersistence';
 import { setCurrentTabId } from '../../store/actions/tabState';
 
 console.log('Content script works!');
@@ -31,10 +32,19 @@ newDiv.setAttribute('style', `
 `);
 
 const shadow = newDiv.attachShadow({ mode: 'open' });
-const linkElem = document.createElement('link');
-linkElem.setAttribute('rel', 'stylesheet');
-linkElem.setAttribute('href', chrome.runtime.getURL('tailwind.css'));
-shadow.appendChild(linkElem);
+const styleFiles = [
+  'tailwind.css',
+  'assets/styles/richMarkdownStyles.css',
+  'assets/styles/grammarStyles.css',
+  'assets/styles/prism-theme.css',
+  'assets/styles/transcriptionStyles.css',
+];
+styleFiles.forEach((file) => {
+  const linkElem = document.createElement('link');
+  linkElem.setAttribute('rel', 'stylesheet');
+  linkElem.setAttribute('href', chrome.runtime.getURL(file));
+  shadow.appendChild(linkElem);
+});
 
 // Безопасно дождаться появления <body> на document_start
 const mountSidebarHost = () => {
@@ -204,6 +214,7 @@ const StoreInitializer = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [tabId, setTabId] = useState(null);
   const apiKeyUnsubscribeRef = useRef(null);
+  const authUnsubscribeRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -263,6 +274,17 @@ const StoreInitializer = () => {
           console.error('Failed to initialize API key persistence:', error);
         }
 
+        try {
+          const unsubscribeAuth = await initializeAuthPersistence(resolvedStore);
+          if (isMounted) {
+            authUnsubscribeRef.current = unsubscribeAuth;
+          } else if (typeof unsubscribeAuth === 'function') {
+            unsubscribeAuth();
+          }
+        } catch (error) {
+          console.error('Failed to initialize auth persistence:', error);
+        }
+
         setTimeout(() => setIsLoading(false), 100);
       } catch (error) {
         console.error('Error initializing store:', error);
@@ -277,6 +299,10 @@ const StoreInitializer = () => {
       if (apiKeyUnsubscribeRef.current) {
         apiKeyUnsubscribeRef.current();
         apiKeyUnsubscribeRef.current = null;
+      }
+      if (authUnsubscribeRef.current) {
+        authUnsubscribeRef.current();
+        authUnsubscribeRef.current = null;
       }
     };
   }, []);

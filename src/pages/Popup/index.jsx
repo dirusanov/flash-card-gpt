@@ -6,6 +6,7 @@ import Popup from './Popup';
 import './index.css';
 import { instantiateStore } from '../../store';
 import { initializeApiKeyPersistence } from '../../services/apiKeyStorage';
+import { initializeAuthPersistence } from '../../services/authPersistence';
 
 const container = document.getElementById('app-container');
 const root = createRoot(container);
@@ -13,6 +14,7 @@ const root = createRoot(container);
 const StoreInitializer = () => {
   const [store, setStore] = useState(null);
   const apiKeyUnsubscribeRef = useRef(null);
+  const authUnsubscribeRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -35,6 +37,17 @@ const StoreInitializer = () => {
         } catch (error) {
           console.error('Failed to initialize API key persistence:', error);
         }
+
+        try {
+          const unsubscribeAuth = await initializeAuthPersistence(resolvedStore);
+          if (isMounted) {
+            authUnsubscribeRef.current = unsubscribeAuth;
+          } else if (typeof unsubscribeAuth === 'function') {
+            unsubscribeAuth();
+          }
+        } catch (error) {
+          console.error('Failed to initialize auth persistence:', error);
+        }
       })
       .catch((error) => console.error('Error loading state from Chrome storage:', error));
 
@@ -43,6 +56,10 @@ const StoreInitializer = () => {
       if (apiKeyUnsubscribeRef.current) {
         apiKeyUnsubscribeRef.current();
         apiKeyUnsubscribeRef.current = null;
+      }
+      if (authUnsubscribeRef.current) {
+        authUnsubscribeRef.current();
+        authUnsubscribeRef.current = null;
       }
     };
   }, []);

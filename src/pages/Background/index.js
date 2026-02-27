@@ -163,6 +163,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'googleAuthFlow') {
+    const { url } = msg;
+    if (!url) {
+      sendResponse({ ok: false, error: 'Missing OAuth URL' });
+      return true;
+    }
+    try {
+      chrome.identity.launchWebAuthFlow({ url, interactive: true }, (responseUrl) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        if (!responseUrl) {
+          sendResponse({ ok: false, error: 'Google sign-in was cancelled.' });
+          return;
+        }
+        sendResponse({ ok: true, url: responseUrl });
+      });
+    } catch (error) {
+      sendResponse({ ok: false, error: String(error) });
+    }
+    return true;
+  }
+
   if (msg.action === 'getTabId') {
     sendResponse({ tabId: sender.tab ? sender.tab.id : null });
     return true;

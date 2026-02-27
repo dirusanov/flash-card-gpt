@@ -19,6 +19,7 @@ import {
     SET_WORD_AUDIO,
     SET_EXAMPLES_AUDIO,
     SET_IS_GENERATING_CARD,
+    UPDATE_CARD_SYNC_META,
 } from '../actions/cards';
 import {CardLangLearning, CardGeneral} from "../../services/ankiService";
 import { Modes } from '../../constants';
@@ -48,6 +49,10 @@ export interface StoredCard {
     transcription?: string;
     wordAudio?: string | null;
     examplesAudio?: Array<string | null>;
+    syncId?: string | null;
+    syncVersion?: number | null;
+    syncSource?: string | null;
+    syncTags?: string[] | null;
 }
 
 const initialState: CardState = {
@@ -136,7 +141,11 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 linguisticInfo: action.payload.linguisticInfo || "",
                 transcription: action.payload.transcription || "",
                 wordAudio: action.payload.wordAudio ?? null,
-                examplesAudio: Array.isArray(action.payload.examplesAudio) ? action.payload.examplesAudio : []
+                examplesAudio: Array.isArray(action.payload.examplesAudio) ? action.payload.examplesAudio : [],
+                syncId: action.payload.syncId ?? null,
+                syncVersion: typeof action.payload.syncVersion === 'number' ? action.payload.syncVersion : null,
+                syncSource: action.payload.syncSource ?? null,
+                syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null
             };
             const newCard: StoredCard = {
                 ...newCardData,
@@ -214,7 +223,15 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                             wordAudio: action.payload.wordAudio ?? card.wordAudio ?? null,
                             examplesAudio: Array.isArray(action.payload.examplesAudio)
                                 ? action.payload.examplesAudio
-                                : (Array.isArray(card.examplesAudio) ? card.examplesAudio : [])
+                                : (Array.isArray(card.examplesAudio) ? card.examplesAudio : []),
+                            syncId: action.payload.syncId ?? card.syncId ?? null,
+                            syncVersion: typeof action.payload.syncVersion === 'number'
+                                ? action.payload.syncVersion
+                                : (typeof card.syncVersion === 'number' ? card.syncVersion : null),
+                            syncSource: action.payload.syncSource ?? card.syncSource ?? null,
+                            syncTags: Array.isArray(action.payload.syncTags)
+                                ? action.payload.syncTags
+                                : (Array.isArray(card.syncTags) ? card.syncTags : null)
                         }
                         : card
                 );
@@ -227,11 +244,28 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                     linguisticInfo: action.payload.linguisticInfo || "",
                     transcription: action.payload.transcription || "",
                     wordAudio: action.payload.wordAudio ?? null,
-                    examplesAudio: Array.isArray(action.payload.examplesAudio) ? action.payload.examplesAudio : []
+                    examplesAudio: Array.isArray(action.payload.examplesAudio) ? action.payload.examplesAudio : [],
+                    syncId: action.payload.syncId ?? null,
+                    syncVersion: typeof action.payload.syncVersion === 'number' ? action.payload.syncVersion : null,
+                    syncSource: action.payload.syncSource ?? null,
+                    syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null
                 };
                 newState.storedCards = [...state.storedCards, newCardToAdd];
                 debugLog('UPDATE_STORED_CARD: Added new card with ID:', action.payload.id, 'image:', !!newCardToAdd.image);
             }
+            break;
+        case UPDATE_CARD_SYNC_META:
+            newState.storedCards = state.storedCards.map((card) =>
+                card.id === action.payload.cardId
+                    ? {
+                        ...card,
+                        syncId: action.payload.syncId,
+                        syncVersion: action.payload.syncVersion,
+                        syncSource: action.payload.syncSource,
+                        syncTags: action.payload.syncTags,
+                    }
+                    : card
+            );
             break;
         case LOAD_STORED_CARDS:
             // This will be handled by the persistence middleware
@@ -241,7 +275,11 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 ...card,
                 createdAt: ensureDate(card.createdAt),
                 wordAudio: card.wordAudio ?? null,
-                examplesAudio: Array.isArray(card.examplesAudio) ? card.examplesAudio : []
+                examplesAudio: Array.isArray(card.examplesAudio) ? card.examplesAudio : [],
+                syncId: card.syncId ?? null,
+                syncVersion: typeof card.syncVersion === 'number' ? card.syncVersion : null,
+                syncSource: card.syncSource ?? null,
+                syncTags: Array.isArray(card.syncTags) ? card.syncTags : null
             }));
             newState.storedCards = normalizedCards;
             break;

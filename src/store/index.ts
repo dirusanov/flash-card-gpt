@@ -11,6 +11,8 @@ import notificationsReducer from './reducers/notifications';
 import tabStateReducer from './reducers/tabState';
 import cardsLocalStorageMiddleware from './middleware/cardsLocalStorage';
 import { viewReducer } from './reducers/view';
+import { authReducer } from './reducers/auth';
+import cardsSyncMiddleware from './middleware/cardsSyncMiddleware';
 
 const rootReducer = combineReducers({
     deck: decksReducer,
@@ -22,12 +24,13 @@ const rootReducer = combineReducers({
     notifications: notificationsReducer,
     tabState: tabStateReducer,
     view: viewReducer,
+    auth: authReducer,
 });
 
 export type RootState = ReturnType<typeof rootReducer>;
 
 const storeCreator = (preloadedState?: RootState) => 
-  createStore(rootReducer, preloadedState, applyMiddleware(thunk, cardsLocalStorageMiddleware));
+  createStore(rootReducer, preloadedState, applyMiddleware(thunk, cardsLocalStorageMiddleware, cardsSyncMiddleware));
 
 const instantiateStoreBase = setupReduxed(storeCreator);
 

@@ -4,13 +4,14 @@ import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from './store';
 import CreateCard from './components/CreateCard';
 import Settings from './components/Settings';
+import AuthScreen from './components/AuthScreen';
 import StoredCards from './components/StoredCards';
 import { fetchDecksSuccess } from './store/actions/decks';
 import { fetchDecks } from './services/ankiService';
 import { setAnkiAvailability } from './store/actions/anki';
 import { toggleSidebar } from './store/actions/sidebar';
 import GlobalNotifications from './components/GlobalNotifications';
-import { FaList, FaCog, FaTimes, FaPlus, FaColumns, FaExpandArrowsAlt } from 'react-icons/fa';
+import { FaList, FaCog, FaTimes, FaPlus, FaColumns, FaExpandArrowsAlt, FaUser } from 'react-icons/fa';
 import { loadStoredCards } from './store/actions/cards';
 import { setCurrentTabId } from './store/actions/tabState';
 import { TabAwareProvider, useTabAware } from './components/TabAwareProvider';
@@ -61,10 +62,59 @@ const DRAG_BAR_H = 32;                 // высота зоны перетаск
 const SAFE_TOP = DRAG_BAR_H + 8;       // общий внутренний верхний отступ в float
 const FLOAT_Z = 2147483646;            // z-index окна
 const ensureFloatingRoot = () => {
-  const id = 'anki-floating-root';
-  let el = document.getElementById(id);
-  if (!el) { el = document.createElement('div'); el.id = id; document.body.appendChild(el); }
-  return el;
+  const hostId = 'anki-floating-root';
+  const mountId = 'anki-floating-mount';
+  const styleId = 'anki-floating-tailwind';
+  const extraStyleIds = [
+    'anki-floating-rich-markdown',
+    'anki-floating-grammar',
+    'anki-floating-prism',
+    'anki-floating-transcription',
+  ];
+  let host = document.getElementById(hostId);
+  if (!host) {
+    host = document.createElement('div');
+    host.id = hostId;
+    document.body.appendChild(host);
+  }
+
+  const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
+
+  let link = shadow.getElementById(styleId) as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement('link');
+    link.id = styleId;
+    link.rel = 'stylesheet';
+    link.href = chrome.runtime.getURL('tailwind.css');
+    shadow.appendChild(link);
+  }
+
+  const extraFiles = [
+    { id: extraStyleIds[0], file: 'assets/styles/richMarkdownStyles.css' },
+    { id: extraStyleIds[1], file: 'assets/styles/grammarStyles.css' },
+    { id: extraStyleIds[2], file: 'assets/styles/prism-theme.css' },
+    { id: extraStyleIds[3], file: 'assets/styles/transcriptionStyles.css' },
+  ];
+
+  extraFiles.forEach(({ id, file }) => {
+    let extra = shadow.getElementById(id) as HTMLLinkElement | null;
+    if (!extra) {
+      extra = document.createElement('link');
+      extra.id = id;
+      extra.rel = 'stylesheet';
+      extra.href = chrome.runtime.getURL(file);
+      shadow.appendChild(extra);
+    }
+  });
+
+  let mount = shadow.getElementById(mountId) as HTMLDivElement | null;
+  if (!mount) {
+    mount = document.createElement('div');
+    mount.id = mountId;
+    shadow.appendChild(mount);
+  }
+
+  return mount;
 };
 
 const forceRemoveSidebarGap = (enable: boolean) => {
@@ -164,6 +214,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [viewHydrated, setViewHydrated] = useState(false);
   const dispatch = useDispatch();
+  const auth = useSelector((s: RootState) => s.auth);
   const ankiConnectApiKey = useSelector((s: RootState) => s.settings.ankiConnectApiKey);
   const ankiConnectUrl = useSelector((s: RootState) => s.settings.ankiConnectUrl);
 
@@ -604,6 +655,8 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   // Контент страниц (без safeTop — он теперь у контейнера header)
   const renderMainContent = () => {
     switch (currentPage) {
+      case 'auth':
+        return <div style={sharedContentStyle}><AuthScreen onBackClick={() => handlePageChange('createCard')} /></div>;
       case 'settings':
         return <div style={sharedContentStyle}><Settings onBackClick={() => handlePageChange('createCard')} popup={false} /></div>;
       case 'storedCards':
@@ -735,6 +788,26 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
           >
             <FaList size={16} />
             <span>Cards</span>
+          </button>
+
+          <button
+            onClick={() => handlePageChange('auth')}
+            className="nav-button"
+            style={{
+              backgroundColor: currentPage === 'auth' ? '#EFF6FF' : '#F9FAFB',
+              border: `1px solid ${currentPage === 'auth' ? '#BFDBFE' : '#E5E7EB'}`,
+              cursor: 'pointer', padding: '10px 14px',
+              color: currentPage === 'auth' ? '#2563EB' : (auth.accessToken ? '#111827' : '#6B7280'),
+              borderRadius: '10px', transition: 'all 0.2s ease', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', flex: 1, gap: '3px', fontSize: '11px',
+              fontWeight: currentPage === 'auth' ? 600 : 500,
+              boxShadow: currentPage === 'auth' ? '0 2px 4px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+              opacity: 1
+            }}
+            title={auth.accessToken ? 'Account' : 'Sign in to sync cards'}
+          >
+            <FaUser size={16} />
+            <span>{auth.accessToken ? 'Account' : 'Login'}</span>
           </button>
 
           <button

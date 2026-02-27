@@ -18,6 +18,7 @@ export const SET_STORED_CARDS = 'SET_STORED_CARDS';
 export const UPDATE_CARD_EXPORT_STATUS = 'UPDATE_CARD_EXPORT_STATUS';
 export const UPDATE_STORED_CARD = 'UPDATE_STORED_CARD';
 export const SET_CURRENT_CARD_ID = 'SET_CURRENT_CARD_ID';
+export const UPDATE_CARD_SYNC_META = 'UPDATE_CARD_SYNC_META';
 export const SET_LINGUISTIC_INFO = 'SET_LINGUISTIC_INFO';
 export const SET_TRANSCRIPTION = 'SET_TRANSCRIPTION';
 export const SET_WORD_AUDIO = 'SET_WORD_AUDIO';
@@ -45,6 +46,7 @@ export const saveAnkiCards = (
 
 export const saveCardToStorage = (
     card: {
+        id?: string;
         mode: Modes;
         front?: string;
         back?: string | null;
@@ -56,6 +58,10 @@ export const saveCardToStorage = (
         wordAudio?: string | null;
         examplesAudio?: Array<string | null>;
         createdAt: Date;
+        syncId?: string | null;
+        syncVersion?: number | null;
+        syncSource?: string | null;
+        syncTags?: string[] | null;
     }
 ) => {
     console.log('*** ACTION: saveCardToStorage called with card data ***');
@@ -72,9 +78,14 @@ export const saveCardToStorage = (
         imageUrlPreview: card.imageUrl?.substring(0, 50)
     });
     
+    const withId = {
+        ...card,
+        id: (card as any).id ?? Date.now().toString()
+    };
+
     return {
         type: SAVE_CARD_TO_STORAGE,
-        payload: card,
+        payload: withId,
     };
 };
 
@@ -159,6 +170,17 @@ export const updateStoredCard = (updatedCard: StoredCard) => {
         payload: updatedCard,
     };
 };
+
+export const updateCardSyncMeta = (payload: {
+    cardId: string;
+    syncId: string;
+    syncVersion: number;
+    syncSource: string;
+    syncTags: string[];
+}) => ({
+    type: UPDATE_CARD_SYNC_META,
+    payload,
+});
 
 export const setCurrentCardId = (id: string | null) => ({
     type: SET_CURRENT_CARD_ID,
