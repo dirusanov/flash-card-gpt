@@ -9,7 +9,7 @@ import { StoredCard, ExportStatus } from '../store/reducers/cards';
 import { useTabAware } from './TabAwareProvider';
 import { Modes } from '../constants';
 import { FaTrash, FaDownload, FaSync, FaEdit, FaTimes, FaChevronLeft, FaChevronRight, FaMagic } from 'react-icons/fa';
-import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards } from '../services/ankiService';
+import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards, format_back_lang_learning } from '../services/ankiService';
 import { cardsSyncService } from '../services/cardsSyncService';
 import { authApi } from '../services/authApi';
 import { authStorage } from '../services/authStorage';
@@ -2189,111 +2189,23 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                     // Front is the studied word/phrase (fallback to front if text missing)
                     const front = (card.text || card.front || '').trim();
 
-                    // Start building the back without any images
-                    let back = '';
+                    // Map StoredCard to a format compatible with ankiService formatting helpers
+                    const cardForFormatting = {
+                        ...card,
+                        image_base64: card.image || card.imageUrl, // Handle both
+                        word_audio_base64: card.wordAudio,
+                        examples_audio_base64: card.examplesAudio,
+                        // For file export, we want to embed the audio directly as data URIs
+                        ankiAudioTag: card.wordAudio ?
+                            (card.wordAudio.startsWith('data:') ? card.wordAudio : `data:audio/mpeg;base64,${card.wordAudio}`) :
+                            '',
+                        exampleAudioTags: (card.examplesAudio || []).map(audio =>
+                            audio ? (audio.startsWith('data:') ? audio : `data:audio/mpeg;base64,${audio}`) : ''
+                        )
+                    };
 
-                    // Add translation
-                    if (card.translation) {
-                        back += `<b>${card.translation}</b>`;
-                    }
-
-                    // Add examples
-                    if (card.examples && card.examples.length > 0) {
-                        back += "<br><br>";
-
-                        card.examples.forEach(([ex, trans], exIndex) => {
-                            back += `${exIndex + 1}. ${ex}`;
-                            if (trans) {
-                                back += `<br><span style='font-size: 0.8em;'><i>${trans}</i></span>`;
-                            }
-                            back += "<br><br>";
-                        });
-                    }
-
-                    // Add the actual image if the card has one
-                    if (card.image) {
-                        // The image is already in base64 format, but may start with data:image/png;base64, or similar prefix
-                        let imageData = card.image;
-
-                        // Extract the actual base64 data if it has a prefix
-                        if (imageData.startsWith('data:')) {
-                            const base64Prefix = 'base64,';
-                            const prefixIndex = imageData.indexOf(base64Prefix);
-                            if (prefixIndex !== -1) {
-                                // Extract just the base64 part without the prefix
-                                const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
-                                // Anki format requires just the raw base64 without data URI
-                                back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                            } else {
-                                // Fallback if prefix structure is unexpected
-                                back += `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                            }
-                        } else {
-                            // If it's already just base64 data, use it directly
-                            back += `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        }
-                    } else if (card.imageUrl) {
-                        // ImageUrl might be a base64 string or a URL
-                        let imageUrl = card.imageUrl;
-
-                        if (imageUrl.startsWith('data:')) {
-                            // Extract the actual base64 data if it has a prefix
-                            const base64Prefix = 'base64,';
-                            const prefixIndex = imageUrl.indexOf(base64Prefix);
-                            if (prefixIndex !== -1) {
-                                // Extract just the base64 part without the prefix
-                                const rawBase64 = imageUrl.substring(prefixIndex + base64Prefix.length);
-                                // Anki format requires just the raw base64 without data URI
-                                back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                            } else {
-                                // Fallback if prefix structure is unexpected
-                                back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                            }
-                        } else if (imageUrl.startsWith('http')) {
-                            // For remote URLs, just use as is
-                            back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        } else {
-                            // If it's already just base64 data, use it directly
-                            back += `<div><img src="data:image/jpeg;base64,${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        }
-                    }
-
-                    // Add linguistic information with beautiful formatting
-                    if (card.linguisticInfo && card.linguisticInfo.trim()) {
-                        const linguisticText = card.linguisticInfo.trim();
-
-                        // Split by lines and format each section
-                        const lines = linguisticText.split('\n').filter(line => line.trim());
-                        let formattedLinguistic = '';
-
-                        lines.forEach(line => {
-                            const trimmedLine = line.trim();
-
-                            // Check if this is a header line (starts with capital letter and ends with colon)
-                            if (trimmedLine.match(/^[А-ЯЁA-Z][^:]*:$/)) {
-                                formattedLinguistic += `<div style="color: #2563EB; font-weight: bold; margin-top: 12px; margin-bottom: 4px;">${trimmedLine}</div>`;
-                            }
-                            // Check if this is a bullet point or list item
-                            else if (trimmedLine.startsWith('•') || trimmedLine.startsWith('-') || trimmedLine.startsWith('*')) {
-                                const content = trimmedLine.replace(/^[•\-*]\s*/, '');
-                                formattedLinguistic += `<div style="margin-left: 16px; margin-bottom: 2px; color: #374151;">• ${content}</div>`;
-                            }
-                            // Check if this contains label-value pairs (like "Part of speech: Noun")
-                            else if (trimmedLine.includes(':') && !trimmedLine.endsWith(':')) {
-                                const [label, ...valueParts] = trimmedLine.split(':');
-                                const value = valueParts.join(':').trim();
-                                formattedLinguistic += `<div style="margin-bottom: 4px;"><span style="color: #6B7280; font-weight: 500;">${label.trim()}:</span> <span style="color: #111827;">${value}</span></div>`;
-                            }
-                            // Regular text
-                            else if (trimmedLine) {
-                                formattedLinguistic += `<div style="margin-bottom: 6px; color: #374151; line-height: 1.4;">${trimmedLine}</div>`;
-                            }
-                        });
-
-                        if (formattedLinguistic) {
-                            back += `<div style="margin-top: 20px; padding: 12px; background-color: #F8FAFC; border-left: 4px solid #2563EB; border-radius: 0 6px 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);"><div style="color: #1E40AF; font-weight: bold; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 6px;">📚</span>Grammar & Linguistics</div>${formattedLinguistic}</div>`;
-                        }
-                    }
+                    // Use the shared formatting logic from ankiService
+                    const back = format_back_lang_learning(cardForFormatting);
 
                     // Clean the front and back content to avoid tab/newline issues
                     const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
