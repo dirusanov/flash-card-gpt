@@ -1,6 +1,6 @@
 import { Middleware } from 'redux';
 import { RootState } from '..';
-import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS } from '../actions/cards';
+import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS, SET_STORED_CARDS } from '../actions/cards';
 import { SAVE_TAB_CARD, DELETE_TAB_CARD, UPDATE_TAB_STORED_CARD, UPDATE_TAB_CARD_EXPORT_STATUS, SET_CURRENT_TAB_ID } from '../actions/tabState';
 import { StoredCard } from '../reducers/cards';
 
@@ -535,6 +535,7 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
         case DELETE_STORED_CARD:
         case UPDATE_STORED_CARD:
         case UPDATE_CARD_EXPORT_STATUS:
+        case SET_STORED_CARDS:
             try {
                 // Get the current state after the action has been processed
                 const state = store.getState();

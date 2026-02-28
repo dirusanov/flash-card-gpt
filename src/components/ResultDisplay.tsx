@@ -809,18 +809,6 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             </div>
                         )}
                         
-                        {!isEditMode && isSaved && (
-                            // Для сохраненных карточек показываем индикатор статуса
-                            <div className="flex w-full items-center justify-center gap-2 rounded-md border border-emerald-100 bg-emerald-50 p-2.5">
-                                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
-                                    <FaCheck size={12} />
-                                </div>
-                                <span className="text-sm font-semibold text-emerald-600">
-                                    Saved to Collection
-                                </span>
-                            </div>
-                        )}
-
                         {/* Пояснительный текст под кнопкой */}
                         {!isEditMode && !isSaved && !loadingGetResult && (
                             <p className="m-0 mt-1 text-center text-[11px] text-gray-500">

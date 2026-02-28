@@ -3,13 +3,18 @@ import { useDispatch, useSelector } from 'react-redux';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from '../store';
-import { saveAnkiCards } from '../store/actions/cards';
+import { saveAnkiCards, UPDATE_CARD_SYNC_META } from '../store/actions/cards';
 import { setAnkiAvailability } from '../store/actions/anki';
 import { StoredCard, ExportStatus } from '../store/reducers/cards';
 import { useTabAware } from './TabAwareProvider';
 import { Modes } from '../constants';
 import { FaTrash, FaDownload, FaSync, FaEdit, FaTimes, FaChevronLeft, FaChevronRight, FaMagic } from 'react-icons/fa';
-import { CardLangLearning, CardGeneral, fetchDecks } from '../services/ankiService';
+import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards } from '../services/ankiService';
+import { cardsSyncService } from '../services/cardsSyncService';
+import { authApi } from '../services/authApi';
+import { authStorage } from '../services/authStorage';
+import { setAuthSession, clearAuthSession } from '../store/actions/auth';
+import DeckSelector from './CreateCard/DeckSelector';
 import useErrorNotification from './useErrorHandler';
 import { setDeckId } from '../store/actions/decks';
 import Loader from './Loader';
@@ -44,6 +49,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const sourceLanguage = useSelector((state: RootState) => state.settings.sourceLanguage);
+    const auth = useSelector((state: RootState) => state.auth);
+    const authApiUrl = useSelector((state: RootState) => state.settings.authApiUrl);
+    const syncApiUrl = useSelector((state: RootState) => state.settings.syncApiUrl);
 
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -62,6 +70,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
     const [loadingAudio, setLoadingAudio] = useState(false);
     const [loadingAccept, setLoadingAccept] = useState(false);
+    const [loadingSync, setLoadingSync] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
 
@@ -1126,6 +1135,93 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         debugLog('Edit canceled, modal should be hidden now.');
     };
 
+    const isTokenExpired = (expiresAt: number | null): boolean => {
+        if (!expiresAt) return false;
+        return Date.now() > expiresAt - 60_000;
+    };
+
+    const ensureValidAccessToken = async (): Promise<string | null> => {
+        const { accessToken, refreshToken, expiresAt, user } = auth;
+        if (!accessToken) return null;
+
+        if (!isTokenExpired(expiresAt)) {
+            return accessToken;
+        }
+
+        if (!refreshToken) {
+            return null;
+        }
+
+        try {
+            const refreshed = await authApi.refresh(authApiUrl, refreshToken);
+            if (!refreshed.access_token) {
+                return null;
+            }
+
+            const nextSession = {
+                accessToken: refreshed.access_token,
+                refreshToken: refreshed.refresh_token ?? null,
+                expiresAt: refreshed.expires_in ? Date.now() + refreshed.expires_in * 1000 : null,
+                tokenType: refreshed.token_type ?? 'bearer',
+                user: user ?? null,
+            };
+
+            await authStorage.setSession(nextSession);
+            dispatch(setAuthSession(nextSession));
+            return nextSession.accessToken;
+        } catch (error) {
+            console.error('Token refresh failed:', error);
+            await authStorage.clearSession();
+            dispatch(clearAuthSession());
+            return null;
+        }
+    };
+
+    const buildUpdatedCardData = (): StoredCard | null => {
+        if (!editingCard || !localEditingCardData) return null;
+
+        const updatedCardData: StoredCard = {
+            ...editingCard,
+            text: localEditingCardData.text || editingCard.text || '',
+            translation: localEditingCardData.translation || editingCard.translation || '',
+            examples: Array.isArray(localEditingCardData.examples)
+                ? localEditingCardData.examples
+                : (Array.isArray(editingCard.examples) ? editingCard.examples : []),
+            front: localEditingCardData.front || editingCard.front || '',
+            back: localEditingCardData.back || editingCard.back || '',
+            image: localEditingCardData.image || editingCard.image || null,
+            imageUrl: localEditingCardData.imageUrl || editingCard.imageUrl || null,
+            linguisticInfo: localEditingCardData.linguisticInfo || editingCard.linguisticInfo || '',
+            transcription: localEditingCardData.transcription || editingCard.transcription || '',
+            wordAudio: localEditingCardData.wordAudio || editingCard.wordAudio || null,
+            examplesAudio: Array.isArray(localEditingCardData.examplesAudio)
+                ? localEditingCardData.examplesAudio
+                : (Array.isArray(editingCard.examplesAudio) ? editingCard.examplesAudio : []),
+            ankiDeckName: localEditingCardData.ankiDeckName ?? editingCard.ankiDeckName ?? null,
+            deckId: localEditingCardData.deckId ?? editingCard.deckId ?? null,
+        };
+
+        if (updatedCardData.mode === Modes.LanguageLearning) {
+            if (!updatedCardData.text || !updatedCardData.translation) {
+                showError('Please provide both text and translation');
+                return null;
+            }
+
+            updatedCardData.text = updatedCardData.text.trim();
+            updatedCardData.translation = updatedCardData.translation.trim();
+        } else {
+            if (!updatedCardData.front || !updatedCardData.back) {
+                showError('Please provide both front and back content');
+                return null;
+            }
+
+            updatedCardData.front = updatedCardData.front.trim();
+            updatedCardData.back = updatedCardData.back?.trim() || null;
+        }
+
+        return updatedCardData;
+    };
+
     // Save edited card from modal
     const handleSaveEditFromModal = async () => {
         if (!editingCard || !localEditingCardData) return;
@@ -1133,42 +1229,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         try {
             setLoadingAccept(true);
 
-            // Используем локальные данные для сохранения
-            const updatedCardData: StoredCard = {
-                ...editingCard,
-                text: localEditingCardData.text || editingCard.text || '',
-                translation: localEditingCardData.translation || editingCard.translation || '',
-                examples: Array.isArray(localEditingCardData.examples) ? localEditingCardData.examples : (Array.isArray(editingCard.examples) ? editingCard.examples : []),
-                front: localEditingCardData.front || editingCard.front || '',
-                back: localEditingCardData.back || editingCard.back || '',
-                // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
-                image: localEditingCardData.image || editingCard.image || null, // base64 данные (приоритет)
-                imageUrl: localEditingCardData.imageUrl || editingCard.imageUrl || null, // URL как резерв
-                linguisticInfo: localEditingCardData.linguisticInfo || editingCard.linguisticInfo || '',
-                transcription: localEditingCardData.transcription || editingCard.transcription || '',
-                wordAudio: localEditingCardData.wordAudio || editingCard.wordAudio || null,
-                examplesAudio: Array.isArray(localEditingCardData.examplesAudio)
-                    ? localEditingCardData.examplesAudio
-                    : (Array.isArray(editingCard.examplesAudio) ? editingCard.examplesAudio : [])
-            };
-
-            // Validate form data
-            if (updatedCardData.mode === Modes.LanguageLearning) {
-                if (!updatedCardData.text || !updatedCardData.translation) {
-                    showError('Please provide both text and translation');
-                    return;
-                }
-
-                updatedCardData.text = updatedCardData.text.trim();
-                updatedCardData.translation = updatedCardData.translation.trim();
-            } else {
-                if (!updatedCardData.front || !updatedCardData.back) {
-                    showError('Please provide both front and back content');
-                    return;
-                }
-
-                updatedCardData.front = updatedCardData.front.trim();
-                updatedCardData.back = updatedCardData.back?.trim() || null;
+            const updatedCardData = buildUpdatedCardData();
+            if (!updatedCardData) {
+                return;
             }
 
             debugLog('Final data being saved to Redux:', updatedCardData);
@@ -1185,6 +1248,172 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             showError('Failed to update card. Please try again.');
         } finally {
             setLoadingAccept(false);
+        }
+    };
+
+    const buildAnkiPayload = async (card: StoredCard): Promise<{ mode: Modes; cards: CardLangLearning[] | CardGeneral[] } | null> => {
+        if (!card) return null;
+
+        if (card.mode === Modes.LanguageLearning) {
+            let processedImageBase64: string | null = null;
+            const imageSource = card.image || card.imageUrl;
+            if (imageSource) {
+                if (imageSource.startsWith('data:')) {
+                    const base64Prefix = 'base64,';
+                    const prefixIndex = imageSource.indexOf(base64Prefix);
+                    processedImageBase64 = prefixIndex !== -1
+                        ? imageSource.substring(prefixIndex + base64Prefix.length)
+                        : imageSource;
+                } else if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
+                    const response = await fetch(imageSource);
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        processedImageBase64 = await new Promise<string>((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                const result = reader.result as string;
+                                const base64Prefix = 'base64,';
+                                const prefixIndex = result.indexOf(base64Prefix);
+                                resolve(prefixIndex !== -1 ? result.substring(prefixIndex + base64Prefix.length) : result);
+                            };
+                            reader.readAsDataURL(blob);
+                        });
+                    }
+                } else {
+                    processedImageBase64 = imageSource;
+                }
+            }
+
+            const ankiCard: CardLangLearning = {
+                text: card.text || card.front || '',
+                translation: card.translation || '',
+                examples: card.examples || [],
+                image_base64: processedImageBase64,
+                linguisticInfo: card.linguisticInfo,
+                transcription: card.transcription || '',
+                word_audio_base64: card.wordAudio || null,
+                examples_audio_base64: Array.isArray(card.examplesAudio) ? card.examplesAudio : [],
+            };
+
+            return { mode: Modes.LanguageLearning, cards: [ankiCard] };
+        }
+
+        if (card.mode === Modes.GeneralTopic) {
+            let processedImageBase64: string | null = null;
+            const imageSource = card.image || card.imageUrl;
+            if (imageSource) {
+                if (imageSource.startsWith('data:')) {
+                    const base64Prefix = 'base64,';
+                    const prefixIndex = imageSource.indexOf(base64Prefix);
+                    processedImageBase64 = prefixIndex !== -1
+                        ? imageSource.substring(prefixIndex + base64Prefix.length)
+                        : imageSource;
+                } else if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
+                    const response = await fetch(imageSource);
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        processedImageBase64 = await new Promise<string>((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                const result = reader.result as string;
+                                const base64Prefix = 'base64,';
+                                const prefixIndex = result.indexOf(base64Prefix);
+                                resolve(prefixIndex !== -1 ? result.substring(prefixIndex + base64Prefix.length) : result);
+                            };
+                            reader.readAsDataURL(blob);
+                        });
+                    }
+                } else {
+                    processedImageBase64 = imageSource;
+                }
+            }
+
+            const ankiCard: CardGeneral = {
+                text: card.text || card.front || '',
+                front: card.front || card.text || '',
+                back: card.back || card.text || '',
+                image_base64: processedImageBase64,
+            };
+
+            return { mode: Modes.GeneralTopic, cards: [ankiCard] };
+        }
+
+        return null;
+    };
+
+    const handleSyncFromModal = async () => {
+        if (!editingCard || !localEditingCardData) return;
+
+        setLoadingSync(true);
+        try {
+            const updatedCardData = buildUpdatedCardData();
+            if (!updatedCardData) {
+                return;
+            }
+
+            tabAware.updateStoredCard(updatedCardData);
+
+            const shouldSyncServer = Boolean(auth.accessToken);
+            const shouldSyncAnki = useAnkiConnect && isAnkiAvailable;
+            const targetAnkiDeck = updatedCardData.ankiDeckName || deckId || '';
+
+            if (!shouldSyncServer && !shouldSyncAnki) {
+                showError('No sync targets available. Enable Cloud Sync or AnkiConnect.');
+                return;
+            }
+
+            if (shouldSyncServer) {
+                const token = await ensureValidAccessToken();
+                if (!token) {
+                    showError('Please sign in again to sync this card to the server.');
+                } else {
+                    const meta = await cardsSyncService.upsertCard(syncApiUrl, token, updatedCardData);
+                    dispatch({
+                        type: UPDATE_CARD_SYNC_META,
+                        payload: {
+                            cardId: updatedCardData.id,
+                            syncId: meta.id,
+                            syncVersion: meta.version,
+                            syncSource: meta.source,
+                            syncTags: meta.tags,
+                        },
+                    });
+
+                    setEditingCard(prev => prev ? ({
+                        ...prev,
+                        syncId: meta.id,
+                        syncVersion: meta.version,
+                        syncSource: meta.source,
+                        syncTags: meta.tags,
+                    }) : prev);
+
+                    setLocalEditingCardData(prev => prev ? ({
+                        ...prev,
+                        syncId: meta.id,
+                        syncVersion: meta.version,
+                        syncSource: meta.source,
+                        syncTags: meta.tags,
+                    }) : prev);
+                }
+            }
+
+            if (shouldSyncAnki) {
+                if (!targetAnkiDeck) {
+                    showError('Please select an Anki deck before syncing.');
+                } else {
+                    const payload = await buildAnkiPayload(updatedCardData);
+                    if (!payload) {
+                        showError('Unable to build Anki payload for this card.');
+                    } else {
+                        await createAnkiCards(payload.mode, ankiConnectUrl, ankiConnectApiKey, targetAnkiDeck, 'Basic', payload.cards);
+                    }
+                }
+            }
+        } catch (error: any) {
+            console.error('Sync failed:', error);
+            showError(error?.message || 'Sync failed. Please try again.');
+        } finally {
+            setLoadingSync(false);
         }
     };
 
@@ -1340,6 +1569,20 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }
     };
 
+    const handleAnkiDeckChangeInModal = (deckName: string | null) => {
+        setLocalEditingCardData(prev => prev ? ({
+            ...prev,
+            ankiDeckName: deckName
+        }) : prev);
+    };
+
+    const handleBackendDeckChangeInModal = (deckIdValue: string | null) => {
+        setLocalEditingCardData(prev => prev ? ({
+            ...prev,
+            deckId: deckIdValue
+        }) : prev);
+    };
+
     // Handle examples update from ResultDisplay
     const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
         // Обновляем локальное состояние вместо глобального Redux
@@ -1452,11 +1695,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             return null;
         }
 
-        const { text, translation, examples, examplesAudio, front, back, image, imageUrl, linguisticInfo, transcription, wordAudio } = localEditingCardData;
+        const { text, translation, examples, examplesAudio, front, back, image, imageUrl, linguisticInfo, transcription, wordAudio, ankiDeckName, deckId: backendDeckId } = localEditingCardData;
         // Ensure studied word is visible in modal: for LanguageLearning use text as front fallback
         const displayFront = editingCard.mode === Modes.LanguageLearning
             ? (text || front || '')
             : (front || '');
+        const selectedAnkiDeck = ankiDeckName ?? deckId ?? '';
 
         debugLog('Rendering edit modal with local data:', {
             text: text?.substring(0, 20) + '...',
@@ -1637,6 +1881,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         </div>
                     </div>
 
+                    <DeckSelector
+                        onBackendDeckChange={handleBackendDeckChangeInModal}
+                        onAnkiDeckChange={handleAnkiDeckChangeInModal}
+                        initialBackendDeckId={backendDeckId ?? null}
+                        initialAnkiDeckName={selectedAnkiDeck || null}
+                    />
+
                     {/* Use ResultDisplay component for consistent UI */}
                     <ResultDisplay
                         mode={editingCard.mode}
@@ -1669,6 +1920,43 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         setExamples={handleExamplesUpdate}
                         setLinguisticInfo={handleLinguisticInfoUpdate}
                     />
+
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        marginTop: '12px'
+                    }}>
+                        <button
+                            onClick={handleSyncFromModal}
+                            disabled={loadingSync}
+                            style={{
+                                padding: '6px 12px',
+                                backgroundColor: loadingSync ? '#9CA3AF' : '#111827',
+                                color: '#FFFFFF',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: loadingSync ? 'not-allowed' : 'pointer',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                            title="Sync to Cloud and Anki"
+                        >
+                            {loadingSync ? (
+                                <>
+                                    <Loader type="spinner" size="small" inline color="#FFFFFF" />
+                                    Syncing
+                                </>
+                            ) : (
+                                <>
+                                    <FaSync size={12} />
+                                    Sync
+                                </>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </div>
         );

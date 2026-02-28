@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { setAnkiConnectApiKey, setAnkiConnectUrl, setGroqApiKey, setGroqModelName, setOpenAiKey, setUseAnkiConnect, setModelProvider, setAuthApiUrl, setSyncApiUrl } from "../store/actions/settings";
+import { setAnkiConnectApiKey, setAnkiConnectUrl, setGroqApiKey, setGroqModelName, setOpenAiKey, setUseAnkiConnect, setModelProvider, setAuthApiUrl, setSyncApiUrl, setAutoSaveToServer } from "../store/actions/settings";
 import { RootState } from "../store";
 import chatGptLogo from '../assets/img/chat-gpt.png';
 import CopyIcon from '../assets/img/copy-icon.svg';
@@ -25,6 +25,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
   const authApiUrl = useSelector((state: RootState) => state.settings.authApiUrl);
   const syncApiUrl = useSelector((state: RootState) => state.settings.syncApiUrl);
+  const autoSaveToServer = useSelector((state: RootState) => state.settings.autoSaveToServer);
+  const isLoggedIn = useSelector((state: RootState) => Boolean(state.auth.accessToken));
 
   const handleOpenAiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     dispatch(setOpenAiKey(event.target.value));
@@ -62,6 +64,10 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
 
   const handleSyncApiUrlChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     dispatch(setSyncApiUrl(event.target.value));
+  };
+
+  const handleAutoSaveToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
+    dispatch(setAutoSaveToServer(event.target.checked));
   };
 
 
@@ -529,6 +535,57 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
     );
   }
 
+  const renderAutoSaveSection = () => {
+    if (!isLoggedIn) {
+      return null;
+    }
+
+    return (
+      <div style={{ marginTop: '20px', padding: '14px', borderRadius: '8px', backgroundColor: '#FEFEFF', border: '1px solid #E5E7EB' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: '14px', color: '#111827' }}>Auto Sync</div>
+            <div style={{ fontSize: '12px', color: '#6B7280' }}>
+              Enable to synchronize every saved card with the server instantly.
+            </div>
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={autoSaveToServer}
+              onChange={handleAutoSaveToggle}
+              style={{ width: 0, height: 0, opacity: 0, position: 'absolute' }}
+            />
+            <span style={{
+              width: '40px',
+              height: '22px',
+              borderRadius: '999px',
+              position: 'relative',
+              display: 'inline-block',
+              backgroundColor: autoSaveToServer ? '#10B981' : '#D1D5DB',
+              transition: 'background-color 0.2s ease'
+            }}>
+              <span style={{
+                position: 'absolute',
+                top: '3px',
+                left: autoSaveToServer ? '20px' : '3px',
+                width: '16px',
+                height: '16px',
+                borderRadius: '999px',
+                backgroundColor: '#fff',
+                transition: 'left 0.2s ease',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.15)'
+              }} />
+            </span>
+          </label>
+        </div>
+        <p style={{ fontSize: '12px', color: '#6B7280', margin: 0 }}>
+          Auto Sync requires an active session. Turn it on to keep Vaulto cloud in sync without manual action.
+        </p>
+      </div>
+    );
+  };
+
   return (
     <div style={{
       boxSizing: 'border-box',
@@ -595,6 +652,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         {renderGroqSettings()}
         {renderAnkiConnectSection()}
         {renderDeveloperSection()}
+        {renderAutoSaveSection()}
       </div>
 
       <div>

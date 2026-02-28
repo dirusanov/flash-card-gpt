@@ -17,6 +17,7 @@ export const SET_GROQ_MODEL_NAME = 'SET_GROQ_MODEL_NAME';
 export const SET_SOURCE_LANGUAGE = 'SET_SOURCE_LANGUAGE';
 export const SET_AUTH_API_URL = 'SET_AUTH_API_URL';
 export const SET_SYNC_API_URL = 'SET_SYNC_API_URL';
+export const SET_AUTO_SAVE_TO_SERVER = 'SET_AUTO_SAVE_TO_SERVER';
 
 export const setOpenAiKey = (openAiKey: string) => ({
     type: SET_OPEN_AI_KEY,
@@ -111,4 +112,9 @@ export const setAuthApiUrl = (url: string) => ({
 export const setSyncApiUrl = (url: string) => ({
     type: SET_SYNC_API_URL,
     payload: url,
+});
+
+export const setAutoSaveToServer = (enabled: boolean) => ({
+    type: SET_AUTO_SAVE_TO_SERVER,
+    payload: enabled,
 });

@@ -17,7 +17,8 @@ import {
     SET_GROQ_MODEL_NAME,
     SET_SOURCE_LANGUAGE,
     SET_AUTH_API_URL,
-    SET_SYNC_API_URL
+    SET_SYNC_API_URL,
+    SET_AUTO_SAVE_TO_SERVER
 } from "../actions/settings";
 import { Modes } from "../../constants";
 
@@ -47,6 +48,7 @@ interface SettingsState {
     sourceLanguage: string
     authApiUrl: string
     syncApiUrl: string
+    autoSaveToServer: boolean
 }
 
 const initialState: SettingsState = {
@@ -69,7 +71,8 @@ const initialState: SettingsState = {
     // Empty by default; auto-detection or explicit user choice will set it
     sourceLanguage: '',
     authApiUrl: 'https://auth.vaultonote.com',
-    syncApiUrl: 'https://api-cards.vaultonote.com'
+    syncApiUrl: 'https://api-cards.vaultonote.com',
+    autoSaveToServer: false
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {
@@ -168,6 +171,11 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 syncApiUrl: action.payload,
+            };
+        case SET_AUTO_SAVE_TO_SERVER:
+            return {
+                ...state,
+                autoSaveToServer: action.payload,
             };
         default:
             return state;

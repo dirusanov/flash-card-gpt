@@ -1,5 +1,6 @@
 import { cardsSyncApi, DeckApi, NoteApi } from './cardsSyncApi';
 import { StoredCard } from '../store/reducers/cards';
+import { Modes } from '../constants';
 import { authStorage } from './authStorage';
 
 const DEFAULT_DECK_NAME = 'Vaulto Extension';
@@ -34,6 +35,56 @@ const buildTags = (card: StoredCard): string[] => {
     tags.push(`mode:${card.mode}`);
   }
   return tags;
+};
+
+const inferMode = (note: NoteApi): Modes => {
+  const modeTag = Array.isArray(note.tags)
+    ? note.tags.find((tag) => typeof tag === 'string' && tag.startsWith('mode:'))
+    : null;
+  const modeValue = modeTag ? modeTag.slice('mode:'.length) : null;
+  if (modeValue === Modes.LanguageLearning || modeValue === Modes.GeneralTopic) {
+    return modeValue;
+  }
+
+  const fields = note.fields_json || {};
+  if (fields.translation || fields.examples) {
+    return Modes.LanguageLearning;
+  }
+  return Modes.GeneralTopic;
+};
+
+const noteToStoredCard = (note: NoteApi): StoredCard | null => {
+  if (note.is_deleted) {
+    return null;
+  }
+
+  const fields = note.fields_json || {};
+  const mode = inferMode(note);
+  const createdAt = note.created_at ? new Date(note.created_at) : new Date();
+
+  return {
+    id: note.guid || note.id,
+    mode,
+    front: fields.front ?? fields.text ?? '',
+    back: fields.back ?? fields.translation ?? null,
+    text: fields.text ?? fields.front ?? '',
+    translation: fields.translation ?? null,
+    examples: Array.isArray(fields.examples) ? fields.examples : [],
+    image: fields.image ?? null,
+    imageUrl: fields.imageUrl ?? null,
+    createdAt,
+    exportStatus: 'not_exported',
+    linguisticInfo: fields.linguisticInfo ?? '',
+    transcription: fields.transcription ?? '',
+    wordAudio: fields.wordAudio ?? null,
+    examplesAudio: Array.isArray(fields.examplesAudio) ? fields.examplesAudio : [],
+    syncId: note.id ?? null,
+    syncVersion: typeof note.version === 'number' ? note.version : null,
+    syncSource: note.source ?? null,
+    syncTags: Array.isArray(note.tags) ? note.tags : null,
+    deckId: note.deck_id ?? null,
+    ankiDeckName: null,
+  };
 };
 
 const loadNotesIndex = async (baseUrl: string, accessToken: string): Promise<Map<string, NoteApi>> => {
@@ -192,6 +243,13 @@ export const cardsSyncService = {
         console.error('Failed to sync card', card.id, error);
       }
     }
+  },
+
+  async fetchRemoteCards(baseUrl: string, accessToken: string): Promise<StoredCard[]> {
+    const notes = await cardsSyncApi.listNotes(baseUrl, accessToken);
+    return notes
+      .map((note) => noteToStoredCard(note))
+      .filter((card): card is StoredCard => !!card);
   },
 
   resetCache() {
