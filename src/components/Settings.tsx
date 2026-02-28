@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { setAnkiConnectApiKey, setAnkiConnectUrl, setGroqApiKey, setGroqModelName, setOpenAiKey, setUseAnkiConnect, setModelProvider, setAuthApiUrl, setSyncApiUrl, setAutoSaveToServer } from "../store/actions/settings";
+import { setAnkiConnectApiKey, setAnkiConnectUrl, setGroqApiKey, setGroqModelName, setOpenAiKey, setUseAnkiConnect, setModelProvider, setAutoSaveToServer } from "../store/actions/settings";
 import { RootState } from "../store";
 import chatGptLogo from '../assets/img/chat-gpt.png';
 import CopyIcon from '../assets/img/copy-icon.svg';
@@ -14,7 +14,13 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const dispatch = useDispatch();
-  const [testResults, setTestResults] = useState<{ success: boolean, message: string } | null>(null);
+  const [aiTestResults, setAiTestResults] = useState<{ success: boolean, message: string } | null>(null);
+  const [ankiTestResults, setAnkiTestResults] = useState<{ success: boolean, message: string } | null>(null);
+  const [isTestingAi, setIsTestingAi] = useState(false);
+  const [isTestingAnki, setIsTestingAnki] = useState(false);
+  const [showOpenAiKey, setShowOpenAiKey] = useState(false);
+  const [showAnkiApiKey, setShowAnkiApiKey] = useState(false);
+  const [showAnkiInstructions, setShowAnkiInstructions] = useState(false);
 
   const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
   const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
@@ -23,8 +29,6 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
   const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
   const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
-  const authApiUrl = useSelector((state: RootState) => state.settings.authApiUrl);
-  const syncApiUrl = useSelector((state: RootState) => state.settings.syncApiUrl);
   const autoSaveToServer = useSelector((state: RootState) => state.settings.autoSaveToServer);
   const isLoggedIn = useSelector((state: RootState) => Boolean(state.auth.accessToken));
 
@@ -55,16 +59,9 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const handleModelProviderChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     dispatch(setModelProvider(event.target.value as ModelProvider));
     // Clear test results when changing provider
-    setTestResults(null);
+    setAiTestResults(null);
   };
 
-  const handleAuthApiUrlChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    dispatch(setAuthApiUrl(event.target.value));
-  };
-
-  const handleSyncApiUrlChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    dispatch(setSyncApiUrl(event.target.value));
-  };
 
   const handleAutoSaveToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
     dispatch(setAutoSaveToServer(event.target.checked));
@@ -79,7 +76,8 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
 
   // Function to test API connections
   const testApiConnection = async (provider: ModelProvider) => {
-    setTestResults(null);
+    setAiTestResults(null);
+    setIsTestingAi(true);
     try {
       let endpoint = '';
       let headers = {};
@@ -95,14 +93,13 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             'Authorization': `Bearer ${apiKey}`
           };
           body = {
-            model: 'gpt-5-nano',
+            model: 'gpt-4o-mini', // Using a more standard model for testing
             messages: [
               {
                 role: "user",
                 content: "Say hello"
               }
             ],
-
           };
           break;
         case ModelProvider.Groq:
@@ -120,16 +117,16 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
                 content: "Say hello"
               }
             ],
-
           };
           break;
       }
 
       if (!apiKey.trim()) {
-        setTestResults({
+        setAiTestResults({
           success: false,
           message: "API key is missing. Please enter your API key."
         });
+        setIsTestingAi(false);
         return;
       }
 
@@ -142,42 +139,41 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
       const data = await response.json();
 
       if (response.ok) {
-        console.log("API test response:", data);
-        setTestResults({
+        setAiTestResults({
           success: true,
-          message: "Connection successful! API is working properly."
+          message: "Connection successful! Everything is working perfectly."
         });
       } else {
-        console.error("API test error:", data);
-        setTestResults({
+        setAiTestResults({
           success: false,
           message: `Error: ${data.error?.message || 'Unknown error occurred'}`
         });
       }
     } catch (error) {
-      console.error("API connection test error:", error);
-      setTestResults({
+      setAiTestResults({
         success: false,
         message: `Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`
       });
+    } finally {
+      setIsTestingAi(false);
     }
   };
 
   // Function to render test results
-  const renderTestResults = () => {
-    if (!testResults) return null;
+  const renderTestResults = (results: { success: boolean, message: string } | null) => {
+    if (!results) return null;
 
     return (
       <div style={{
         padding: '10px',
         marginTop: '10px',
-        borderRadius: '6px',
-        backgroundColor: testResults.success ? '#ECFDF5' : '#FEF2F2',
-        color: testResults.success ? '#065F46' : '#B91C1C',
+        borderRadius: '8px',
+        backgroundColor: results.success ? '#ECFDF5' : '#FEF2F2',
+        color: results.success ? '#065F46' : '#B91C1C',
         fontSize: '14px',
-        borderLeft: `4px solid ${testResults.success ? '#10B981' : '#EF4444'}`
+        borderLeft: `4px solid ${results.success ? '#10B981' : '#EF4444'}`
       }}>
-        {testResults.message}
+        {results.message}
       </div>
     );
   };
@@ -187,86 +183,101 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
     if (modelProvider !== ModelProvider.OpenAI) return null;
 
     return (
-      <div style={{ marginBottom: '20px' }}>
+      <div style={{ marginBottom: '24px' }}>
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '6px',
+          gap: '8px',
           marginBottom: '8px'
         }}>
           <label htmlFor="openAiKey" style={{
-            display: 'block',
             fontWeight: '600',
-            marginBottom: '0',
-            marginRight: '8px',
             color: '#111827',
             fontSize: '14px'
           }}>OpenAI API Key</label>
           <img
             src={imageUrl}
-            alt="ChatGPT Logo"
-            style={{
-              width: '16px',
-              height: '16px',
-              marginTop: '-2px'
-            }}
+            alt="ChatGPT"
+            style={{ width: '16px', height: '16px' }}
           />
         </div>
-        <p style={{
-          fontSize: '12px',
-          marginBottom: '6px',
-          color: '#6B7280'
-        }}>
-          You can get your OpenAI API key from <a href="https://platform.openai.com/account/api-keys" target="_blank"
-            rel="noopener noreferrer" style={{
-              color: '#2563EB',
-              textDecoration: 'underline'
-            }}>here</a>.
+
+        <p style={{ fontSize: '12px', marginBottom: '12px', color: '#6B7280', lineHeight: '1.5' }}>
+          Get your key from the <a href="https://platform.openai.com/account/api-keys" target="_blank"
+            rel="noopener noreferrer" style={{ color: '#2563EB', textDecoration: 'none', fontWeight: '500' }}>OpenAI Dashboard</a>.
         </p>
-        <div style={{
-          position: 'relative',
-          marginBottom: '16px'
-        }}>
+
+        <div style={{ position: 'relative', marginBottom: '16px' }}>
           <input
-            type="text"
+            type={showOpenAiKey ? "text" : "password"}
             id="openAiKey"
             value={openAiKey}
             onChange={handleOpenAiKeyChange}
+            placeholder="sk-..."
             style={{
               width: '100%',
-              padding: '8px 10px',
-              boxSizing: 'border-box',
-              borderRadius: '6px',
+              padding: '10px 40px 10px 12px',
+              borderRadius: '8px',
               border: '1px solid #E5E7EB',
-              backgroundColor: '#ffffff',
-              color: '#374151',
               fontSize: '13px',
               outline: 'none',
-              transition: 'all 0.2s ease'
+              transition: 'all 0.2s ease',
+              backgroundColor: '#F9FAFB'
             }}
             onFocus={(e) => e.target.style.borderColor = '#2563EB'}
             onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
           />
+          <button
+            onClick={() => setShowOpenAiKey(!showOpenAiKey)}
+            style={{
+              position: 'absolute',
+              right: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#6B7280',
+              fontSize: '12px'
+            }}
+          >
+            {showOpenAiKey ? 'Hide' : 'Show'}
+          </button>
         </div>
 
         <button
           onClick={() => testApiConnection(ModelProvider.OpenAI)}
+          disabled={isTestingAi}
           style={{
-            marginTop: '8px',
-            padding: '6px 12px',
-            backgroundColor: '#10a37f', // Green for OpenAI
+            width: '100%',
+            padding: '10px',
+            backgroundColor: '#10a37f',
             color: 'white',
             border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontSize: '13px'
+            borderRadius: '8px',
+            cursor: isTestingAi ? 'wait' : 'pointer',
+            fontSize: '14px',
+            fontWeight: '600',
+            transition: 'opacity 0.2s ease',
+            opacity: isTestingAi ? 0.7 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px'
           }}
         >
-          Test API Connection
+          {isTestingAi && <div className="spinner" style={{
+            width: '16px',
+            height: '16px',
+            border: '2px solid rgba(255,255,255,0.3)',
+            borderRadius: '50%',
+            borderTopColor: '#fff',
+            animation: 'spin 0.8s linear infinite'
+          }} />}
+          {isTestingAi ? 'Testing...' : 'Test Connection'}
         </button>
 
-        {renderTestResults()}
+        {renderTestResults(aiTestResults)}
       </div>
     );
   };
@@ -369,6 +380,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
 
         <button
           onClick={() => testApiConnection(ModelProvider.Groq)}
+          disabled={isTestingAi}
           style={{
             marginTop: '8px',
             padding: '6px 12px',
@@ -376,25 +388,25 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             color: 'white',
             border: 'none',
             borderRadius: '6px',
-            cursor: 'pointer',
+            cursor: isTestingAi ? 'wait' : 'pointer',
             fontSize: '13px'
           }}
         >
-          Test API Connection
+          {isTestingAi ? 'Testing...' : 'Test API Connection'}
         </button>
 
-        {renderTestResults()}
+        {renderTestResults(aiTestResults)}
       </div>
     );
   };
 
   const renderAnkiConnectSection = () => {
     return (
-      <div style={{ marginBottom: '20px', backgroundColor: '#F9FAFB', padding: '12px', borderRadius: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+      <div style={{ marginBottom: '24px', backgroundColor: '#F9FAFB', padding: '16px', borderRadius: '12px', border: '1px solid #E5E7EB' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <div style={{ fontWeight: 600, color: '#111827', fontSize: '14px' }}>AnkiConnect</div>
-            <div style={{ fontSize: '12px', color: '#6B7280' }}>Enable integration with Anki via AnkiConnect</div>
+            <div style={{ fontWeight: 700, color: '#111827', fontSize: '15px' }}>Anki Integration</div>
+            <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '2px' }}>Sync cards directly to your local Anki</div>
           </div>
           <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
             <input
@@ -404,136 +416,149 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
               style={{ width: 0, height: 0, opacity: 0, position: 'absolute' }}
             />
             <span style={{
-              width: '38px', height: '22px', borderRadius: '999px', display: 'inline-block', position: 'relative',
+              width: '42px', height: '24px', borderRadius: '999px', display: 'inline-block', position: 'relative',
               backgroundColor: useAnkiConnect ? '#10B981' : '#D1D5DB', transition: 'background-color 0.2s ease'
             }}>
               <span style={{
-                position: 'absolute', top: '3px', left: useAnkiConnect ? '20px' : '3px', width: '16px', height: '16px',
-                borderRadius: '999px', backgroundColor: '#ffffff', transition: 'left 0.2s ease', boxShadow: '0 1px 2px rgba(0,0,0,0.15)'
+                position: 'absolute', top: '3px', left: useAnkiConnect ? '21px' : '3px', width: '18px', height: '18px',
+                borderRadius: '999px', backgroundColor: '#ffffff', transition: 'left 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
               }} />
             </span>
           </label>
         </div>
 
         {useAnkiConnect && (
-          <>
-            <label htmlFor="ankiConnectUrl" style={{
-              display: 'block', fontWeight: 600, marginBottom: '6px', color: '#111827', fontSize: '14px'
-            }}>AnkiConnect URL</label>
-            <input
-              type="text"
-              id="ankiConnectUrl"
-              value={ankiConnectUrl}
-              onChange={handleAnkiConnectUrlChange}
-              placeholder="http://127.0.0.1:8765"
-              style={{
-                width: '100%', padding: '8px 12px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #E5E7EB',
-                backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none', transition: 'all 0.2s ease', marginBottom: '12px'
-              }}
-              onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-              onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-            />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div>
+              <label htmlFor="ankiConnectUrl" style={{
+                display: 'block', fontWeight: 600, marginBottom: '6px', color: '#374151', fontSize: '13px'
+              }}>AnkiConnect URL</label>
+              <input
+                type="text"
+                id="ankiConnectUrl"
+                value={ankiConnectUrl}
+                onChange={handleAnkiConnectUrlChange}
+                placeholder="http://127.0.0.1:8765"
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #D1D5DB',
+                  backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none'
+                }}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="ankiConnectApiKey" style={{
+                display: 'block', fontWeight: 600, marginBottom: '6px', color: '#374151', fontSize: '13px'
+              }}>API Key (optional)</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showAnkiApiKey ? "text" : "password"}
+                  id="ankiConnectApiKey"
+                  value={ankiConnectApiKey || ''}
+                  onChange={handleAnkiConnectApiKeyChange}
+                  placeholder="Enter API key if configured"
+                  style={{
+                    width: '100%', padding: '10px 40px 10px 12px', borderRadius: '8px', border: '1px solid #D1D5DB',
+                    backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none'
+                  }}
+                />
+                <button
+                  onClick={() => setShowAnkiApiKey(!showAnkiApiKey)}
+                  style={{
+                    position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', fontSize: '12px'
+                  }}
+                >
+                  {showAnkiApiKey ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </div>
 
             <button
               onClick={async () => {
+                setIsTestingAnki(true);
+                setAnkiTestResults(null);
                 try {
-                  setTestResults(null);
                   const response = await backgroundFetch(ankiConnectUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'deckNames', version: 6, key: ankiConnectApiKey })
+                    body: JSON.stringify({ action: 'version', version: 6, key: ankiConnectApiKey })
                   });
                   const data = await response.json<any>();
                   if (response.ok && !data.error) {
-                    setTestResults({ success: true, message: 'AnkiConnect is reachable ✅' });
+                    setAnkiTestResults({ success: true, message: 'Connected to Anki successfully! 🎉' });
                   } else {
-                    setTestResults({ success: false, message: `AnkiConnect error: ${data?.error || 'Unknown error'}` });
+                    setAnkiTestResults({ success: false, message: `AnkiConnect error: ${data?.error || 'Unknown error'}` });
                   }
                 } catch (e: any) {
-                  setTestResults({ success: false, message: `Failed to reach AnkiConnect: ${e?.message || e}` });
+                  setAnkiTestResults({ success: false, message: `Could not reach Anki. Is it running?` });
+                } finally {
+                  setIsTestingAnki(false);
                 }
               }}
+              disabled={isTestingAnki}
               style={{
-                marginTop: '4px', padding: '6px 12px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px'
+                padding: '10px', backgroundColor: '#3B82F6', color: 'white', border: 'none', borderRadius: '8px',
+                cursor: isTestingAnki ? 'wait' : 'pointer', fontSize: '13px', fontWeight: '600'
               }}
             >
-              Test AnkiConnect
+              {isTestingAnki ? 'Checking...' : 'Check Connection'}
             </button>
-          </>
+
+            <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: '12px' }}>
+              <button
+                onClick={() => setShowAnkiInstructions(!showAnkiInstructions)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer', color: '#4B5563', fontSize: '13px', fontWeight: '500'
+                }}
+              >
+                <span>Setup Instructions</span>
+                <span>{showAnkiInstructions ? '−' : '+'}</span>
+              </button>
+
+              {showAnkiInstructions && (
+                <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#FFF', borderRadius: '8px', border: '1px solid #F3F4F6' }}>
+                  <ol style={{ fontSize: '12px', color: '#4B5563', paddingLeft: '18px', margin: 0, lineHeight: '1.6' }}>
+                    <li style={{ marginBottom: '8px' }}>In Anki, go to <strong>Tools</strong> &gt; <strong>Add-ons</strong> &gt; <strong>Get Add-ons...</strong></li>
+                    <li style={{ marginBottom: '8px' }}>
+                      Enter code: <code style={{ backgroundColor: '#F3F4F6', padding: '2px 4px', borderRadius: '4px', fontWeight: 'bold' }}>2055492159</code>
+                      <button
+                        onClick={() => navigator.clipboard.writeText('2055492159')}
+                        style={{ marginLeft: '8px', border: 'none', background: '#E0E7FF', color: '#4338CA', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}
+                      >Copy</button>
+                    </li>
+                    <li style={{ marginBottom: '8px' }}>Restart Anki.</li>
+                    <li style={{ marginBottom: '8px' }}>Go to <strong>Tools</strong> &gt; <strong>Add-ons</strong> &gt; <strong>AnkiConnect</strong> &gt; <strong>Config</strong> and use this setup:</li>
+                  </ol>
+                  <pre
+                    style={{
+                      marginTop: '8px', padding: '8px', backgroundColor: '#1F2937', color: '#F9FAFB',
+                      borderRadius: '6px', fontSize: '11px', overflowX: 'auto', cursor: 'pointer'
+                    }}
+                    onClick={() => navigator.clipboard.writeText(JSON.stringify({
+                      apiKey: ankiConnectApiKey || "your_api_key",
+                      webCorsOriginList: ["http://localhost", "*"],
+                      webBindPort: 8765
+                    }, null, 2))}
+                  >
+                    {JSON.stringify({
+                      apiKey: ankiConnectApiKey || "your_api_key",
+                      webCorsOriginList: ["http://localhost", "*"],
+                      webBindPort: 8765
+                    }, null, 2)}
+                  </pre>
+                  <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '4px', textAlign: 'center' }}>Click to copy config</div>
+                </div>
+              )}
+            </div>
+          </div>
         )}
+        {renderTestResults(ankiTestResults)}
       </div>
     );
   }
 
-  const renderDeveloperSection = () => {
-    return (
-      <div style={{ marginTop: '30px', borderTop: '1px solid #E5E7EB', paddingTop: '20px', marginBottom: '20px' }}>
-        <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px' }}>Developer Settings</h3>
-
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="authApiUrl" style={{
-            display: 'block', fontWeight: 600, marginBottom: '6px', color: '#111827', fontSize: '13px'
-          }}>Auth API URL</label>
-          <input
-            type="text"
-            id="authApiUrl"
-            value={authApiUrl}
-            onChange={handleAuthApiUrlChange}
-            placeholder="https://auth.vaultonote.com"
-            style={{
-              width: '100%', padding: '8px 12px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #E5E7EB',
-              backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none', transition: 'all 0.2s ease'
-            }}
-            onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-            onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-          />
-          <p style={{ fontSize: '11px', color: '#6B7280', marginTop: '4px' }}>Default: https://auth.vaultonote.com</p>
-        </div>
-
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="syncApiUrl" style={{
-            display: 'block', fontWeight: 600, marginBottom: '6px', color: '#111827', fontSize: '13px'
-          }}>Cards Sync API URL</label>
-          <input
-            type="text"
-            id="syncApiUrl"
-            value={syncApiUrl}
-            onChange={handleSyncApiUrlChange}
-            placeholder="https://api-cards.vaultonote.com"
-            style={{
-              width: '100%', padding: '8px 12px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #E5E7EB',
-              backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none', transition: 'all 0.2s ease'
-            }}
-            onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-            onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-          />
-          <p style={{ fontSize: '11px', color: '#6B7280', marginTop: '4px' }}>Default: https://api-cards.vaultonote.com</p>
-        </div>
-
-        <button
-          onClick={async () => {
-            setTestResults(null);
-            try {
-              const response = await backgroundFetch(`${syncApiUrl}/system/health`, { method: 'GET' });
-              if (response.ok) {
-                setTestResults({ success: true, message: 'Sync Service is reachable! ✅' });
-              } else {
-                setTestResults({ success: false, message: `Sync Service returned status ${response.status}` });
-              }
-            } catch (e: any) {
-              setTestResults({ success: false, message: `Failed to reach Sync Service: ${e?.message || e}` });
-            }
-          }}
-          style={{
-            padding: '6px 12px', backgroundColor: '#4B5563', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px'
-          }}
-        >
-          Test Sync Connection
-        </button>
-        {renderTestResults()}
-      </div>
-    );
-  }
 
   const renderAutoSaveSection = () => {
     if (!isLoggedIn) {
@@ -589,219 +614,71 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   return (
     <div style={{
       boxSizing: 'border-box',
-      padding: '14px',
+      padding: '20px',
       backgroundColor: '#ffffff',
       height: '100%',
       width: '100%',
-      maxWidth: popup ? '100%' : '640px',
+      maxWidth: popup ? '100%' : '600px',
       margin: '0 auto',
       overflowY: 'auto',
-      overflowX: 'hidden',
-      paddingBottom: '18px',
-      marginTop: '12px',
+      paddingBottom: '40px',
       borderRadius: popup ? '12px' : '0',
-      boxShadow: popup ? '0 16px 35px rgba(15, 23, 42, 0.12)' : 'none'
     }}>
+      <style>{`
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .spinner { border: 2px solid rgba(0,0,0,0.1); border-top-color: #2563EB; border-radius: 50%; width: 16px; height: 16px; animation: spin 0.8s linear infinite; }
+      `}</style>
+
       <div style={{
-        marginBottom: '20px',
-        backgroundColor: '#F9FAFB',
-        padding: '12px',
-        borderRadius: '8px'
+        marginBottom: '28px',
       }}>
-        <label htmlFor="modelProvider" style={{
-          display: 'block',
-          fontWeight: '600',
-          marginBottom: '8px',
-          color: '#111827',
-          fontSize: '14px'
-        }}>AI Provider</label>
-        <p style={{
-          fontSize: '12px',
-          marginBottom: '8px',
-          color: '#6B7280'
-        }}>
-          Select which provider to use for generating flashcards
-        </p>
-        <select
-          id="modelProvider"
-          value={modelProvider}
-          onChange={handleModelProviderChange}
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            boxSizing: 'border-box',
-            borderRadius: '6px',
-            border: '1px solid #E5E7EB',
-            backgroundColor: '#ffffff',
-            color: '#374151',
-            fontSize: '13px',
-            outline: 'none',
-            transition: 'all 0.2s ease',
-            cursor: 'pointer'
-          }}
-          onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-          onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-        >
-          <option value={ModelProvider.OpenAI}>OpenAI</option>
-          <option value={ModelProvider.Groq}>Groq</option>
-        </select>
-      </div>
+        <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: '0 0 16px 0' }}>Settings</h2>
 
-      <div>
-        {renderOpenAISection()}
-        {renderGroqSettings()}
-        {renderAnkiConnectSection()}
-        {renderDeveloperSection()}
-        {renderAutoSaveSection()}
-      </div>
-
-      <div>
-        <label htmlFor="ankiConnectApiKey" style={{
-          display: 'block',
-          fontWeight: '600',
-          marginBottom: '8px',
-          color: '#111827',
-          fontSize: '14px'
-        }}>AnkiConnect API Key (optional)</label>
-        <input
-          type="text"
-          id="ankiConnectApiKey"
-          value={ankiConnectApiKey !== null ? ankiConnectApiKey : ''}
-          onChange={handleAnkiConnectApiKeyChange}
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            boxSizing: 'border-box',
-            borderRadius: '6px',
-            border: '1px solid #E5E7EB',
-            backgroundColor: '#ffffff',
-            color: '#374151',
-            fontSize: '13px',
-            outline: 'none',
-            transition: 'all 0.2s ease',
-            marginBottom: '20px'
-          }}
-          onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-          onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-        />
-      </div>
-
-      <div>
-        <p style={{
-          fontSize: '13px',
-          marginBottom: '8px',
-          color: '#6B7280'
-        }}>
-          Install the Anki plugin <strong>AnkiConnect</strong> and configure it as follows:
-        </p>
-        <ul style={{
-          fontSize: '13px',
-          listStyle: 'disc',
-          paddingLeft: '20px',
-          marginBottom: '8px',
-          color: '#6B7280'
-        }}>
-          <li style={{ marginBottom: '4px' }}>Go to <strong>Tools</strong> then <strong>Add-ons</strong> then <strong>Get Add-ons...</strong></li>
-          <li style={{
-            marginBottom: '4px',
-            display: 'flex',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '6px'
-          }}>
-            Paste Code&nbsp;&nbsp;
-            <button
-              onClick={() => navigator.clipboard.writeText('2055492159')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: '#F3F4F6',
-                padding: '4px 6px',
-                borderRadius: '4px',
-                color: '#2563EB',
-                transition: 'all 0.2s ease',
-                border: 'none',
-                cursor: 'pointer'
-              }}
-              onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#E5E7EB'}
-              onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-            >
-              <img src={copyIconUrl} alt="Copy Icon" style={{ width: '16px', height: '16px', marginRight: '4px' }} />
-              <code style={{ backgroundColor: 'transparent', fontSize: '12px' }}>2055492159</code>
-            </button>
-          </li>
-          <li style={{ marginBottom: '4px' }}>Then click <strong>OK</strong></li>
-          <li style={{ marginBottom: '4px' }}>Restart Anki</li>
-          <li style={{ marginBottom: '4px' }}>Navigate to <strong>Tools</strong> &gt; <strong>Add-ons</strong> &gt; <strong>AnkiConnect</strong> &gt;
-            <strong>Config</strong></li>
-        </ul>
         <div style={{
-          position: 'relative',
-          backgroundColor: '#F9FAFB',
-          padding: '12px',
-          borderRadius: '6px',
-          marginBottom: '20px'
+          backgroundColor: '#F3F4F6',
+          padding: '16px',
+          borderRadius: '12px',
+          border: '1px solid #E5E7EB'
         }}>
-          <p style={{
-            fontSize: '13px',
-            marginBottom: '8px',
-            color: '#6B7280'
-          }}>Copy paste the following config, you can change the <code>apiKey</code>:</p>
-          <pre
+          <label htmlFor="modelProvider" style={{
+            display: 'block',
+            fontWeight: '600',
+            marginBottom: '4px',
+            color: '#374151',
+            fontSize: '14px'
+          }}>AI Provider</label>
+          <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '12px' }}>Choose the engine for card generation</p>
+          <select
+            id="modelProvider"
+            value={modelProvider}
+            onChange={handleModelProviderChange}
             style={{
-              display: 'block',
-              overflowX: 'hidden',
-              overflowY: 'auto',
-              padding: '10px',
-              backgroundColor: '#F3F4F6',
-              borderRadius: '4px',
-              whiteSpace: 'pre-wrap',
-              cursor: 'pointer',
-              fontSize: '12px',
+              width: '100%',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              border: '1px solid #D1D5DB',
+              backgroundColor: '#ffffff',
               color: '#374151',
-              margin: 0,
-              wordBreak: 'break-word'
+              fontSize: '14px',
+              outline: 'none',
+              cursor: 'pointer'
             }}
-            onClick={() => navigator.clipboard.writeText(
-              JSON.stringify({
-                apiKey: ankiConnectApiKey || 'your_api_key',
-                webCorsOriginList: ['http://localhost', '*'],
-                webBindPort: 8765,
-              }, null, 2),
-            )}
-            title="Click to copy"
           >
-            {JSON.stringify({
-              apiKey: ankiConnectApiKey || 'your_api_key',
-              webCorsOriginList: ['http://localhost', '*'],
-              webBindPort: 8765,
-            }, null, 2)}
-          </pre>
-          <button
-            onClick={() => navigator.clipboard.writeText(
-              JSON.stringify({
-                apiKey: ankiConnectApiKey || 'your_api_key',
-                webCorsOriginList: ['http://localhost', '*'],
-                webBindPort: 8765,
-              }, null, 2),
-            )}
-            style={{
-              position: 'absolute',
-              top: '8px',
-              right: '8px',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '4px'
-            }}
-            title="Copy to clipboard"
-          >
-            <img src={copyIconUrl} alt="Copy Icon" style={{ width: '16px', height: '16px' }} />
-          </button>
+            <option value={ModelProvider.OpenAI}>OpenAI (ChatGPT)</option>
+            <option value={ModelProvider.Groq}>Groq (Ultra-Fast)</option>
+          </select>
         </div>
       </div>
 
-      {/* Removed the floating action button since we've added a button to the top navigation */}
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {renderOpenAISection()}
+        {renderGroqSettings()}
+        {renderAnkiConnectSection()}
+        {renderAutoSaveSection()}
+      </div>
+
+      {/* Bottom spacing */}
+      <div style={{ height: '20px' }} />
     </div>
   );
 };
