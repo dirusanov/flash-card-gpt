@@ -7,6 +7,7 @@ import { cardsSyncService } from '../../services/cardsSyncService';
 import { authApi } from '../../services/authApi';
 import { authStorage } from '../../services/authStorage';
 import { setAuthSession } from '../actions/auth';
+import { ensureValidAccessToken } from '../utils/auth';
 
 let syncQueue: Promise<void> = Promise.resolve();
 
@@ -14,50 +15,6 @@ const enqueue = (task: () => Promise<void>) => {
   syncQueue = syncQueue.then(task).catch((error) => {
     console.error('Cards sync failed:', error);
   });
-};
-
-const isTokenExpired = (expiresAt: number | null): boolean => {
-  if (!expiresAt) return false;
-  return Date.now() > expiresAt - 60_000;
-};
-
-const ensureValidAccessToken = async (store: any, forceRefresh = false): Promise<string | null> => {
-  const state: RootState = store.getState();
-  const { accessToken, refreshToken, expiresAt, user } = state.auth;
-  const { authApiUrl } = state.settings;
-  if (!accessToken) return null;
-
-  if (!forceRefresh && !isTokenExpired(expiresAt)) {
-    return accessToken;
-  }
-
-  if (!refreshToken) {
-    return null;
-  }
-
-  try {
-    const refreshed = await authApi.refresh(authApiUrl, refreshToken);
-    if (!refreshed.access_token) {
-      return null;
-    }
-
-    const nextSession = {
-      accessToken: refreshed.access_token,
-      refreshToken: refreshed.refresh_token ?? null,
-      expiresAt: refreshed.expires_in ? Date.now() + refreshed.expires_in * 1000 : null,
-      tokenType: refreshed.token_type ?? 'bearer',
-      user: user ?? null,
-    };
-
-    await authStorage.setSession(nextSession);
-    store.dispatch(setAuthSession(nextSession));
-    return nextSession.accessToken;
-  } catch (error) {
-    console.error('Token refresh failed:', error);
-    await authStorage.clearSession();
-    store.dispatch({ type: CLEAR_AUTH_SESSION });
-    return null;
-  }
 };
 
 const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
@@ -244,6 +201,11 @@ export const cardsSyncMiddleware: Middleware<{}, RootState> = (store) => (next) 
 
       const card = store.getState().cards.storedCards.find((item) => item.id === cardId);
       if (!card) return;
+
+      if (!card.deckId) {
+        console.log('Skipping cloud sync for card with no deck selected (Local Only flow)', cardId);
+        return;
+      }
 
       const meta = await cardsSyncService.upsertCard(syncApiUrl, tokenStr, card);
       store.dispatch({

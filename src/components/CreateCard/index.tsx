@@ -4435,7 +4435,10 @@ Original text: ${text}`;
                             </div>
 
                             <div className="flex w-full flex-col gap-2">
-                                <label className="m-0 text-sm font-semibold text-gray-900">Audio Pronunciation:</label>
+                                <label className="m-0 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                                    <span aria-hidden="true">🔊</span>
+                                    <span>Audio Pronunciation:</span>
+                                </label>
                                 <div className={`flex w-full gap-0.5 rounded-lg bg-gray-100 p-1 ${openAiKey ? '' : 'opacity-60'}`}>
                                     {(['off', 'smart', 'always'] as const).map((modeKey) => (
                                         <button

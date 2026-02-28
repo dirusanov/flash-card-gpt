@@ -55,6 +55,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
   const [error, setError] = useState('');
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
 
   const isBusy = auth.isLoading || googleLoading;
 
@@ -163,7 +164,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
               Signed in as <strong>{auth.user?.email || 'Unknown user'}</strong>
             </div>
             <button
-              onClick={handleSignOut}
+              onClick={() => setShowSignOutConfirm(true)}
               disabled={isBusy}
               style={{
                 ...buttonBase,
@@ -311,6 +312,88 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
           </>
         )}
       </div>
+      {showSignOutConfirm && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: colors.surface,
+              borderRadius: 16,
+              padding: 18,
+              border: `1px solid ${colors.border}`,
+              boxShadow: '0 18px 40px rgba(15, 23, 42, 0.18)',
+              boxSizing: 'border-box',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <div style={{
+                width: 36,
+                height: 36,
+                borderRadius: 12,
+                backgroundColor: 'rgba(220, 53, 69, 0.12)',
+                color: colors.danger,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+              }}>
+                !
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: colors.text }}>
+                Confirm Sign Out
+              </div>
+            </div>
+            <div style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 1.5, marginBottom: 16 }}>
+              You will be signed out of your account on this device. Your saved cards stay intact.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setShowSignOutConfirm(false)}
+                style={{
+                  ...buttonBase,
+                  backgroundColor: '#EDF2F7',
+                  color: colors.text,
+                  width: '50%',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await handleSignOut();
+                  setShowSignOutConfirm(false);
+                }}
+                disabled={isBusy}
+                style={{
+                  ...buttonBase,
+                  backgroundColor: colors.danger,
+                  color: '#fff',
+                  width: '50%',
+                  opacity: isBusy ? 0.7 : 1,
+                }}
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

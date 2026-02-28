@@ -5,7 +5,7 @@ import { useTabAware } from './TabAwareProvider';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
-import { setBack, setExamples, setExamplesAudio, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio } from "../store/actions/cards";
+import { setBack, setExamples, setExamplesAudio, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio, saveAnkiCards } from "../store/actions/cards";
 import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { setMode, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
 import { Modes } from "../constants";
@@ -187,6 +187,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const mode = useSelector((state: RootState) => state.settings.mode);
+    const selectedBackendDeckId = useSelector((state: RootState) => state.settings.selectedBackendDeckId);
+    const selectedAnkiDeckName = useSelector((state: RootState) => state.settings.selectedAnkiDeckName);
+    const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
+    const autoSaveToServer = useSelector((state: RootState) => state.settings.autoSaveToServer);
+    const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
+    const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
+    const auth = useSelector((state: RootState) => state.auth);
+    const isLoggedIn = !!auth.accessToken;
     const [originalSelectedText, setOriginalSelectedText] = useState('');
 
     const enforceLanguageMode = useCallback(() => {
@@ -291,8 +299,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [imageGenerationMode, setImageGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
     const [audioGenerationMode, setAudioGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
     const [showAISettings, setShowAISettings] = useState(false);
-    const [selectedBackendDeckId, setSelectedBackendDeckId] = useState<string | null>(null);
-    const [selectedAnkiDeckName, setSelectedAnkiDeckName] = useState<string | null>(null);
 
     // Keep tab-level generation lock strictly in sync with loader visibility.
     // App uses this flag to hide Cards/Settings during loading overlay.
@@ -1410,6 +1416,37 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     tabAware.setCurrentCardId(cardId);
                 }
 
+                // New logic: Automatic sync to Anki if logged out
+                if (useAnkiConnect && selectedAnkiDeckName) {
+                    debugLog('Automatic sync to Anki (logged out flow):', selectedAnkiDeckName);
+                    try {
+                        const cardToSave = cardData as any;
+                        const ankiCard = {
+                            text: cardToSave.text,
+                            translation: cardToSave.translation,
+                            examples: cardToSave.examples,
+                            image_base64: cardToSave.image,
+                            linguisticInfo: cardToSave.linguisticInfo,
+                            transcription: cardToSave.transcription,
+                            word_audio_base64: cardToSave.wordAudio,
+                            examples_audio_base64: cardToSave.examplesAudio
+                        };
+
+                        dispatch(saveAnkiCards(
+                            mode,
+                            ankiConnectUrl,
+                            ankiConnectApiKey,
+                            selectedAnkiDeckName,
+                            'Basic', // Fallback model
+                            [ankiCard as any]
+                        ));
+                        // Mark as exported
+                        tabAware.updateCardExportStatus(cardId, 'exported');
+                    } catch (ankiErr) {
+                        console.error('Failed to auto-sync to Anki:', ankiErr);
+                    }
+                }
+
             } else if (mode === Modes.GeneralTopic) {
                 // Для GeneralTopic будем использовать front вместо back
                 if (!front) {
@@ -1459,6 +1496,33 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     debugLog('Saving new general topic card by user action:', cardId);
                     tabAware.saveCardToStorage(cardData);
                     tabAware.setCurrentCardId(cardId);
+                }
+
+                // New logic: Automatic sync to Anki if logged out
+                if (useAnkiConnect && selectedAnkiDeckName) {
+                    debugLog('Automatic sync to Anki (logged out flow):', selectedAnkiDeckName);
+                    try {
+                        const cardToSave = cardData as any;
+                        const ankiCard = {
+                            text: cardToSave.text,
+                            front: cardToSave.front,
+                            back: cardToSave.back,
+                            image_base64: cardToSave.image
+                        };
+
+                        dispatch(saveAnkiCards(
+                            mode,
+                            ankiConnectUrl,
+                            ankiConnectApiKey,
+                            selectedAnkiDeckName,
+                            'Basic', // Fallback model
+                            [ankiCard as any]
+                        ));
+                        // Mark as exported
+                        tabAware.updateCardExportStatus(cardId, 'exported');
+                    } catch (ankiErr) {
+                        console.error('Failed to auto-sync to Anki:', ankiErr);
+                    }
                 }
 
             }
@@ -2901,12 +2965,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         </>
                     )}
 
-                    <DeckSelector
-                        onBackendDeckChange={setSelectedBackendDeckId}
-                        onAnkiDeckChange={setSelectedAnkiDeckName}
-                        initialBackendDeckId={selectedBackendDeckId}
-                        initialAnkiDeckName={selectedAnkiDeckName}
-                    />
+                    <DeckSelector />
 
                     <ResultDisplay
                         mode={mode}
@@ -5971,6 +6030,39 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             // Mark this card as saved
             setSavedCardIndices(prev => new Set(prev).add(currentPreviewIndex));
 
+            // New logic: Automatic sync to Anki if deck selected
+            if (useAnkiConnect && selectedAnkiDeckName) {
+                try {
+                    const ankiCard = (currentCard.mode || mode) === Modes.LanguageLearning ? {
+                        text: cardToSave.text,
+                        translation: (cardToSave as any).translation,
+                        examples: (cardToSave as any).examples,
+                        image_base64: cardToSave.image,
+                        linguisticInfo: (cardToSave as any).linguisticInfo,
+                        transcription: (cardToSave as any).transcription,
+                        word_audio_base64: (cardToSave as any).wordAudio,
+                        examples_audio_base64: (cardToSave as any).examplesAudio
+                    } : {
+                        text: cardToSave.text,
+                        front: (cardToSave as any).front,
+                        back: (cardToSave as any).back,
+                        image_base64: cardToSave.image
+                    };
+
+                    dispatch(saveAnkiCards(
+                        currentCard.mode || mode,
+                        ankiConnectUrl,
+                        ankiConnectApiKey,
+                        selectedAnkiDeckName,
+                        'Basic',
+                        [ankiCard as any]
+                    ));
+                    tabAware.updateCardExportStatus(cardToSave.id, 'exported');
+                } catch (ankiErr) {
+                    console.error('Failed to auto-sync to Anki (preview):', ankiErr);
+                }
+            }
+
             // Удалили навязчивое success уведомление
 
         } catch (error) {
@@ -7144,12 +7236,7 @@ Original text: ${text}`;
                             {/* Current Card Display using ResultDisplay component style */}
                             {previewCards[currentPreviewIndex] && (
                                 <div style={{ animation: 'slideIn 0.3s ease-out' }}>
-                                    <DeckSelector
-                                        onBackendDeckChange={setSelectedBackendDeckId}
-                                        onAnkiDeckChange={setSelectedAnkiDeckName}
-                                        initialBackendDeckId={selectedBackendDeckId}
-                                        initialAnkiDeckName={selectedAnkiDeckName}
-                                    />
+                                    <DeckSelector />
                                     <ResultDisplay
                                         front={previewCards[currentPreviewIndex].front || null}
                                         back={previewCards[currentPreviewIndex].back || null}

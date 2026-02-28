@@ -20,6 +20,7 @@ const isAbortLikeError = (error: unknown): boolean => {
 };
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const ENABLE_TRANSCRIPTION_VALIDATION = false;
 
 /**
  * Интерфейс для работы с AI-провайдерами
@@ -634,7 +635,7 @@ Your response should contain ONLY the word/phrase, no pronunciation, no IPA, no 
       // Парсим ответ для извлечения транскрипций
       const result = this.parseTranscriptionResponse(response, userLanguage);
 
-      if (result.userLanguageTranscription) {
+      if (ENABLE_TRANSCRIPTION_VALIDATION && result.userLanguageTranscription) {
         const isValid = await this.validateUserLanguageTranscriptionWithAI(
           text,
           userLanguage,

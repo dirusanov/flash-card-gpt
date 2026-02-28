@@ -18,7 +18,9 @@ import {
     SET_SOURCE_LANGUAGE,
     SET_AUTH_API_URL,
     SET_SYNC_API_URL,
-    SET_AUTO_SAVE_TO_SERVER
+    SET_AUTO_SAVE_TO_SERVER,
+    SET_SELECTED_BACKEND_DECK_ID,
+    SET_SELECTED_ANKI_DECK_NAME
 } from "../actions/settings";
 import { Modes } from "../../constants";
 
@@ -49,6 +51,8 @@ interface SettingsState {
     authApiUrl: string
     syncApiUrl: string
     autoSaveToServer: boolean
+    selectedBackendDeckId: string | null
+    selectedAnkiDeckName: string | null
 }
 
 const initialState: SettingsState = {
@@ -72,7 +76,9 @@ const initialState: SettingsState = {
     sourceLanguage: '',
     authApiUrl: 'https://auth.vaultonote.com',
     syncApiUrl: 'https://api-cards.vaultonote.com',
-    autoSaveToServer: false
+    autoSaveToServer: false,
+    selectedBackendDeckId: null,
+    selectedAnkiDeckName: null
 };
 
 export const settingsReducer = (state = initialState, action: any): SettingsState => {
@@ -176,6 +182,16 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 autoSaveToServer: action.payload,
+            };
+        case SET_SELECTED_BACKEND_DECK_ID:
+            return {
+                ...state,
+                selectedBackendDeckId: action.payload,
+            };
+        case SET_SELECTED_ANKI_DECK_NAME:
+            return {
+                ...state,
+                selectedAnkiDeckName: action.payload,
             };
         default:
             return state;

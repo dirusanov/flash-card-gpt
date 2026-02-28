@@ -18,6 +18,8 @@ export const SET_SOURCE_LANGUAGE = 'SET_SOURCE_LANGUAGE';
 export const SET_AUTH_API_URL = 'SET_AUTH_API_URL';
 export const SET_SYNC_API_URL = 'SET_SYNC_API_URL';
 export const SET_AUTO_SAVE_TO_SERVER = 'SET_AUTO_SAVE_TO_SERVER';
+export const SET_SELECTED_BACKEND_DECK_ID = 'SET_SELECTED_BACKEND_DECK_ID';
+export const SET_SELECTED_ANKI_DECK_NAME = 'SET_SELECTED_ANKI_DECK_NAME';
 
 export const setOpenAiKey = (openAiKey: string) => ({
     type: SET_OPEN_AI_KEY,
@@ -117,4 +119,14 @@ export const setSyncApiUrl = (url: string) => ({
 export const setAutoSaveToServer = (enabled: boolean) => ({
     type: SET_AUTO_SAVE_TO_SERVER,
     payload: enabled,
+});
+
+export const setSelectedBackendDeckId = (deckId: string | null) => ({
+    type: SET_SELECTED_BACKEND_DECK_ID,
+    payload: deckId,
+});
+
+export const setSelectedAnkiDeckName = (deckName: string | null) => ({
+    type: SET_SELECTED_ANKI_DECK_NAME,
+    payload: deckName,
 });

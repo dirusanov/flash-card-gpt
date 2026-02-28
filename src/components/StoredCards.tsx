@@ -15,6 +15,7 @@ import { authApi } from '../services/authApi';
 import { authStorage } from '../services/authStorage';
 import { setAuthSession, clearAuthSession } from '../store/actions/auth';
 import DeckSelector from './CreateCard/DeckSelector';
+import { useAuthenticatedRequest } from '../hooks/useAuthenticatedRequest';
 import useErrorNotification from './useErrorHandler';
 import { setDeckId } from '../store/actions/decks';
 import Loader from './Loader';
@@ -50,6 +51,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const sourceLanguage = useSelector((state: RootState) => state.settings.sourceLanguage);
     const auth = useSelector((state: RootState) => state.auth);
+    const executeRequest = useAuthenticatedRequest();
     const authApiUrl = useSelector((state: RootState) => state.settings.authApiUrl);
     const syncApiUrl = useSelector((state: RootState) => state.settings.syncApiUrl);
 
@@ -1135,47 +1137,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         debugLog('Edit canceled, modal should be hidden now.');
     };
 
-    const isTokenExpired = (expiresAt: number | null): boolean => {
-        if (!expiresAt) return false;
-        return Date.now() > expiresAt - 60_000;
-    };
-
-    const ensureValidAccessToken = async (): Promise<string | null> => {
-        const { accessToken, refreshToken, expiresAt, user } = auth;
-        if (!accessToken) return null;
-
-        if (!isTokenExpired(expiresAt)) {
-            return accessToken;
-        }
-
-        if (!refreshToken) {
-            return null;
-        }
-
-        try {
-            const refreshed = await authApi.refresh(authApiUrl, refreshToken);
-            if (!refreshed.access_token) {
-                return null;
-            }
-
-            const nextSession = {
-                accessToken: refreshed.access_token,
-                refreshToken: refreshed.refresh_token ?? null,
-                expiresAt: refreshed.expires_in ? Date.now() + refreshed.expires_in * 1000 : null,
-                tokenType: refreshed.token_type ?? 'bearer',
-                user: user ?? null,
-            };
-
-            await authStorage.setSession(nextSession);
-            dispatch(setAuthSession(nextSession));
-            return nextSession.accessToken;
-        } catch (error) {
-            console.error('Token refresh failed:', error);
-            await authStorage.clearSession();
-            dispatch(clearAuthSession());
-            return null;
-        }
-    };
 
     const buildUpdatedCardData = (): StoredCard | null => {
         if (!editingCard || !localEditingCardData) return null;
@@ -1363,38 +1324,33 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             }
 
             if (shouldSyncServer) {
-                const token = await ensureValidAccessToken();
-                if (!token) {
-                    showError('Please sign in again to sync this card to the server.');
-                } else {
-                    const meta = await cardsSyncService.upsertCard(syncApiUrl, token, updatedCardData);
-                    dispatch({
-                        type: UPDATE_CARD_SYNC_META,
-                        payload: {
-                            cardId: updatedCardData.id,
-                            syncId: meta.id,
-                            syncVersion: meta.version,
-                            syncSource: meta.source,
-                            syncTags: meta.tags,
-                        },
-                    });
-
-                    setEditingCard(prev => prev ? ({
-                        ...prev,
+                const meta = await executeRequest((token) => cardsSyncService.upsertCard(syncApiUrl, token, updatedCardData));
+                dispatch({
+                    type: UPDATE_CARD_SYNC_META,
+                    payload: {
+                        cardId: updatedCardData.id,
                         syncId: meta.id,
                         syncVersion: meta.version,
                         syncSource: meta.source,
                         syncTags: meta.tags,
-                    }) : prev);
+                    },
+                });
 
-                    setLocalEditingCardData(prev => prev ? ({
-                        ...prev,
-                        syncId: meta.id,
-                        syncVersion: meta.version,
-                        syncSource: meta.source,
-                        syncTags: meta.tags,
-                    }) : prev);
-                }
+                setEditingCard(prev => prev ? ({
+                    ...prev,
+                    syncId: meta.id,
+                    syncVersion: meta.version,
+                    syncSource: meta.source,
+                    syncTags: meta.tags,
+                }) : prev);
+
+                setLocalEditingCardData(prev => prev ? ({
+                    ...prev,
+                    syncId: meta.id,
+                    syncVersion: meta.version,
+                    syncSource: meta.source,
+                    syncTags: meta.tags,
+                }) : prev);
             }
 
             if (shouldSyncAnki) {
@@ -1700,7 +1656,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         const displayFront = editingCard.mode === Modes.LanguageLearning
             ? (text || front || '')
             : (front || '');
-        const selectedAnkiDeck = ankiDeckName ?? deckId ?? '';
+        const selectedAnkiDeck = ankiDeckName ?? backendDeckId ?? '';
 
         debugLog('Rendering edit modal with local data:', {
             text: text?.substring(0, 20) + '...',
@@ -1923,36 +1879,42 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
                     <div style={{
                         display: 'flex',
-                        justifyContent: 'flex-end',
-                        marginTop: '12px'
+                        width: '100%',
+                        marginTop: '16px'
                     }}>
                         <button
                             onClick={handleSyncFromModal}
                             disabled={loadingSync}
                             style={{
-                                padding: '6px 12px',
+                                width: '100%',
+                                padding: '10px 12px',
                                 backgroundColor: loadingSync ? '#9CA3AF' : '#111827',
                                 color: '#FFFFFF',
                                 border: 'none',
-                                borderRadius: '6px',
+                                borderRadius: '8px',
                                 cursor: loadingSync ? 'not-allowed' : 'pointer',
-                                fontSize: '12px',
+                                fontSize: '13px',
                                 fontWeight: 600,
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '6px'
+                                justifyContent: 'center',
+                                gap: '8px',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                             }}
+                            onMouseOver={(e) => !loadingSync && (e.currentTarget.style.backgroundColor = '#1F2937')}
+                            onMouseOut={(e) => !loadingSync && (e.currentTarget.style.backgroundColor = '#111827')}
                             title="Sync to Cloud and Anki"
                         >
                             {loadingSync ? (
                                 <>
                                     <Loader type="spinner" size="small" inline color="#FFFFFF" />
-                                    Syncing
+                                    <span style={{ marginLeft: '8px' }}>Syncing...</span>
                                 </>
                             ) : (
                                 <>
-                                    <FaSync size={12} />
-                                    Sync
+                                    <FaSync size={14} />
+                                    Sync Now
                                 </>
                             )}
                         </button>

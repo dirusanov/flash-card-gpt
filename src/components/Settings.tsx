@@ -6,6 +6,7 @@ import chatGptLogo from '../assets/img/chat-gpt.png';
 import CopyIcon from '../assets/img/copy-icon.svg';
 import { ModelProvider } from '../store/reducers/settings';
 import { backgroundFetch } from '../services/backgroundFetch';
+import DeckSelector from './CreateCard/DeckSelector';
 
 interface SettingsProps {
   onBackClick: () => void;
@@ -665,9 +666,12 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             }}
           >
             <option value={ModelProvider.OpenAI}>OpenAI (ChatGPT)</option>
-            <option value={ModelProvider.Groq}>Groq (Ultra-Fast)</option>
           </select>
         </div>
+      </div>
+
+      <div style={{ marginBottom: '24px' }}>
+        <DeckSelector />
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column' }}>
