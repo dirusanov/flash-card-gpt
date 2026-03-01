@@ -25,3 +25,4 @@
 
 # secrets
 secrets.*.js
+*.pem
