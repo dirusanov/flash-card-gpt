@@ -1,6 +1,5 @@
 {
   "manifest_version": 3,
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5IJ7sPDUMxMBKHZdcp9cQu9FZe+00dZRerWLP8MGk0QO3Qr6i9eW4aPjtBaRgG/f74atT4Vh3EZjnySf5pulBeWX51yOcXWzLl/1ls507XH+FTPEjas4QHzfQUNqz5+3uIrM5wpo/q2syOnyluyZ1K0TBjL5pRtfSKgnCINiYROmKbCYqKfug001fnw4a+5oaffC9BrLJi5S2OtUh8AawfpqoXFr/zWHDSbzkRhkD/bd7VVyZaDfMusQTuvzk+qaDzbOMlOvbwRGchzvo0qSN/8rC/B7GCblXQcyEDheTfrSY60jBTZ7InTIg38/hj19QQkGJXh5pqoiCOMdgDB8UwIDAQAB",
   "name": "Anki Flash Cards + GPT",
   "description": "Create flash cards to learn a language and different topics in your browser",
   "options_page": "options.html",
