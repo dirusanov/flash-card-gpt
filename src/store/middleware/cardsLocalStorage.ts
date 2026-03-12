@@ -18,6 +18,24 @@ const debugLog = (...args: unknown[]) => {
     }
 };
 
+const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error) {
+        return error.message || '';
+    }
+    return String(error || '');
+};
+
+const isExtensionContextInvalidatedError = (error: unknown): boolean =>
+    getErrorMessage(error).includes('Extension context invalidated');
+
+const logStorageError = (message: string, error: unknown) => {
+    if (isExtensionContextInvalidatedError(error)) {
+        console.warn(`${message}: extension context invalidated, skipping storage operation`);
+        return;
+    }
+    console.error(message, error);
+};
+
 const runWhenIdle = (callback: () => void) => {
     const globalScope = globalThis as any;
     if (typeof globalScope.requestIdleCallback === 'function') {
@@ -28,57 +46,121 @@ const runWhenIdle = (callback: () => void) => {
 };
 
 const hasChromeStorageLocal = () =>
-    typeof chrome !== 'undefined' &&
-    !!chrome.storage &&
-    !!chrome.storage.local;
+    (() => {
+        try {
+            return typeof chrome !== 'undefined' &&
+                !!chrome.storage &&
+                !!chrome.storage.local;
+        } catch (error) {
+            return false;
+        }
+    })();
+
+const safeLocalStorageGetItem = (key: string): string | null => {
+    try {
+        return localStorage.getItem(key);
+    } catch (error) {
+        if (!isExtensionContextInvalidatedError(error)) {
+            console.warn(`Failed to read ${key} from localStorage:`, error);
+        }
+        return null;
+    }
+};
+
+const safeLocalStorageSetItem = (key: string, value: string): boolean => {
+    try {
+        localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        if (!isExtensionContextInvalidatedError(error)) {
+            console.warn(`Failed to write ${key} to localStorage:`, error);
+        }
+        return false;
+    }
+};
+
+const safeLocalStorageRemoveItem = (key: string): void => {
+    try {
+        localStorage.removeItem(key);
+    } catch (error) {
+        if (!isExtensionContextInvalidatedError(error)) {
+            console.warn(`Failed to remove ${key} from localStorage:`, error);
+        }
+    }
+};
 
 const readExtensionStorage = async (key: string): Promise<string | null> => {
     if (!hasChromeStorageLocal()) {
-        return localStorage.getItem(key);
+        return safeLocalStorageGetItem(key);
     }
 
     return new Promise((resolve) => {
-        chrome.storage.local.get([key], (result) => {
-            if (chrome.runtime?.lastError) {
-                console.error(`Failed to read ${key} from chrome.storage.local:`, chrome.runtime.lastError.message);
-                resolve(localStorage.getItem(key));
-                return;
-            }
+        try {
+            chrome.storage.local.get([key], (result) => {
+                if (chrome.runtime?.lastError) {
+                    const runtimeError = new Error(chrome.runtime.lastError.message);
+                    if (!isExtensionContextInvalidatedError(runtimeError)) {
+                        console.error(`Failed to read ${key} from chrome.storage.local:`, chrome.runtime.lastError.message);
+                    }
+                    resolve(safeLocalStorageGetItem(key));
+                    return;
+                }
 
-            const value = result?.[key];
-            if (typeof value === 'string') {
-                resolve(value);
-                return;
-            }
+                const value = result?.[key];
+                if (typeof value === 'string') {
+                    resolve(value);
+                    return;
+                }
 
-            resolve(localStorage.getItem(key));
-        });
+                resolve(safeLocalStorageGetItem(key));
+            });
+        } catch (error) {
+            if (!isExtensionContextInvalidatedError(error)) {
+                console.error(`Failed to access chrome.storage.local for ${key}:`, error);
+            }
+            resolve(safeLocalStorageGetItem(key));
+        }
     });
 };
 
 const writeExtensionStorage = async (key: string, value: string): Promise<void> => {
     if (!hasChromeStorageLocal()) {
-        localStorage.setItem(key, value);
+        safeLocalStorageSetItem(key, value);
         return;
     }
 
     return new Promise((resolve, reject) => {
-        chrome.storage.local.set({ [key]: value }, () => {
-            if (chrome.runtime?.lastError) {
-                reject(new Error(chrome.runtime.lastError.message));
+        try {
+            chrome.storage.local.set({ [key]: value }, () => {
+                if (chrome.runtime?.lastError) {
+                    const runtimeError = new Error(chrome.runtime.lastError.message);
+                    if (isExtensionContextInvalidatedError(runtimeError)) {
+                        resolve();
+                        return;
+                    }
+                    reject(runtimeError);
+                    return;
+                }
+
+                resolve();
+            });
+        } catch (error) {
+            if (isExtensionContextInvalidatedError(error)) {
+                resolve();
                 return;
             }
-
-            resolve();
-        });
+            reject(error);
+        }
     });
 };
 
 const removeLegacyLocalStorageKey = (key: string) => {
     try {
-        localStorage.removeItem(key);
+        safeLocalStorageRemoveItem(key);
     } catch (error) {
-        console.warn(`Failed to remove legacy localStorage key ${key}:`, error);
+        if (!isExtensionContextInvalidatedError(error)) {
+            console.warn(`Failed to remove legacy localStorage key ${key}:`, error);
+        }
     }
 };
 
@@ -224,7 +306,7 @@ const persistCardImages = async (scope: string, cards: StoredCard[]): Promise<St
             }
         });
     } catch (error) {
-        console.error(`Failed to persist card images for scope ${scope}:`, error);
+        logStorageError(`Failed to persist card images for scope ${scope}`, error);
     }
 
     return sanitizedCards;
@@ -257,7 +339,7 @@ const hydrateCardImages = async (scope: string, cards: StoredCard[]): Promise<St
             };
         });
     } catch (error) {
-        console.error(`Failed to hydrate card images for scope ${scope}:`, error);
+        logStorageError(`Failed to hydrate card images for scope ${scope}`, error);
         return cards;
     }
 };
@@ -421,17 +503,17 @@ export const loadCardsFromStorage = async (): Promise<StoredCard[]> => {
             } catch (parseError) {
                 console.error('JSON parse error:', parseError);
                 // Attempt recovery by clearing corrupt data
-                localStorage.removeItem(LOCAL_STORAGE_KEY);
+                safeLocalStorageRemoveItem(LOCAL_STORAGE_KEY);
                 return [];
             }
         }
     } catch (error) {
-        console.error('Error loading cards from localStorage:', error);
+        logStorageError('Error loading cards from localStorage', error);
         // Try to recover by clearing potentially corrupt data
         try {
-            localStorage.removeItem(LOCAL_STORAGE_KEY);
+            safeLocalStorageRemoveItem(LOCAL_STORAGE_KEY);
         } catch (cleanupError) {
-            console.error('Could not clean up localStorage:', cleanupError);
+            logStorageError('Could not clean up localStorage', cleanupError);
         }
     }
     
@@ -506,7 +588,7 @@ export const loadTabCardsFromStorage = async (tabId: number): Promise<StoredCard
             return hydrateCardImages(`tab:${tabId}`, cardsWithDates);
         }
     } catch (error) {
-        console.error(`Error loading cards for tab ${tabId}:`, error);
+        logStorageError(`Error loading cards for tab ${tabId}`, error);
     }
     
     return [];
@@ -528,7 +610,7 @@ export const saveTabCardsToStorage = async (tabId: number, cards: StoredCard[]):
         removeLegacyLocalStorageKey(tabStorageKey);
         debugLog(`Successfully saved ${optimizedCards.length} cards for tab ${tabId}`);
     } catch (error) {
-        console.error(`Error saving cards for tab ${tabId}:`, error);
+        logStorageError(`Error saving cards for tab ${tabId}`, error);
         await saveCardsToStorageWithErrorHandling(tabId, cards, error);
     }
 };
@@ -554,7 +636,7 @@ const saveCardsToStorageWithErrorHandling = async (tabId: number, cards: StoredC
             removeLegacyLocalStorageKey(tabStorageKey);
             console.warn(`Smart optimization for tab ${tabId}: Saved ${smartOptimizedCards.length} of ${cards.length} cards`);
         } catch (innerError) {
-            console.error(`Failed to save optimized cards for tab ${tabId}:`, innerError);
+            logStorageError(`Failed to save optimized cards for tab ${tabId}`, innerError);
         }
     }
 };
@@ -593,7 +675,7 @@ export const saveCardsToStorage = async (cards: StoredCard[]): Promise<void> => 
         removeLegacyLocalStorageKey(LOCAL_STORAGE_KEY);
         debugLog('Cards saved successfully to localStorage with image preservation');
     } catch (error) {
-        console.error('Error saving cards to localStorage:', error);
+        logStorageError('Error saving cards to localStorage', error);
         
         // Get original size again to use in the error handler
         let originalSize = 0;
@@ -604,7 +686,7 @@ export const saveCardsToStorage = async (cards: StoredCard[]): Promise<void> => 
             });
             originalSize = new Blob([tempSerialized]).size;
         } catch (e) {
-            console.error('Could not determine original size:', e);
+            logStorageError('Could not determine original size', e);
         }
         
         // Check if it's a quota error
@@ -728,7 +810,7 @@ export const saveCardsToStorage = async (cards: StoredCard[]): Promise<void> => 
                     // Return true to indicate we handled the error
                     return;
                 } catch (innerError) {
-                    console.error('Failed to save with data reduction:', innerError);
+                    logStorageError('Failed to save with data reduction', innerError);
                 }
             }
         }
@@ -754,7 +836,7 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                     });
                 })();
             } catch (error) {
-                console.error('Error in LOAD_STORED_CARDS middleware:', error);
+                logStorageError('Error in LOAD_STORED_CARDS middleware', error);
                 // Initialize with empty array on error
                 store.dispatch({
                     type: 'SET_STORED_CARDS',
@@ -772,7 +854,7 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 }
 
             } catch (error) {
-                console.error('Error loading tab-specific state on tab switch:', error);
+                logStorageError('Error loading tab-specific state on tab switch', error);
             }
             break;
         }
@@ -787,7 +869,7 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 // Saving the whole collection immediately on every card mutation blocks the UI.
                 scheduleGlobalPersistence(storedCards);
             } catch (error) {
-                console.error('Error in immediate card storage middleware:', error);
+                logStorageError('Error in immediate card storage middleware', error);
             }
             break;
 
@@ -799,7 +881,7 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 const { cards: { storedCards } } = state;
                 scheduleGlobalPersistence(storedCards);
             } catch (error) {
-                console.error('Error in card storage middleware:', error);
+                logStorageError('Error in card storage middleware', error);
             }
             break;
         // Handle tab-specific actions
@@ -816,7 +898,7 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                     scheduleTabPersistence(tabId, tabStoredCards);
                 }
             } catch (error) {
-                console.error('Error in tab storage middleware:', error);
+                logStorageError('Error in tab storage middleware', error);
             }
             break;
             
@@ -831,14 +913,14 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 const tabKey = (base: string) => tabId ? `${base}_${tabId}` : base;
                 if (action.payload) {
                     // Set current card ID only in tab-scoped localStorage.
-                    localStorage.setItem(tabKey('current_card_id'), action.payload);
+                    safeLocalStorageSetItem(tabKey('current_card_id'), action.payload);
                 } else {
                     // Clear tab-scoped keys
-                    localStorage.removeItem(tabKey('current_card_id'));
-                    localStorage.removeItem(tabKey('explicitly_saved'));
+                    safeLocalStorageRemoveItem(tabKey('current_card_id'));
+                    safeLocalStorageRemoveItem(tabKey('explicitly_saved'));
                 }
             } catch (error) {
-                console.error('Error updating tab-scoped current_card_id:', error);
+                logStorageError('Error updating tab-scoped current_card_id', error);
             }
             break;
         }
