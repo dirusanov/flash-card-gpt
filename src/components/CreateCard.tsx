@@ -24,6 +24,7 @@ import { ModelProvider } from '../store/reducers/settings';
 import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
 import { imageUrlToBase64 } from '../services/ankiService';
 import { PageContentExtractor } from '../services/pageContentExtractor';
+import { buildSafeImagePrompt } from '../services/imagePromptSafety';
 
 interface GeneralCardTemplate {
     id: string;
@@ -66,42 +67,6 @@ const normalizeTranscriptionValue = (value: string | null | undefined, isIpa: bo
     }
 
     return cleaned;
-};
-
-const isRefusalLikeImagePrompt = (value: string | null | undefined): boolean => {
-    if (!value) {
-        return true;
-    }
-
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) {
-        return true;
-    }
-
-    return (
-        normalized.includes("i'm sorry") ||
-        normalized.includes('i am sorry') ||
-        normalized.includes("i can’t create images") ||
-        normalized.includes("i can't create images") ||
-        normalized.includes('cannot create images') ||
-        normalized.includes('text-based ai') ||
-        normalized.includes('text based ai') ||
-        normalized.includes('however, i can help') ||
-        normalized.includes('let me know how i can assist')
-    );
-};
-
-const buildSafeImagePrompt = (
-    sourceText: string,
-    generatedPrompt: string | null | undefined
-): string => {
-    const fallbackPrompt = `Create a clean educational illustration of "${sourceText}". Show the main subject clearly, centered, with a simple relevant setting, natural lighting, and no text, letters, captions, logos, or watermarks.`;
-
-    if (isRefusalLikeImagePrompt(generatedPrompt)) {
-        return fallbackPrompt;
-    }
-
-    return (generatedPrompt || fallbackPrompt).trim();
 };
 
 interface CreateCardProps {

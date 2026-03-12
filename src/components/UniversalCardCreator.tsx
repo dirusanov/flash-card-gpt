@@ -20,6 +20,7 @@ import {
 } from '../services/loadingMessages';
 import { setGlobalProgressCallback, getGlobalApiTracker } from '../services/apiTracker';
 import { forceFormulaDetection } from '../services/formulaDetectionService';
+import { buildSafeImagePrompt } from '../services/imagePromptSafety';
 
 // Интерфейс для типов общих карточек
 interface GeneralCardTemplate {
@@ -323,7 +324,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                             sourceLanguage || undefined
                         );
                         if (imageDescription && aiService.getImageUrl) {
-                            imageUrl = await aiService.getImageUrl(apiKey, imageDescription);
+                            const safeImageDescription = buildSafeImagePrompt(inputText, imageDescription);
+                            imageUrl = await aiService.getImageUrl(apiKey, safeImageDescription);
                             console.log('🖼️ Image generation completed');
                         }
                     } else if (imageGenerationMode === 'smart') {

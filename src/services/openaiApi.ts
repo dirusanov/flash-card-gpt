@@ -1,7 +1,12 @@
 import { backgroundFetch } from './backgroundFetch';
 import { getGlobalApiTracker } from './apiTracker';
 import { getLanguageEnglishName } from './languageNames';
-import { getImagePromptCacheKey, loadCachedPrompt, saveCachedPrompt } from './promptCache';
+import {
+  buildSafeImagePrompt,
+  containsSourceTermInImagePrompt,
+  extractOpenAIImagePayload,
+  isRefusalLikeImagePrompt,
+} from './imagePromptSafety';
 
 // Image style handling
 type ImageStyle = 'photorealistic' | 'painting';
@@ -63,6 +68,8 @@ Rules:
 - No explanations, no apologies, no disclaimers
 - No assistant-style phrasing
 - Do not mention AI, prompts, policy, or inability
+- Do not repeat, quote, transliterate, or mention the original word or phrase in the output
+- Describe only visible things in the scene, not dictionary labels
 - Never put the target word itself in the image
 - No text in image, no letters, no captions, no logos, no watermarks`;
 };
@@ -85,9 +92,120 @@ Rules:
 - Prefer emotionally readable situations over decorative imagery
 - No text in the image, no letters, no signage, no captions, no logos, no watermarks
 - No explanations, no meta text, no labels, no markdown
+- Do not repeat, quote, transliterate, or mention the original word or phrase in the output
 - One sentence only
 - 12 to 32 words
 - Optimize for a small study card thumbnail`;
+};
+
+const buildStyledImageRenderPrompt = (
+  sceneDescription: string,
+  customInstructions: string = ''
+): string => {
+  const resolvedStyle: ImageStyle = detectImageStyle(customInstructions) || DEFAULT_IMAGE_STYLE;
+  const normalizedScene = buildSafeImagePrompt('', sceneDescription);
+
+  const basePrompt = resolvedStyle === 'painting'
+    ? `Create a high-quality painting-style flashcard illustration of this scene: ${normalizedScene}. Use visible brush strokes, rich textures, clear composition, and no text.`
+    : `Create a high-quality photorealistic flashcard illustration of this scene: ${normalizedScene}. Use natural lighting, realistic materials, clear composition, and no text.`;
+
+  return customInstructions
+    ? `${basePrompt} Additional style requirements: ${customInstructions}`
+    : basePrompt;
+};
+
+const rewriteImagePromptWithoutSourceTerm = async (
+  apiKey: string,
+  sourceText: string,
+  prompt: string,
+  sourceLanguage?: string,
+  abortSignal?: AbortSignal
+): Promise<string> => {
+  const langName = getLanguageEnglishName(sourceLanguage || null);
+  const langHint = sourceLanguage
+    ? ` Source term language: code=${sourceLanguage}${langName ? `, name=${langName}` : ''}.`
+    : '';
+
+  const response = await backgroundFetch(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-5-nano',
+        messages: [
+          {
+            role: 'system',
+            content: `You rewrite image prompts for flashcards.${langHint}
+Return exactly one visual scene sentence.
+Rules:
+- Preserve the meaning of the concept
+- Never mention, quote, transliterate, spell, or label the original word or phrase
+- Describe only visible things in the scene
+- No text in image, no letters, no captions, no logos, no watermarks
+- No explanations, no markdown, no extra text`,
+          },
+          {
+            role: 'user',
+            content: `Original word or phrase: ${sourceText}
+Current image prompt: ${prompt}`,
+          },
+        ],
+      }),
+    },
+    abortSignal
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    if (errorData?.error) {
+      throw new Error(formatOpenAIErrorMessage(errorData));
+    }
+    throw new Error(`Could not rewrite image prompt. OpenAI API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0]?.message?.content?.trim() ?? '';
+};
+
+const ensureCompliantImageScenePrompt = async (
+  apiKey: string,
+  sourceText: string,
+  prompt: string,
+  sourceLanguage?: string,
+  abortSignal?: AbortSignal
+): Promise<string> => {
+  const normalizedPrompt = buildSafeImagePrompt(sourceText, prompt);
+
+  if (
+    normalizedPrompt &&
+    !isRefusalLikeImagePrompt(normalizedPrompt) &&
+    !containsSourceTermInImagePrompt(sourceText, normalizedPrompt)
+  ) {
+    return normalizedPrompt;
+  }
+
+  const rewrittenPrompt = await rewriteImagePromptWithoutSourceTerm(
+    apiKey,
+    sourceText,
+    normalizedPrompt || prompt,
+    sourceLanguage,
+    abortSignal
+  );
+  const safeRewrittenPrompt = buildSafeImagePrompt(sourceText, rewrittenPrompt);
+
+  if (
+    !safeRewrittenPrompt ||
+    isRefusalLikeImagePrompt(safeRewrittenPrompt) ||
+    containsSourceTermInImagePrompt(sourceText, safeRewrittenPrompt)
+  ) {
+    throw new Error('Failed to generate an image prompt without mentioning the source word.');
+  }
+
+  return safeRewrittenPrompt;
 };
 
 // Simple cache to prevent API spam when quota is exceeded
@@ -699,8 +817,16 @@ export const getDescriptionImage = async (
     throw new Error("Could not generate a valid image description. Please try again.");
   }
 
+  const safeDescription = await ensureCompliantImageScenePrompt(
+    apiKey,
+    word,
+    description,
+    sourceLanguage,
+    abortSignal
+  );
+
   tracker.completeRequest(requestId);
-  return description;
+  return safeDescription;
 } catch (error) {
   console.error('Error during getting description image:', error);
   tracker.errorRequest(requestId);
@@ -788,8 +914,16 @@ export const getAbstractImagePromptAgent = async (
       throw new Error('Could not generate a valid abstract image prompt. Please try again.');
     }
 
+    const safeDescription = await ensureCompliantImageScenePrompt(
+      apiKey,
+      word,
+      description,
+      sourceLanguage,
+      abortSignal
+    );
+
     tracker.completeRequest(requestId);
-    return description;
+    return safeDescription;
   } catch (error) {
     console.error('Error during abstract image prompt generation:', error);
     tracker.errorRequest(requestId);
@@ -850,18 +984,16 @@ const getImageUrlRequest = async (
       const data = await response.json();
 
       if (response.ok) {
-        const image = data?.data?.[0];
-        const imageUrl = typeof image?.url === 'string' ? image.url : null;
-        const imageBase64 = typeof image?.b64_json === 'string' ? image.b64_json : null;
+        const { imageUrl, imageBase64 } = extractOpenAIImagePayload(data);
 
         if (imageUrl) {
           tracker.completeRequest(requestId);
-          return imageUrl as string;
+          return imageUrl;
         }
 
         if (imageBase64) {
           tracker.completeRequest(requestId);
-          return `data:image/png;base64,${imageBase64}`;
+          return imageBase64;
         }
 
         if (!imageUrl && !imageBase64) {
@@ -931,16 +1063,16 @@ const getImageUrlRequest = async (
 
 export const getOpenAiImageUrl = async (
   apiKey: string,
-  word: string,
+  description: string,
   customInstructions: string = '',
-  sourceLanguage?: string,
+  _sourceLanguage?: string,
   abortSignal?: AbortSignal
 ): Promise<string | null> => {
     // Track API request
     const tracker = getGlobalApiTracker();
     const requestId = tracker.startRequest(
       'Creating custom image',
-      `Generating visual for "${word}"`,
+      'Rendering image from visual scene',
       '🖼️',
       '#6366F1'
     );
@@ -958,72 +1090,19 @@ export const getOpenAiImageUrl = async (
           tracker.errorRequest(requestId);
           throw new Error(quotaExceededCache!.message);
         }
-    
-        const isAbstractWord = await isAbstract(apiKey, word, sourceLanguage);
-        const resolvedStyle: ImageStyle = detectImageStyle(customInstructions) || DEFAULT_IMAGE_STYLE;
 
-    if (isAbstractWord) {
-        const description = await getAbstractImagePromptAgent(
-          apiKey,
-          word,
-          customInstructions,
-          undefined,
-          sourceLanguage
-        );
-        // Build style-consistent prompt when we control the language; otherwise rely on description + custom instructions
-        const promptForImage = sourceLanguage
-          ? description
-          : (
-              resolvedStyle === 'painting'
-                ? `Create a high-quality painting-style image representing the concept of '${description}', with visible brush strokes and rich textures`
-                : `Create a high-quality, photorealistic image that visually represents the concept of '${description}', using real-world objects and natural lighting`
-            );
-        const result = await getImageUrlRequest(
-            apiKey,
-            promptForImage,
-            customInstructions,
-            abortSignal
-        );
+        const finalPrompt = buildStyledImageRenderPrompt(description, customInstructions);
+        const result = await getImageUrlRequest(apiKey, finalPrompt, '', abortSignal);
         tracker.completeRequest(requestId);
         return result;
-    } else {
-        const name = getLanguageEnglishName(sourceLanguage || null);
-        const langNote = sourceLanguage ? ` The source word language: code=${sourceLanguage}${name ? `, name=${name}` : ''}. Interpret '${word}' in this language only.` : '';
-        let styledPrompt = (
-          resolvedStyle === 'painting'
-            ? `Create a detailed painting-style image of a ${word} with clear composition and visible brush strokes.${langNote}`
-            : `Create a high-quality, photorealistic image of a ${word} with natural lighting and clear details on a neutral background.${langNote}`
-        );
-        // Translate and cache the image prompt if we have a source language
-        if (sourceLanguage) {
-          const key = getImagePromptCacheKey(sourceLanguage, styledPrompt);
-          const cached = loadCachedPrompt(key);
-          if (cached) {
-            styledPrompt = cached;
-          } else {
-            try {
-              const translated = await translateText(apiKey, styledPrompt, sourceLanguage);
-              if (translated) {
-                styledPrompt = translated;
-                saveCachedPrompt(key, translated);
-              }
-            } catch (e) {
-              console.warn('Image prompt translation failed, using English prompt');
-            }
-          }
-        }
-        const result = await getImageUrlRequest(apiKey, styledPrompt, customInstructions, abortSignal);
-        tracker.completeRequest(requestId);
-        return result;
-    }
 } catch (error) {
-    console.error('Error during getting image for word:', error);
+    console.error('Error during image rendering:', error);
     tracker.errorRequest(requestId);
     throw error;
 }
 };
 
-// ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: Прямая генерация изображения без дополнительных запросов
+// Agent-based generation: first create a scene prompt, then render the image from that prompt.
 export const getOptimizedImageUrl = async (
   apiKey: string,
   word: string,
@@ -1054,48 +1133,15 @@ export const getOptimizedImageUrl = async (
           throw new Error(quotaExceededCache!.message);
         }
     
-        // Consistent style prompt for both abstract and concrete concepts
-        const langName3 = getLanguageEnglishName(sourceLanguage || null);
-        const langNote = sourceLanguage ? ` The source word language: code=${sourceLanguage}${langName3 ? `, name=${langName3}` : ''}. Interpret '${word}' strictly in this language.` : '';
-        const resolvedStyle: ImageStyle = detectImageStyle(customInstructions) || DEFAULT_IMAGE_STYLE;
-
-        const likelyAbstract = (/^[A-Z]/.test(word) || word.length > 15);
-
-        let optimizedPrompt = '';
-        if (resolvedStyle === 'painting') {
-          optimizedPrompt = likelyAbstract
-            ? `Create a high-quality painting-style image that clearly represents the concept of "${word}", with visible brush strokes and rich textures.${langNote}`
-            : `Create a detailed painting-style image of "${word}" with clear composition and artistic lighting.${langNote}`;
-        } else {
-          optimizedPrompt = likelyAbstract
-            ? `Create a high-quality, photorealistic image that visually represents the concept of "${word}", using real-world objects, natural lighting, and realistic materials.${langNote}`
-            : `Create a high-quality, photorealistic image of "${word}" with natural lighting and clear details on a neutral background.${langNote}`;
-        }
-        
-        if (customInstructions) {
-          optimizedPrompt += ` ${customInstructions}`;
-        }
-
-        // Translate and cache optimized prompt if source language is available
-        if (sourceLanguage) {
-          const key = getImagePromptCacheKey(sourceLanguage, optimizedPrompt);
-          const cached = loadCachedPrompt(key);
-          if (cached) {
-            optimizedPrompt = cached;
-          } else {
-            try {
-              const translated = await translateText(apiKey, optimizedPrompt, sourceLanguage, '', abortSignal);
-              if (translated) {
-                optimizedPrompt = translated;
-                saveCachedPrompt(key, translated);
-              }
-            } catch (e) {
-              console.warn('Optimized image prompt translation failed, using English prompt');
-            }
-          }
-        }
-
-        const result = await getImageUrlRequest(apiKey, optimizedPrompt, '', abortSignal);
+        const scenePrompt = await getDescriptionImage(
+          apiKey,
+          word,
+          customInstructions,
+          abortSignal,
+          sourceLanguage
+        );
+        const renderPrompt = buildStyledImageRenderPrompt(scenePrompt, customInstructions);
+        const result = await getImageUrlRequest(apiKey, renderPrompt, '', abortSignal);
         tracker.completeRequest(requestId);
         return result;
         

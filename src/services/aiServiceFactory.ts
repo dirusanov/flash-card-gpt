@@ -688,8 +688,9 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             return providerImage;
           }
         } else if (service.getImageUrl) {
-          // Fallback к обычной версии
-          const providerImage = await service.getImageUrl(apiKey, text);
+          // Fallback к обычной версии: сначала строим визуальную сцену отдельным агентом
+          const scenePrompt = await service.getDescriptionImage(apiKey, text, '', abortSignal, sourceLanguage);
+          const providerImage = await service.getImageUrl(apiKey, scenePrompt);
           if (providerImage) {
             return providerImage;
           }
@@ -706,7 +707,14 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         }
 
         if (openAiKey && openAiImageService?.getImageUrl) {
-          return await openAiImageService.getImageUrl(openAiKey, text);
+          const scenePrompt = await openAiImageService.getDescriptionImage(
+            openAiKey,
+            text,
+            '',
+            abortSignal,
+            sourceLanguage
+          );
+          return await openAiImageService.getImageUrl(openAiKey, scenePrompt);
         }
       } else if (imageGenerationMode === 'smart') {
         console.log(`🚫 No image needed for "${text}": ${analysisReason}`);

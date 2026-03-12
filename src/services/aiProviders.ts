@@ -6,6 +6,12 @@ import { backgroundFetch } from './backgroundFetch';
 import { formatOpenAIErrorMessage, cacheQuotaExceededError, getAbstractImagePromptAgent, isAbstract } from './openaiApi';
 import { getLanguageEnglishName } from './languageNames';
 import { getImagePromptCacheKey, loadCachedPrompt, saveCachedPrompt } from './promptCache';
+import {
+  buildSafeImagePrompt,
+  containsSourceTermInImagePrompt,
+  extractOpenAIImagePayload,
+  isRefusalLikeImagePrompt,
+} from './imagePromptSafety';
 
 type ChatMessage = {
   role: 'system' | 'user' | 'assistant';
@@ -187,11 +193,56 @@ Rules:
 - No explanations, no apologies, no disclaimers, no assistant-style text
 - Do not say what you cannot do
 - Do not mention AI, prompts, image generation, translations, or policies
+- Do not repeat, quote, transliterate, or mention the original word or phrase in the output
+- Describe only visible things in the scene, not dictionary labels
 - No markdown, quotes, bullets, labels, or extra text
 - Never place the target word itself inside the image
 - No text inside the image, no letters, no captions, no logos, no watermarks`;
       }
     };
+  }
+
+  protected async ensureImagePromptDoesNotMentionSourceTerm(
+    sourceText: string,
+    description: string,
+    abortSignal?: AbortSignal
+  ): Promise<string> {
+    const normalizedDescription = buildSafeImagePrompt(sourceText, description);
+
+    if (
+      normalizedDescription &&
+      !isRefusalLikeImagePrompt(normalizedDescription) &&
+      !containsSourceTermInImagePrompt(sourceText, normalizedDescription)
+    ) {
+      return normalizedDescription;
+    }
+
+    const repairPrompt = `Rewrite this flashcard image scene description so it still represents the same concept, but never mentions, quotes, transliterates, or spells the original word or phrase itself.
+
+Original word or phrase: ${sourceText}
+Current scene description: ${normalizedDescription || description}
+
+Rules:
+- Return exactly one visual scene sentence
+- Describe only visible things in the scene
+- No text in image, no letters, no captions, no logos, no watermarks
+- No explanations, labels, markdown, or extra text`;
+
+    const repairedResponse = await this.sendRequest(repairPrompt, { signal: abortSignal });
+    const repairedDescription = buildSafeImagePrompt(
+      sourceText,
+      this.extractPlainText(repairedResponse) || repairedResponse || ''
+    );
+
+    if (
+      !repairedDescription ||
+      isRefusalLikeImagePrompt(repairedDescription) ||
+      containsSourceTermInImagePrompt(sourceText, repairedDescription)
+    ) {
+      throw new Error('Failed to generate an image prompt without mentioning the source word.');
+    }
+
+    return repairedDescription;
   }
   
   /**
@@ -544,7 +595,7 @@ Rules:
 
         description = this.extractPlainText(response) || response;
       }
-      
+
       // If sourceLanguage provided, translate description and cache it
       if (sourceLanguage) {
         const cacheKey = getImagePromptCacheKey(sourceLanguage, description);
@@ -564,6 +615,12 @@ Rules:
           }
         }
       }
+
+      description = await this.ensureImagePromptDoesNotMentionSourceTerm(
+        word,
+        description,
+        abortSignal
+      );
       
       tracker.completeRequest(requestId);
       return description;
@@ -928,7 +985,6 @@ export class OpenAIProvider extends BaseAIProvider {
             prompt: finalPrompt,
             n: 1,
             size: '512x512',
-            response_format: 'url',
           }),
         }
       );
@@ -951,13 +1007,15 @@ export class OpenAIProvider extends BaseAIProvider {
         throw new Error(`OpenAI image API error: ${response.status} ${response.statusText}`);
       }
 
-      const imageUrl = data?.data?.[0]?.url || null;
-      if (imageUrl) {
+      const { imageUrl, imageBase64 } = extractOpenAIImagePayload(data);
+      const imageSource = imageBase64 || imageUrl;
+
+      if (imageSource) {
         tracker.completeRequest(requestId);
       } else {
         tracker.errorRequest(requestId);
       }
-      return imageUrl;
+      return imageSource;
     } catch (error) {
       console.error('Error generating image with OpenAI:', error);
       tracker.errorRequest(requestId);

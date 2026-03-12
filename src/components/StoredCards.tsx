@@ -22,45 +22,13 @@ import Loader from './Loader';
 import { getDescriptionImage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { backgroundFetch } from "../services/backgroundFetch";
 import ResultDisplay from './ResultDisplay';
+import { buildSafeImagePrompt, extractOpenAIImagePayload } from '../services/imagePromptSafety';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const debugLog = (...args: unknown[]) => {
     if (isDev) {
         console.log(...args);
     }
-};
-
-const isRefusalLikeImagePrompt = (value: string | null | undefined): boolean => {
-    if (!value) {
-        return true;
-    }
-
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) {
-        return true;
-    }
-
-    return (
-        normalized.includes("i'm sorry") ||
-        normalized.includes('i am sorry') ||
-        normalized.includes("i can’t create images") ||
-        normalized.includes("i can't create images") ||
-        normalized.includes('cannot create images') ||
-        normalized.includes('text-based ai') ||
-        normalized.includes('text based ai') ||
-        normalized.includes('however, i can help') ||
-        normalized.includes('let me know how i can assist')
-    );
-};
-
-const buildSafeImagePrompt = (sourceText: string, generatedPrompt: string | null | undefined): string => {
-    const fallbackPrompt = `Create a clean educational illustration of "${sourceText}". Show the main subject clearly, centered, with a simple relevant setting, natural lighting, and no text, letters, captions, logos, or watermarks.`;
-
-    if (isRefusalLikeImagePrompt(generatedPrompt)) {
-        return fallbackPrompt;
-    }
-
-    return (generatedPrompt || fallbackPrompt).trim();
 };
 
 interface StoredCardsProps {
@@ -1448,8 +1416,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         model: 'gpt-image-1',
                         prompt: finalPrompt,
                         n: 1,
-                        size: '512x512',
-                        response_format: 'url'
+                        size: '512x512'
                     })
                 }
             );
@@ -1457,15 +1424,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             const data = await response.json();
             debugLog('OpenAI direct API response:', data);
 
-            if (!data.data || !data.data[0] || !data.data[0].url) {
-                throw new Error('OpenAI did not return an image URL');
+            const { imageUrl, imageBase64 } = extractOpenAIImagePayload(data);
+            const imageSource = imageBase64 || imageUrl;
+
+            if (!imageSource) {
+                throw new Error('OpenAI did not return image data');
             }
 
-            const imageUrl = data.data[0].url;
-            debugLog('Image URL generated:', imageUrl);
+            debugLog('Image payload generated:', imageBase64 ? 'base64' : imageUrl);
 
-            // 3. Fetch the image and convert to base64
-            const imageData = await new Promise((resolve, reject) => {
+            const imageData = imageBase64 || await new Promise((resolve, reject) => {
                 chrome.runtime.sendMessage(imageUrl, (response) => {
                     if (chrome.runtime.lastError) {
                         console.error('Error sending message:', chrome.runtime.lastError);
