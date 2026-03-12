@@ -30,24 +30,30 @@ export async function getImage(
     try {
         debugLog('Using OpenAI with key:', openAiKey ? openAiKey.substring(0, 5) + '...' : 'null');
         imageUrl = await getOpenAiImageUrl(openAiKey, descriptionImage, imageInstructions, sourceLanguage);
-        debugLog('OpenAI returned URL:', imageUrl ? 'success' : 'null');
+        debugLog('OpenAI returned image payload:', imageUrl ? (imageUrl.startsWith('data:image/') ? 'base64-data-url' : 'url') : 'null');
         
         if (imageUrl) {
-            // ВАЖНО: Всегда пытаемся конвертировать в base64 для надежного хранения
-            try {
-                debugLog('Converting image URL to base64 for permanent storage...');
-                imageBase64 = await imageUrlToBase64(imageUrl);
-                debugLog('Image URL converted to base64:', imageBase64 ? 'success' : 'null');
-                
-                if (imageBase64) {
-                    debugLog('✅ Image successfully converted to base64 - keeping both URL and base64 for reliability');
-                } else {
-                    console.warn('⚠️ Failed to convert image to base64 - keeping temporary URL as fallback');
+            if (imageUrl.startsWith('data:image/')) {
+                imageBase64 = imageUrl;
+                imageUrl = null;
+                debugLog('OpenAI returned base64 image directly; skipping URL conversion');
+            } else {
+                // ВАЖНО: Всегда пытаемся конвертировать в base64 для надежного хранения
+                try {
+                    debugLog('Converting image URL to base64 for permanent storage...');
+                    imageBase64 = await imageUrlToBase64(imageUrl);
+                    debugLog('Image URL converted to base64:', imageBase64 ? 'success' : 'null');
+                    
+                    if (imageBase64) {
+                        debugLog('✅ Image successfully converted to base64 - keeping both URL and base64 for reliability');
+                    } else {
+                        console.warn('⚠️ Failed to convert image to base64 - keeping temporary URL as fallback');
+                    }
+                } catch (base64Error) {
+                    console.error('❌ Error converting URL to base64:', base64Error);
+                    console.warn('⚠️ Will use temporary URL as fallback, but it may disappear later');
+                    // Если ошибка в конвертации - оставляем URL как fallback
                 }
-            } catch (base64Error) {
-                console.error('❌ Error converting URL to base64:', base64Error);
-                console.warn('⚠️ Will use temporary URL as fallback, but it may disappear later');
-                // Если ошибка в конвертации - оставляем URL как fallback
             }
         }
     } catch (openaiError) {

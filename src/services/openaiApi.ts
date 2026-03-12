@@ -6,6 +6,8 @@ import { getImagePromptCacheKey, loadCachedPrompt, saveCachedPrompt } from './pr
 // Image style handling
 type ImageStyle = 'photorealistic' | 'painting';
 const DEFAULT_IMAGE_STYLE: ImageStyle = 'photorealistic';
+const OPENAI_IMAGE_MODEL = 'gpt-image-1';
+const OPENAI_IMAGE_SIZE = '1024x1024';
 
 // Try to infer style preference from custom instructions (supports EN/RU keywords)
 const detectImageStyle = (customInstructions: string | undefined | null): ImageStyle | null => {
@@ -694,11 +696,10 @@ const getImageUrlRequest = async (
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: 'dall-e-2',
+            model: OPENAI_IMAGE_MODEL,
             prompt: currentPrompt,
             n: 1,
-            size: '512x512',
-            response_format: 'url',
+            size: OPENAI_IMAGE_SIZE,
           }),
         },
         abortSignal
@@ -707,12 +708,24 @@ const getImageUrlRequest = async (
       const data = await response.json();
 
       if (response.ok) {
-        if (!data?.data?.[0]?.url) {
-          tracker.errorRequest(requestId);
-          throw new Error('OpenAI did not return an image URL. Please try again.');
+        const image = data?.data?.[0];
+        const imageUrl = typeof image?.url === 'string' ? image.url : null;
+        const imageBase64 = typeof image?.b64_json === 'string' ? image.b64_json : null;
+
+        if (imageUrl) {
+          tracker.completeRequest(requestId);
+          return imageUrl as string;
         }
-        tracker.completeRequest(requestId);
-        return data.data[0].url as string;
+
+        if (imageBase64) {
+          tracker.completeRequest(requestId);
+          return `data:image/png;base64,${imageBase64}`;
+        }
+
+        if (!imageUrl && !imageBase64) {
+          tracker.errorRequest(requestId);
+          throw new Error('OpenAI did not return image data. Please try again.');
+        }
       }
 
       if (data && data.error) {
