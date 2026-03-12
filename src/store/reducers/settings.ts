@@ -18,7 +18,8 @@ import {
     SET_SYNC_API_URL,
     SET_AUTO_SAVE_TO_SERVER,
     SET_SELECTED_BACKEND_DECK_ID,
-    SET_SELECTED_ANKI_DECK_NAME
+    SET_SELECTED_ANKI_DECK_NAME,
+    HYDRATE_SETTINGS
 } from "../actions/settings";
 import { Modes } from "../../constants";
 
@@ -175,6 +176,11 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 selectedAnkiDeckName: action.payload,
+            };
+        case HYDRATE_SETTINGS:
+            return {
+                ...state,
+                ...action.payload,
             };
         default:
             return state;

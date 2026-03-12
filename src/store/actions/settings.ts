@@ -18,6 +18,7 @@ export const SET_SYNC_API_URL = 'SET_SYNC_API_URL';
 export const SET_AUTO_SAVE_TO_SERVER = 'SET_AUTO_SAVE_TO_SERVER';
 export const SET_SELECTED_BACKEND_DECK_ID = 'SET_SELECTED_BACKEND_DECK_ID';
 export const SET_SELECTED_ANKI_DECK_NAME = 'SET_SELECTED_ANKI_DECK_NAME';
+export const HYDRATE_SETTINGS = 'HYDRATE_SETTINGS';
 
 export const setOpenAiKey = (openAiKey: string) => ({
     type: SET_OPEN_AI_KEY,
@@ -117,4 +118,9 @@ export const setSelectedBackendDeckId = (deckId: string | null) => ({
 export const setSelectedAnkiDeckName = (deckName: string | null) => ({
     type: SET_SELECTED_ANKI_DECK_NAME,
     payload: deckName,
+});
+
+export const hydrateSettings = (settings: Record<string, unknown>) => ({
+    type: HYDRATE_SETTINGS,
+    payload: settings,
 });

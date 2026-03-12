@@ -1,4 +1,3 @@
-import { setupReduxed } from 'reduxed-chrome-storage';
 import { createStore, applyMiddleware, combineReducers } from 'redux';
 import thunk from 'redux-thunk';
 import decksReducer from "./reducers/decks";
@@ -32,8 +31,6 @@ export type RootState = ReturnType<typeof rootReducer>;
 const storeCreator = (preloadedState?: RootState) => 
   createStore(rootReducer, preloadedState, applyMiddleware(thunk, cardsLocalStorageMiddleware, cardsSyncMiddleware));
 
-const instantiateStoreBase = setupReduxed(storeCreator);
-
 const isExtensionContextInvalidatedError = (error: unknown): boolean => {
   if (!(error instanceof Error)) {
     return false;
@@ -65,7 +62,27 @@ const wrapStoreDispatchWithContextGuard = (store: any) => {
   return store;
 };
 
+let storeInstance: ReturnType<typeof storeCreator> | null = null;
+
+const cleanupLegacyReduxedState = () => {
+  try {
+    chrome?.storage?.local?.remove?.('reduxed');
+  } catch (_error) {
+    // no-op
+  }
+
+  try {
+    chrome?.storage?.sync?.remove?.('reduxed');
+  } catch (_error) {
+    // no-op
+  }
+};
+
 export const instantiateStore = async () => {
-  const store = await instantiateStoreBase();
-  return wrapStoreDispatchWithContextGuard(store);
+  if (!storeInstance) {
+    cleanupLegacyReduxedState();
+    storeInstance = wrapStoreDispatchWithContextGuard(storeCreator());
+  }
+
+  return storeInstance;
 };

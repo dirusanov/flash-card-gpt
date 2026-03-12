@@ -783,8 +783,9 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
             try {
                 const state = store.getState();
                 const { cards: { storedCards } } = state;
-                flushPendingGlobalPersistence();
-                void saveCardsToStorage(storedCards);
+                // Coalesce bursts of save/update/delete actions into a single persistence pass.
+                // Saving the whole collection immediately on every card mutation blocks the UI.
+                scheduleGlobalPersistence(storedCards);
             } catch (error) {
                 console.error('Error in immediate card storage middleware:', error);
             }

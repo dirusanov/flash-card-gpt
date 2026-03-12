@@ -1265,9 +1265,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setIsEdited(false);
             setIsNewSubmission(false);
 
-            // Force Redux to refresh stored cards
-            dispatch(loadStoredCards(tabId));
-
         } catch (error) {
             console.error('Error in save all cards operation:', error);
             showError('Error saving cards. Please try again.');
@@ -1352,9 +1349,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     debugLog('Updated explicitly saved IDs:', newIds);
                     return newIds;
                 });
-
-                // Force reload stored cards
-                dispatch(loadStoredCards(tabId));
 
                 // Set current card's ID for reference
                 tabAware.setCurrentCardId(cardToPersist.id);
@@ -3067,8 +3061,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         try {
             const newCards: StoredCard[] = [];
 
-            // Process cards in batches
-            const BATCH_SIZE = 3;
+            // Each card already fans out into multiple parallel AI/media requests.
+            // Keep cross-card concurrency low to avoid extension-wide CPU/memory spikes.
+            const BATCH_SIZE = (imageGenerationMode !== 'off' || audioGenerationMode !== 'off') ? 1 : 2;
             for (let i = 0; i < selectedOptions.length; i += BATCH_SIZE) {
                 const batch = selectedOptions.slice(i, i + BATCH_SIZE);
 
@@ -3161,13 +3156,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             exportStatus: 'not_exported' as const
                         };
 
-                        // Normalize image (download and convert to base64 if it's just a URL)
-                        const normalizedCard = await normalizeImageForStorage(null, cardData.imageUrl);
-                        return {
-                            ...cardData,
-                            image: normalizedCard.image,
-                            imageUrl: normalizedCard.imageUrl
-                        };
+                        // Keep remote image URLs during generation and normalize only on explicit save.
+                        // Eager base64 conversion here blocks multi-card creation and causes visible UI lag.
+                        return cardData;
 
                     } catch (error) {
                         if (error instanceof Error && isQuotaError(error)) {

@@ -1,4 +1,3 @@
-import { imageUrlToBase64 } from "./services/ankiService";
 import { getOpenAiImageUrl } from "./services/openaiApi";
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -37,23 +36,6 @@ export async function getImage(
                 imageBase64 = imageUrl;
                 imageUrl = null;
                 debugLog('OpenAI returned base64 image directly; skipping URL conversion');
-            } else {
-                // ВАЖНО: Всегда пытаемся конвертировать в base64 для надежного хранения
-                try {
-                    debugLog('Converting image URL to base64 for permanent storage...');
-                    imageBase64 = await imageUrlToBase64(imageUrl);
-                    debugLog('Image URL converted to base64:', imageBase64 ? 'success' : 'null');
-                    
-                    if (imageBase64) {
-                        debugLog('✅ Image successfully converted to base64 - keeping both URL and base64 for reliability');
-                    } else {
-                        console.warn('⚠️ Failed to convert image to base64 - keeping temporary URL as fallback');
-                    }
-                } catch (base64Error) {
-                    console.error('❌ Error converting URL to base64:', base64Error);
-                    console.warn('⚠️ Will use temporary URL as fallback, but it may disappear later');
-                    // Если ошибка в конвертации - оставляем URL как fallback
-                }
             }
         }
     } catch (openaiError) {
@@ -72,8 +54,8 @@ export async function getImage(
         throw new Error("Failed to generate image. Please check your API key and try again.");
     }
 
-    // АВТОМАТИЧЕСКАЯ ОПТИМИЗАЦИЯ: Если конвертация в base64 прошла успешно, 
-    // убираем временный URL чтобы экономить место и избежать путаницы
+    // Keep remote URLs in UI state and normalize to base64 only on explicit save.
+    // Eager conversion creates very large strings, spikes memory and can freeze the extension.
     const finalImageUrl = imageBase64 ? null : imageUrl;
     
     debugLog('Final result:', {

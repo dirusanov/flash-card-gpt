@@ -7,6 +7,8 @@ import { Provider } from 'react-redux';
 import { instantiateStore } from '../../store';
 import { initializeApiKeyPersistence } from '../../services/apiKeyStorage';
 import { initializeAuthPersistence } from '../../services/authPersistence';
+import { initializeSettingsPersistence } from '../../services/settingsPersistence';
+import { initializeDeckSelectionPersistence } from '../../services/deckSelectionPersistence';
 import { setCurrentTabId } from '../../store/actions/tabState';
 
 const isDev = false;
@@ -333,6 +335,8 @@ const StoreInitializer = () => {
   const [tabId, setTabId] = useState(null);
   const apiKeyUnsubscribeRef = useRef(null);
   const authUnsubscribeRef = useRef(null);
+  const settingsUnsubscribeRef = useRef(null);
+  const deckSelectionUnsubscribeRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -360,34 +364,53 @@ const StoreInitializer = () => {
         } catch (e) {
           console.warn('Failed to pre-initialize tab state:', e);
         }
+        try {
+          const unsubscribeSettings = await initializeSettingsPersistence(resolvedStore);
+          if (isMounted) {
+            settingsUnsubscribeRef.current = unsubscribeSettings;
+          } else if (typeof unsubscribeSettings === 'function') {
+            unsubscribeSettings();
+          }
+        } catch (error) {
+          console.error('Failed to initialize settings persistence:', error);
+        }
+
+        try {
+          const unsubscribe = await initializeApiKeyPersistence(resolvedStore);
+          if (isMounted) {
+            apiKeyUnsubscribeRef.current = unsubscribe;
+          } else if (typeof unsubscribe === 'function') {
+            unsubscribe();
+          }
+        } catch (error) {
+          console.error('Failed to initialize API key persistence:', error);
+        }
+
+        try {
+          const unsubscribeDeckSelection = await initializeDeckSelectionPersistence(resolvedStore);
+          if (isMounted) {
+            deckSelectionUnsubscribeRef.current = unsubscribeDeckSelection;
+          } else if (typeof unsubscribeDeckSelection === 'function') {
+            unsubscribeDeckSelection();
+          }
+        } catch (error) {
+          console.error('Failed to initialize deck selection persistence:', error);
+        }
+
+        try {
+          const unsubscribeAuth = await initializeAuthPersistence(resolvedStore);
+          if (isMounted) {
+            authUnsubscribeRef.current = unsubscribeAuth;
+          } else if (typeof unsubscribeAuth === 'function') {
+            unsubscribeAuth();
+          }
+        } catch (error) {
+          console.error('Failed to initialize auth persistence:', error);
+        }
+
+        if (!isMounted) return;
         setStore(resolvedStore);
         setIsLoading(false);
-
-        void (async () => {
-          try {
-            const unsubscribe = await initializeApiKeyPersistence(resolvedStore);
-            if (isMounted) {
-              apiKeyUnsubscribeRef.current = unsubscribe;
-            } else if (typeof unsubscribe === 'function') {
-              unsubscribe();
-            }
-          } catch (error) {
-            console.error('Failed to initialize API key persistence:', error);
-          }
-        })();
-
-        void (async () => {
-          try {
-            const unsubscribeAuth = await initializeAuthPersistence(resolvedStore);
-            if (isMounted) {
-              authUnsubscribeRef.current = unsubscribeAuth;
-            } else if (typeof unsubscribeAuth === 'function') {
-              unsubscribeAuth();
-            }
-          } catch (error) {
-            console.error('Failed to initialize auth persistence:', error);
-          }
-        })();
       } catch (error) {
         console.error('Error initializing store:', error);
         setIsLoading(false);
@@ -401,6 +424,14 @@ const StoreInitializer = () => {
       if (apiKeyUnsubscribeRef.current) {
         apiKeyUnsubscribeRef.current();
         apiKeyUnsubscribeRef.current = null;
+      }
+      if (settingsUnsubscribeRef.current) {
+        settingsUnsubscribeRef.current();
+        settingsUnsubscribeRef.current = null;
+      }
+      if (deckSelectionUnsubscribeRef.current) {
+        deckSelectionUnsubscribeRef.current();
+        deckSelectionUnsubscribeRef.current = null;
       }
       if (authUnsubscribeRef.current) {
         authUnsubscribeRef.current();
