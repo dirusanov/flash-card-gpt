@@ -67,6 +67,29 @@ Rules:
 - No text in image, no letters, no captions, no logos, no watermarks`;
 };
 
+const buildAbstractImageAgentInstruction = (word: string, sourceLanguage?: string): string => {
+  const langName = getLanguageEnglishName(sourceLanguage || null);
+  const langHint = sourceLanguage
+    ? ` The source word language: code=${sourceLanguage}${langName ? `, name=${langName}` : ''}. Interpret "${word}" strictly in this language only.`
+    : '';
+
+  return `You are a specialized abstract-image prompt agent for flashcards.${langHint}
+Task: turn the abstract word or phrase "${word}" into one clear associative real-world scene for image generation.
+Return ONLY one final image prompt sentence.
+Rules:
+- The concept is abstract, so do not depict the written word itself
+- Use an everyday real-world scene, not fantasy symbols
+- Convey the meaning through people, objects, actions, posture, facial expression, lighting, weather, distance, space, or atmosphere
+- Choose one central moment that communicates the concept instantly
+- Keep the scene literal enough to understand, but associative rather than dictionary-illustrative
+- Prefer emotionally readable situations over decorative imagery
+- No text in the image, no letters, no signage, no captions, no logos, no watermarks
+- No explanations, no meta text, no labels, no markdown
+- One sentence only
+- 12 to 32 words
+- Optimize for a small study card thumbnail`;
+};
+
 // Simple cache to prevent API spam when quota is exceeded
 let quotaExceededCache: { timestamp: number; message: string; notificationShown: boolean } | null = null;
 const QUOTA_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -613,7 +636,10 @@ export const getDescriptionImage = async (
       throw new Error(quotaExceededCache!.message);
     }
 
-  const basePrompt = buildImageDescriptionInstruction(word, sourceLanguage);
+  const isAbstractWord = await isAbstract(apiKey, word, sourceLanguage);
+  const basePrompt = isAbstractWord
+    ? buildAbstractImageAgentInstruction(word, sourceLanguage)
+    : buildImageDescriptionInstruction(word, sourceLanguage);
   const finalPrompt = customInstructions
     ? `${basePrompt}\nAdditional visual style requirements: ${customInstructions}`
     : basePrompt;
@@ -680,6 +706,95 @@ export const getDescriptionImage = async (
   tracker.errorRequest(requestId);
   throw error;
 }
+};
+
+export const getAbstractImagePromptAgent = async (
+  apiKey: string,
+  word: string,
+  customInstructions: string = '',
+  abortSignal?: AbortSignal,
+  sourceLanguage?: string
+): Promise<string> => {
+  const tracker = getGlobalApiTracker();
+  const requestId = tracker.startRequest(
+    'Abstract image agent',
+    `Building associative scene for "${word}"`,
+    '🧠',
+    '#F59E0B'
+  );
+
+  try {
+    if (!apiKey) {
+      tracker.errorRequest(requestId);
+      throw new Error("OpenAI API key is missing. Please check your settings.");
+    }
+
+    tracker.setInProgress(requestId);
+
+    if (isQuotaExceededCached()) {
+      tracker.errorRequest(requestId);
+      throw new Error(quotaExceededCache!.message);
+    }
+
+    const basePrompt = buildAbstractImageAgentInstruction(word, sourceLanguage);
+    const finalPrompt = customInstructions
+      ? `${basePrompt}\nAdditional visual style requirements: ${customInstructions}`
+      : basePrompt;
+
+    const response = await backgroundFetch(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-5-nano',
+          messages: [
+            {
+              role: 'system',
+              content: 'You return only a final abstract-image prompt sentence for an image model.',
+            },
+            {
+              role: 'user',
+              content: finalPrompt,
+            },
+          ],
+        }),
+      },
+      abortSignal
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      if (errorData && errorData.error) {
+        const errorMessage = formatOpenAIErrorMessage(errorData);
+        if (errorData.error.code === 'insufficient_quota' || response.status === 429) {
+          cacheQuotaExceededError(errorMessage);
+        }
+        tracker.errorRequest(requestId);
+        throw new Error(errorMessage);
+      }
+      tracker.errorRequest(requestId);
+      throw new Error(`Could not generate abstract image prompt. OpenAI API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const description = data.choices[0]?.message?.content?.trim() ?? '';
+
+    if (!description) {
+      tracker.errorRequest(requestId);
+      throw new Error('Could not generate a valid abstract image prompt. Please try again.');
+    }
+
+    tracker.completeRequest(requestId);
+    return description;
+  } catch (error) {
+    console.error('Error during abstract image prompt generation:', error);
+    tracker.errorRequest(requestId);
+    throw error;
+  }
 };
 
 const getImageUrlRequest = async (
@@ -848,8 +963,13 @@ export const getOpenAiImageUrl = async (
         const resolvedStyle: ImageStyle = detectImageStyle(customInstructions) || DEFAULT_IMAGE_STYLE;
 
     if (isAbstractWord) {
-        // Generate description and ensure it's in sourceLanguage via getDescriptionImage
-        const description = await getDescriptionImage(apiKey, word, customInstructions, undefined, sourceLanguage);
+        const description = await getAbstractImagePromptAgent(
+          apiKey,
+          word,
+          customInstructions,
+          undefined,
+          sourceLanguage
+        );
         // Build style-consistent prompt when we control the language; otherwise rely on description + custom instructions
         const promptForImage = sourceLanguage
           ? description

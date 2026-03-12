@@ -3,7 +3,7 @@ import { ModelProvider } from '../store/reducers/settings';
 import { TranscriptionResult } from './aiServiceFactory';
 import { getGlobalApiTracker } from './apiTracker';
 import { backgroundFetch } from './backgroundFetch';
-import { formatOpenAIErrorMessage, cacheQuotaExceededError } from './openaiApi';
+import { formatOpenAIErrorMessage, cacheQuotaExceededError, getAbstractImagePromptAgent, isAbstract } from './openaiApi';
 import { getLanguageEnglishName } from './languageNames';
 import { getImagePromptCacheKey, loadCachedPrompt, saveCachedPrompt } from './promptCache';
 
@@ -518,19 +518,32 @@ Rules:
 
     try {
       tracker.setInProgress(requestId);
-      const basePrompt = this.getPrompts().imageDescription(word, sourceLanguage);
-      const finalPrompt = customInstructions 
-        ? `${basePrompt} ${customInstructions}` 
-        : basePrompt;
-      
-      const response = await this.sendRequest(finalPrompt, { signal: abortSignal });
-      
-      if (!response) {
-        tracker.errorRequest(requestId);
-        throw new Error("Failed to generate image description. Please try again.");
+      const abstractWord = await isAbstract(this.apiKey, word, sourceLanguage);
+      let description = '';
+
+      if (abstractWord) {
+        description = await getAbstractImagePromptAgent(
+          this.apiKey,
+          word,
+          customInstructions,
+          abortSignal,
+          sourceLanguage
+        );
+      } else {
+        const basePrompt = this.getPrompts().imageDescription(word, sourceLanguage);
+        const finalPrompt = customInstructions
+          ? `${basePrompt} ${customInstructions}`
+          : basePrompt;
+
+        const response = await this.sendRequest(finalPrompt, { signal: abortSignal });
+
+        if (!response) {
+          tracker.errorRequest(requestId);
+          throw new Error("Failed to generate image description. Please try again.");
+        }
+
+        description = this.extractPlainText(response) || response;
       }
-      
-      let description = this.extractPlainText(response) || response;
       
       // If sourceLanguage provided, translate description and cache it
       if (sourceLanguage) {
