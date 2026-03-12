@@ -6,6 +6,7 @@ import { authApi } from '../services/authApi';
 import { authService } from '../services/authService';
 import { authStorage } from '../services/authStorage';
 import { googleOAuth } from '../services/googleOAuth';
+import brandLogo from '../assets/img/vaulto-cards-logo.png';
 
 interface AuthScreenProps {
   onBackClick: () => void;
@@ -260,21 +261,15 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
       }}>
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-            <div style={{
-              width: 28,
-              height: 28,
-              borderRadius: 9,
-              backgroundColor: colors.primary,
-              color: '#FFFFFF',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 15,
-              fontWeight: 700,
-              boxShadow: '0 8px 18px rgba(0, 102, 255, 0.18)',
-            }}>
-              V
-            </div>
+            <img
+              src={brandLogo}
+              alt="Vaulto Cards logo"
+              style={{
+              width: 38,
+              height: 38,
+              objectFit: 'contain',
+            }}
+            />
             <div style={{ fontSize: 13, fontWeight: 600, color: colors.textSecondary }}>Vaulto Cards</div>
           </div>
           <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 700, letterSpacing: '-0.03em', color: colors.text }}>

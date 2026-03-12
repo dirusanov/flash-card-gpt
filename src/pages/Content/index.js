@@ -10,6 +10,7 @@ import { initializeAuthPersistence } from '../../services/authPersistence';
 import { initializeSettingsPersistence } from '../../services/settingsPersistence';
 import { initializeDeckSelectionPersistence } from '../../services/deckSelectionPersistence';
 import { setCurrentTabId } from '../../store/actions/tabState';
+import brandLogo from '../../assets/img/vaulto-cards-logo.png';
 
 const isDev = false;
 const debugLog = (...args) => {
@@ -47,6 +48,7 @@ let appMountNode = null;
 let root = null;
 let appInitPromise = null;
 let isAppInitialized = false;
+const brandLogoUrl = chrome.runtime.getURL(brandLogo);
 
 const ensureShadowRoot = () => {
   if (shadow) {
@@ -116,11 +118,14 @@ const LoadingSpinner = () =>
     React.createElement('div', {
       key: 'logo',
       style: {
-        width: '48px', height: '48px', background: 'rgba(255,255,255,0.2)', borderRadius: '12px',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px',
+        width: '104px', height: '104px', marginBottom: '28px',
         animation: 'pulse 2s ease-in-out infinite'
       }
-    }, '🧠'),
+    }, React.createElement('img', {
+      src: brandLogoUrl,
+      alt: 'Vaulto Cards logo',
+      style: { width: '100%', height: '100%', objectFit: 'contain', filter: 'brightness(0) invert(1)' }
+    })),
     React.createElement('div', {
       key: 'spinner',
       style: {
@@ -129,8 +134,8 @@ const LoadingSpinner = () =>
         animation: 'spin 1s linear infinite', marginBottom: '20px'
       }
     }),
-    React.createElement('h2', { key: 'title', style: { color: '#ffffff', fontSize: 20, fontWeight: 700, marginBottom: 8, textAlign: 'center' } }, 'Anki Flash Cards'),
-    React.createElement('p', { key: 'subtitle', style: { color: 'rgba(255,255,255,0.8)', fontSize: 14, textAlign: 'center' } }, 'Initializing your learning assistant...'),
+    React.createElement('h2', { key: 'title', style: { color: '#ffffff', fontSize: 20, fontWeight: 700, marginBottom: 8, textAlign: 'center' } }, 'Vaulto Cards'),
+    React.createElement('p', { key: 'subtitle', style: { color: 'rgba(255,255,255,0.8)', fontSize: 14, textAlign: 'center' } }, 'Initializing your study companion...'),
     React.createElement('div', { key: 'progress-bar', style: { width: 200, height: 2, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 1, marginTop: 24, overflow: 'hidden' } },
       React.createElement('div', { style: { width: '100%', height: '100%', backgroundColor: '#ffffff', animation: 'progressBar 2s ease-in-out infinite' } })
     ),

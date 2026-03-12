@@ -76,6 +76,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const [loadingSync, setLoadingSync] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [ankiSettingsPrompt, setAnkiSettingsPrompt] = useState<'disabled' | 'unavailable' | null>(null);
 
     // States for export file modal
     const [showExportModal, setShowExportModal] = useState(false);
@@ -103,7 +104,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             const response = await fetchDecks(ankiConnectUrl, ankiConnectApiKey);
 
             if (response.error) {
-                throw new Error(response.error);
+                dispatch(setAnkiAvailability(false));
+                dispatch({ type: 'FETCH_DECKS_SUCCESS', payload: [] });
+                return;
             }
 
             const decksResult = Array.isArray(response.result) ? response.result : [];
@@ -119,7 +122,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 dispatch(setDeckId(decksResult[0].deckId));
             }
         } catch (error) {
-            console.error('Error loading decks:', error);
             dispatch(setAnkiAvailability(false));
             dispatch({ type: 'FETCH_DECKS_SUCCESS', payload: [] });
         } finally {
@@ -141,6 +143,29 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             setShowDeckSelector(false);
         }
     }, [isAnkiAvailable]);
+
+    useEffect(() => {
+        if (useAnkiConnect && isAnkiAvailable) {
+            setAnkiSettingsPrompt(null);
+        }
+    }, [useAnkiConnect, isAnkiAvailable]);
+
+    useEffect(() => {
+        if (!ankiSettingsPrompt) {
+            return undefined;
+        }
+
+        const timer = window.setTimeout(() => {
+            setAnkiSettingsPrompt(null);
+        }, 10000);
+
+        return () => window.clearTimeout(timer);
+    }, [ankiSettingsPrompt]);
+
+    const handleOpenSettings = useCallback(() => {
+        setAnkiSettingsPrompt(null);
+        tabAware.setCurrentPage('settings');
+    }, [tabAware]);
 
     const filteredCards = useMemo(() => {
         if (!Array.isArray(storedCards) || storedCards.length === 0) {
@@ -270,12 +295,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }
 
         if (!useAnkiConnect) {
-            showError('AnkiConnect integration is disabled. Enable it in settings and try again.');
+            setAnkiSettingsPrompt('disabled');
             return;
         }
 
         if (!isAnkiAvailable) {
-            showError('AnkiConnect is not available. Make sure Anki is running with the AnkiConnect plugin.');
+            setAnkiSettingsPrompt('unavailable');
             return;
         }
 
@@ -2211,7 +2236,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
                     // Clean the front and back content to avoid tab/newline issues
                     const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
-                    const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
+                    // Keep HTML compact for file export; converting template newlines to <br>
+                    // makes pronunciation/grammar blocks artificially tall.
+                    const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n\s*/g, '').trim();
 
                     // Export the formatted card with proper escaping
                     exportContent += `${cleanFront}\t${cleanBack}\n`;
@@ -2368,6 +2395,49 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             margin: '0 auto',
             position: 'relative'
         }}>
+            {ankiSettingsPrompt && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    marginBottom: '12px',
+                    padding: '12px',
+                    backgroundColor: '#FFFBEB',
+                    border: '1px solid #FDE68A',
+                    borderRadius: '10px'
+                }}>
+                    <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#92400E', marginBottom: '4px' }}>
+                            {ankiSettingsPrompt === 'disabled'
+                                ? 'Anki save is not configured'
+                                : 'AnkiConnect is unavailable'}
+                        </div>
+                        <div style={{ fontSize: '12px', lineHeight: 1.5, color: '#78350F' }}>
+                            {ankiSettingsPrompt === 'disabled'
+                                ? 'Enable and configure AnkiConnect in Settings before saving cards to Anki.'
+                                : 'Check AnkiConnect settings and make sure Anki is running with the AnkiConnect add-on.'}
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleOpenSettings}
+                        style={{
+                            flexShrink: 0,
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            border: '1px solid #F59E0B',
+                            backgroundColor: '#FFFFFF',
+                            color: '#B45309',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Open settings
+                    </button>
+                </div>
+            )}
+
             {useAnkiConnect && renderDeckSelector()}
 
             {storedCards.length > 0 ? (
@@ -2402,21 +2472,22 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                             <button
                                 onClick={handleSaveToAnki}
-                                disabled={isLoading || selectedCards.length === 0 || !useAnkiConnect || !isAnkiAvailable || !deckId || editingCard !== null}
+                                disabled={isLoading || selectedCards.length === 0 || editingCard !== null}
                                 style={{
                                     padding: '6px 10px',
                                     borderRadius: '6px',
-                                    backgroundColor: '#10B981',
+                                    backgroundColor: (useAnkiConnect && isAnkiAvailable && deckId) ? '#10B981' : '#9CA3AF',
                                     color: '#ffffff',
                                     fontSize: '13px',
                                     border: 'none',
-                                    cursor: 'pointer',
-                                    opacity: (isLoading || selectedCards.length === 0 || !useAnkiConnect || !isAnkiAvailable || !deckId || editingCard !== null) ? 0.6 : 1
+                                    cursor: (isLoading || selectedCards.length === 0 || editingCard !== null) ? 'default' : 'pointer',
+                                    opacity: (isLoading || selectedCards.length === 0 || editingCard !== null) ? 0.6 : 1
                                 }}
                                 title={
                                     editingCard !== null ? 'Finish editing first' :
-                                        !isAnkiAvailable && useAnkiConnect ? 'Anki Connect is not available' :
-                                            !deckId && useAnkiConnect ? 'Please select a deck first' : ''
+                                        !useAnkiConnect ? 'Configure AnkiConnect in Settings' :
+                                            !isAnkiAvailable ? 'AnkiConnect is not available' :
+                                                !deckId ? 'Please select a deck first' : ''
                                 }
                             >
                                 {isLoading ?

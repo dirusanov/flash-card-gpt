@@ -81,6 +81,7 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
         try {
             const resp = await fetchDecks(settings.ankiConnectUrl, settings.ankiConnectApiKey);
             if (resp.error) {
+                setAnkiDecks([]);
                 setAnkiError(resp.error);
             } else {
                 const result = resp.result;
@@ -90,6 +91,7 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
                 }
             }
         } catch (err: any) {
+            setAnkiDecks([]);
             setAnkiError('AnkiConnect unreachable');
         } finally {
             setLoadingAnki(false);

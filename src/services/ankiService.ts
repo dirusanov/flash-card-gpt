@@ -1,6 +1,16 @@
 import { Modes } from '../constants';
 import { backgroundFetch } from './backgroundFetch';
 
+const normalizeExampleTranslation = (translation: string): string => {
+    const trimmed = translation.trim();
+    if (!trimmed) {
+        return '';
+    }
+
+    // Remove only explicit list prefixes; preserve the actual first word.
+    return trimmed.replace(/^(?:\d+[\).:-]\s+|[-*•]\s+)/, '').trim();
+};
+
 export function format_example(
     example: string,
     word: string,
@@ -26,8 +36,10 @@ export function format_example(
            </div>`
         : '';
     if (translation) {
-        const translated_sentence = translation.split(" ").slice(1).join(" ");
-        return `${audioPrefix}${formatted_example}<br><span style='font-size: ${font_size};'><i>${translated_sentence}</i></span>`;
+        const translatedSentence = normalizeExampleTranslation(translation);
+        return translatedSentence
+            ? `${audioPrefix}${formatted_example}<br><span style='font-size: ${font_size};'><i>${translatedSentence}</i></span>`
+            : `${audioPrefix}${formatted_example}`;
     } else {
         return `${audioPrefix}${formatted_example}`;
     }
@@ -241,7 +253,6 @@ export function format_back_lang_learning(card: any): string {
     const audioTag = card.ankiAudioTag || '';
     const wordAudioBlock = audioTag
         ? `<div style="margin-bottom: 16px; text-align: center; padding: 10px; background: #F0F9FF; border-radius: 8px; border: 1px solid #BAE6FD;">
-             <div style="font-size: 12px; color: #0369A1; margin-bottom: 6px; font-weight: 600;">Pronunciation</div>
              <audio controls src="${audioTag.replace('[sound:', '').replace(']', '')}" style="width: 100%;"></audio>
            </div>`
         : '';
@@ -495,6 +506,23 @@ interface DeckResponse {
     error: string | null;
 }
 
+const getAnkiConnectAvailabilityError = (error: unknown): string | null => {
+    const message = error instanceof Error ? error.message : String(error || '');
+    const normalized = message.toLowerCase();
+
+    if (
+        normalized.includes('failed to fetch') ||
+        normalized.includes('networkerror') ||
+        normalized.includes('err_connection_refused') ||
+        normalized.includes('err_connection_reset') ||
+        normalized.includes('status: 0')
+    ) {
+        return 'AnkiConnect unavailable';
+    }
+
+    return null;
+};
+
 const normalizeAnkiUrl = (url: string | null | undefined) => {
     const fallback = 'http://127.0.0.1:8765';
     if (!url) {
@@ -539,7 +567,9 @@ export const fetchDecks = async (ankiConnectUrl: string, apiKey: string | null):
         }
         return data as unknown as DeckResponse;
     } catch (error) {
-        console.error('Error fetching decks:', error);
-        throw error;
+        return {
+            result: [],
+            error: getAnkiConnectAvailabilityError(error) || 'Failed to load Anki decks'
+        };
     }
 };

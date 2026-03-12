@@ -370,7 +370,10 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       try {
         try {
           const decks = await fetchDecks(ankiConnectUrl, ankiConnectApiKey);
-          if ((decks as any).error) dispatch(setAnkiAvailability(false));
+          if ((decks as any).error) {
+            dispatch(fetchDecksSuccess([]));
+            dispatch(setAnkiAvailability(false));
+          }
           else {
             dispatch(fetchDecksSuccess((decks as any).result));
             dispatch(setAnkiAvailability(true));

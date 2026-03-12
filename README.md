@@ -1,5 +1,5 @@
-# Flash Cards + GPT
-![Logo](</src/assets/img/logo.png>)
+# Vaulto Cards
+![Logo](</src/assets/img/vaulto-cards-logo.png>)
 
 Create high‑quality flashcards right from any web page. Select text, click the extension, and let AI do the heavy lifting: translation, examples, optimal fronts/backs, and even illustrative images.
 
@@ -13,7 +13,7 @@ Tip: Put your demo GIF at `screenshots/demo.gif` for this preview to work.
 
 1. Go to the webpage from which you want to create a flashcard.
 2. Highlight the text you want to use to create a card.
-3. Click on the Flash Cards + GPT extension icon in the browser panel.
+3. Click on the Vaulto Cards extension icon in the browser panel.
 4. Follow the instructions to create and save your flashcard.
 
 ### Mode: Learning Language
@@ -59,11 +59,11 @@ npm run build
 
 ## OpenAI API Key
 
-In order to use the AI functionality of Flash Cards + GPT, you will need to obtain an API key from OpenAI. Visit the [OpenAI website](https://www.openai.com/) and follow their instructions to sign up and get an API key.
+In order to use the AI functionality of Vaulto Cards, you will need to obtain an API key from OpenAI. Visit the [OpenAI website](https://www.openai.com/) and follow their instructions to sign up and get an API key.
 
 ## Anki Desktop and AnkiConnect
 
-For optimal use of our extension, we recommend installing the Anki desktop app and the AnkiConnect extension. These tools will allow your Flash Cards + GPT extension to communicate with Anki, making it easier to manage your flashcards.
+For optimal use of our extension, we recommend installing the Anki desktop app and the AnkiConnect extension. These tools will allow your Vaulto Cards extension to communicate with Anki, making it easier to manage your flashcards.
 
 1.  Download and install [Anki desktop](https://apps.ankiweb.net/).
 2.  Install AnkiConnect by following these steps:
@@ -76,7 +76,7 @@ For more information about AnkiConnect, visit the [AnkiConnect homepage](https:/
 
 ## Extension Settings
 
-Once the extension is installed, you will need to configure it with your OpenAI API key and (optionally) AnkiConnect settings. To do this, click on the Flash Cards + GPT extension icon and go to the settings page.
+Once the extension is installed, you will need to configure it with your OpenAI API key and (optionally) AnkiConnect settings. To do this, click on the Vaulto Cards extension icon and go to the settings page.
 
 ![Extension Settings](</screenshots/settings.png>)
 
