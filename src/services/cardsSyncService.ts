@@ -3,9 +3,9 @@ import { StoredCard } from '../store/reducers/cards';
 import { Modes } from '../constants';
 import { authStorage } from './authStorage';
 
-const DEFAULT_DECK_NAME = 'Vaulto Extension';
+const DEFAULT_DECK_NAME = 'Vaulto Cards';
 const DEFAULT_DECK_COLOR = '#4f46e5';
-const DEFAULT_DECK_DESCRIPTION = 'Cards created from the browser extension';
+const DEFAULT_DECK_DESCRIPTION = 'Cards created from the Vaulto Cards browser extension';
 const DEFAULT_SOURCE = 'extension';
 
 let deckCache: DeckApi | null = null;

@@ -1,5 +1,12 @@
 import { PageContentContext, PageImage, FormulaElement, CodeBlock, LinkElement, PageMetadata } from './aiAgentService';
 
+const IMAGE_SCAN_LIMIT = 24;
+const SVG_SCAN_LIMIT = 12;
+const CODE_SCAN_LIMIT = 24;
+const INLINE_CODE_SCAN_LIMIT = 32;
+const LINK_SCAN_LIMIT = 40;
+const MATH_SCAN_LIMIT = 24;
+
 export class PageContentExtractor {
     
     /**
@@ -24,20 +31,11 @@ export class PageContentExtractor {
 
     // Асинхронная версия для загрузки внешних изображений
     static async extractPageContentAsync(selectedText: string, selectionElement?: Element): Promise<PageContentContext> {
-        console.log('🔍 Асинхронно извлекаем контент страницы...');
-        
         const pageImages = await this.extractImagesAsync(selectedText, selectionElement);
         const formulas = this.extractFormulas(selectedText, selectionElement);
         const codeBlocks = this.extractCodeBlocks(selectedText, selectionElement);
         const links = this.extractLinks(selectedText, selectionElement);
         const metadata = this.extractMetadata();
-
-        console.log('📄 Асинхронная экстракция завершена:', {
-            images: pageImages.length,
-            formulas: formulas.length,
-            codeBlocks: codeBlocks.length,
-            links: links.length
-        });
 
         return {
             selectedText,
@@ -54,43 +52,26 @@ export class PageContentExtractor {
      */
     private static extractImages(selectedText: string, selectionElement?: Element): PageImage[] {
         const images: PageImage[] = [];
-        const imgElements = document.querySelectorAll('img');
-        
-        console.log(`🔍 Найдено ${imgElements.length} изображений на странице`);
+        const root = this.getSearchRoot(selectionElement);
+        const imgElements = Array.from(root.querySelectorAll('img')).slice(0, IMAGE_SCAN_LIMIT);
         
         imgElements.forEach((img, index) => {
-            // Пропускаем ТОЛЬКО очень маленькие изображения (возможно, это иконки)
             if (img.width < 30 || img.height < 30) {
-                console.log(`⏭️ Пропускаем маленькое изображение ${index}: ${img.width}x${img.height}`);
                 return;
             }
             
-            // Пропускаем изображения без src или с очень длинными data URLs
             if (!img.src) {
-                console.log(`⏭️ Пропускаем изображение ${index}: нет src`);
                 return;
             }
             
             if (img.src.startsWith('data:image') && img.src.length > 5000) {
-                console.log(`⏭️ Пропускаем изображение ${index}: слишком длинный data URL`);
                 return;
             }
             
             const isNearText = this.isElementNearSelection(img, selectionElement, selectedText);
             const relevanceScore = this.calculateImageRelevance(img, selectedText, isNearText);
-            
-            console.log(`🖼️ Изображение ${index}:`, {
-                src: img.src.substring(0, 50) + '...',
-                alt: img.alt,
-                size: `${img.width}x${img.height}`,
-                isNearText,
-                relevanceScore,
-                willInclude: relevanceScore > 0.1  // Понижаем порог!
-            });
-            
-            // КРИТИЧНО: Понижаем порог до 0.1 для включения больше изображений
+
             if (relevanceScore > 0.1) {
-                const base64 = this.convertImageToBase64(img);
                 images.push({
                     src: img.src,
                     alt: img.alt || img.title || '',
@@ -98,82 +79,36 @@ export class PageContentExtractor {
                     width: img.naturalWidth || img.width,
                     height: img.naturalHeight || img.height,
                     isNearText,
-                    relevanceScore,
-                    base64
+                    relevanceScore
                 });
-                console.log(`✅ Добавлено изображение ${index} (score: ${relevanceScore})`);
-            } else {
-                console.log(`❌ Изображение ${index} не прошло порог (score: ${relevanceScore})`);
             }
         });
 
-        // Также ищем изображения в SVG
-        const svgElements = document.querySelectorAll('svg');
-        console.log(`🔍 Найдено ${svgElements.length} SVG элементов`);
+        const svgElements = Array.from(root.querySelectorAll('svg')).slice(0, SVG_SCAN_LIMIT);
         
         svgElements.forEach((svg, index) => {
             const width = svg.width.baseVal?.value || 0;
             const height = svg.height.baseVal?.value || 0;
             if (width < 30 || height < 30) {
-                console.log(`⏭️ Пропускаем маленький SVG ${index}: ${width}x${height}`);
                 return;
             }
             
             const isNearText = this.isElementNearSelection(svg, selectionElement, selectedText);
             const relevanceScore = this.calculateSvgRelevance(svg, selectedText, isNearText);
-            
-            console.log(`🎨 SVG ${index}:`, {
-                size: `${width}x${height}`,
-                isNearText,
-                relevanceScore,
-                willInclude: relevanceScore > 0.1
-            });
-            
-            if (relevanceScore > 0.1) {  // Понижаем порог и для SVG
+
+            if (relevanceScore > 0.1) {
                 images.push({
                     src: this.svgToDataUrl(svg),
                     alt: svg.getAttribute('aria-label') || svg.getAttribute('title') || 'SVG диаграмма',
                     width: width || 200,
                     height: height || 200,
                     isNearText,
-                    relevanceScore,
-                    base64: this.svgToDataUrl(svg)
+                    relevanceScore
                 });
-                console.log(`✅ Добавлен SVG ${index} (score: ${relevanceScore})`);
             }
         });
 
-        let finalImages = images.sort((a, b) => b.relevanceScore - a.relevanceScore).slice(0, 10);  // Увеличиваем до 10 изображений
-        
-        // АВАРИЙНАЯ ЛОГИКА: Если не найдено изображений, берем все подходящие
-        if (finalImages.length === 0) {
-            console.log('🚨 Не найдено релевантных изображений, применяем аварийную логику');
-            const allImages: PageImage[] = [];
-            
-            imgElements.forEach((img, index) => {
-                // Берем ВСЕ изображения размером больше 30px
-                if (img.width >= 30 && img.height >= 30 && img.src) {
-                    const base64 = this.convertImageToBase64(img);
-                    allImages.push({
-                        src: img.src,
-                        alt: img.alt || img.title || `Изображение ${index + 1}`,
-                        title: img.title,
-                        width: img.naturalWidth || img.width,
-                        height: img.naturalHeight || img.height,
-                        isNearText: false,
-                        relevanceScore: 0.5, // Устанавливаем средний балл
-                        base64
-                    });
-                }
-            });
-            
-            finalImages = allImages.slice(0, 5); // Берем максимум 5 для аварийного режима
-            console.log(`🎯 АВАРИЙНЫЙ РЕЖИМ: Добавлено ${finalImages.length} изображений`);
-        }
-        
-        console.log(`🎯 Финальный результат: ${finalImages.length} изображений из ${images.length} найденных`);
-        
-        return finalImages;
+        return images.sort((a, b) => b.relevanceScore - a.relevanceScore).slice(0, 5);
     }
 
     /**
@@ -181,32 +116,18 @@ export class PageContentExtractor {
      */
     private static async extractImagesAsync(selectedText: string, selectionElement?: Element): Promise<PageImage[]> {
         const images: PageImage[] = [];
-        const imgElements = document.querySelectorAll('img');
+        const root = this.getSearchRoot(selectionElement);
+        const imgElements = Array.from(root.querySelectorAll('img')).slice(0, IMAGE_SCAN_LIMIT);
         
-        // Обрабатываем изображения асинхронно
         const imagePromises = Array.from(imgElements).map(async (img) => {
-            // Пропускаем маленькие декоративные изображения
             if (img.width < 50 || img.height < 50) return null;
             
-            // Пропускаем изображения без src
             if (!img.src || (img.src.startsWith('data:image') && img.src.length > 1000)) return null;
             
             const isNearText = this.isElementNearSelection(img, selectionElement, selectedText);
             const relevanceScore = this.calculateImageRelevance(img, selectedText, isNearText);
             
-            // Отбираем только релевантные изображения
             if (relevanceScore <= 0.3) return null;
-
-            let base64: string | undefined;
-            
-            // Для внешних изображений загружаем асинхронно
-            if (img.src.startsWith('http') && !img.src.includes(window.location.origin)) {
-                console.log('🖼️ Загружаем внешнее изображение:', img.src);
-                base64 = await this.fetchImageAsBase64(img.src);
-            } else {
-                // Для локальных изображений используем обычную конвертацию
-                base64 = this.convertImageToBase64(img);
-            }
 
             return {
                 src: img.src,
@@ -215,21 +136,16 @@ export class PageContentExtractor {
                 width: img.naturalWidth || img.width,
                 height: img.naturalHeight || img.height,
                 isNearText,
-                relevanceScore,
-                base64
+                relevanceScore
             };
         });
 
-        // Ждем завершения всех операций загрузки
         const resolvedImages = await Promise.all(imagePromises);
-        
-        // Фильтруем null результаты
         resolvedImages.forEach(img => {
             if (img) images.push(img);
         });
         
-        // Также ищем изображения в SVG (синхронно, так как они уже на странице)
-        const svgElements = document.querySelectorAll('svg');
+        const svgElements = Array.from(root.querySelectorAll('svg')).slice(0, SVG_SCAN_LIMIT);
         svgElements.forEach((svg) => {
             const width = svg.width.baseVal?.value || 0;
             const height = svg.height.baseVal?.value || 0;
@@ -245,13 +161,10 @@ export class PageContentExtractor {
                     width: width || 200,
                     height: height || 200,
                     isNearText,
-                    relevanceScore,
-                    base64: this.svgToDataUrl(svg) // SVG уже в base64 формате
+                    relevanceScore
                 });
             }
         });
-
-        console.log(`🖼️ Найдено ${images.length} релевантных изображений (включая ${images.filter(img => img.base64).length} с base64)`);
         
         return images.sort((a, b) => b.relevanceScore - a.relevanceScore).slice(0, 5);
     }
@@ -263,7 +176,8 @@ export class PageContentExtractor {
         const formulas: FormulaElement[] = [];
         
         // MathJax формулы
-        const mathJaxElements = document.querySelectorAll('.MathJax, .math, [class*="math"]');
+        const root = this.getSearchRoot(selectionElement);
+        const mathJaxElements = Array.from(root.querySelectorAll('.MathJax, .math, [class*="math"]')).slice(0, MATH_SCAN_LIMIT);
         mathJaxElements.forEach(element => {
             const formula = this.extractFormulaText(element);
             if (formula) {
@@ -284,7 +198,7 @@ export class PageContentExtractor {
             /\\begin\{[^}]+\}[\s\S]*?\\end\{[^}]+\}/g,  // блоки LaTeX
         ];
 
-        const textContent = document.body.textContent || '';
+        const textContent = (root.textContent || '').slice(0, 50_000);
         latexPatterns.forEach(pattern => {
             let match;
             while ((match = pattern.exec(textContent)) !== null) {
@@ -312,7 +226,8 @@ export class PageContentExtractor {
         const codeBlocks: CodeBlock[] = [];
         
         // Блоки кода
-        const codeElements = document.querySelectorAll('pre code, .highlight code, .code-block, .codehilite');
+        const root = this.getSearchRoot(selectionElement);
+        const codeElements = Array.from(root.querySelectorAll('pre code, .highlight code, .code-block, .codehilite')).slice(0, CODE_SCAN_LIMIT);
         codeElements.forEach(element => {
             const code = element.textContent?.trim();
             if (code && code.length > 10 && code.length < 2000) {
@@ -329,7 +244,7 @@ export class PageContentExtractor {
         });
 
         // Инлайн код
-        const inlineCodeElements = document.querySelectorAll('code:not(pre code)');
+        const inlineCodeElements = Array.from(root.querySelectorAll('code:not(pre code)')).slice(0, INLINE_CODE_SCAN_LIMIT);
         inlineCodeElements.forEach(element => {
             const code = element.textContent?.trim();
             if (code && code.length > 3 && code.length < 100) {
@@ -355,7 +270,8 @@ export class PageContentExtractor {
      */
     private static extractLinks(selectedText: string, selectionElement?: Element): LinkElement[] {
         const links: LinkElement[] = [];
-        const linkElements = document.querySelectorAll('a[href]');
+        const root = this.getSearchRoot(selectionElement);
+        const linkElements = Array.from(root.querySelectorAll('a[href]')).slice(0, LINK_SCAN_LIMIT);
         
         linkElements.forEach(link => {
             const href = link.getAttribute('href');
@@ -398,6 +314,18 @@ export class PageContentExtractor {
     }
 
     // Вспомогательные методы
+
+    private static getSearchRoot(selectionElement?: Element): ParentNode {
+        if (!selectionElement) {
+            return document.body;
+        }
+
+        return (
+            selectionElement.closest('article, main, section, [role="main"], .content, .article, .post') ||
+            selectionElement.parentElement ||
+            document.body
+        );
+    }
 
     private static isElementNearSelection(element: Element, selectionElement?: Element, selectedText?: string): boolean {
         if (!selectionElement) {
@@ -452,14 +380,6 @@ export class PageContentExtractor {
             alt.includes('рисунок') || alt.includes('изображение')) {
             score += 0.3;
         }
-        
-        console.log(`📊 Relevance calculation for image:`, {
-            alt: alt.substring(0, 30),
-            size: `${width}x${height}`,
-            isNearText,
-            finalScore: Math.max(0, Math.min(1, score))
-        });
-        
         return Math.max(0, Math.min(1, score));
     }
 
@@ -530,87 +450,6 @@ export class PageContentExtractor {
         return Math.max(0, Math.min(1, score));
     }
 
-    private static convertImageToBase64(img: HTMLImageElement): string | undefined {
-        try {
-            // Проверяем, что изображение загружено
-            if (!img.complete || img.naturalWidth === 0) {
-                console.warn('Image not loaded yet:', img.src);
-                return undefined;
-            }
-
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return undefined;
-            
-            canvas.width = img.naturalWidth || img.width;
-            canvas.height = img.naturalHeight || img.height;
-            
-            // Заливаем фон белым цветом для корректной конвертации PNG с прозрачностью
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Рисуем изображение поверх белого фона
-            ctx.drawImage(img, 0, 0);
-            
-            // Используем PNG для лучшего качества, особенно для диаграмм и схем
-            return canvas.toDataURL('image/png', 1.0);
-        } catch (error) {
-            console.warn('Could not convert image to base64:', error);
-            return undefined;
-        }
-    }
-
-    // Асинхронная загрузка внешних изображений и конвертация в base64
-    private static async fetchImageAsBase64(url: string): Promise<string | undefined> {
-        try {
-            console.log('🖼️ Загружаем внешнее изображение:', url);
-            
-            // Создаем новое изображение для загрузки
-            const img = new Image();
-            img.crossOrigin = 'anonymous'; // Для CORS
-            
-            return new Promise((resolve) => {
-                img.onload = () => {
-                    try {
-                        const canvas = document.createElement('canvas');
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx) {
-                            resolve(undefined);
-                            return;
-                        }
-                        
-                        canvas.width = img.naturalWidth;
-                        canvas.height = img.naturalHeight;
-                        
-                        // Заливаем фон белым цветом для корректной конвертации
-                        ctx.fillStyle = '#FFFFFF';
-                        ctx.fillRect(0, 0, canvas.width, canvas.height);
-                        
-                        // Рисуем изображение поверх белого фона
-                        ctx.drawImage(img, 0, 0);
-                        
-                        const base64 = canvas.toDataURL('image/png', 1.0);
-                        console.log('✅ Изображение успешно конвертировано в base64');
-                        resolve(base64);
-                    } catch (error) {
-                        console.warn('Ошибка при конвертации изображения:', error);
-                        resolve(undefined);
-                    }
-                };
-                
-                img.onerror = () => {
-                    console.warn('Ошибка загрузки изображения:', url);
-                    resolve(undefined);
-                };
-                
-                img.src = url;
-            });
-        } catch (error) {
-            console.warn('Failed to fetch image as base64:', error);
-            return undefined;
-        }
-    }
-
     private static svgToDataUrl(svg: SVGElement): string {
         const svgData = new XMLSerializer().serializeToString(svg);
         return `data:image/svg+xml;base64,${btoa(svgData)}`;
@@ -662,4 +501,4 @@ export class PageContentExtractor {
         
         return undefined;
     }
-} 
+}

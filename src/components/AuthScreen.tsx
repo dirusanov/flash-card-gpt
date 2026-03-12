@@ -13,14 +13,16 @@ interface AuthScreenProps {
 
 const colors = {
   background: '#F8F9FA',
+  backgroundSecondary: '#E9ECEF',
   surface: '#FFFFFF',
   text: '#1A1A1A',
   textSecondary: '#6C757D',
+  textTertiary: '#ADB5BD',
   border: '#DEE2E6',
   primary: '#0066FF',
   primaryHover: '#0052CC',
   danger: '#DC3545',
-  success: '#198754',
+  success: '#10B981',
 };
 
 const buttonBase: React.CSSProperties = {
@@ -67,8 +69,24 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
   const isBusy = auth.isLoading || googleLoading;
 
   const subtitle = useMemo(() => {
+    if (verificationState === 'waiting') {
+      return 'We sent a secure verification link to your email and will keep watching for confirmation.';
+    }
+    if (verificationState === 'verified') {
+      return 'Your Vaulto Cards account is ready. Completing sign-in now.';
+    }
     return mode === 'signin' ? 'Sign in to continue' : 'Create an account to sync your cards';
-  }, [mode]);
+  }, [mode, verificationState]);
+
+  const heading = useMemo(() => {
+    if (verificationState === 'waiting') {
+      return 'Check your inbox';
+    }
+    if (verificationState === 'verified') {
+      return 'Email Verified!';
+    }
+    return mode === 'signin' ? 'Welcome Back' : 'Create Account';
+  }, [mode, verificationState]);
 
   useEffect(() => {
     const stopPolling = () => {
@@ -227,22 +245,42 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '20px 16px 80px',
+      padding: '24px 16px 80px',
       boxSizing: 'border-box',
     }}>
       <div style={{
         width: '100%',
-        maxWidth: 360,
+        maxWidth: 372,
         backgroundColor: colors.surface,
         border: `1px solid ${colors.border}`,
         borderRadius: 16,
-        padding: '20px',
+        padding: '22px',
         boxShadow: '0 12px 24px rgba(0,0,0,0.08)',
         boxSizing: 'border-box',
       }}>
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>Welcome Back</div>
-          <div style={{ fontSize: 13, color: colors.textSecondary, marginTop: 6 }}>{subtitle}</div>
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <div style={{
+              width: 28,
+              height: 28,
+              borderRadius: 9,
+              backgroundColor: colors.primary,
+              color: '#FFFFFF',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 15,
+              fontWeight: 700,
+              boxShadow: '0 8px 18px rgba(0, 102, 255, 0.18)',
+            }}>
+              V
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.textSecondary }}>Vaulto Cards</div>
+          </div>
+          <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 700, letterSpacing: '-0.03em', color: colors.text }}>
+            {heading}
+          </div>
+          <div style={{ fontSize: 16, lineHeight: 1.5, color: colors.textSecondary, marginTop: 8 }}>{subtitle}</div>
         </div>
 
         {auth.accessToken ? (
@@ -285,7 +323,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
               width: 88,
               height: 88,
               borderRadius: 28,
-              backgroundColor: colors.background,
+              backgroundColor: colors.backgroundSecondary,
               border: `1px solid ${verificationState === 'verified' ? colors.success : colors.border}`,
               display: 'flex',
               alignItems: 'center',
@@ -295,10 +333,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
               color: verificationState === 'verified' ? colors.success : colors.primary,
             }}>
               {verificationState === 'verified' ? '✓' : '@'}
-            </div>
-
-            <div style={{ fontSize: 24, fontWeight: 700, color: colors.text, marginBottom: 10 }}>
-              {verificationState === 'verified' ? 'Email Verified!' : 'Check your inbox'}
             </div>
 
             <div style={{ fontSize: 14, color: colors.textSecondary, lineHeight: 1.6, marginBottom: 18 }}>
@@ -315,7 +349,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
 
             <div style={{
               width: '100%',
-              backgroundColor: colors.background,
+              backgroundColor: colors.backgroundSecondary,
               border: `1px solid ${colors.border}`,
               borderRadius: 12,
               padding: '12px 14px',
@@ -353,7 +387,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 6 }}>Email</div>
+                <div style={{ fontSize: 13, lineHeight: 1.4, fontWeight: 600, color: colors.text, marginBottom: 8 }}>Email</div>
                 <input
                   type="email"
                   value={email}
@@ -364,7 +398,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
               </div>
 
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 6 }}>Password</div>
+                <div style={{ fontSize: 13, lineHeight: 1.4, fontWeight: 600, color: colors.text, marginBottom: 8 }}>Password</div>
                 <div style={{ position: 'relative' }}>
                   <input
                     type={showPassword ? 'text' : 'password'}
@@ -383,8 +417,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
                       transform: 'translateY(-50%)',
                       background: 'transparent',
                       border: 'none',
-                      color: colors.primary,
+                      color: colors.textSecondary,
                       fontSize: 12,
+                      fontWeight: 600,
                       cursor: 'pointer',
                     }}
                   >
@@ -415,6 +450,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
                   ...buttonBase,
                   backgroundColor: colors.primary,
                   color: '#fff',
+                  fontSize: 16,
                   opacity: isBusy ? 0.7 : 1,
                 }}
                 onMouseOver={(e) => (e.currentTarget.style.backgroundColor = colors.primaryHover)}
@@ -425,7 +461,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0' }}>
                 <div style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-                <span style={{ fontSize: 11, color: colors.textSecondary }}>or continue with</span>
+                <span style={{ fontSize: 13, color: colors.textTertiary }}>or continue with</span>
                 <div style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
               </div>
 
@@ -437,6 +473,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
                   backgroundColor: '#FFFFFF',
                   color: colors.text,
                   border: `1px solid ${colors.border}`,
+                  fontSize: 16,
                 }}
               >
                 Continue with Google
@@ -446,9 +483,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
             {error && (
               <div style={{
                 marginTop: 12,
-                fontSize: 12,
+                fontSize: 13,
                 color: colors.danger,
                 textAlign: 'center',
+                lineHeight: 1.5,
               }}>
                 {error}
               </div>
@@ -457,7 +495,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
             {notice && (
               <div style={{
                 marginTop: 12,
-                fontSize: 12,
+                fontSize: 13,
                 color: colors.textSecondary,
                 textAlign: 'center',
                 lineHeight: 1.5,
