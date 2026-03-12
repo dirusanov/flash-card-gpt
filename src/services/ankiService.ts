@@ -443,15 +443,39 @@ export const createAnkiCards = async (
 };
 
 export async function imageUrlToBase64(url: string): Promise<string | null> {
+    if (!url) {
+        return null;
+    }
+
+    if (url.startsWith('data:image/')) {
+        return url;
+    }
+
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        throw new Error(`Unsupported image URL for base64 conversion: ${url.slice(0, 32)}`);
+    }
+
     return new Promise((resolve, reject) => {
+        const timeoutId = window.setTimeout(() => {
+            reject(new Error('Timed out while converting image to base64'));
+        }, 15000);
+
         chrome.runtime.sendMessage(
             url,
             (response: { status: boolean, data?: string, error?: string }) => {
-                if (response.status && response.data !== undefined) {
+                window.clearTimeout(timeoutId);
+
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+
+                if (response?.status && response.data !== undefined) {
                     resolve(response.data);
                 } else {
-                    console.error('Error fetching image:', response.error);
-                    reject(null);
+                    const errorMessage = response?.error || 'Unknown image conversion error';
+                    console.error('Error fetching image:', errorMessage);
+                    reject(new Error(errorMessage));
                 }
             }
         );

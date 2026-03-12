@@ -66,6 +66,11 @@ export const authApi = {
     });
   },
 
+  async checkVerificationStatus(baseUrl: string, email: string): Promise<AuthUser> {
+    const query = new URLSearchParams({ email });
+    return requestJson<AuthUser>(baseUrl, `/auth/status?${query.toString()}`, { method: 'GET' });
+  },
+
   async initGoogleLogin(baseUrl: string, platform: 'web' | 'mobile' = 'web'): Promise<{
     authorization_url: string;
     state: string;
