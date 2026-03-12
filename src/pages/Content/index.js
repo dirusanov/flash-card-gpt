@@ -9,9 +9,18 @@ import { initializeApiKeyPersistence } from '../../services/apiKeyStorage';
 import { initializeAuthPersistence } from '../../services/authPersistence';
 import { setCurrentTabId } from '../../store/actions/tabState';
 
-console.log('Content script works!');
-console.log('Must reload extension for modifications to take effect.');
-printLine("Using the 'printLine' function from the Print Module");
+const isDev = false;
+const debugLog = (...args) => {
+  if (isDev) {
+    console.log(...args);
+  }
+};
+
+debugLog('Content script works!');
+debugLog('Must reload extension for modifications to take effect.');
+if (isDev) {
+  printLine("Using the 'printLine' function from the Print Module");
+}
 
 // ---------- Контейнер сайдбара (id = #sidebar) ----------
 const newDiv = document.createElement('div');
@@ -31,42 +40,67 @@ newDiv.setAttribute('style', `
   transition: transform 0.3s ease-in-out;
 `);
 
-const shadow = newDiv.attachShadow({ mode: 'open' });
-const styleFiles = [
-  'tailwind.css',
-  'assets/styles/richMarkdownStyles.css',
-  'assets/styles/grammarStyles.css',
-  'assets/styles/prism-theme.css',
-  'assets/styles/transcriptionStyles.css',
-];
-styleFiles.forEach((file) => {
-  const linkElem = document.createElement('link');
-  linkElem.setAttribute('rel', 'stylesheet');
-  linkElem.setAttribute('href', chrome.runtime.getURL(file));
-  shadow.appendChild(linkElem);
-});
+let shadow = null;
+let appMountNode = null;
+let root = null;
+let appInitPromise = null;
+let isAppInitialized = false;
+
+const ensureShadowRoot = () => {
+  if (shadow) {
+    return shadow;
+  }
+
+  shadow = newDiv.shadowRoot || newDiv.attachShadow({ mode: 'open' });
+
+  const styleFiles = [
+    'tailwind.css',
+    'assets/styles/richMarkdownStyles.css',
+    'assets/styles/grammarStyles.css',
+    'assets/styles/prism-theme.css',
+    'assets/styles/transcriptionStyles.css',
+  ];
+
+  styleFiles.forEach((file) => {
+    const linkElem = document.createElement('link');
+    linkElem.setAttribute('rel', 'stylesheet');
+    linkElem.setAttribute('href', chrome.runtime.getURL(file));
+    shadow.appendChild(linkElem);
+  });
+
+  appMountNode = document.createElement('div');
+  appMountNode.id = 'anki-sidebar-root';
+  appMountNode.setAttribute('data-anki-app-anchor', 'true');
+  shadow.appendChild(appMountNode);
+
+  return shadow;
+};
 
 // Безопасно дождаться появления <body> на document_start
-const mountSidebarHost = () => {
-  try {
-    if (document.body && !document.getElementById('sidebar')) {
-      document.body.appendChild(newDiv);
-    } else if (!document.body) {
-      // fallback, если body еще не готов
-      window.addEventListener('DOMContentLoaded', () => {
-        if (!document.getElementById('sidebar') && document.body) {
-          document.body.appendChild(newDiv);
-        }
-      }, { once: true });
-    }
-  } catch (e) {
-    // в крайнем случае попробуем позже
-    setTimeout(mountSidebarHost, 50);
+const whenBodyReady = () => new Promise((resolve) => {
+  if (document.body) {
+    resolve();
+    return;
   }
-};
-mountSidebarHost();
 
-const root = createRoot(shadow);
+  const onReady = () => {
+    if (!document.body) {
+      return;
+    }
+    document.removeEventListener('DOMContentLoaded', onReady);
+    resolve();
+  };
+
+  document.addEventListener('DOMContentLoaded', onReady, { once: true });
+});
+
+const ensureSidebarHostAttached = async () => {
+  const hostParent = document.body || document.documentElement;
+  if (!document.getElementById('sidebar') && hostParent) {
+    hostParent.appendChild(newDiv);
+  }
+  ensureShadowRoot();
+};
 
 // ---------- Красивый лоадер ----------
 const LoadingSpinner = () =>
@@ -113,7 +147,7 @@ const ensureViewDefaults = (prefs) => ({
   visibleByTab: { ...(prefs?.visibleByTab || {}) },
   floatGeometryByTab: { ...(prefs?.floatGeometryByTab || {}) },
   globalMode: prefs?.globalMode === 'float' ? 'float' : 'sidebar',
-  globalVisible: typeof prefs?.globalVisible === 'boolean' ? prefs.globalVisible : true,
+  globalVisible: typeof prefs?.globalVisible === 'boolean' ? prefs.globalVisible : false,
 });
 
 const updateViewPrefs = (mutate) => new Promise((resolve) => {
@@ -142,7 +176,7 @@ UIStateManager.prototype.get = function (tabId) {
 
       const viewPrefs = res[VIEW_STORAGE_KEY] || {};
       const globalMode = viewPrefs.globalMode === 'float' ? 'floating' : 'sidebar';
-      const globalVisible = typeof viewPrefs.globalVisible === 'boolean' ? viewPrefs.globalVisible : true;
+      const globalVisible = typeof viewPrefs.globalVisible === 'boolean' ? viewPrefs.globalVisible : false;
       const def = {
         sidebarVisible: globalMode === 'sidebar' && globalVisible,
         floatingVisible: globalMode === 'floating' && globalVisible,
@@ -208,6 +242,90 @@ const applySidebarVisible = (visible) => {
   if (visible) showSidebar(); else hideSidebar();
 };
 
+const showSidebarLoaderImmediately = async (visible = true) => {
+  await ensureSidebarHostAttached();
+  applySidebarVisible(visible);
+};
+
+const getTabIdAsync = () => new Promise((resolve) => {
+  try {
+    chrome.runtime.sendMessage({ action: 'getTabId' }, (response) => {
+      const currentTabId = (response && typeof response.tabId !== 'undefined')
+        ? response.tabId
+        : getStableFallbackTabId();
+      resolve(currentTabId);
+    });
+  } catch {
+    resolve(getStableFallbackTabId());
+  }
+});
+
+const ensureAppInitialized = async () => {
+  if (isAppInitialized) {
+    return;
+  }
+
+  if (appInitPromise) {
+    await appInitPromise;
+    return;
+  }
+
+  appInitPromise = (async () => {
+    await ensureSidebarHostAttached();
+    if (!root) {
+      root = createRoot(appMountNode);
+    }
+    root.render(React.createElement(StoreInitializer));
+    isAppInitialized = true;
+  })().finally(() => {
+    appInitPromise = null;
+  });
+
+  await appInitPromise;
+};
+
+const warmInitializeApp = () => {
+  void ensureAppInitialized().catch((error) => {
+    console.error('Failed to warm initialize extension UI:', error);
+  });
+};
+
+const prepareInitialSidebarToggle = async (tabId) => {
+  const state = await uiState.get(tabId);
+  const nextVisible = !state.sidebarVisible;
+  await uiState.set(tabId, { sidebarVisible: nextVisible, floatingVisible: false, preferredMode: 'sidebar' });
+  await updateViewPrefs((prefs) => {
+    prefs.visibleByTab[tabId] = nextVisible;
+    prefs.preferredModeByTab[tabId] = 'sidebar';
+    prefs.globalVisible = nextVisible;
+    prefs.globalMode = 'sidebar';
+    return prefs;
+  });
+  return nextVisible;
+};
+
+const prepareInitialSidebarShow = async (tabId) => {
+  await uiState.set(tabId, { sidebarVisible: true, floatingVisible: false, preferredMode: 'sidebar' });
+  await updateViewPrefs((prefs) => {
+    prefs.visibleByTab[tabId] = true;
+    prefs.preferredModeByTab[tabId] = 'sidebar';
+    prefs.globalVisible = true;
+    prefs.globalMode = 'sidebar';
+    return prefs;
+  });
+};
+
+const prepareInitialFloatingState = async (tabId, visible) => {
+  await uiState.set(tabId, { floatingVisible: visible, sidebarVisible: false, preferredMode: 'floating' });
+  await updateViewPrefs((prefs) => {
+    prefs.visibleByTab[tabId] = visible;
+    prefs.preferredModeByTab[tabId] = 'float';
+    prefs.globalVisible = visible;
+    prefs.globalMode = 'float';
+    return prefs;
+  });
+};
+
 // ---------- Рендер React-приложения ----------
 const StoreInitializer = () => {
   const [store, setStore] = useState(null);
@@ -218,25 +336,6 @@ const StoreInitializer = () => {
 
   useEffect(() => {
     let isMounted = true;
-
-    const getTabIdAsync = () => new Promise((resolve) => {
-      try {
-        chrome.runtime.sendMessage({ action: 'getTabId' }, (response) => {
-          const currentTabId = (response && typeof response.tabId !== 'undefined')
-            ? response.tabId
-            : getStableFallbackTabId();
-          resolve(currentTabId);
-        });
-      } catch {
-        resolve(getStableFallbackTabId());
-      }
-    });
-
-    const whenBodyReady = () => new Promise((resolve) => {
-      if (document.body) return resolve();
-      const onReady = () => { if (document.body) { resolve(); document.removeEventListener('DOMContentLoaded', onReady); } };
-      document.addEventListener('DOMContentLoaded', onReady);
-    });
 
     const initialize = async () => {
       try {
@@ -262,30 +361,33 @@ const StoreInitializer = () => {
           console.warn('Failed to pre-initialize tab state:', e);
         }
         setStore(resolvedStore);
+        setIsLoading(false);
 
-        try {
-          const unsubscribe = await initializeApiKeyPersistence(resolvedStore);
-          if (isMounted) {
-            apiKeyUnsubscribeRef.current = unsubscribe;
-          } else if (typeof unsubscribe === 'function') {
-            unsubscribe();
+        void (async () => {
+          try {
+            const unsubscribe = await initializeApiKeyPersistence(resolvedStore);
+            if (isMounted) {
+              apiKeyUnsubscribeRef.current = unsubscribe;
+            } else if (typeof unsubscribe === 'function') {
+              unsubscribe();
+            }
+          } catch (error) {
+            console.error('Failed to initialize API key persistence:', error);
           }
-        } catch (error) {
-          console.error('Failed to initialize API key persistence:', error);
-        }
+        })();
 
-        try {
-          const unsubscribeAuth = await initializeAuthPersistence(resolvedStore);
-          if (isMounted) {
-            authUnsubscribeRef.current = unsubscribeAuth;
-          } else if (typeof unsubscribeAuth === 'function') {
-            unsubscribeAuth();
+        void (async () => {
+          try {
+            const unsubscribeAuth = await initializeAuthPersistence(resolvedStore);
+            if (isMounted) {
+              authUnsubscribeRef.current = unsubscribeAuth;
+            } else if (typeof unsubscribeAuth === 'function') {
+              unsubscribeAuth();
+            }
+          } catch (error) {
+            console.error('Failed to initialize auth persistence:', error);
           }
-        } catch (error) {
-          console.error('Failed to initialize auth persistence:', error);
-        }
-
-        setTimeout(() => setIsLoading(false), 100);
+        })();
       } catch (error) {
         console.error('Error initializing store:', error);
         setIsLoading(false);
@@ -318,14 +420,33 @@ const StoreInitializer = () => {
   );
 };
 
-root.render(React.createElement(StoreInitializer));
-
 // ---------- Сообщения от background / App ----------
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.action) return;
 
   // Тумблер sidebar (и фиксация состояния)
   if (message.action === 'toggleSidebar') {
+    if (!isAppInitialized) {
+      const currentTabId = message.tabId;
+      if (!currentTabId) {
+        sendResponse && sendResponse({ status: 'error', message: 'Unknown tab ID' });
+        return true;
+      }
+      prepareInitialSidebarToggle(currentTabId)
+        .then(async (nextVisible) => {
+          await showSidebarLoaderImmediately(nextVisible);
+          await ensureAppInitialized();
+        })
+        .then(() => {
+          sendResponse && sendResponse({ ok: true, initialized: true });
+        })
+        .catch((error) => {
+          console.error('Failed to initialize app for toggleSidebar:', error);
+          sendResponse && sendResponse({ ok: false, error: String(error) });
+        });
+      return true;
+    }
+
     const currentTabId = message.tabId;
     if (!currentTabId) {
       sendResponse && sendResponse({ status: 'error', message: 'Unknown tab ID' });
@@ -366,6 +487,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.action === 'expandSidebar' || message.action === 'forceShowSidebar') {
+    if (!isAppInitialized) {
+      const currentTabId = message.tabId;
+      if (!currentTabId) {
+        sendResponse && sendResponse({ status: 'error', message: 'Unknown tab ID' });
+        return true;
+      }
+      prepareInitialSidebarShow(currentTabId)
+        .then(async () => {
+          await showSidebarLoaderImmediately(true);
+          await ensureAppInitialized();
+        })
+        .then(() => sendResponse && sendResponse({ ok: true, initialized: true }))
+        .catch((error) => {
+          console.error('Failed to initialize app for sidebar show:', error);
+          sendResponse && sendResponse({ ok: false, error: String(error) });
+        });
+      return true;
+    }
+
     const currentTabId = message.tabId;
     if (currentTabId) {
       uiState.set(currentTabId, { sidebarVisible: true });
@@ -421,6 +561,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Клик по иконке расширения: открыть/закрыть ПРЕДПОЧТИТЕЛЬНЫЙ режим
   if (message.action === 'togglePreferredUI') {
+    if (!isAppInitialized) {
+      const currentTabId = message.tabId;
+      if (!currentTabId) {
+        sendResponse && sendResponse({ status: 'error', message: 'Unknown tab ID' });
+        return true;
+      }
+      uiState.get(currentTabId)
+        .then((state) => {
+          const preferred = state.preferredMode || 'sidebar';
+          if (preferred === 'floating') {
+            return prepareInitialFloatingState(currentTabId, !state.floatingVisible).then(() => ({ preferred }));
+          }
+          return prepareInitialSidebarToggle(currentTabId).then(() => ({ preferred }));
+        })
+        .then(async ({ preferred }) => {
+          if (preferred !== 'floating') {
+            await showSidebarLoaderImmediately(true);
+          }
+          await ensureAppInitialized();
+        })
+        .then(() => sendResponse && sendResponse({ ok: true, initialized: true }))
+        .catch((error) => {
+          console.error('Failed to initialize app for togglePreferredUI:', error);
+          sendResponse && sendResponse({ ok: false, error: String(error) });
+        });
+      return true;
+    }
+
     const currentTabId = message.tabId;
     if (!currentTabId) {
       sendResponse && sendResponse({ status: 'error', message: 'Unknown tab ID' });
@@ -486,7 +654,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Может прилететь до монтирования React — просто отвечаем «ок»
   if (message.action === 'toggleFloating' || message.action === 'showFloating' || message.action === 'hideFloating') {
-    sendResponse && sendResponse({ ok: true });
+    if (!isAppInitialized) {
+      const currentTabId = message.tabId;
+
+      if (message.action === 'hideFloating') {
+        if (currentTabId) {
+          void prepareInitialFloatingState(currentTabId, false);
+        }
+        hideSidebar();
+        sendResponse && sendResponse({ ok: true, initialized: false });
+        return true;
+      }
+
+      if (currentTabId) {
+        if (message.action === 'showFloating') {
+          void prepareInitialFloatingState(currentTabId, true);
+        } else {
+          uiState.get(currentTabId).then((state) => {
+            return prepareInitialFloatingState(currentTabId, !state.floatingVisible);
+          });
+        }
+      }
+
+      ensureAppInitialized()
+        .then(() => sendResponse && sendResponse({ ok: true, initialized: true }))
+        .catch((error) => {
+          console.error('Failed to initialize app for floating action:', error);
+          sendResponse && sendResponse({ ok: false, error: String(error) });
+        });
+      return true;
+    }
+
+    sendResponse && sendResponse({ ok: true, initialized: true });
     return true;
   }
 });
+
+warmInitializeApp();

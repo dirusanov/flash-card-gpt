@@ -13,7 +13,7 @@ const ensureDefaults = (data?: Partial<ViewState> | null): ViewState => {
   const visibleByTab = data?.visibleByTab ?? {};
   const floatGeometryByTab = data?.floatGeometryByTab ?? {};
   const globalMode = data?.globalMode === 'float' ? 'float' : 'sidebar';
-  const globalVisible = typeof data?.globalVisible === 'boolean' ? data.globalVisible : true;
+  const globalVisible = typeof data?.globalVisible === 'boolean' ? data.globalVisible : false;
   return {
     preferredModeByTab,
     visibleByTab,

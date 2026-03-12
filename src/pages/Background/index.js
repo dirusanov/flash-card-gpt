@@ -1,6 +1,8 @@
 // src/pages/Background/index.js
 const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
 const activeFetchControllers = new Map();
+const CONTENT_SCRIPT_RETRY_DELAY_MS = 120;
+const CONTENT_SCRIPT_MAX_ATTEMPTS = 12;
 
 function getViewPrefs() {
   return new Promise((resolve) => {
@@ -12,7 +14,7 @@ function getViewPrefs() {
           visibleByTab: stored.visibleByTab || {},
           floatGeometryByTab: stored.floatGeometryByTab || {},
           globalMode: stored.globalMode === 'float' ? 'float' : 'sidebar',
-          globalVisible: typeof stored.globalVisible === 'boolean' ? stored.globalVisible : true,
+          globalVisible: typeof stored.globalVisible === 'boolean' ? stored.globalVisible : false,
         });
       });
     } catch (e) {
@@ -21,7 +23,7 @@ function getViewPrefs() {
         visibleByTab: {},
         floatGeometryByTab: {},
         globalMode: 'sidebar',
-        globalVisible: true,
+        globalVisible: false,
       });
     }
   });
@@ -33,7 +35,7 @@ function configureActionForTab(tab) {
   const isHttp = url.startsWith('http://') || url.startsWith('https://');
   if (isHttp) {
     chrome.action.setPopup({ tabId: tab.id, popup: '' });
-    chrome.action.setTitle({ tabId: tab.id, title: 'Toggle Sidebar / Floating' });
+    chrome.action.setTitle({ tabId: tab.id, title: 'Vaulto Cards' });
   } else {
     chrome.action.setPopup({ tabId: tab.id, popup: 'popup.html' });
     chrome.action.setTitle({
@@ -41,6 +43,52 @@ function configureActionForTab(tab) {
       title: 'Расширение недоступно на этой странице',
     });
   }
+}
+
+function isMissingContentScriptError(errorMessage) {
+  if (!errorMessage) return false;
+  return errorMessage.includes('Could not establish connection')
+    || errorMessage.includes('Receiving end does not exist');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sendMessageToTab(tabId, message) {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.tabs.sendMessage(tabId, message, (response) => {
+        const errorMessage = chrome.runtime.lastError?.message;
+        if (errorMessage) {
+          reject(new Error(errorMessage));
+          return;
+        }
+        resolve(response);
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+async function sendMessageToTabWithRetry(tabId, message, maxAttempts = CONTENT_SCRIPT_MAX_ATTEMPTS) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return await sendMessageToTab(tabId, message);
+    } catch (error) {
+      lastError = error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!isMissingContentScriptError(errorMessage) || attempt === maxAttempts - 1) {
+        throw error;
+      }
+      await sleep(CONTENT_SCRIPT_RETRY_DELAY_MS);
+    }
+  }
+
+  throw lastError || new Error('Failed to deliver message to content script');
 }
 
 chrome.tabs.onActivated.addListener(({ tabId }) => chrome.tabs.get(tabId, configureActionForTab));
@@ -63,10 +111,18 @@ chrome.action.onClicked.addListener(async (tab) => {
   const visible = hasVisibleEntry ? !!visibleMap[tabId] : !!view.globalVisible;
 
   if (mode === 'float') {
-    chrome.tabs.sendMessage(tabId, { action: visible ? 'hideFloating' : 'showFloating', tabId });
+    try {
+      await sendMessageToTabWithRetry(tabId, { action: visible ? 'hideFloating' : 'showFloating', tabId });
+    } catch (error) {
+      console.error('Failed to toggle floating UI:', error);
+    }
   } else {
     // режим сайдбара переключаем
-    chrome.tabs.sendMessage(tabId, { action: 'toggleSidebar', tabId });
+    try {
+      await sendMessageToTabWithRetry(tabId, { action: 'toggleSidebar', tabId });
+    } catch (error) {
+      console.error('Failed to toggle sidebar UI:', error);
+    }
   }
 });
 

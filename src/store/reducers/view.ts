@@ -29,7 +29,7 @@ const initialState: ViewState = {
   visibleByTab: {},
   floatGeometryByTab: {},
   globalMode: 'sidebar',
-  globalVisible: true,
+  globalVisible: false,
 };
 
 export type ViewActions =
@@ -47,7 +47,7 @@ export const viewReducer = (state = initialState, action: ViewActions): ViewStat
         globalMode: action.payload.globalMode ?? state.globalMode ?? 'sidebar',
         globalVisible: typeof action.payload.globalVisible === 'boolean'
           ? action.payload.globalVisible
-          : (typeof state.globalVisible === 'boolean' ? state.globalVisible : true),
+          : (typeof state.globalVisible === 'boolean' ? state.globalVisible : false),
       };
     case VIEW_SET_MODE: {
       const { tabId, mode } = action.payload;
@@ -87,7 +87,7 @@ export const selectVisible = (s: any, tabId: number): boolean => {
   const value = s.view?.visibleByTab?.[tabId];
   if (typeof value === 'boolean') return value;
   const global = s.view?.globalVisible;
-  return typeof global === 'boolean' ? global : true;
+  return typeof global === 'boolean' ? global : false;
 };
 
 export const selectFloatGeometry = (s: any, tabId: number): FloatGeometry | null =>
