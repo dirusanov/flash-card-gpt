@@ -12,8 +12,6 @@ export const SET_EXAMPLES_PROMPT = 'SET_EXAMPLES_PROMPT';
 export const SET_AI_INSTRUCTIONS = 'SET_AI_INSTRUCTIONS';
 export const SET_IMAGE_INSTRUCTIONS = 'SET_IMAGE_INSTRUCTIONS';
 export const SET_MODEL_PROVIDER = 'SET_MODEL_PROVIDER';
-export const SET_GROQ_API_KEY = 'SET_GROQ_API_KEY';
-export const SET_GROQ_MODEL_NAME = 'SET_GROQ_MODEL_NAME';
 export const SET_SOURCE_LANGUAGE = 'SET_SOURCE_LANGUAGE';
 export const SET_AUTH_API_URL = 'SET_AUTH_API_URL';
 export const SET_SYNC_API_URL = 'SET_SYNC_API_URL';
@@ -89,16 +87,6 @@ export const setImageGenerationMode = (mode: 'off' | 'smart' | 'always') => ({
 export const setModelProvider = (provider: string) => ({
     type: SET_MODEL_PROVIDER,
     payload: provider,
-});
-
-export const setGroqApiKey = (groqApiKey: string) => ({
-    type: SET_GROQ_API_KEY,
-    payload: groqApiKey,
-});
-
-export const setGroqModelName = (modelName: string) => ({
-    type: SET_GROQ_MODEL_NAME,
-    payload: modelName,
 });
 
 export const setSourceLanguage = (language: string) => ({

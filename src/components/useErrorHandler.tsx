@@ -123,9 +123,6 @@ const useErrorNotification = () => {
     if (normalized.includes('openai')) {
       return `OpenAI error: ${message.split('OpenAI').pop()}`;
     }
-    if (normalized.includes('groq')) {
-      return `Groq error: ${message.split('Groq').pop()}`;
-    }
     
     // Return the original message if no patterns match
     return message;

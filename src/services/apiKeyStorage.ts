@@ -1,17 +1,15 @@
 import type { Store } from 'redux';
-import { setOpenAiKey, setGroqApiKey, setAnkiConnectApiKey } from '../store/actions/settings';
+import { setOpenAiKey, setAnkiConnectApiKey } from '../store/actions/settings';
 import type { RootState } from '../store';
 
 type StoredApiKeys = {
   openai: string;
-  groq: string;
   anki: string;
 };
 
 const STORAGE_KEY = 'anki_api_keys_v1';
 const DEFAULT_KEYS: StoredApiKeys = {
   openai: '',
-  groq: '',
   anki: '',
 };
 
@@ -28,7 +26,6 @@ const normalizeKeys = (raw: unknown): StoredApiKeys => {
 
   return {
     openai: typeof record.openai === 'string' ? record.openai : '',
-    groq: typeof record.groq === 'string' ? record.groq : '',
     anki: typeof record.anki === 'string' ? record.anki : '',
   };
 };
@@ -132,12 +129,11 @@ const saveApiKeys = async (keys: StoredApiKeys) => {
 
 const snapshotKeys = (state: RootState): StoredApiKeys => ({
   openai: state.settings.openAiKey || '',
-  groq: state.settings.groqApiKey || '',
   anki: state.settings.ankiConnectApiKey ?? '',
 });
 
 const snapshotsEqual = (a: StoredApiKeys, b: StoredApiKeys) =>
-  a.openai === b.openai && a.groq === b.groq && a.anki === b.anki;
+  a.openai === b.openai && a.anki === b.anki;
 
 export const initializeApiKeyPersistence = async (store: Store<RootState>) => {
   const storedKeys = await loadApiKeys();
@@ -145,10 +141,6 @@ export const initializeApiKeyPersistence = async (store: Store<RootState>) => {
 
   if (storedKeys.openai !== state.settings.openAiKey) {
     store.dispatch(setOpenAiKey(storedKeys.openai));
-  }
-
-  if (storedKeys.groq !== state.settings.groqApiKey) {
-    store.dispatch(setGroqApiKey(storedKeys.groq));
   }
 
   const stateAnki = state.settings.ankiConnectApiKey ?? '';

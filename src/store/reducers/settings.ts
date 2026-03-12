@@ -13,8 +13,6 @@ import {
     SET_AI_INSTRUCTIONS,
     SET_IMAGE_INSTRUCTIONS,
     SET_MODEL_PROVIDER,
-    SET_GROQ_API_KEY,
-    SET_GROQ_MODEL_NAME,
     SET_SOURCE_LANGUAGE,
     SET_AUTH_API_URL,
     SET_SYNC_API_URL,
@@ -26,8 +24,7 @@ import { Modes } from "../../constants";
 
 // Define provider types as a constant
 export enum ModelProvider {
-    OpenAI = 'openai',
-    Groq = 'groq'
+    OpenAI = 'openai'
 }
 
 interface SettingsState {
@@ -38,8 +35,6 @@ interface SettingsState {
     ankiConnectApiKey: string | null
     useAnkiConnect: boolean
     visibleSideBar: boolean
-    groqApiKey: string
-    groqModelName: string
     shouldGenerateImage: boolean
     imageGenerationMode: 'off' | 'smart' | 'always'
     translationPrompt: string
@@ -63,8 +58,6 @@ const initialState: SettingsState = {
     ankiConnectApiKey: null,
     useAnkiConnect: false,
     visibleSideBar: true,
-    groqApiKey: '',
-    groqModelName: 'llama3-8b-8192',
     shouldGenerateImage: true,
     imageGenerationMode: 'smart',
     translationPrompt: '',
@@ -117,16 +110,6 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 visibleSideBar: action.visible,
-            };
-        case SET_GROQ_API_KEY:
-            return {
-                ...state,
-                groqApiKey: action.payload,
-            };
-        case SET_GROQ_MODEL_NAME:
-            return {
-                ...state,
-                groqModelName: action.payload,
             };
         case SET_SHOULD_GENERATE_IMAGE:
             return {

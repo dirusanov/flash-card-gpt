@@ -329,17 +329,9 @@ export const getAIService = (provider: ModelProvider): AIService => {
 // Функция для получения API-ключа в зависимости от провайдера
 export const getApiKeyForProvider = (
   provider: ModelProvider,
-  openAiKey: string,
-  groqKey: string = ''
+  openAiKey: string
 ): string => {
-  switch (provider) {
-    case ModelProvider.OpenAI:
-      return openAiKey;
-    case ModelProvider.Groq:
-      return groqKey;
-    default:
-      return openAiKey;
-  }
+  return openAiKey;
 };
 
 // Универсальные функции-обертки для создания карточек
@@ -622,6 +614,10 @@ export const createCardComponentsParallel = async (
 
   // 5. Изображение (только если запрошено) - с поддержкой Smart режима
   if (shouldGenerateImage && imageGenerationMode !== 'off') {
+    const openAiImageService = openAiKey
+      ? getAIService(ModelProvider.OpenAI)
+      : null;
+
     // Функция для Smart анализа
     const shouldGenerateImageForText = async (textToAnalyze: string): Promise<{ shouldGenerate: boolean; reason: string }> => {
       if (!textToAnalyze || textToAnalyze.trim().length === 0) {
@@ -687,10 +683,30 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
       if (shouldGenerate) {
         if (service.getOptimizedImageUrl) {
           // Используем быструю оптимизированную версию (1 запрос вместо 3)
-          return await service.getOptimizedImageUrl(apiKey, text, undefined, sourceLanguage, abortSignal);
+          const providerImage = await service.getOptimizedImageUrl(apiKey, text, undefined, sourceLanguage, abortSignal);
+          if (providerImage) {
+            return providerImage;
+          }
         } else if (service.getImageUrl) {
           // Fallback к обычной версии
-          return await service.getImageUrl(apiKey, text);
+          const providerImage = await service.getImageUrl(apiKey, text);
+          if (providerImage) {
+            return providerImage;
+          }
+        }
+
+        if (openAiKey && openAiImageService?.getOptimizedImageUrl) {
+          return await openAiImageService.getOptimizedImageUrl(
+            openAiKey,
+            text,
+            undefined,
+            sourceLanguage,
+            abortSignal
+          );
+        }
+
+        if (openAiKey && openAiImageService?.getImageUrl) {
+          return await openAiImageService.getImageUrl(openAiKey, text);
         }
       } else if (imageGenerationMode === 'smart') {
         console.log(`🚫 No image needed for "${text}": ${analysisReason}`);

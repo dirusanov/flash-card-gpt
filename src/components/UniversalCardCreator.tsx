@@ -112,7 +112,6 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
     // Redux selectors
     const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
-    const groqApiKey = useSelector((state: RootState) => state.settings.groqApiKey);
     const shouldGenerateImage = useSelector((state: RootState) => state.settings.shouldGenerateImage);
     const imageGenerationMode = useSelector((state: RootState) => state.settings.imageGenerationMode);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
@@ -122,19 +121,10 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
     const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
     const apiKey = useMemo(() => getApiKeyForProvider(
         modelProvider as ModelProvider,
-        openAiKey,
-        groqApiKey
-    ), [modelProvider, openAiKey, groqApiKey]);
+        openAiKey
+    ), [modelProvider, openAiKey]);
 
-    const providerDisplayName = useMemo(() => {
-        switch (modelProvider) {
-            case ModelProvider.Groq:
-                return 'Groq';
-            case ModelProvider.OpenAI:
-            default:
-                return 'OpenAI';
-        }
-    }, [modelProvider]);
+    const providerDisplayName = 'OpenAI';
 
     const notifyMissingApiKey = useCallback(() => {
         showError(`Missing ${providerDisplayName} API key. Open settings and add a valid key to continue.`, 'warning');
@@ -309,7 +299,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
             // Generate image if enabled (API tracker will handle progress automatically)
             let imageUrl = null;
-            if (shouldGenerateImage && imageGenerationMode !== 'off' && modelProvider !== ModelProvider.Groq) {
+            if (shouldGenerateImage && imageGenerationMode !== 'off') {
                 try {
                     let shouldGenerate = imageGenerationMode === 'always';
                     let analysisReason = '';

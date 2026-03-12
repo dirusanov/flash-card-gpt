@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { setAnkiConnectApiKey, setAnkiConnectUrl, setGroqApiKey, setGroqModelName, setOpenAiKey, setUseAnkiConnect, setModelProvider, setAutoSaveToServer } from "../store/actions/settings";
+import { setAnkiConnectApiKey, setAnkiConnectUrl, setOpenAiKey, setUseAnkiConnect, setAutoSaveToServer } from "../store/actions/settings";
 import { RootState } from "../store";
 import chatGptLogo from '../assets/img/chat-gpt.png';
 import CopyIcon from '../assets/img/copy-icon.svg';
-import { ModelProvider } from '../store/reducers/settings';
 import { backgroundFetch } from '../services/backgroundFetch';
 
 interface SettingsProps {
@@ -25,9 +24,6 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
   const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
   const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
-  const groqApiKey = useSelector((state: RootState) => state.settings.groqApiKey);
-  const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
-  const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
   const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
   const autoSaveToServer = useSelector((state: RootState) => state.settings.autoSaveToServer);
   const isLoggedIn = useSelector((state: RootState) => Boolean(state.auth.accessToken));
@@ -48,21 +44,6 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
     dispatch(setUseAnkiConnect(event.target.checked));
   };
 
-  const handleGroqApiKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    dispatch(setGroqApiKey(event.target.value));
-  };
-
-  const handleGroqModelNameChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    dispatch(setGroqModelName(event.target.value));
-  };
-
-  const handleModelProviderChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    dispatch(setModelProvider(event.target.value as ModelProvider));
-    // Clear test results when changing provider
-    setAiTestResults(null);
-  };
-
-
   const handleAutoSaveToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
     dispatch(setAutoSaveToServer(event.target.checked));
   };
@@ -75,7 +56,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
   const copyIconUrl = chrome.runtime.getURL(CopyIcon);
 
   // Function to test API connections
-  const testApiConnection = async (provider: ModelProvider) => {
+  const testApiConnection = async () => {
     setAiTestResults(null);
     setIsTestingAi(true);
     try {
@@ -84,42 +65,21 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
       let body = {};
       let apiKey = '';
 
-      switch (provider) {
-        case ModelProvider.OpenAI:
-          endpoint = 'https://api.openai.com/v1/chat/completions';
-          apiKey = openAiKey;
-          headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          };
-          body = {
-            model: 'gpt-4o-mini', // Using a more standard model for testing
-            messages: [
-              {
-                role: "user",
-                content: "Say hello"
-              }
-            ],
-          };
-          break;
-        case ModelProvider.Groq:
-          endpoint = 'https://api.groq.com/openai/v1/chat/completions';
-          apiKey = groqApiKey;
-          headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          };
-          body = {
-            model: groqModelName,
-            messages: [
-              {
-                role: "user",
-                content: "Say hello"
-              }
-            ],
-          };
-          break;
-      }
+      endpoint = 'https://api.openai.com/v1/chat/completions';
+      apiKey = openAiKey;
+      headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      };
+      body = {
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: "user",
+            content: "Say hello"
+          }
+        ],
+      };
 
       if (!apiKey.trim()) {
         setAiTestResults({
@@ -180,8 +140,6 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
 
   // Render OpenAI API key section
   const renderOpenAISection = () => {
-    if (modelProvider !== ModelProvider.OpenAI) return null;
-
     return (
       <div style={{ marginBottom: '24px' }}>
         <div style={{
@@ -246,7 +204,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         </div>
 
         <button
-          onClick={() => testApiConnection(ModelProvider.OpenAI)}
+          onClick={testApiConnection}
           disabled={isTestingAi}
           style={{
             width: '100%',
@@ -275,124 +233,6 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             animation: 'spin 0.8s linear infinite'
           }} />}
           {isTestingAi ? 'Testing...' : 'Test Connection'}
-        </button>
-
-        {renderTestResults(aiTestResults)}
-      </div>
-    );
-  };
-
-  // Render Groq API key section
-  const renderGroqSettings = () => {
-    if (modelProvider !== ModelProvider.Groq) return null;
-
-    return (
-      <div style={{ marginBottom: '20px' }}>
-        <label htmlFor="groqApiKey" style={{
-          display: 'block',
-          fontWeight: '600',
-          marginBottom: '8px',
-          color: '#111827',
-          fontSize: '14px'
-        }}>Groq API Key</label>
-        <p style={{
-          fontSize: '12px',
-          marginBottom: '8px',
-          color: '#6B7280'
-        }}>
-          You can get your Groq API key from <a href="https://console.groq.com/keys" target="_blank"
-            rel="noopener noreferrer" style={{
-              color: '#2563EB',
-              textDecoration: 'underline'
-            }}>here</a>.
-        </p>
-        <input
-          type="text"
-          id="groqApiKey"
-          value={groqApiKey}
-          onChange={handleGroqApiKeyChange}
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            boxSizing: 'border-box',
-            borderRadius: '6px',
-            border: '1px solid #E5E7EB',
-            backgroundColor: '#ffffff',
-            color: '#374151',
-            fontSize: '13px',
-            outline: 'none',
-            transition: 'all 0.2s ease',
-            marginBottom: '16px'
-          }}
-          onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-          onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-        />
-
-        <div style={{
-          padding: '8px',
-          backgroundColor: '#DBEAFE',
-          borderRadius: '6px',
-          marginBottom: '16px'
-        }}>
-          <p style={{
-            fontSize: '12px',
-            color: '#1E40AF',
-            margin: 0
-          }}>
-            <strong>Note:</strong> Image generation is not available with Groq.
-          </p>
-        </div>
-
-        <label htmlFor="groqModelName" style={{
-          display: 'block',
-          fontWeight: '600',
-          marginBottom: '8px',
-          color: '#111827',
-          fontSize: '14px'
-        }}>Groq Model</label>
-
-        <select
-          id="groqModelName"
-          value={groqModelName}
-          onChange={handleGroqModelNameChange}
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            boxSizing: 'border-box',
-            borderRadius: '6px',
-            border: '1px solid #E5E7EB',
-            backgroundColor: '#ffffff',
-            color: '#374151',
-            fontSize: '13px',
-            outline: 'none',
-            transition: 'all 0.2s ease',
-            cursor: 'pointer',
-            marginBottom: '16px'
-          }}
-          onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-          onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-        >
-          <option value="llama3-8b-8192">Llama-3 8B</option>
-          <option value="llama3-70b-8192">Llama-3 70B</option>
-          <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
-          <option value="gemma-7b-it">Gemma 7B</option>
-        </select>
-
-        <button
-          onClick={() => testApiConnection(ModelProvider.Groq)}
-          disabled={isTestingAi}
-          style={{
-            marginTop: '8px',
-            padding: '6px 12px',
-            backgroundColor: '#7c3aed', // Фиолетовый для Groq
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: isTestingAi ? 'wait' : 'pointer',
-            fontSize: '13px'
-          }}
-        >
-          {isTestingAi ? 'Testing...' : 'Test API Connection'}
         </button>
 
         {renderTestResults(aiTestResults)}
@@ -629,50 +469,16 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         .spinner { border: 2px solid rgba(0,0,0,0.1); border-top-color: #2563EB; border-radius: 50%; width: 16px; height: 16px; animation: spin 0.8s linear infinite; }
       `}</style>
 
-      <div style={{
-        marginBottom: '28px',
-      }}>
-        <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: '0 0 16px 0' }}>Settings</h2>
-
-        <div style={{
-          backgroundColor: '#F3F4F6',
-          padding: '16px',
-          borderRadius: '12px',
-          border: '1px solid #E5E7EB'
-        }}>
-          <label htmlFor="modelProvider" style={{
-            display: 'block',
-            fontWeight: '600',
-            marginBottom: '4px',
-            color: '#374151',
-            fontSize: '14px'
-          }}>AI Provider</label>
-          <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '12px' }}>Choose the engine for card generation</p>
-          <select
-            id="modelProvider"
-            value={modelProvider}
-            onChange={handleModelProviderChange}
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              borderRadius: '8px',
-              border: '1px solid #D1D5DB',
-              backgroundColor: '#ffffff',
-              color: '#374151',
-              fontSize: '14px',
-              outline: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            <option value={ModelProvider.OpenAI}>OpenAI (ChatGPT)</option>
-          </select>
-        </div>
+      <div style={{ marginBottom: '20px' }}>
+        <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: '0 0 8px 0' }}>Settings</h2>
+        <p style={{ margin: 0, fontSize: '13px', color: '#6B7280', lineHeight: 1.5 }}>
+          Vaulto Cards now uses OpenAI as the only AI provider in this extension.
+        </p>
       </div>
 
 
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         {renderOpenAISection()}
-        {renderGroqSettings()}
         {renderAnkiConnectSection()}
         {renderAutoSaveSection()}
       </div>
