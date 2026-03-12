@@ -7,6 +7,9 @@ import { StoredCard } from '../reducers/cards';
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
 const TAB_STORAGE_KEY_PREFIX = 'anki_tab_cards';
 const PERSIST_DEBOUNCE_MS = 300;
+const CARD_IMAGES_DB_NAME = 'vaulto-card-images';
+const CARD_IMAGES_DB_VERSION = 1;
+const CARD_IMAGES_STORE = 'images';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const debugLog = (...args: unknown[]) => {
@@ -22,6 +25,241 @@ const runWhenIdle = (callback: () => void) => {
         return;
     }
     setTimeout(callback, 0);
+};
+
+const hasChromeStorageLocal = () =>
+    typeof chrome !== 'undefined' &&
+    !!chrome.storage &&
+    !!chrome.storage.local;
+
+const readExtensionStorage = async (key: string): Promise<string | null> => {
+    if (!hasChromeStorageLocal()) {
+        return localStorage.getItem(key);
+    }
+
+    return new Promise((resolve) => {
+        chrome.storage.local.get([key], (result) => {
+            if (chrome.runtime?.lastError) {
+                console.error(`Failed to read ${key} from chrome.storage.local:`, chrome.runtime.lastError.message);
+                resolve(localStorage.getItem(key));
+                return;
+            }
+
+            const value = result?.[key];
+            if (typeof value === 'string') {
+                resolve(value);
+                return;
+            }
+
+            resolve(localStorage.getItem(key));
+        });
+    });
+};
+
+const writeExtensionStorage = async (key: string, value: string): Promise<void> => {
+    if (!hasChromeStorageLocal()) {
+        localStorage.setItem(key, value);
+        return;
+    }
+
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.set({ [key]: value }, () => {
+            if (chrome.runtime?.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+
+            resolve();
+        });
+    });
+};
+
+const removeLegacyLocalStorageKey = (key: string) => {
+    try {
+        localStorage.removeItem(key);
+    } catch (error) {
+        console.warn(`Failed to remove legacy localStorage key ${key}:`, error);
+    }
+};
+
+type CardImageRecord = {
+    key: string;
+    scope: string;
+    cardId: string;
+    image: string;
+    updatedAt: string;
+};
+
+const openCardImagesDb = async (): Promise<IDBDatabase | null> => {
+    if (typeof indexedDB === 'undefined') {
+        return null;
+    }
+
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(CARD_IMAGES_DB_NAME, CARD_IMAGES_DB_VERSION);
+
+        request.onupgradeneeded = () => {
+            const db = request.result;
+            const store = db.objectStoreNames.contains(CARD_IMAGES_STORE)
+                ? request.transaction?.objectStore(CARD_IMAGES_STORE)
+                : db.createObjectStore(CARD_IMAGES_STORE, { keyPath: 'key' });
+
+            if (store && !store.indexNames.contains('scope')) {
+                store.createIndex('scope', 'scope', { unique: false });
+            }
+        };
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error('Failed to open card image database'));
+    });
+};
+
+const withImagesStore = async <T>(
+    mode: IDBTransactionMode,
+    operation: (store: IDBObjectStore) => Promise<T>
+): Promise<T | null> => {
+    const db = await openCardImagesDb();
+    if (!db) {
+        return null;
+    }
+
+    return new Promise<T>((resolve, reject) => {
+        const transaction = db.transaction(CARD_IMAGES_STORE, mode);
+        const store = transaction.objectStore(CARD_IMAGES_STORE);
+
+        operation(store)
+            .then((result) => {
+                transaction.oncomplete = () => {
+                    db.close();
+                    resolve(result);
+                };
+                transaction.onerror = () => {
+                    db.close();
+                    reject(transaction.error ?? new Error('IndexedDB transaction failed'));
+                };
+                transaction.onabort = () => {
+                    db.close();
+                    reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
+                };
+            })
+            .catch((error) => {
+                try {
+                    transaction.abort();
+                } catch (_abortError) {
+                    // no-op
+                }
+                db.close();
+                reject(error);
+            });
+    });
+};
+
+const requestToPromise = <T = unknown>(request: IDBRequest<T>): Promise<T> =>
+    new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
+    });
+
+const buildImageRecordKey = (scope: string, cardId: string) => `${scope}:${cardId}`;
+
+const getPersistableImage = (card: StoredCard): string | null => {
+    if (typeof card.image === 'string' && card.image.startsWith('data:image/')) {
+        return card.image;
+    }
+
+    if (typeof card.imageUrl === 'string' && card.imageUrl.startsWith('data:image/')) {
+        return card.imageUrl;
+    }
+
+    return null;
+};
+
+const stripLargeImagePayload = (card: StoredCard): StoredCard => {
+    const hasEmbeddedImage = Boolean(getPersistableImage(card));
+    return {
+        ...card,
+        image: hasEmbeddedImage ? null : (card.image ?? null),
+        imageUrl: typeof card.imageUrl === 'string' && card.imageUrl.startsWith('data:image/')
+            ? null
+            : (card.imageUrl ?? null),
+    };
+};
+
+const persistCardImages = async (scope: string, cards: StoredCard[]): Promise<StoredCard[]> => {
+    const sanitizedCards = cards.map((card) => stripLargeImagePayload(card));
+
+    try {
+        await withImagesStore('readwrite', async (store) => {
+            const scopeIndex = store.index('scope');
+            const existingKeys = await requestToPromise<IDBValidKey[]>(scopeIndex.getAllKeys(IDBKeyRange.only(scope)));
+            const validKeys = new Set<string>();
+
+            for (const card of cards) {
+                if (!card.id) {
+                    continue;
+                }
+
+                const key = buildImageRecordKey(scope, card.id);
+                validKeys.add(key);
+                const image = getPersistableImage(card);
+
+                if (image) {
+                    await requestToPromise(store.put({
+                        key,
+                        scope,
+                        cardId: card.id,
+                        image,
+                        updatedAt: new Date().toISOString(),
+                    } as CardImageRecord));
+                } else {
+                    await requestToPromise(store.delete(key));
+                }
+            }
+
+            for (const existingKey of existingKeys) {
+                const key = String(existingKey);
+                if (!validKeys.has(key)) {
+                    await requestToPromise(store.delete(key));
+                }
+            }
+        });
+    } catch (error) {
+        console.error(`Failed to persist card images for scope ${scope}:`, error);
+    }
+
+    return sanitizedCards;
+};
+
+const hydrateCardImages = async (scope: string, cards: StoredCard[]): Promise<StoredCard[]> => {
+    try {
+        const records = await withImagesStore('readonly', async (store) => {
+            const scopeIndex = store.index('scope');
+            return requestToPromise<CardImageRecord[]>(scopeIndex.getAll(IDBKeyRange.only(scope)));
+        });
+
+        const imageMap = new Map<string, string>();
+        (records ?? []).forEach((record) => {
+            if (record?.cardId && record?.image) {
+                imageMap.set(record.cardId, record.image);
+            }
+        });
+
+        return cards.map((card) => {
+            const storedImage = card.id ? imageMap.get(card.id) ?? null : null;
+            if (!storedImage) {
+                return card;
+            }
+
+            return {
+                ...card,
+                image: storedImage,
+                imageUrl: card.imageUrl ?? null,
+            };
+        });
+    } catch (error) {
+        console.error(`Failed to hydrate card images for scope ${scope}:`, error);
+        return cards;
+    }
 };
 
 let globalPersistTimer: number | null = null;
@@ -41,7 +279,7 @@ const flushPendingGlobalPersistence = () => {
     pendingGlobalCards = null;
 
     if (!cardsToSave) return;
-    saveCardsToStorage(cardsToSave);
+    void saveCardsToStorage(cardsToSave);
 };
 
 const flushPendingTabPersistence = () => {
@@ -56,7 +294,7 @@ const flushPendingTabPersistence = () => {
     pendingTabCards = null;
 
     if (!nextTabId || !nextCards) return;
-    saveTabCardsToStorage(nextTabId, nextCards);
+    void saveTabCardsToStorage(nextTabId, nextCards);
 };
 
 // Helper function to compress base64 images
@@ -87,55 +325,32 @@ const compressImageIfPossible = (imageData: string): string => {
     }
 };
 
+const estimateSerializedSize = (value: unknown): number => {
+    const serialized = JSON.stringify(value, (key, item) => {
+        if (item instanceof Date) return item.toISOString();
+        return item;
+    });
+
+    return new Blob([serialized]).size;
+};
+
 // Function to estimate and manage storage efficiently
 const manageStorageQuota = (cards: StoredCard[]): StoredCard[] => {
     try {
-        // Calculate storage usage
-        const serialized = JSON.stringify(cards, (key, value) => {
-            if (value instanceof Date) return value.toISOString();
-            return value;
-        });
-        
-        const sizeInBytes = new Blob([serialized]).size;
+        const sizeLimitBytes = 4 * 1024 * 1024;
+        const sizeInBytes = estimateSerializedSize(cards);
         const sizeInMB = sizeInBytes / (1024 * 1024);
         
         debugLog(`Storage analysis: ${cards.length} cards, ${sizeInMB.toFixed(2)}MB`);
         
         // If size is manageable, return as is
-        if (sizeInMB < 4) {
+        if (sizeInBytes <= sizeLimitBytes) {
             return cards;
         }
         
-        // If size is too large, prioritize newest cards and preserve images where possible
-        console.warn('Storage size is large, optimizing...');
-        
-        // Sort by creation date (newest first)
-        const sortedCards = [...cards].sort((a, b) => 
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        
-        // Keep adding cards until we reach a reasonable size
-        const optimizedCards: StoredCard[] = [];
-        let currentSize = 0;
-        
-        for (const card of sortedCards) {
-            const cardSerialized = JSON.stringify(card, (key, value) => {
-                if (value instanceof Date) return value.toISOString();
-                return value;
-            });
-            const cardSize = new Blob([cardSerialized]).size;
-            
-            // If adding this card would exceed limit, stop
-            if (currentSize + cardSize > 4 * 1024 * 1024) {
-                console.warn(`Stopping at ${optimizedCards.length} cards to stay within storage limit`);
-                break;
-            }
-            
-            optimizedCards.push(card);
-            currentSize += cardSize;
-        }
-        
-        return optimizedCards;
+        console.warn('Storage size is large, keeping metadata only for storage quota management.');
+
+        return cards.map((card) => stripLargeImagePayload(card));
     } catch (error) {
         console.error('Error managing storage quota:', error);
         return cards;
@@ -152,9 +367,9 @@ const showQuotaWarning = () => {
 };
 
 // Вспомогательная функция для загрузки карточек из localStorage
-export const loadCardsFromStorage = (): StoredCard[] => {
+export const loadCardsFromStorage = async (): Promise<StoredCard[]> => {
     try {
-        const storedCardsJson = localStorage.getItem(LOCAL_STORAGE_KEY);
+        const storedCardsJson = await readExtensionStorage(LOCAL_STORAGE_KEY);
         debugLog('Loading cards from localStorage. Data exists:', !!storedCardsJson);
         
         if (storedCardsJson) {
@@ -192,8 +407,17 @@ export const loadCardsFromStorage = (): StoredCard[] => {
                     ...card,
                     createdAt: new Date(card.createdAt)
                 }));
+
+                // Migrate legacy localStorage data into extension storage on successful read.
+                if (storedCardsJson && hasChromeStorageLocal()) {
+                    void writeExtensionStorage(LOCAL_STORAGE_KEY, storedCardsJson)
+                        .then(() => removeLegacyLocalStorageKey(LOCAL_STORAGE_KEY))
+                        .catch((migrationError) => {
+                            console.warn('Failed to migrate legacy cards storage:', migrationError);
+                        });
+                }
                 
-                return cardsWithDates;
+                return hydrateCardImages('global', cardsWithDates);
             } catch (parseError) {
                 console.error('JSON parse error:', parseError);
                 // Attempt recovery by clearing corrupt data
@@ -228,7 +452,7 @@ const scheduleGlobalPersistence = (cards: StoredCard[]) => {
 
         if (!cardsToSave) return;
         runWhenIdle(() => {
-            saveCardsToStorage(cardsToSave);
+            void saveCardsToStorage(cardsToSave);
         });
     }, PERSIST_DEBOUNCE_MS);
 };
@@ -249,25 +473,37 @@ const scheduleTabPersistence = (tabId: number, cards: StoredCard[]) => {
         pendingTabCards = null;
 
         if (!nextTabId || !nextCards) return;
-        runWhenIdle(() => saveTabCardsToStorage(nextTabId, nextCards));
+        runWhenIdle(() => {
+            void saveTabCardsToStorage(nextTabId, nextCards);
+        });
     }, PERSIST_DEBOUNCE_MS);
 };
 
 // Tab-specific functions
-export const loadTabCardsFromStorage = (tabId: number): StoredCard[] => {
+export const loadTabCardsFromStorage = async (tabId: number): Promise<StoredCard[]> => {
     try {
         const tabStorageKey = `${TAB_STORAGE_KEY_PREFIX}_${tabId}`;
-        const storedCardsJson = localStorage.getItem(tabStorageKey);
+        const storedCardsJson = await readExtensionStorage(tabStorageKey);
         debugLog(`Loading cards for tab ${tabId}. Data exists:`, !!storedCardsJson);
         
         if (storedCardsJson) {
             const storedCards: StoredCard[] = JSON.parse(storedCardsJson);
             debugLog(`Successfully loaded ${storedCards.length} cards for tab ${tabId}`);
+
+            if (hasChromeStorageLocal()) {
+                void writeExtensionStorage(tabStorageKey, storedCardsJson)
+                    .then(() => removeLegacyLocalStorageKey(tabStorageKey))
+                    .catch((migrationError) => {
+                        console.warn(`Failed to migrate legacy tab cards for tab ${tabId}:`, migrationError);
+                    });
+            }
             
-            return storedCards.map(card => ({
+            const cardsWithDates = storedCards.map(card => ({
                 ...card,
                 createdAt: new Date(card.createdAt)
             }));
+
+            return hydrateCardImages(`tab:${tabId}`, cardsWithDates);
         }
     } catch (error) {
         console.error(`Error loading cards for tab ${tabId}:`, error);
@@ -276,26 +512,28 @@ export const loadTabCardsFromStorage = (tabId: number): StoredCard[] => {
     return [];
 };
 
-export const saveTabCardsToStorage = (tabId: number, cards: StoredCard[]): void => {
+export const saveTabCardsToStorage = async (tabId: number, cards: StoredCard[]): Promise<void> => {
     try {
         const tabStorageKey = `${TAB_STORAGE_KEY_PREFIX}_${tabId}`;
         debugLog(`Saving ${cards.length} cards for tab ${tabId}`);
         
-        const optimizedCards = manageStorageQuota(cards);
+        const cardsWithPersistedImages = await persistCardImages(`tab:${tabId}`, cards);
+        const optimizedCards = manageStorageQuota(cardsWithPersistedImages);
         const serializedCards = JSON.stringify(optimizedCards, (key, value) => {
             if (value instanceof Date) return value.toISOString();
             return value;
         });
         
-        localStorage.setItem(tabStorageKey, serializedCards);
+        await writeExtensionStorage(tabStorageKey, serializedCards);
+        removeLegacyLocalStorageKey(tabStorageKey);
         debugLog(`Successfully saved ${optimizedCards.length} cards for tab ${tabId}`);
     } catch (error) {
         console.error(`Error saving cards for tab ${tabId}:`, error);
-        saveCardsToStorageWithErrorHandling(tabId, cards, error);
+        await saveCardsToStorageWithErrorHandling(tabId, cards, error);
     }
 };
 
-const saveCardsToStorageWithErrorHandling = (tabId: number, cards: StoredCard[], error: any): void => {
+const saveCardsToStorageWithErrorHandling = async (tabId: number, cards: StoredCard[], error: any): Promise<void> => {
     const tabStorageKey = `${TAB_STORAGE_KEY_PREFIX}_${tabId}`;
     
     if (error instanceof DOMException && (
@@ -312,7 +550,8 @@ const saveCardsToStorageWithErrorHandling = (tabId: number, cards: StoredCard[],
                 return value;
             });
             
-            localStorage.setItem(tabStorageKey, serializedSmart);
+            await writeExtensionStorage(tabStorageKey, serializedSmart);
+            removeLegacyLocalStorageKey(tabStorageKey);
             console.warn(`Smart optimization for tab ${tabId}: Saved ${smartOptimizedCards.length} of ${cards.length} cards`);
         } catch (innerError) {
             console.error(`Failed to save optimized cards for tab ${tabId}:`, innerError);
@@ -321,15 +560,15 @@ const saveCardsToStorageWithErrorHandling = (tabId: number, cards: StoredCard[],
 };
 
 // Вспомогательная функция для сохранения карточек в localStorage
-export const saveCardsToStorage = (cards: StoredCard[]): void => {
+export const saveCardsToStorage = async (cards: StoredCard[]): Promise<void> => {
     try {
         debugLog('Saving cards to localStorage. Total cards count:', cards.length);
         
-        // Pre-optimize cards to manage storage quota intelligently
-        const optimizedCards = manageStorageQuota(cards);
+        const cardsWithPersistedImages = await persistCardImages('global', cards);
+        const optimizedCards = manageStorageQuota(cardsWithPersistedImages);
         
         if (optimizedCards.length < cards.length) {
-            console.warn(`Storage optimization: keeping ${optimizedCards.length} of ${cards.length} cards to preserve images`);
+            console.warn(`Storage optimization reduced stored card count from ${cards.length} to ${optimizedCards.length}`);
         }
         
         // Save to localStorage - ensure we're not trying to save circular structures
@@ -350,7 +589,8 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
             console.warn('Warning: localStorage size is getting large (>4MB). This might cause issues in some browsers.');
         }
         
-        localStorage.setItem(LOCAL_STORAGE_KEY, serializedCards);
+        await writeExtensionStorage(LOCAL_STORAGE_KEY, serializedCards);
+        removeLegacyLocalStorageKey(LOCAL_STORAGE_KEY);
         debugLog('Cards saved successfully to localStorage with image preservation');
     } catch (error) {
         console.error('Error saving cards to localStorage:', error);
@@ -383,7 +623,8 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                     // Use intelligent storage management to preserve as many cards with images as possible
                     console.warn('Storage quota exceeded. Using intelligent optimization to preserve images...');
                     
-                    const smartOptimizedCards = manageStorageQuota(cards);
+                    const cardsWithPersistedImages = await persistCardImages('global', cards);
+                    const smartOptimizedCards = manageStorageQuota(cardsWithPersistedImages);
                     
                     if (smartOptimizedCards.length > 0) {
                         const serializedSmart = JSON.stringify(smartOptimizedCards, (key, value) => {
@@ -394,7 +635,8 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                         // Check if optimized version fits
                         const smartSize = new Blob([serializedSmart]).size;
                         if (smartSize <= 4.5 * 1024 * 1024) {
-                            localStorage.setItem(LOCAL_STORAGE_KEY, serializedSmart);
+                            await writeExtensionStorage(LOCAL_STORAGE_KEY, serializedSmart);
+                            removeLegacyLocalStorageKey(LOCAL_STORAGE_KEY);
                             console.warn(`Smart optimization: Saved ${smartOptimizedCards.length} of ${cards.length} cards with images preserved`);
                             return;
                         }
@@ -423,7 +665,8 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                     
                     console.warn(`Attempting to save cards with compressed images instead of removing them.`);
                     
-                    const smallerSerializedCards = JSON.stringify(cardsWithCompressedImages, (key, value) => {
+                    const cardsWithPersistedCompressedImages = await persistCardImages('global', cardsWithCompressedImages);
+                    const smallerSerializedCards = JSON.stringify(cardsWithPersistedCompressedImages.map((card) => stripLargeImagePayload(card)), (key, value) => {
                         if (value instanceof Date) return value.toISOString();
                         return value;
                     });
@@ -438,7 +681,7 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                         
                         // Don't limit to only 4! That's too few. Instead keep as many as possible
                         // Sort by date (oldest first) to preserve newer cards with their images
-                        const sortedCards = [...cardsWithCompressedImages].sort((a, b) => 
+                        const sortedCards = [...cardsWithPersistedCompressedImages].sort((a, b) => 
                             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
                         );
                         
@@ -469,13 +712,15 @@ export const saveCardsToStorage = (cards: StoredCard[]): void => {
                         
                         // Use the batch that fits (keep the newest cards, remove oldest)
                         const finalBatch = sortedCards.slice(-cardsToKeep);  // Take from the end (newest)
-                        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(finalBatch, (key, value) => {
+                        await writeExtensionStorage(LOCAL_STORAGE_KEY, JSON.stringify(finalBatch, (key, value) => {
                             if (value instanceof Date) return value.toISOString();
                             return value;
                         }));
+                        removeLegacyLocalStorageKey(LOCAL_STORAGE_KEY);
                     } else {
                         // Our size reduction worked, save all cards with compressed images
-                        localStorage.setItem(LOCAL_STORAGE_KEY, smallerSerializedCards);
+                        await writeExtensionStorage(LOCAL_STORAGE_KEY, smallerSerializedCards);
+                        removeLegacyLocalStorageKey(LOCAL_STORAGE_KEY);
                     }
                     
                     debugLog('Saved cards with image preservation strategy to fit within quota');
@@ -501,12 +746,13 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 // Prevent stale localStorage reads when there is pending debounced persistence.
                 flushPendingGlobalPersistence();
                 flushPendingTabPersistence();
-
-                const cards = loadCardsFromStorage();
-                store.dispatch({
-                    type: 'SET_STORED_CARDS',
-                    payload: cards
-                });
+                void (async () => {
+                    const cards = await loadCardsFromStorage();
+                    store.dispatch({
+                        type: 'SET_STORED_CARDS',
+                        payload: cards
+                    });
+                })();
             } catch (error) {
                 console.error('Error in LOAD_STORED_CARDS middleware:', error);
                 // Initialize with empty array on error
@@ -534,6 +780,16 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
         case SAVE_CARD_TO_STORAGE:
         case DELETE_STORED_CARD:
         case UPDATE_STORED_CARD:
+            try {
+                const state = store.getState();
+                const { cards: { storedCards } } = state;
+                flushPendingGlobalPersistence();
+                void saveCardsToStorage(storedCards);
+            } catch (error) {
+                console.error('Error in immediate card storage middleware:', error);
+            }
+            break;
+
         case UPDATE_CARD_EXPORT_STATUS:
         case SET_STORED_CARDS:
             try {

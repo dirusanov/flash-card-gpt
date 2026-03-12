@@ -220,6 +220,12 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                         ? {
                             ...card,
                             ...action.payload,
+                            image: action.payload.image !== undefined
+                                ? action.payload.image
+                                : (card.image ?? null),
+                            imageUrl: action.payload.imageUrl !== undefined
+                                ? action.payload.imageUrl
+                                : (card.imageUrl ?? null),
                             createdAt: ensureDate(action.payload.createdAt ?? card.createdAt),
                             exportStatus: action.payload.exportStatus || card.exportStatus,
                             linguisticInfo: action.payload.linguisticInfo || card.linguisticInfo,
@@ -282,6 +288,8 @@ const cardsReducer = (state = initialState, action: any): CardState => {
             const normalizedCards = (action.payload || []).map((card: StoredCard) => ({
                 ...card,
                 createdAt: ensureDate(card.createdAt),
+                image: card.image ?? null,
+                imageUrl: card.imageUrl ?? null,
                 wordAudio: card.wordAudio ?? null,
                 examplesAudio: Array.isArray(card.examplesAudio) ? card.examplesAudio : [],
                 syncId: card.syncId ?? null,

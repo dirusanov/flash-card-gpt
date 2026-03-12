@@ -1,14 +1,14 @@
 {
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApo20H7hsquuPJBGcQw1kagkUH0ZCybrdm22+npbRYC9tLcYHsKdyltxnGpRJfltmUOnQqSzdZ1SSIrV1fYULz3X4/NNLdVlreI5kkUog2axAU2s/BAeucO9UTiAsCbWZltgPvKaFojASOlZXeXQWb25W0GvUgoaWaNrcX0y3SRBRs+ykz6YS3Z8rOTV5yKH2J6KJoSXI19mwZu2q2SXh+wHhK2hE7jAjOxABUIkQb0aX4N64ONRtLKcIDw1x8Mr9iU1zw90ZBpOJiBOQ24O0ywhp1w1w/5qZzoiO0AvdN/UFVkZoJXRU+GSlAmedlHJ37hmp2kuo2J4dlzc4G/P9UwIDAQAB",
-  "name": "Anki Flash Cards + GPT",
-  "description": "Create flash cards to learn a language and different topics in your browser",
+  "name": "Vaulto Cards",
+  "description": "Create and sync study cards from any page with the Vaulto Cards browser extension",
   "options_page": "options.html",
   "background": {
     "service_worker": "background.bundle.js"
   },
   "action": {
-    "default_title": "Toggle Sidebar"
+    "default_title": "Vaulto Cards"
   },
   "icons": {
     "16": "logo.png",
@@ -33,6 +33,7 @@
   ],
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "activeTab",
     "identity"
   ],

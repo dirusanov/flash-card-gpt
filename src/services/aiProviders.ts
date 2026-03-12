@@ -172,9 +172,24 @@ Do not include definitions, explanations, or translations, ONLY the numbered exa
         const langDetails = sourceLanguage
           ? ` The source word language: code=${sourceLanguage}${langName ? `, name=${langName}` : ''}. Interpret the meaning of "${word}" strictly in this language; do not use meanings from other languages with similar spelling.`
           : '';
-        return `Create a short visual description of the word/concept "${word}" for image generation.${langDetails}
-The description should be concrete, visual, and focus on representational elements.
-Keep the description under 50 words and make sure it is purely descriptive without any formatting.`;
+        return `You are writing a prompt for a flashcard illustration, not answering the user.${langDetails}
+Task: convert "${word}" into one short visual scene suitable for a study card.
+Return ONLY the visual scene description.
+Rules:
+- Output only one sentence, 8-30 words
+- If the concept is concrete, show it directly and clearly
+- If the concept is abstract, do NOT show the written word or typography; instead show an associative real-world scene with people, objects, actions, expressions, lighting, or atmosphere that conveys the meaning
+- For abstract concepts, prefer metaphor through ordinary visual elements, not fantasy symbols or text
+- Prefer one clear main subject or one clear scene
+- Add only a simple relevant setting if it helps recognition
+- Make the scene easy to recognize at a glance on a flashcard
+- Mention composition, colors, or lighting only when they help clarity
+- No explanations, no apologies, no disclaimers, no assistant-style text
+- Do not say what you cannot do
+- Do not mention AI, prompts, image generation, translations, or policies
+- No markdown, quotes, bullets, labels, or extra text
+- Never place the target word itself inside the image
+- No text inside the image, no letters, no captions, no logos, no watermarks`;
       }
     };
   }
@@ -896,7 +911,7 @@ export class OpenAIProvider extends BaseAIProvider {
             Authorization: `Bearer ${this.apiKey}`,
           },
           body: JSON.stringify({
-            model: 'dall-e-2',
+            model: 'gpt-image-1',
             prompt: finalPrompt,
             n: 1,
             size: '512x512',

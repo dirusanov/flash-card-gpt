@@ -41,6 +41,32 @@ const buildPolicySafeImagePrompt = (prompt: string): string => {
   return `Create a simple, neutral, family-friendly educational illustration of: ${normalized}. Keep it non-graphic, non-sexual, non-violent, and without real persons, minors, hate symbols, weapons, drugs, logos, or brand characters.`;
 };
 
+const buildImageDescriptionInstruction = (word: string, sourceLanguage?: string): string => {
+  const langName = getLanguageEnglishName(sourceLanguage || null);
+  const langHint = sourceLanguage
+    ? ` The source word language: code=${sourceLanguage}${langName ? `, name=${langName}` : ''}. Interpret the meaning of "${word}" strictly in this language only.`
+    : '';
+
+  return `You write prompts for flashcard illustrations.${langHint}
+Convert "${word}" into one short visual scene for a study card.
+Return ONLY the visual scene description.
+Rules:
+- Exactly one sentence
+- 8 to 30 words
+- If the concept is concrete, show it directly and clearly
+- If the concept is abstract, do NOT show the written word itself; instead describe an associative real-world scene with people, objects, actions, facial expressions, lighting, or atmosphere that conveys the meaning
+- For abstract concepts, prefer ordinary visual metaphors and emotional context, not fantasy symbols or text
+- One clear main subject or one clear scene
+- Add only a simple relevant setting if it improves recognition
+- Make the scene recognizable instantly at small card size
+- Include setting/composition/lighting only if it improves clarity
+- No explanations, no apologies, no disclaimers
+- No assistant-style phrasing
+- Do not mention AI, prompts, policy, or inability
+- Never put the target word itself in the image
+- No text in image, no letters, no captions, no logos, no watermarks`;
+};
+
 // Simple cache to prevent API spam when quota is exceeded
 let quotaExceededCache: { timestamp: number; message: string; notificationShown: boolean } | null = null;
 const QUOTA_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -157,7 +183,7 @@ export const translateText = async (
       : basePrompt;
     
     const body = {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-5-nano',
       messages: [
         {
           role: 'system',
@@ -369,7 +395,7 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
   ];
 
   const body = {
-    model: 'gpt-3.5-turbo',
+    model: 'gpt-5-nano',
     messages: promptMessages,
 
   };
@@ -512,7 +538,7 @@ export const isAbstract = async (
   ];
 
   const body = {
-    model: 'gpt-3.5-turbo',
+    model: 'gpt-5-nano',
     messages: promptMessages,
 
   };
@@ -587,23 +613,24 @@ export const getDescriptionImage = async (
       throw new Error(quotaExceededCache!.message);
     }
 
-  const langName2 = getLanguageEnglishName(sourceLanguage || null);
-  const langHint = sourceLanguage ? ` The source word language: code=${sourceLanguage}${langName2 ? `, name=${langName2}` : ''}. Interpret the meaning of '${word}' strictly in this language; do not use meanings from other languages with similar spelling.` : '';
-  const basePrompt = `Provide a detailed description for an image that represents the concept of '${word}'.${langHint}`;
-  
-  const finalPrompt = customInstructions 
-    ? `${basePrompt}. ${customInstructions}`
+  const basePrompt = buildImageDescriptionInstruction(word, sourceLanguage);
+  const finalPrompt = customInstructions
+    ? `${basePrompt}\nAdditional visual style requirements: ${customInstructions}`
     : basePrompt;
 
   const promptMessages = [
     {
       role: 'system',
+      content: 'Return only a concise visual description suitable for an image model.',
+    },
+    {
+      role: 'user',
       content: finalPrompt,
     },
   ];
 
   const body = {
-    model: 'gpt-3.5-turbo',
+    model: 'gpt-5-nano',
     messages: promptMessages,
 
   };
@@ -987,7 +1014,7 @@ const getLangaugeNameText = async (
     }
   
   const body = {
-    model: 'gpt-3.5-turbo',
+    model: 'gpt-5-nano',
     messages: [
       { role: 'system', content: 'You are langauage expert' },
       {
@@ -1066,7 +1093,7 @@ export const generateAnkiFront = async (
   const langauage = await getLangaugeNameText(apiKey, text);
 
   const body = {
-    model: 'gpt-3.5-turbo',
+    model: 'gpt-5-nano',
     messages: [
       {
         role: 'system',
@@ -1136,7 +1163,7 @@ export const generateAnkiBack = async (
   const langauage = await getLangaugeNameText(apiKey, text);
 
   const body = {
-    model: 'gpt-3.5-turbo',
+    model: 'gpt-5-nano',
     messages: [
       {
         role: 'system',

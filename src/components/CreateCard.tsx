@@ -66,6 +66,42 @@ const normalizeTranscriptionValue = (value: string | null | undefined, isIpa: bo
     return cleaned;
 };
 
+const isRefusalLikeImagePrompt = (value: string | null | undefined): boolean => {
+    if (!value) {
+        return true;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+        return true;
+    }
+
+    return (
+        normalized.includes("i'm sorry") ||
+        normalized.includes('i am sorry') ||
+        normalized.includes("i can’t create images") ||
+        normalized.includes("i can't create images") ||
+        normalized.includes('cannot create images') ||
+        normalized.includes('text-based ai') ||
+        normalized.includes('text based ai') ||
+        normalized.includes('however, i can help') ||
+        normalized.includes('let me know how i can assist')
+    );
+};
+
+const buildSafeImagePrompt = (
+    sourceText: string,
+    generatedPrompt: string | null | undefined
+): string => {
+    const fallbackPrompt = `Create a clean educational illustration of "${sourceText}". Show the main subject clearly, centered, with a simple relevant setting, natural lighting, and no text, letters, captions, logos, or watermarks.`;
+
+    if (isRefusalLikeImagePrompt(generatedPrompt)) {
+        return fallbackPrompt;
+    }
+
+    return (generatedPrompt || fallbackPrompt).trim();
+};
+
 interface CreateCardProps {
     // Пустой интерфейс, так как больше не нужен onSettingsClick
 }
@@ -292,8 +328,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [isNewSubmission, setIsNewSubmission] = useState(true);
     const [explicitlySaved, setExplicitlySaved] = useState(false);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
-    const groqApiKey = useSelector((state: RootState) => state.settings.groqApiKey);
-    const groqModelName = useSelector((state: RootState) => state.settings.groqModelName);
     const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
     const [shouldGenerateImage, setShouldGenerateImageState] = useState(true);
     const [imageGenerationMode, setImageGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
@@ -465,21 +499,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const apiKey = useMemo(() =>
         getApiKeyForProvider(
             modelProvider as ModelProvider,
-            openAiKey,
-            groqApiKey
+            openAiKey
         ),
-        [modelProvider, openAiKey, groqApiKey]
+        [modelProvider, openAiKey]
     );
 
-    const providerDisplayName = useMemo(() => {
-        switch (modelProvider) {
-            case ModelProvider.Groq:
-                return 'Groq';
-            case ModelProvider.OpenAI:
-            default:
-                return 'OpenAI';
-        }
-    }, [modelProvider]);
+    const providerDisplayName = 'OpenAI';
 
     const notifyMissingApiKey = useCallback(() => {
         setShowMissingApiKeyNotice(true);
@@ -692,11 +717,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 abortControllerRef.current?.signal,
                 sourceLanguage || undefined
             );
+            const safeDescriptionImage = buildSafeImagePrompt(text, descriptionImage);
 
-            // Use different image generation based on provider
-            if (modelProvider === ModelProvider.OpenAI) {
-                // Use existing OpenAI implementation
-                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, imageInstructions, sourceLanguage || undefined);
+            // Image generation is handled via OpenAI even when another provider is used for text.
+            if (openAiKey) {
+                const { imageUrl, imageBase64 } = await getImage(openAiKey, safeDescriptionImage, imageInstructions, sourceLanguage || undefined);
 
                 if (imageUrl) {
                     tabAware.setImageUrl(imageUrl);
@@ -705,8 +730,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     tabAware.setImage(imageBase64);
                 }
             } else {
-                // Other models - show error that image generation isn't supported
-                showError("Image generation is not supported with the selected provider.");
+                showError("OpenAI API key is required for image generation.");
             }
         } catch (error) {
             // Check if this is a quota error and show appropriate message
@@ -914,7 +938,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Generate new image based on instructions
                 const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction, undefined, sourceLanguage || undefined);
-                const { imageUrl, imageBase64 } = await getImage(openAiKey, descriptionImage, customInstruction, sourceLanguage || undefined);
+                const safeDescriptionImage = buildSafeImagePrompt(text, descriptionImage);
+                const { imageUrl, imageBase64 } = await getImage(openAiKey, safeDescriptionImage, customInstruction, sourceLanguage || undefined);
 
                 if (imageUrl) {
                     tabAware.setImageUrl(imageUrl);
@@ -1100,7 +1125,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Function to determine if image generation is available for the current provider
     const isImageGenerationAvailable = () => {
-        return modelProvider !== ModelProvider.Groq;
+        return !!openAiKey;
     };
 
     // Save All function for multiple cards
@@ -1171,29 +1196,37 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 try {
                     debugLog(`Saving card #${i} (${card.id}) from multi-card set`);
 
+                    const normalized = await normalizeImageForStorage(card.image ?? null, card.imageUrl ?? null);
+                    const cardToPersist = {
+                        ...card,
+                        image: normalized.image,
+                        imageUrl: normalized.imageUrl
+                    };
+                    cardsToSave[i] = cardToPersist;
+
                     // Check if this card already exists in storage by ID only
                     const existingCardIndex = storedCards.findIndex(
-                        (storedCard) => storedCard.id === card.id
+                        (storedCard) => storedCard.id === cardToPersist.id
                     );
 
                     if (existingCardIndex === -1) {
                         // Card is not saved yet
-                        tabAware.saveCardToStorage(card);
+                        tabAware.saveCardToStorage(cardToPersist);
                         savedCards++;
 
                         // Add to our explicitly saved IDs list
-                        newExplicitlySavedIds.push(card.id);
-                        debugLog(`Card #${i} (${card.id}) saved as new`);
+                        newExplicitlySavedIds.push(cardToPersist.id);
+                        debugLog(`Card #${i} (${cardToPersist.id}) saved as new`);
 
                         successCount++;
                     } else {
-                        debugLog(`Card #${i} (${card.id}) already in storage, updating`);
+                        debugLog(`Card #${i} (${cardToPersist.id}) already in storage, updating`);
                         // Update existing card
-                        tabAware.updateStoredCard(card);
+                        tabAware.updateStoredCard(cardToPersist);
                         updatedCards++;
 
                         // Add to our explicitly saved IDs list
-                        newExplicitlySavedIds.push(card.id);
+                        newExplicitlySavedIds.push(cardToPersist.id);
 
                         successCount++;
                     }
@@ -1813,7 +1846,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             debugLog("=== DEBUG INFO ===");
             debugLog("Model Provider:", modelProvider);
             debugLog("API Key available:", Boolean(apiKey));
-            debugLog("Model Name (if Groq):", modelProvider === ModelProvider.Groq ? groqModelName : 'N/A');
             debugLog("AI Service:", Object.keys(aiService));
             debugLog("Source Language:", isAutoDetectLanguage ? detectedLanguageForSubmit : sourceLanguage);
 
@@ -2538,42 +2570,21 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Add a function to render the AI provider badge
     const renderProviderBadge = () => {
-        switch (modelProvider) {
-            case ModelProvider.OpenAI:
-                return (
-                    <span style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        marginLeft: '8px',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        backgroundColor: '#10a37f',
-                        color: 'white',
-                        fontSize: '10px',
-                        fontWeight: '600'
-                    }}>
-                        OpenAI
-                    </span>
-                );
-            case ModelProvider.Groq:
-                return (
-                    <span style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        marginLeft: '8px',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        backgroundColor: '#7c3aed',
-                        color: 'white',
-                        fontSize: '10px',
-                        fontWeight: '600'
-                    }}>
-                        Groq
-                    </span>
-                );
-            default:
-                return null;
-        }
+        return (
+            <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                marginLeft: '8px',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                backgroundColor: '#10a37f',
+                color: 'white',
+                fontSize: '10px',
+                fontWeight: '600'
+            }}>
+                OpenAI
+            </span>
+        );
     };
 
     // Function to handle modal close
@@ -4703,108 +4714,33 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setIsDetectingLanguage(true);
 
         try {
-            // Если у нас есть доступ к API OpenAI, используем его для определения языка
-            if ((modelProvider === ModelProvider.OpenAI && openAiKey) ||
-                (modelProvider === ModelProvider.Groq && groqApiKey)) {
+            // If OpenAI is available, use it for language detection.
+            if (openAiKey) {
 
                 let detectedCode: string | undefined;
-
-                if (modelProvider === ModelProvider.OpenAI) {
-                    // Extra check for quota cache before making OpenAI request
-                    if (isQuotaExceededCached()) {
-                        debugLog('OpenAI language detection skipped due to cached quota error');
-                        // Only show error if it hasn't been shown yet
-                        if (shouldShowQuotaNotification()) {
-                            const cachedError = getCachedQuotaError();
-                            if (cachedError) {
-                                throw new Error(cachedError);
-                            }
+                // Extra check for quota cache before making OpenAI request
+                if (isQuotaExceededCached()) {
+                    debugLog('OpenAI language detection skipped due to cached quota error');
+                    if (shouldShowQuotaNotification()) {
+                        const cachedError = getCachedQuotaError();
+                        if (cachedError) {
+                            throw new Error(cachedError);
                         }
-                        return detectedLanguage ?? detectedResult;
                     }
+                    return detectedLanguage ?? detectedResult;
+                }
 
-                    try {
-                        const response = await backgroundFetch(
-                            'https://api.openai.com/v1/chat/completions',
-                            {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    Authorization: `Bearer ${openAiKey}`,
-                                },
-                                body: JSON.stringify({
-                                    model: 'gpt-5-nano',
-                                    messages: [
-                                        {
-                                            role: 'system',
-                                            content: 'You are a language detection assistant. Respond only with the ISO 639-1 language code.',
-                                        },
-                                        {
-                                            role: 'user',
-                                            content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text.slice(0, 160)}"`,
-                                        },
-                                    ],
-                                    max_tokens: 5,
-                                    temperature: 0.0,
-                                }),
-                            }
-                        );
-
-                        const data = await response.json();
-
-                        if (!response.ok) {
-                            if (data?.error) {
-                                const formattedError = formatOpenAIErrorMessage(data);
-                                if (data.error.code === 'insufficient_quota' || response.status === 429) {
-                                    cacheQuotaExceededError(formattedError);
-                                    debugLog('Quota error detected and cached in OpenAI language detection');
-                                }
-                                throw new Error(formattedError);
-                            }
-
-                            throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
-                        }
-
-                        detectedCode = data.choices?.[0]?.message?.content?.trim().toLowerCase();
-                        debugLog('Language detected via OpenAI:', detectedCode);
-                    } catch (openaiError) {
-                        if (openaiError instanceof Error) {
-                            const errorMessage = openaiError.message;
-                            if (errorMessage.includes('quota') ||
-                                errorMessage.includes('insufficient_quota') ||
-                                errorMessage.includes('billing') ||
-                                errorMessage.includes('exceeded') ||
-                                errorMessage.includes('429')) {
-                                cacheQuotaExceededError(errorMessage);
-                                debugLog('Quota error detected and cached in OpenAI language detection');
-                            }
-                        }
-                        throw openaiError;
-                    }
-                } else if (modelProvider === ModelProvider.Groq) {
-                    // Extra check for quota cache before making Groq request
-                    if (isQuotaExceededCached()) {
-                        debugLog('Groq language detection skipped due to cached quota error');
-                        // Only show error if it hasn't been shown yet
-                        if (shouldShowQuotaNotification()) {
-                            const cachedError = getCachedQuotaError();
-                            if (cachedError) {
-                                throw new Error(cachedError);
-                            }
-                        }
-                        return detectedLanguage ?? detectedResult;
-                    }
-
-                    const groqResponse = await backgroundFetch(
-                        'https://api.groq.com/openai/v1/chat/completions',
+                try {
+                    const response = await backgroundFetch(
+                        'https://api.openai.com/v1/chat/completions',
                         {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                Authorization: `Bearer ${groqApiKey}`,
+                                Authorization: `Bearer ${openAiKey}`,
                             },
                             body: JSON.stringify({
-                                model: groqModelName,
+                                model: 'gpt-5-nano',
                                 messages: [
                                     {
                                         role: 'system',
@@ -4821,23 +4757,36 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         }
                     );
 
-                    const groqData = await groqResponse.json();
+                    const data = await response.json();
 
-                    if (!groqResponse.ok) {
-                        const groqErrorMessage = (groqData && groqData.error && groqData.error.message)
-                            ? `Groq API error: ${groqData.error.message}`
-                            : `Groq API error: ${groqResponse.status} ${groqResponse.statusText}`;
-
-                        if (groqResponse.status === 429 || groqErrorMessage.toLowerCase().includes('quota')) {
-                            cacheQuotaExceededError(groqErrorMessage);
+                    if (!response.ok) {
+                        if (data?.error) {
+                            const formattedError = formatOpenAIErrorMessage(data);
+                            if (data.error.code === 'insufficient_quota' || response.status === 429) {
+                                cacheQuotaExceededError(formattedError);
+                                debugLog('Quota error detected and cached in OpenAI language detection');
+                            }
+                            throw new Error(formattedError);
                         }
 
-                        console.error('Groq language detection failed:', groqData || groqResponse.statusText);
-                        throw new Error(groqErrorMessage);
+                        throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
                     }
 
-                    detectedCode = groqData.choices?.[0]?.message?.content?.trim().toLowerCase();
-                    debugLog('Language detected via Groq:', detectedCode);
+                    detectedCode = data.choices?.[0]?.message?.content?.trim().toLowerCase();
+                    debugLog('Language detected via OpenAI:', detectedCode);
+                } catch (openaiError) {
+                    if (openaiError instanceof Error) {
+                        const errorMessage = openaiError.message;
+                        if (errorMessage.includes('quota') ||
+                            errorMessage.includes('insufficient_quota') ||
+                            errorMessage.includes('billing') ||
+                            errorMessage.includes('exceeded') ||
+                            errorMessage.includes('429')) {
+                            cacheQuotaExceededError(errorMessage);
+                            debugLog('Quota error detected and cached in OpenAI language detection');
+                        }
+                    }
+                    throw openaiError;
                 }
 
                 // Проверяем, является ли результат действительным языковым кодом
@@ -4938,8 +4887,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Показываем уведомление пользователю об ошибке API ключа
                 // (предполагается, что showError доступна из контекста)
-                const providerName = modelProvider === ModelProvider.OpenAI ? 'OpenAI' :
-                    modelProvider === ModelProvider.Groq ? 'Groq' : 'AI';
+                const providerName = 'OpenAI';
 
                 if (typeof showError === 'function') {
                     const invalidKeyMessage = `Language detection failed: Invalid ${providerName} API key. Please check your API key in settings.`;
@@ -4991,7 +4939,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
 
         return detectedResult;
-    }, [openAiKey, modelProvider, groqApiKey, groqModelName, detectLanguageOffline, getSmartCacheKey, updateSourceLanguage, detectedLanguage, showError, shouldShowQuotaNotification, getCachedQuotaError, markQuotaNotificationShown, cacheQuotaExceededError, setIsAutoDetectLanguage, allLanguages]);
+    }, [openAiKey, modelProvider, detectLanguageOffline, getSmartCacheKey, updateSourceLanguage, detectedLanguage, showError, shouldShowQuotaNotification, getCachedQuotaError, markQuotaNotificationShown, cacheQuotaExceededError, setIsAutoDetectLanguage, allLanguages]);
 
     // Обработчик переключения между автоопределением и ручным выбором
     const toggleAutoDetect = () => {
@@ -5721,8 +5669,11 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 try {
                     const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions, undefined, sourceLanguage || undefined);
                     if (imageDescription) {
-                        const imageUrl = await aiService.getImageUrl?.(apiKey, imageDescription);
-                        if (imageUrl) {
+                        const safeImageDescription = buildSafeImagePrompt(inputText, imageDescription);
+                        const { imageUrl, imageBase64 } = await getImage(openAiKey, safeImageDescription, imageInstructions, sourceLanguage || undefined);
+                        if (imageBase64) {
+                            imageData = imageBase64;
+                        } else if (imageUrl) {
                             imageData = imageUrl;
                         }
                     }
@@ -6671,7 +6622,7 @@ Original text: ${text}`;
                                         borderRadius: '6px',
                                         border: '1px solid #FECACA'
                                     }}>
-                                        Image generation not available with Groq provider
+                                        OpenAI API key required for image generation
                                     </div>
                                 )}
                             </div>
