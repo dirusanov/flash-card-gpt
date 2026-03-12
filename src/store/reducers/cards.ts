@@ -24,7 +24,7 @@ import {
 import { CardLangLearning, CardGeneral } from "../../services/ankiService";
 import { Modes } from '../../constants';
 
-const isDev = process.env.NODE_ENV !== 'production';
+const isDev = false;
 const debugLog = (...args: unknown[]) => {
     if (isDev) {
         console.log(...args);

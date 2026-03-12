@@ -33,12 +33,14 @@ interface GeneralCardTemplate {
     prompt: string;
 }
 
-const isDev = process.env.NODE_ENV !== 'production';
+const isDev = false;
 const debugLog = (...args: unknown[]) => {
     if (isDev) {
         console.log(...args);
     }
 };
+const TEXT_SYNC_DEBOUNCE_MS = 120;
+const PROGRESS_UPDATE_INTERVAL_MS = 120;
 
 const normalizeTranscriptionValue = (value: string | null | undefined, isIpa: boolean = false): string | null => {
     if (!value) {
@@ -198,6 +200,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, [dispatch]);
 
     const { text, translation, examples, examplesAudio, image, imageUrl, wordAudio, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
+    const [textInputValue, setTextInputValue] = useState(text);
+    const textInputValueRef = useRef(text);
+    const textSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Tab-scoped localStorage helpers to avoid cross-tab leaks
     const getTabScopedLS = useCallback((key: string): string | null => {
@@ -219,6 +224,54 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             localStorage.removeItem(`${key}_${tabId}`);
         } catch { }
     }, [tabId]);
+
+    useEffect(() => {
+        textInputValueRef.current = textInputValue;
+    }, [textInputValue]);
+
+    useEffect(() => {
+        if (text === textInputValueRef.current) {
+            return;
+        }
+        textInputValueRef.current = text;
+        setTextInputValue(text);
+    }, [text]);
+
+    const flushTextInputSync = useCallback((value?: string) => {
+        const nextValue = value ?? textInputValueRef.current;
+        if (textSyncTimeoutRef.current) {
+            clearTimeout(textSyncTimeoutRef.current);
+            textSyncTimeoutRef.current = null;
+        }
+        if (nextValue !== text) {
+            tabAware.setText(nextValue);
+        }
+    }, [tabAware, text]);
+
+    const scheduleTextInputSync = useCallback((nextValue: string) => {
+        textInputValueRef.current = nextValue;
+        if (textSyncTimeoutRef.current) {
+            clearTimeout(textSyncTimeoutRef.current);
+        }
+        textSyncTimeoutRef.current = setTimeout(() => {
+            textSyncTimeoutRef.current = null;
+            if (nextValue !== textInputValueRef.current) {
+                return;
+            }
+            flushTextInputSync(nextValue);
+        }, TEXT_SYNC_DEBOUNCE_MS);
+    }, [flushTextInputSync]);
+
+    useEffect(() => () => {
+        if (textSyncTimeoutRef.current) {
+            clearTimeout(textSyncTimeoutRef.current);
+            textSyncTimeoutRef.current = null;
+        }
+        if (progressFlushTimeoutRef.current) {
+            clearTimeout(progressFlushTimeoutRef.current);
+            progressFlushTimeoutRef.current = null;
+        }
+    }, []);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
@@ -451,6 +504,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // AbortController for cancelling AI requests
     const abortControllerRef = useRef<AbortController | null>(null);
     const criticalApiErrorRef = useRef(false);
+    const lastProgressPaintRef = useRef(0);
+    const pendingProgressRef = useRef<{ message: DetailedLoadingMessage; completed: number; total: number } | null>(null);
+    const progressFlushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const stopLoadingImmediately = useCallback(() => {
         debugLog('🚫 Critical API issue detected - stopping loaders instantly');
@@ -468,6 +524,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             clearInterval(timerRef.current);
             timerRef.current = null;
         }
+        if (progressFlushTimeoutRef.current) {
+            clearTimeout(progressFlushTimeoutRef.current);
+            progressFlushTimeoutRef.current = null;
+        }
+        pendingProgressRef.current = null;
+        lastProgressPaintRef.current = 0;
 
         setGlobalProgressCallback(() => { });
         resetGlobalApiTracker();
@@ -508,6 +570,23 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const notifyMissingApiKey = useCallback(() => {
         setShowMissingApiKeyNotice(true);
+    }, []);
+
+    const flushPendingProgressUpdate = useCallback(() => {
+        if (progressFlushTimeoutRef.current) {
+            clearTimeout(progressFlushTimeoutRef.current);
+            progressFlushTimeoutRef.current = null;
+        }
+
+        const pending = pendingProgressRef.current;
+        if (!pending) {
+            return;
+        }
+
+        pendingProgressRef.current = null;
+        lastProgressPaintRef.current = Date.now();
+        setCurrentLoadingMessage(pending.message);
+        setCurrentProgress({ completed: pending.completed, total: pending.total });
     }, []);
 
     useEffect(() => {
@@ -665,7 +744,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Update the handle text change to check for existing cards
     const handleTextChange = (newText: string) => {
-        tabAware.setText(newText);
+        setTextInputValue(newText);
+        scheduleTextInputSync(newText);
 
         // If the card is already marked as saved, check if it's being edited
         if (isSaved) {
@@ -1752,13 +1832,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!text.trim()) return;
+        const currentText = textInputValueRef.current.trim();
+        if (!currentText) return;
+        flushTextInputSync(textInputValueRef.current);
 
         let detectedLanguageForSubmit = detectedLanguage;
 
         if (isAutoDetectLanguage) {
             try {
-                const detectionResult = await detectLanguage(text);
+                const detectionResult = await detectLanguage(currentText);
                 if (detectionResult) {
                     detectedLanguageForSubmit = detectionResult;
                 }
@@ -1798,7 +1880,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             debugLog('Image generation is disabled, clearing existing images');
             tabAware.setImage(null);
             tabAware.setImageUrl(null);
-        } else if (originalSelectedText !== text) {
+        } else if (originalSelectedText !== currentText) {
             // If the text has changed significantly from the original, clear old images
             debugLog('Text has changed, clearing existing images for new generation');
             tabAware.setImage(null);
@@ -1817,20 +1899,39 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Reset global API tracker and set progress callback
         const globalTracker = getGlobalApiTracker();
         globalTracker.reset();
+        lastProgressPaintRef.current = 0;
+        pendingProgressRef.current = null;
 
         setGlobalProgressCallback((update) => {
             if (criticalApiErrorRef.current) {
                 return;
             }
-            debugLog(`🔄 Progress update: ${update.completed}/${update.total} - ${update.message.title}`);
-            setCurrentLoadingMessage(update.message);
-            setCurrentProgress({ completed: update.completed, total: update.total });
+            pendingProgressRef.current = {
+                message: update.message,
+                completed: update.completed,
+                total: update.total,
+            };
+
+            const now = Date.now();
+            const elapsed = now - lastProgressPaintRef.current;
+
+            if (elapsed >= PROGRESS_UPDATE_INTERVAL_MS) {
+                flushPendingProgressUpdate();
+                return;
+            }
+
+            if (!progressFlushTimeoutRef.current) {
+                progressFlushTimeoutRef.current = setTimeout(
+                    flushPendingProgressUpdate,
+                    PROGRESS_UPDATE_INTERVAL_MS - elapsed
+                );
+            }
 
             // REMOVED: Auto-hide logic moved to finally block to prevent conflicts
             // The loading will be hidden in the finally block of the main function
         });
 
-        setOriginalSelectedText(text);
+        setOriginalSelectedText(currentText);
 
         // Clear any previous errors
         showError(null);
@@ -1858,7 +1959,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     let pageContext: PageContentContext | undefined;
                     try {
                         const { PageContentExtractor } = await import('../services/pageContentExtractor');
-                        pageContext = PageContentExtractor.extractPageContent(text);
+                        pageContext = PageContentExtractor.extractPageContent(currentText);
                         debugLog(`📋 General mode: Extracted page context with ${pageContext?.pageImages?.length || 0} images`);
                     } catch (extractError) {
                         console.warn('Failed to extract page content for General mode:', extractError);
@@ -1869,7 +1970,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     const aiAgentService = createAIAgentService(aiService, apiKey);
 
                     // Use fast AI agent workflow for complete cards
-                    const createdCards = await aiAgentService.createCardsFromTextFast(text, pageContext, abortSignal);
+                    const createdCards = await aiAgentService.createCardsFromTextFast(currentText, pageContext, abortSignal);
 
                     if (createdCards && createdCards.length > 0) {
                         const firstCard = createdCards[0];
@@ -1894,7 +1995,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // Fallback to simple mode if fast workflow fails
                     debugLog('🔄 Falling back to simple flashcard creation...');
                     const { createFlashcard } = await import('../services/aiServiceFactory');
-                    const flashcardResult = await createFlashcard(aiService, apiKey, text, abortSignal);
+                    const flashcardResult = await createFlashcard(aiService, apiKey, currentText, abortSignal);
 
                     if (flashcardResult && flashcardResult.front) {
                         tabAware.setFront(flashcardResult.front);
@@ -1917,7 +2018,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             const result = await createCardComponentsParallel(
                 aiService,
                 apiKey,
-                text,
+                currentText,
                 translateToLanguage,
                 aiInstructions,
                 sourceLanguageForSubmit || undefined,
@@ -5709,10 +5810,12 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
     // Function to handle AI agent card creation
     const handleCreateAICards = useCallback(async () => {
-        if (!text.trim()) {
+        const currentText = textInputValueRef.current.trim();
+        if (!currentText) {
             showError('Please enter or select text to create cards', 'error');
             return;
         }
+        flushTextInputSync(textInputValueRef.current);
 
         if (!apiKey) {
             notifyMissingApiKey();
@@ -5753,7 +5856,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 }
 
                 // Извлекаем контент страницы асинхронно для загрузки внешних изображений
-                pageContext = await PageContentExtractor.extractPageContentAsync(text, selectionElement);
+                pageContext = await PageContentExtractor.extractPageContentAsync(currentText, selectionElement);
 
                 debugLog('📄 Extracted page content:', {
                     images: pageContext.pageImages.length,
@@ -5761,7 +5864,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     codeBlocks: pageContext.codeBlocks.length,
                     links: pageContext.links.length,
                     metadata: pageContext.metadata,
-                    selectedText: text.substring(0, 100) + '...'
+                    selectedText: currentText.substring(0, 100) + '...'
                 });
 
                 // Детальное логирование найденных изображений
@@ -5781,7 +5884,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             }
 
             // Всегда используем быстрый режим генерации для максимальной скорости
-            const createdCards = await aiAgentService.createCardsFromTextFast(text, pageContext, abortSignal);
+            const createdCards = await aiAgentService.createCardsFromTextFast(currentText, pageContext, abortSignal);
 
             // Check if cancelled after creation
             if (abortSignal.aborted) {
@@ -5894,7 +5997,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             abortControllerRef.current = null;
             criticalApiErrorRef.current = false;
         }
-    }, [text, aiService, apiKey, showError, notifyMissingApiKey, handlePotentialApiKeyIssue]);
+    }, [aiService, apiKey, flushTextInputSync, showError, notifyMissingApiKey, handlePotentialApiKeyIssue]);
 
     // Functions for preview management
     const handleAcceptPreviewCards = async () => {
@@ -6811,7 +6914,7 @@ Original text: ${text}`;
                             {!loadingGetResult && (
                                 <button
                                     onClick={handleCreateAICards}
-                                    disabled={!text.trim() || loadingGetResult}
+                                    disabled={!textInputValue.trim() || loadingGetResult}
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
@@ -6819,24 +6922,24 @@ Original text: ${text}`;
                                         gap: '6px',
                                         width: '100%',
                                         padding: '8px 10px',
-                                        backgroundColor: text.trim() && !loadingGetResult ? '#2563EB' : '#E5E7EB',
-                                        color: text.trim() && !loadingGetResult ? '#ffffff' : '#9CA3AF',
+                                        backgroundColor: textInputValue.trim() && !loadingGetResult ? '#2563EB' : '#E5E7EB',
+                                        color: textInputValue.trim() && !loadingGetResult ? '#ffffff' : '#9CA3AF',
                                         border: 'none',
                                         borderRadius: '6px',
                                         fontSize: '14px',
                                         fontWeight: '600',
-                                        cursor: text.trim() && !loadingGetResult ? 'pointer' : 'not-allowed',
+                                        cursor: textInputValue.trim() && !loadingGetResult ? 'pointer' : 'not-allowed',
                                         transition: 'all 0.2s ease',
                                         marginTop: '4px',
                                         opacity: loadingGetResult ? 0.7 : 1
                                     }}
                                     onMouseOver={(e) => {
-                                        if (text.trim() && !loadingGetResult) {
+                                        if (textInputValue.trim() && !loadingGetResult) {
                                             e.currentTarget.style.backgroundColor = '#1D4ED8';
                                         }
                                     }}
                                     onMouseOut={(e) => {
-                                        if (text.trim() && !loadingGetResult) {
+                                        if (textInputValue.trim() && !loadingGetResult) {
                                             e.currentTarget.style.backgroundColor = '#2563EB';
                                         }
                                     }}
@@ -6884,7 +6987,7 @@ Original text: ${text}`;
                                 </label>
                                 <textarea
                                     id="text"
-                                    value={text}
+                                    value={textInputValue}
                                     onChange={(e) => handleTextChange(e.target.value)}
                                     placeholder="Enter text to translate or select text from a webpage"
                                     style={{
@@ -6901,7 +7004,10 @@ Original text: ${text}`;
                                         transition: 'all 0.2s ease'
                                     }}
                                     onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                                    onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                                    onBlur={(e) => {
+                                        flushTextInputSync();
+                                        e.target.style.borderColor = '#E5E7EB';
+                                    }}
                                 />
                             </div>
 
@@ -6954,8 +7060,8 @@ Original text: ${text}`;
                             </label>
                             <textarea
                                 id="general-text"
-                                value={text}
-                                onChange={(e) => handleTextChange(e.target.value)}
+                                    value={textInputValue}
+                                    onChange={(e) => handleTextChange(e.target.value)}
                                 placeholder="Enter or select text from the page to create cards"
                                 style={{
                                     width: '100%',
@@ -6971,7 +7077,10 @@ Original text: ${text}`;
                                     transition: 'all 0.2s ease'
                                 }}
                                 onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                                onBlur={(e) => {
+                                    flushTextInputSync();
+                                    e.target.style.borderColor = '#E5E7EB';
+                                }}
                             />
                         </div>
                     )}

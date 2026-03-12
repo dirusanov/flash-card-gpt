@@ -149,21 +149,6 @@ const setSidebarHostVisible = (visible: boolean, host?: HTMLElement | null) => {
       return;
     }
   } catch {}
-  if (host) return;
-  try {
-    const anchor = document.querySelector('[data-anki-app-anchor]');
-    if (!anchor) return;
-    const candidates = Array.from(document.querySelectorAll('*')) as HTMLElement[];
-    for (const el of candidates) {
-      if (el.id === 'anki-floating-root') continue;
-      const cs = getComputedStyle(el);
-      const isRight = (el.style.right === '0px') || ((cs as any).right === '0px');
-      if ((cs.position === 'fixed' || cs.position === 'absolute') && isRight && el.offsetWidth >= 280 && el.offsetWidth <= 520 && el.contains(anchor)) {
-        el.style.display = visible ? '' : 'none';
-        break;
-      }
-    }
-  } catch {}
 };
 
 const hardShowSidebarHost = () => {
@@ -358,14 +343,6 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
         if ((cs.position === 'fixed' || cs.position === 'absolute') && isRight && width >= 280 && width <= 520) return el;
         el = el.parentElement;
       }
-      const all = Array.from(document.querySelectorAll('*')) as HTMLElement[];
-      for (const n of all) {
-        const cs = getComputedStyle(n);
-        const isRight = (n.style.right === '0px') || ((cs as any).right === '0px');
-        if ((cs.position === 'fixed' || cs.position === 'absolute') && isRight && n.offsetWidth >= 280 && n.offsetWidth <= 520) {
-          if (n.contains(anchor)) return n;
-        }
-      }
       return null;
     };
 
@@ -377,7 +354,18 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     forceRemoveSidebarGap(isFloating);
   }, [isFloating]);
 
+  const preferredMode = useSelector((s: RootState) => selectPreferredMode(s as any, tabId));
+  const preferredVisible = useSelector((s: RootState) => selectVisible(s as any, tabId));
+  const storedGeometry = useSelector((s: RootState) => selectFloatGeometry(s as any, tabId));
+
   useEffect(() => {
+    if (!viewHydrated) {
+      return;
+    }
+    if (preferredVisible === false) {
+      setIsInitialLoad(false);
+      return;
+    }
     const init = async () => {
       try {
         try {
@@ -395,21 +383,19 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       }
     };
     if (isInitialLoad) init();
-  }, [dispatch, ankiConnectUrl, ankiConnectApiKey, isInitialLoad, tabId]);
+  }, [dispatch, ankiConnectUrl, ankiConnectApiKey, isInitialLoad, preferredVisible, viewHydrated]);
 
   // Load cards for current tab context.
   useEffect(() => {
+    if (!viewHydrated || preferredVisible === false) {
+      return;
+    }
     dispatch(loadStoredCards(tabId));
-  }, [dispatch, tabId]);
+  }, [dispatch, tabId, preferredVisible, viewHydrated]);
 
   useEffect(() => {
     dispatch<any>(hydrateView()).finally(() => setViewHydrated(true));
   }, [dispatch]);
-
-// брать режим/видимость из Redux
-  const preferredMode = useSelector((s: RootState) => selectPreferredMode(s as any, tabId));
-  const preferredVisible = useSelector((s: RootState) => selectVisible(s as any, tabId));
-  const storedGeometry = useSelector((s: RootState) => selectFloatGeometry(s as any, tabId));
 
   const ensureInitialFloatPlacement = useCallback(() => {
     if (storedGeometry) return;
