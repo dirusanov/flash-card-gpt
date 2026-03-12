@@ -25,6 +25,16 @@ interface CreateCardBoundaryState {
   errorMessage: string;
 }
 
+const getExtensionErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message || '';
+  }
+  return String(error || '');
+};
+
+const isExtensionContextInvalidatedError = (error: unknown): boolean =>
+  getExtensionErrorMessage(error).includes('Extension context invalidated');
+
 class CreateCardErrorBoundary extends React.Component<{ children: React.ReactNode }, CreateCardBoundaryState> {
   state: CreateCardBoundaryState = { hasError: false, errorMessage: '' };
 
@@ -36,6 +46,10 @@ class CreateCardErrorBoundary extends React.Component<{ children: React.ReactNod
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    if (isExtensionContextInvalidatedError(error)) {
+      console.warn('[CreateCardErrorBoundary] Skipping stale extension context error');
+      return;
+    }
     console.error('[CreateCardErrorBoundary] CreateCard crashed:', error, errorInfo);
   }
 
@@ -216,6 +230,36 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const sidebarHostRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const uiStateKey = useCallback(() => `anki_ui_tab_${tabId}`, [tabId]);
+
+  useEffect(() => {
+    const handleWindowError = (event: ErrorEvent) => {
+      const runtimeError = event.error ?? event.message;
+      if (!isExtensionContextInvalidatedError(runtimeError)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      console.warn('Ignoring stale extension context error');
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      if (!isExtensionContextInvalidatedError(event.reason)) {
+        return;
+      }
+
+      event.preventDefault();
+      console.warn('Ignoring stale extension context rejection');
+    };
+
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
 
   const applyGeometryToDom = useCallback(() => {
     if (!isFloating) return;
@@ -649,7 +693,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       case 'settings':
         return <div style={sharedContentStyle}><Settings onBackClick={() => handlePageChange('createCard')} popup={false} /></div>;
       case 'storedCards':
-        return <div style={sharedContentStyle}><StoredCards onBackClick={() => handlePageChange('createCard')} initialFilter="all" /></div>;
+        return <div style={sharedContentStyle}><StoredCards onBackClick={() => handlePageChange('createCard')} initialFilter="new" /></div>;
       case 'createCard':
       default:
         return (

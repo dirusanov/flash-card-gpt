@@ -9,7 +9,7 @@ import { StoredCard, ExportStatus } from '../store/reducers/cards';
 import { useTabAware } from './TabAwareProvider';
 import { Modes } from '../constants';
 import { FaTrash, FaDownload, FaSync, FaEdit, FaTimes, FaChevronLeft, FaChevronRight, FaMagic } from 'react-icons/fa';
-import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards, format_back_lang_learning } from '../services/ankiService';
+import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards, format_back_lang_learning, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
 import { cardsSyncService } from '../services/cardsSyncService';
 import { authApi } from '../services/authApi';
 import { authStorage } from '../services/authStorage';
@@ -36,9 +36,17 @@ interface StoredCardsProps {
     initialFilter?: CardFilterType;
 }
 
-type CardFilterType = 'all' | 'not_exported' | 'exported';
+type CardFilterType = 'new' | 'all' | 'not_exported' | 'exported';
 
-const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, initialFilter = 'all' }) => {
+const normalizeFilter = (value: CardFilterType): 'new' | 'not_exported' | 'exported' => {
+    if (value === 'all') {
+        return 'new';
+    }
+
+    return value;
+};
+
+const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, initialFilter = 'new' }) => {
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
     const tabAware = useTabAware();
     const { storedCards } = tabAware;
@@ -59,7 +67,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingDecks, setLoadingDecks] = useState(false);
-    const [activeFilter, setActiveFilter] = useState<CardFilterType>(initialFilter);
+    const [activeFilter, setActiveFilter] = useState<'new' | 'not_exported' | 'exported'>(normalizeFilter(initialFilter));
     const [showDeckSelector, setShowDeckSelector] = useState(false);
     // Modal editing states
     const [editingCard, setEditingCard] = useState<StoredCard | null>(null);
@@ -86,9 +94,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
     const { showError, renderErrorNotification } = useErrorNotification();
 
-    // Re-apply filter when page explicitly opens cards in a specific mode (All/Drafts).
+    // Re-apply filter when page explicitly opens cards in a specific mode.
     useEffect(() => {
-        setActiveFilter(initialFilter);
+        setActiveFilter(normalizeFilter(initialFilter));
     }, [initialFilter]);
 
     // Load Anki decks when needed
@@ -178,15 +186,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
         const candidates = (() => {
             switch (activeFilter) {
+                case 'new':
                 case 'not_exported':
                     return storedCards.filter(card => card.exportStatus === 'not_exported');
                 case 'exported':
                     return storedCards.filter(card =>
-                        card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file'
+                        card.exportStatus === 'exported_to_anki'
+                        || card.exportStatus === 'exported_to_file'
+                        || card.exportStatus === 'exported'
                     );
-                case 'all':
                 default:
-                    return storedCards;
+                    return storedCards.filter(card => card.exportStatus === 'not_exported');
             }
         })();
 
@@ -199,7 +209,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         ));
 
         // Draft view should stay compact and predictable.
-        if (activeFilter === 'not_exported') {
+        if (activeFilter === 'new' || activeFilter === 'not_exported') {
             return sorted.slice(0, 10);
         }
 
@@ -251,13 +261,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         for (const card of storedCards) {
             if (card.exportStatus === 'not_exported') {
                 notExported += 1;
-            } else if (card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported_to_file') {
+            } else if (
+                card.exportStatus === 'exported_to_anki'
+                || card.exportStatus === 'exported_to_file'
+                || card.exportStatus === 'exported'
+            ) {
                 exported += 1;
             }
         }
 
         return {
-            all: storedCards.length,
+            new: notExported,
             not_exported: notExported,
             exported,
         };
@@ -455,9 +469,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 tabAware.updateCardExportStatus(cardId, 'exported_to_anki');
                 debugLog(`Updated card ${cardId} export status to 'exported_to_anki'`);
             });
+            setSelectedCards([]);
 
-            // Show success notification with type parameter
-            // Удалили навязчивое success уведомление
+            showError(getAnkiSaveSuccessMessage(selectedCards.length), 'success');
 
             // Verify export statuses in active tab state after update.
             setTimeout(() => {
@@ -472,7 +486,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 }
             }, 500);
         } catch (error) {
-            showError('Failed to save cards to Anki. Make sure Anki is running and AnkiConnect is properly configured.');
+            showError(
+                getAnkiSaveErrorMessage(error, selectedCards.length),
+                isAnkiDuplicateError(error) ? 'warning' : 'error'
+            );
         } finally {
             setIsLoading(false);
         }
@@ -507,6 +524,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 return <span style={{ fontSize: '11px', color: '#10B981', marginLeft: '8px' }}>✓ Anki</span>;
             case 'exported_to_file':
                 return <span style={{ fontSize: '11px', color: '#2563EB', marginLeft: '8px' }}>✓ File</span>;
+            case 'exported':
+                return <span style={{ fontSize: '11px', color: '#10B981', marginLeft: '8px' }}>✓ Exported</span>;
             default:
                 return null;
         }
@@ -723,23 +742,23 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 alignItems: 'stretch',
             }}>
                 <div
-                    onClick={() => setActiveFilter('all')}
+                    onClick={() => setActiveFilter('new')}
                     style={{
                         ...tabStyle.base,
-                        ...(activeFilter === 'all' ? tabStyle.active : tabStyle.inactive),
+                        ...(activeFilter === 'new' ? tabStyle.active : tabStyle.inactive),
                         flex: 1
                     }}
                 >
-                    All
+                    New
                     <span style={{
-                        backgroundColor: activeFilter === 'all' ? '#2563EB' : '#9CA3AF',
+                        backgroundColor: activeFilter === 'new' ? '#2563EB' : '#9CA3AF',
                         color: 'white',
                         borderRadius: '9999px',
                         fontSize: '12px',
                         padding: '1px 6px',
                         minWidth: '20px',
                     }}>
-                        {cardCounts.all}
+                        {cardCounts.new}
                     </span>
                 </div>
                 <div
@@ -781,8 +800,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                     padding: '20px'
                 }}>
                     <p style={{ fontSize: '14px' }}>
-                        {activeFilter === 'all' ? 'No cards yet' :
-                            activeFilter === 'not_exported' ? 'No unexported cards' :
+                        {activeFilter === 'new' || activeFilter === 'not_exported' ? 'No new cards' :
                                 'No exported cards'}
                     </p>
                 </div>
@@ -1388,12 +1406,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         showError('Unable to build Anki payload for this card.');
                     } else {
                         await createAnkiCards(payload.mode, ankiConnectUrl, ankiConnectApiKey, targetAnkiDeck, 'Basic', payload.cards);
+                        tabAware.updateCardExportStatus(updatedCardData.id, 'exported_to_anki');
+                        showError(getAnkiSaveSuccessMessage(payload.cards.length), 'success');
                     }
                 }
             }
         } catch (error: any) {
             console.error('Sync failed:', error);
-            showError(error?.message || 'Sync failed. Please try again.');
+            showError(
+                getAnkiSaveErrorMessage(error),
+                isAnkiDuplicateError(error) ? 'warning' : 'error'
+            );
         } finally {
             setLoadingSync(false);
         }
@@ -2354,6 +2377,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 tabAware.updateCardExportStatus(cardId, 'exported_to_file');
                 debugLog(`Updated card ${cardId} export status to 'exported_to_file'`);
             });
+            setSelectedCards([]);
 
             // Close modal
             setShowExportModal(false);

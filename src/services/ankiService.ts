@@ -1,6 +1,45 @@
 import { Modes } from '../constants';
 import { backgroundFetch } from './backgroundFetch';
 
+const normalizeAnkiErrorText = (error: unknown): string => {
+    if (Array.isArray(error)) {
+        return error
+            .map((item) => normalizeAnkiErrorText(item))
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+    }
+
+    if (error instanceof Error) {
+        return error.message.trim();
+    }
+
+    return String(error || '').trim();
+};
+
+export const isAnkiDuplicateError = (error: unknown): boolean => {
+    const normalized = normalizeAnkiErrorText(error).toLowerCase();
+    return normalized.includes('cannot create note because it is a duplicate')
+        || normalized.includes('already exists in anki');
+};
+
+export const getAnkiSaveErrorMessage = (error: unknown, cardsCount: number = 1): string => {
+    if (isAnkiDuplicateError(error)) {
+        return cardsCount > 1
+            ? 'Some selected cards already exist in Anki.'
+            : 'This card already exists in Anki.';
+    }
+
+    const normalized = normalizeAnkiErrorText(error);
+    return normalized || 'Failed to save cards to Anki.';
+};
+
+export const getAnkiSaveSuccessMessage = (cardsCount: number = 1): string => {
+    return cardsCount > 1
+        ? 'Cards saved to Anki successfully.'
+        : 'Card saved to Anki successfully.';
+};
+
 const normalizeExampleTranslation = (translation: string): string => {
     const trimmed = translation.trim();
     if (!trimmed) {
@@ -445,7 +484,7 @@ export const createAnkiCards = async (
 
         const result = await response.json();
         if (result.error) {
-            throw new Error(`Anki error: ${result.error}`);
+            throw new Error(getAnkiSaveErrorMessage(result.error, cards.length));
         }
         return result.result;
     } catch (error) {

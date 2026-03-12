@@ -22,7 +22,7 @@ import Loader from './Loader';
 import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createOptimizedLinguisticInfo, createTranscription, createCardComponentsParallel } from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
 import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
-import { imageUrlToBase64 } from '../services/ankiService';
+import { imageUrlToBase64, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
 import { PageContentExtractor } from '../services/pageContentExtractor';
 import { buildSafeImagePrompt } from '../services/imagePromptSafety';
 
@@ -1504,7 +1504,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             examples_audio_base64: cardToSave.examplesAudio
                         };
 
-                        dispatch(saveAnkiCards(
+                        await dispatch(saveAnkiCards(
                             mode,
                             ankiConnectUrl,
                             ankiConnectApiKey,
@@ -1514,8 +1514,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         ));
                         // Mark as exported
                         tabAware.updateCardExportStatus(cardId, 'exported');
+                        showError(getAnkiSaveSuccessMessage(1), 'success');
                     } catch (ankiErr) {
-                        console.error('Failed to auto-sync to Anki:', ankiErr);
+                        showError(
+                            getAnkiSaveErrorMessage(ankiErr),
+                            isAnkiDuplicateError(ankiErr) ? 'warning' : 'error'
+                        );
                     }
                 }
 
@@ -1582,7 +1586,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             image_base64: cardToSave.image
                         };
 
-                        dispatch(saveAnkiCards(
+                        await dispatch(saveAnkiCards(
                             mode,
                             ankiConnectUrl,
                             ankiConnectApiKey,
@@ -1592,8 +1596,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         ));
                         // Mark as exported
                         tabAware.updateCardExportStatus(cardId, 'exported');
+                        showError(getAnkiSaveSuccessMessage(1), 'success');
                     } catch (ankiErr) {
-                        console.error('Failed to auto-sync to Anki:', ankiErr);
+                        showError(
+                            getAnkiSaveErrorMessage(ankiErr),
+                            isAnkiDuplicateError(ankiErr) ? 'warning' : 'error'
+                        );
                     }
                 }
 
@@ -6059,7 +6067,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         image_base64: cardToSave.image
                     };
 
-                    dispatch(saveAnkiCards(
+                    await dispatch(saveAnkiCards(
                         currentCard.mode || mode,
                         ankiConnectUrl,
                         ankiConnectApiKey,
@@ -6068,8 +6076,12 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         [ankiCard as any]
                     ));
                     tabAware.updateCardExportStatus(cardToSave.id, 'exported');
+                    showError(getAnkiSaveSuccessMessage(1), 'success');
                 } catch (ankiErr) {
-                    console.error('Failed to auto-sync to Anki (preview):', ankiErr);
+                    showError(
+                        getAnkiSaveErrorMessage(ankiErr),
+                        isAnkiDuplicateError(ankiErr) ? 'warning' : 'error'
+                    );
                 }
             }
 

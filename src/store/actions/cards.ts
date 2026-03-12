@@ -1,5 +1,5 @@
 import { Dispatch } from 'redux';
-import { CardLangLearning, CardGeneral, createAnkiCards } from "../../services/ankiService";
+import { CardLangLearning, CardGeneral, createAnkiCards, isAnkiDuplicateError } from "../../services/ankiService";
 import { Modes } from '../../constants';
 import { ExportStatus, StoredCard } from '../reducers/cards';
 
@@ -39,8 +39,10 @@ export const saveAnkiCards = (
         const result = await createAnkiCards(mode, ankiConnectUrl, ankiConnectApiKey, deckName, model_name, cards);
         dispatch({ type: SAVE_ANKI_CARDS, payload: result });
     } catch (error) {
-        console.error('Error saving Anki cards:', error);
-        throw error
+        if (!isAnkiDuplicateError(error)) {
+            console.error('Error saving Anki cards:', error);
+        }
+        throw error;
     }
 };
 
