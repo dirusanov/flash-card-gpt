@@ -1,8 +1,11 @@
 // src/pages/Background/index.js
 const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
+const STORED_CARDS_KEY = 'anki_stored_cards';
+const MERGE_STORED_CARDS_ACTION = 'mergeStoredCards';
 const activeFetchControllers = new Map();
 const CONTENT_SCRIPT_RETRY_DELAY_MS = 120;
 const CONTENT_SCRIPT_MAX_ATTEMPTS = 12;
+let storedCardsMergeQueue = Promise.resolve();
 
 function getViewPrefs() {
   return new Promise((resolve) => {
@@ -26,6 +29,64 @@ function getViewPrefs() {
         globalVisible: false,
       });
     }
+  });
+}
+
+function parseStoredCards(value) {
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function serializeStoredCards(cards) {
+  return JSON.stringify(cards, (_key, value) => {
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    return value;
+  });
+}
+
+function enqueueStoredCardsMerge(task) {
+  storedCardsMergeQueue = storedCardsMergeQueue
+    .catch(() => undefined)
+    .then(task);
+
+  return storedCardsMergeQueue;
+}
+
+function readStoredCardsSnapshot() {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get([STORED_CARDS_KEY], (result) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      resolve(parseStoredCards(result[STORED_CARDS_KEY]));
+    });
+  });
+}
+
+function writeStoredCardsSnapshot(cards) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set({
+      [STORED_CARDS_KEY]: serializeStoredCards(cards),
+    }, () => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      resolve();
+    });
   });
 }
 
@@ -204,6 +265,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .finally(() => {
         activeFetchControllers.delete(requestId);
       });
+
+    return true;
+  }
+
+  if (msg.action === MERGE_STORED_CARDS_ACTION) {
+    const payload = msg.payload || {};
+    const upserts = Array.isArray(payload.upserts) ? payload.upserts : [];
+    const deleteIds = Array.isArray(payload.deleteIds) ? payload.deleteIds : [];
+
+    enqueueStoredCardsMerge(async () => {
+      const currentCards = await readStoredCardsSnapshot();
+      const mergedCards = new Map();
+
+      currentCards.forEach((card) => {
+        if (card && card.id) {
+          mergedCards.set(card.id, card);
+        }
+      });
+
+      deleteIds.forEach((cardId) => {
+        if (cardId) {
+          mergedCards.delete(cardId);
+        }
+      });
+
+      upserts.forEach((card) => {
+        if (card && card.id) {
+          mergedCards.set(card.id, card);
+        }
+      });
+
+      await writeStoredCardsSnapshot(Array.from(mergedCards.values()));
+    })
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
 
     return true;
   }

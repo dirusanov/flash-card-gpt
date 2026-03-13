@@ -7,6 +7,8 @@ import { StoredCard } from '../reducers/cards';
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
 const TAB_STORAGE_KEY_PREFIX = 'anki_tab_cards';
 const PERSIST_DEBOUNCE_MS = 300;
+const GLOBAL_CARDS_LOCK_NAME = 'vaulto-global-cards-storage';
+const BACKGROUND_MERGE_STORED_CARDS_ACTION = 'mergeStoredCards';
 const CARD_IMAGES_DB_NAME = 'vaulto-card-images';
 const CARD_IMAGES_DB_VERSION = 1;
 const CARD_IMAGES_STORE = 'images';
@@ -312,6 +314,51 @@ const persistCardImages = async (scope: string, cards: StoredCard[]): Promise<St
     return sanitizedCards;
 };
 
+const persistCardImageMutations = async (
+    scope: string,
+    upsertCards: StoredCard[],
+    deleteIds: string[]
+): Promise<StoredCard[]> => {
+    const sanitizedCards = upsertCards.map((card) => stripLargeImagePayload(card));
+
+    try {
+        await withImagesStore('readwrite', async (store) => {
+            for (const card of upsertCards) {
+                if (!card.id) {
+                    continue;
+                }
+
+                const key = buildImageRecordKey(scope, card.id);
+                const image = getPersistableImage(card);
+
+                if (image) {
+                    await requestToPromise(store.put({
+                        key,
+                        scope,
+                        cardId: card.id,
+                        image,
+                        updatedAt: new Date().toISOString(),
+                    } as CardImageRecord));
+                } else {
+                    await requestToPromise(store.delete(key));
+                }
+            }
+
+            for (const cardId of deleteIds) {
+                if (!cardId) {
+                    continue;
+                }
+
+                await requestToPromise(store.delete(buildImageRecordKey(scope, cardId)));
+            }
+        });
+    } catch (error) {
+        logStorageError(`Failed to persist card image mutations for scope ${scope}`, error);
+    }
+
+    return sanitizedCards;
+};
+
 const hydrateCardImages = async (scope: string, cards: StoredCard[]): Promise<StoredCard[]> => {
     try {
         const records = await withImagesStore('readonly', async (store) => {
@@ -344,24 +391,142 @@ const hydrateCardImages = async (scope: string, cards: StoredCard[]): Promise<St
     }
 };
 
+type GlobalPersistenceBatch = {
+    upserts: StoredCard[];
+    deleteIds: string[];
+};
+
 let globalPersistTimer: number | null = null;
-let pendingGlobalCards: StoredCard[] | null = null;
+let pendingGlobalCardUpserts = new Map<string, StoredCard>();
+let pendingGlobalCardDeletes = new Set<string>();
+let globalPersistInFlight: Promise<void> = Promise.resolve();
 
 let tabPersistTimer: number | null = null;
 let pendingTabCards: StoredCard[] | null = null;
 let pendingTabId: number | null = null;
 
-const flushPendingGlobalPersistence = () => {
+const hasPendingGlobalPersistence = () =>
+    pendingGlobalCardUpserts.size > 0 || pendingGlobalCardDeletes.size > 0;
+
+const drainPendingGlobalPersistence = (): GlobalPersistenceBatch => {
+    const batch = {
+        upserts: Array.from(pendingGlobalCardUpserts.values()),
+        deleteIds: Array.from(pendingGlobalCardDeletes.values()),
+    };
+
+    pendingGlobalCardUpserts = new Map();
+    pendingGlobalCardDeletes = new Set();
+
+    return batch;
+};
+
+const withGlobalCardsLock = async <T>(operation: () => Promise<T>): Promise<T> => {
+    const locksApi = (globalThis as any)?.navigator?.locks;
+    if (typeof locksApi?.request !== 'function') {
+        return operation();
+    }
+
+    return locksApi.request(GLOBAL_CARDS_LOCK_NAME, operation);
+};
+
+const mergeGlobalCardsViaBackground = async (batch: GlobalPersistenceBatch): Promise<boolean> => {
+    if (!hasChromeStorageLocal() || typeof chrome?.runtime?.sendMessage !== 'function') {
+        return false;
+    }
+
+    return new Promise((resolve, reject) => {
+        try {
+            chrome.runtime.sendMessage({
+                action: BACKGROUND_MERGE_STORED_CARDS_ACTION,
+                payload: batch,
+            }, (response) => {
+                if (chrome.runtime?.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+
+                if (!response?.ok) {
+                    reject(new Error(response?.error || 'Failed to merge stored cards'));
+                    return;
+                }
+
+                resolve(true);
+            });
+        } catch (error) {
+            reject(error);
+        }
+    });
+};
+
+const persistGlobalMutationBatch = async (batch: GlobalPersistenceBatch): Promise<void> => {
+    if (!batch.upserts.length && !batch.deleteIds.length) {
+        return;
+    }
+
+    const sanitizedUpserts = await persistCardImageMutations('global', batch.upserts, batch.deleteIds);
+
+    try {
+        if (await mergeGlobalCardsViaBackground({
+            upserts: sanitizedUpserts,
+            deleteIds: batch.deleteIds,
+        })) {
+            return;
+        }
+    } catch (error) {
+        logStorageError('Falling back to local global cards merge after background persistence failed', error);
+    }
+
+    await withGlobalCardsLock(async () => {
+        const currentCards = await loadCardsFromStorage();
+        const mergedCards = new Map<string, StoredCard>();
+
+        currentCards.forEach((card) => {
+            if (card?.id) {
+                mergedCards.set(card.id, card);
+            }
+        });
+
+        batch.deleteIds.forEach((cardId) => {
+            mergedCards.delete(cardId);
+        });
+
+        sanitizedUpserts.forEach((card) => {
+            if (!card?.id) {
+                return;
+            }
+            mergedCards.set(card.id, card);
+        });
+
+        await saveCardsToStorage(Array.from(mergedCards.values()));
+    });
+};
+
+const queueGlobalPersistenceBatch = (batch: GlobalPersistenceBatch): Promise<void> => {
+    if (!batch.upserts.length && !batch.deleteIds.length) {
+        return globalPersistInFlight;
+    }
+
+    globalPersistInFlight = globalPersistInFlight
+        .catch(() => undefined)
+        .then(() => persistGlobalMutationBatch(batch))
+        .catch((error) => {
+            logStorageError('Error flushing global cards persistence queue', error);
+        });
+
+    return globalPersistInFlight;
+};
+
+const flushPendingGlobalPersistence = (): Promise<void> => {
     if (globalPersistTimer !== null) {
         clearTimeout(globalPersistTimer);
         globalPersistTimer = null;
     }
 
-    const cardsToSave = pendingGlobalCards;
-    pendingGlobalCards = null;
+    if (!hasPendingGlobalPersistence()) {
+        return globalPersistInFlight;
+    }
 
-    if (!cardsToSave) return;
-    void saveCardsToStorage(cardsToSave);
+    return queueGlobalPersistenceBatch(drainPendingGlobalPersistence());
 };
 
 const flushPendingTabPersistence = () => {
@@ -520,8 +685,10 @@ export const loadCardsFromStorage = async (): Promise<StoredCard[]> => {
     return [];
 };
 
-const scheduleGlobalPersistence = (cards: StoredCard[]) => {
-    pendingGlobalCards = cards;
+const scheduleGlobalPersistenceFlush = () => {
+    if (!hasPendingGlobalPersistence()) {
+        return;
+    }
 
     if (globalPersistTimer !== null) {
         window.clearTimeout(globalPersistTimer);
@@ -529,14 +696,43 @@ const scheduleGlobalPersistence = (cards: StoredCard[]) => {
 
     globalPersistTimer = window.setTimeout(() => {
         globalPersistTimer = null;
-        const cardsToSave = pendingGlobalCards;
-        pendingGlobalCards = null;
-
-        if (!cardsToSave) return;
         runWhenIdle(() => {
-            void saveCardsToStorage(cardsToSave);
+            void flushPendingGlobalPersistence();
         });
     }, PERSIST_DEBOUNCE_MS);
+};
+
+const scheduleGlobalCardUpsert = (card: StoredCard | null | undefined) => {
+    if (!card?.id) {
+        return;
+    }
+
+    pendingGlobalCardUpserts.set(card.id, card);
+    pendingGlobalCardDeletes.delete(card.id);
+    scheduleGlobalPersistenceFlush();
+};
+
+const scheduleGlobalCardsMerge = (cards: StoredCard[]) => {
+    cards.forEach((card) => {
+        if (!card?.id) {
+            return;
+        }
+
+        pendingGlobalCardUpserts.set(card.id, card);
+        pendingGlobalCardDeletes.delete(card.id);
+    });
+
+    scheduleGlobalPersistenceFlush();
+};
+
+const scheduleGlobalCardDelete = (cardId: string | null | undefined) => {
+    if (!cardId) {
+        return;
+    }
+
+    pendingGlobalCardUpserts.delete(cardId);
+    pendingGlobalCardDeletes.add(cardId);
+    scheduleGlobalPersistenceFlush();
 };
 
 const scheduleTabPersistence = (tabId: number, cards: StoredCard[]) => {
@@ -825,14 +1021,15 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
     switch (action.type) {
         case LOAD_STORED_CARDS:
             try {
-                // Prevent stale localStorage reads when there is pending debounced persistence.
-                flushPendingGlobalPersistence();
-                flushPendingTabPersistence();
                 void (async () => {
+                    // Prevent stale reads when there is pending debounced persistence.
+                    await flushPendingGlobalPersistence();
+                    flushPendingTabPersistence();
                     const cards = await loadCardsFromStorage();
                     store.dispatch({
                         type: 'SET_STORED_CARDS',
-                        payload: cards
+                        payload: cards,
+                        meta: { skipPersistence: true }
                     });
                 })();
             } catch (error) {
@@ -840,7 +1037,8 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 // Initialize with empty array on error
                 store.dispatch({
                     type: 'SET_STORED_CARDS',
-                    payload: []
+                    payload: [],
+                    meta: { skipPersistence: true }
                 });
             }
             break;
@@ -860,26 +1058,64 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
         }
             
         case SAVE_CARD_TO_STORAGE:
-        case DELETE_STORED_CARD:
+            try {
+                const state = store.getState();
+                const cardId = action.payload?.id;
+                const card = cardId
+                    ? state.cards.storedCards.find((storedCard) => storedCard.id === cardId) ?? null
+                    : null;
+
+                scheduleGlobalCardUpsert(card);
+            } catch (error) {
+                logStorageError('Error in immediate card storage middleware', error);
+            }
+            break;
+
         case UPDATE_STORED_CARD:
             try {
                 const state = store.getState();
-                const { cards: { storedCards } } = state;
-                // Coalesce bursts of save/update/delete actions into a single persistence pass.
-                // Saving the whole collection immediately on every card mutation blocks the UI.
-                scheduleGlobalPersistence(storedCards);
+                const cardId = action.payload?.id;
+                const card = cardId
+                    ? state.cards.storedCards.find((storedCard) => storedCard.id === cardId) ?? null
+                    : null;
+
+                scheduleGlobalCardUpsert(card);
+            } catch (error) {
+                logStorageError('Error in immediate card storage middleware', error);
+            }
+            break;
+
+        case DELETE_STORED_CARD:
+            try {
+                scheduleGlobalCardDelete(action.payload);
             } catch (error) {
                 logStorageError('Error in immediate card storage middleware', error);
             }
             break;
 
         case UPDATE_CARD_EXPORT_STATUS:
+            try {
+                const state = store.getState();
+                const cardId = action.payload?.cardId;
+                const card = cardId
+                    ? state.cards.storedCards.find((storedCard) => storedCard.id === cardId) ?? null
+                    : null;
+
+                scheduleGlobalCardUpsert(card);
+            } catch (error) {
+                logStorageError('Error in card storage middleware', error);
+            }
+            break;
+
         case SET_STORED_CARDS:
             try {
-                // Get the current state after the action has been processed
+                if (action.meta?.skipPersistence) {
+                    break;
+                }
+
                 const state = store.getState();
                 const { cards: { storedCards } } = state;
-                scheduleGlobalPersistence(storedCards);
+                scheduleGlobalCardsMerge(storedCards);
             } catch (error) {
                 logStorageError('Error in card storage middleware', error);
             }

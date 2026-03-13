@@ -1,6 +1,6 @@
 {
   "name": "vaulto-cards-extension",
-  "version": "5.0.22",
+  "version": "5.0.23",
   "description": "Turn selected page text into study cards with AI, optional Anki export, and Vaulto sync",
   "license": "MIT",
   "repository": {
