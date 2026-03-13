@@ -39,7 +39,7 @@ Tip: Put your demo GIF at `screenshots/demo.gif` for this preview to work.
 
 1. Download and unpack the extension archive or clone the repository.
 ```sh
-git clone git@github.com:dirusanov/flash-card-gpt.git
+git clone https://github.com/dirusanov/flash-card-gpt.git
 ```
 2. Open the terminal and navigate to the project directory.
 ```sh
@@ -49,7 +49,7 @@ cd flash-card-gpt
 ```sh
 npm install
 ```
-4.  Build the project
+4. Build the project
 ```sh
 npm run build
 ```

@@ -1,12 +1,16 @@
 {
-  "name": "chrome-extension-boilerplate-react",
-  "version": "5.0.21",
-  "description": "A chrome extension boilerplate built with React 18, Webpack 5, and Webpack Dev Server 4",
+  "name": "vaulto-cards-extension",
+  "version": "5.0.22",
+  "description": "Turn selected page text into study cards with AI, optional Anki export, and Vaulto sync",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lxieyang/chrome-extension-boilerplate-react.git"
+    "url": "https://github.com/dirusanov/flash-card-gpt.git"
   },
+  "bugs": {
+    "url": "https://github.com/dirusanov/flash-card-gpt/issues"
+  },
+  "homepage": "https://github.com/dirusanov/flash-card-gpt",
   "scripts": {
     "build": "node utils/build.js",
     "start": "node utils/webserver.js",

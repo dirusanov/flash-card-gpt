@@ -1,5 +1,5 @@
 chrome.devtools.panels.create(
-  'Dev Tools from chrome-extension-boilerplate-react',
+  'Vaulto Cards Devtools',
   'icon-32.png',
   'panel.html'
 );
