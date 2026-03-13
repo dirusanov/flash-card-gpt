@@ -1152,7 +1152,7 @@ export const getOptimizedImageUrl = async (
     }
 };
 
-const getLangaugeNameText = async (
+const getLanguageNameText = async (
   apiKey: string,
   text: string
 ): Promise<string | null> => {
@@ -1182,7 +1182,7 @@ const getLangaugeNameText = async (
   const body = {
     model: 'gpt-5-nano',
     messages: [
-      { role: 'system', content: 'You are langauage expert' },
+      { role: 'system', content: 'You are language expert' },
       {
         role: 'user',
         content: `What is the name of this language: ${text}. Give only name of this language in one word`,
@@ -1256,18 +1256,18 @@ export const generateAnkiFront = async (
       throw new Error(quotaExceededCache!.message);
     }
   
-  const langauage = await getLangaugeNameText(apiKey, text);
+  const language = await getLanguageNameText(apiKey, text);
 
   const body = {
     model: 'gpt-5-nano',
     messages: [
       {
         role: 'system',
-        content: `You generate a question based on the text entered. You answer should be in ${langauage}`,
+        content: `You generate a question based on the text entered. You answer should be in ${language}`,
       },
       {
         role: 'user',
-        content: `Give a main question of this text: ${text}'. You answer should be in ${langauage}`,
+        content: `Give a main question of this text: ${text}'. You answer should be in ${language}`,
       },
     ],
 
@@ -1326,19 +1326,19 @@ export const generateAnkiBack = async (
       throw new Error(quotaExceededCache!.message);
     }
   
-  const langauage = await getLangaugeNameText(apiKey, text);
+  const language = await getLanguageNameText(apiKey, text);
 
   const body = {
     model: 'gpt-5-nano',
     messages: [
       {
         role: 'system',
-        content: `You generate a key point based on the text entered. For back of flash card. You answer should be in ${langauage}`,
+        content: `You generate a key point based on the text entered. For back of flash card. You answer should be in ${language}`,
       },
       {
         role: 'user',
-        content: `Anilize text. Highlight the key points from this text. Put them in a list of senteses with dash points.
-                                Text: '${text}'. You answer should be in ${langauage}. Key points should be competed and make sence`,
+        content: `Analyze text. Highlight the key points from this text. Put them in a list of sentences with dash points.
+                                Text: '${text}'. You answer should be in ${language}. Key points should be completed and make sense`,
       },
     ],
 

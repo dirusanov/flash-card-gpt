@@ -72,7 +72,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         'Authorization': `Bearer ${apiKey}`
       };
       body = {
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-nano',
         messages: [
           {
             role: "user",
