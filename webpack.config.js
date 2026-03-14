@@ -165,16 +165,17 @@ var options = {
     new CopyWebpackPlugin({
       patterns: [
         {
-          from: 'src/assets/img/logo.png',
+          from: 'src/assets/img/logo-16.png',
           to: path.join(__dirname, 'build'),
           force: true,
         },
-      ],
-    }),
-    new CopyWebpackPlugin({
-      patterns: [
         {
-          from: 'src/assets/img/logo.png',
+          from: 'src/assets/img/logo-48.png',
+          to: path.join(__dirname, 'build'),
+          force: true,
+        },
+        {
+          from: 'src/assets/img/logo-128.png',
           to: path.join(__dirname, 'build'),
           force: true,
         },

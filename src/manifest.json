@@ -11,9 +11,9 @@
     "default_title": "Vaulto Cards"
   },
   "icons": {
-    "16": "logo.png",
-    "48": "logo.png",
-    "128": "logo.png"
+    "16": "logo-16.png",
+    "48": "logo-48.png",
+    "128": "logo-128.png"
   },
   "content_scripts": [
     {
