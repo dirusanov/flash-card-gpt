@@ -884,22 +884,29 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         try {
             setLoadingWordAudio(true);
+            const tasks: Array<Promise<void>> = [];
 
             if (hasWordToGenerate) {
-                const audioDataUrl = await generateWordAudioData(studiedWord, abortControllerRef.current?.signal);
-                if (audioDataUrl) {
-                    tabAware.setWordAudio(audioDataUrl);
-                }
+                tasks.push((async () => {
+                    const audioDataUrl = await generateWordAudioData(studiedWord, abortControllerRef.current?.signal);
+                    if (audioDataUrl) {
+                        tabAware.setWordAudio(audioDataUrl);
+                    }
+                })());
             }
 
             if (hasExamplesToGenerate) {
-                const nextExamplesAudio = await generateExamplesAudioBatch(
-                    examples,
-                    Array.from({ length: examples.length }, (_v, i) => examplesAudio?.[i] ?? null),
-                    abortControllerRef.current?.signal
-                );
-                tabAware.setExamplesAudio(nextExamplesAudio);
+                tasks.push((async () => {
+                    const nextExamplesAudio = await generateExamplesAudioBatch(
+                        examples,
+                        Array.from({ length: examples.length }, (_v, i) => examplesAudio?.[i] ?? null),
+                        abortControllerRef.current?.signal
+                    );
+                    tabAware.setExamplesAudio(nextExamplesAudio);
+                })());
             }
+
+            await Promise.all(tasks);
 
             if (isSaved) {
                 setIsEdited(true);
@@ -2055,6 +2062,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 completedOperations.image = true;
             }
 
+            if (result.wordAudio) {
+                tabAware.setWordAudio(result.wordAudio);
+            }
+
             // Устанавливаем транскрипцию, если доступна
             if (result.transcription) {
                 try {
@@ -2138,30 +2149,37 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 if (studiedWord) {
                     const smartAudioDecision = shouldGenerateAudioForText(studiedWord);
                     const shouldGenerateAudioNow = audioGenerationMode === 'always' || smartAudioDecision.shouldGenerate;
+                    const audioTasks: Array<Promise<void>> = [];
 
-                    if (shouldGenerateAudioNow) {
-                        try {
-                            const audioDataUrl = await generateWordAudioData(studiedWord, abortSignal);
-                            if (audioDataUrl) {
-                                tabAware.setWordAudio(audioDataUrl);
+                    if (shouldGenerateAudioNow && !result.wordAudio) {
+                        audioTasks.push((async () => {
+                            try {
+                                const audioDataUrl = await generateWordAudioData(studiedWord, abortSignal);
+                                if (audioDataUrl) {
+                                    tabAware.setWordAudio(audioDataUrl);
+                                }
+                            } catch (audioError) {
+                                console.warn('Audio generation skipped due to error:', audioError);
                             }
-                        } catch (audioError) {
-                            console.warn('Audio generation skipped due to error:', audioError);
-                        }
+                        })());
                     }
 
                     if (formattedExamples.length > 0 && shouldGenerateAudioNow) {
-                        try {
-                            const examplesAudioData = await generateExamplesAudioBatch(
-                                formattedExamples,
-                                new Array(formattedExamples.length).fill(null),
-                                abortSignal
-                            );
-                            tabAware.setExamplesAudio(examplesAudioData);
-                        } catch (examplesAudioError) {
-                            console.warn('Examples audio generation skipped due to error:', examplesAudioError);
-                        }
+                        audioTasks.push((async () => {
+                            try {
+                                const examplesAudioData = await generateExamplesAudioBatch(
+                                    formattedExamples,
+                                    new Array(formattedExamples.length).fill(null),
+                                    abortSignal
+                                );
+                                tabAware.setExamplesAudio(examplesAudioData);
+                            } catch (examplesAudioError) {
+                                console.warn('Examples audio generation skipped due to error:', examplesAudioError);
+                            }
+                        })());
                     }
+
+                    await Promise.all(audioTasks);
                 }
             }
 
