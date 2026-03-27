@@ -52,6 +52,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
   const dispatch = useDispatch();
   const auth = useSelector((state: RootState) => state.auth);
   const authApiUrl = useSelector((state: RootState) => state.settings.authApiUrl);
+  const brandLogoUrl = typeof chrome !== 'undefined' && chrome.runtime?.getURL
+    ? chrome.runtime.getURL(brandLogo)
+    : brandLogo;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -262,7 +265,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
             <img
-              src={brandLogo}
+              src={brandLogoUrl}
               alt="Vaulto Cards logo"
               style={{
               width: 38,
