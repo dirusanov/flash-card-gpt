@@ -53,6 +53,7 @@ export interface StoredCard {
     syncVersion?: number | null;
     syncSource?: string | null;
     syncTags?: string[] | null;
+    syncPending?: boolean;
     deckId?: string | null;
     ankiDeckName?: string | null;
 }
@@ -148,6 +149,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 syncVersion: typeof action.payload.syncVersion === 'number' ? action.payload.syncVersion : null,
                 syncSource: action.payload.syncSource ?? null,
                 syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null,
+                syncPending: typeof action.payload.syncPending === 'boolean' ? action.payload.syncPending : true,
                 deckId: action.payload.deckId ?? null,
                 ankiDeckName: action.payload.ankiDeckName ?? null
             };
@@ -242,6 +244,9 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                             syncTags: Array.isArray(action.payload.syncTags)
                                 ? action.payload.syncTags
                                 : (Array.isArray(card.syncTags) ? card.syncTags : null),
+                            syncPending: typeof action.payload.syncPending === 'boolean'
+                                ? action.payload.syncPending
+                                : true,
                             deckId: action.payload.deckId ?? card.deckId ?? null,
                             ankiDeckName: action.payload.ankiDeckName ?? card.ankiDeckName ?? null
                         }
@@ -261,6 +266,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                     syncVersion: typeof action.payload.syncVersion === 'number' ? action.payload.syncVersion : null,
                     syncSource: action.payload.syncSource ?? null,
                     syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null,
+                    syncPending: typeof action.payload.syncPending === 'boolean' ? action.payload.syncPending : true,
                     deckId: action.payload.deckId ?? null,
                     ankiDeckName: action.payload.ankiDeckName ?? null
                 };
@@ -277,6 +283,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                         syncVersion: action.payload.syncVersion,
                         syncSource: action.payload.syncSource,
                         syncTags: action.payload.syncTags,
+                        syncPending: false,
                     }
                     : card
             );
@@ -296,6 +303,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                 syncVersion: typeof card.syncVersion === 'number' ? card.syncVersion : null,
                 syncSource: card.syncSource ?? null,
                 syncTags: Array.isArray(card.syncTags) ? card.syncTags : null,
+                syncPending: Boolean(card.syncPending),
                 deckId: card.deckId ?? null,
                 ankiDeckName: card.ankiDeckName ?? null
             }));

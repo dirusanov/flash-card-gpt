@@ -65,6 +65,7 @@ export const saveCardToStorage = (
         syncVersion?: number | null;
         syncSource?: string | null;
         deckId?: string | null;
+        syncPending?: boolean;
         ankiDeckName?: string | null;
     }
 ) => {

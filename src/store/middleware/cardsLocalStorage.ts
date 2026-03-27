@@ -1,6 +1,6 @@
 import { Middleware } from 'redux';
 import { RootState } from '..';
-import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS, SET_STORED_CARDS } from '../actions/cards';
+import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS, SET_STORED_CARDS, UPDATE_CARD_SYNC_META } from '../actions/cards';
 import { SAVE_TAB_CARD, DELETE_TAB_CARD, UPDATE_TAB_STORED_CARD, UPDATE_TAB_CARD_EXPORT_STATUS, SET_CURRENT_TAB_ID } from '../actions/tabState';
 import { StoredCard } from '../reducers/cards';
 
@@ -1104,6 +1104,20 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 scheduleGlobalCardUpsert(card);
             } catch (error) {
                 logStorageError('Error in card storage middleware', error);
+            }
+            break;
+
+        case UPDATE_CARD_SYNC_META:
+            try {
+                const state = store.getState();
+                const cardId = action.payload?.cardId;
+                const card = cardId
+                    ? state.cards.storedCards.find((storedCard) => storedCard.id === cardId) ?? null
+                    : null;
+
+                scheduleGlobalCardUpsert(card);
+            } catch (error) {
+                logStorageError('Error persisting card sync metadata', error);
             }
             break;
 

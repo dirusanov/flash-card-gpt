@@ -17,6 +17,22 @@ const enqueue = (task: () => Promise<void>) => {
   });
 };
 
+const shouldBatchSyncCard = (card: any) => {
+  if (!card?.id || !card.deckId) {
+    return false;
+  }
+
+  if (card.syncPending) {
+    return true;
+  }
+
+  if (!card.syncId) {
+    return true;
+  }
+
+  return typeof card.syncVersion !== 'number';
+};
+
 const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
   const merged = new Map<string, any>();
   localCards.forEach((card) => {
@@ -38,6 +54,19 @@ const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
     const localCreatedAt = local?.createdAt ? new Date(local.createdAt).getTime() : null;
     const remoteCreatedAt = remote?.createdAt ? new Date(remote.createdAt).getTime() : null;
 
+    if (local.syncPending) {
+      merged.set(remote.id, {
+        ...local,
+        syncId: remote.syncId ?? local.syncId,
+        syncVersion: remote.syncVersion ?? local.syncVersion ?? null,
+        syncSource: remote.syncSource ?? local.syncSource,
+        syncTags: remote.syncTags ?? local.syncTags,
+        deckId: local.deckId ?? remote.deckId,
+        syncPending: true,
+      });
+      return;
+    }
+
     if (localVersion !== null && remoteVersion !== null && localVersion >= remoteVersion) {
       merged.set(remote.id, {
         ...local,
@@ -46,6 +75,7 @@ const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
         syncSource: remote.syncSource ?? local.syncSource,
         syncTags: remote.syncTags ?? local.syncTags,
         deckId: local.deckId ?? remote.deckId,
+        syncPending: false,
       });
       return;
     }
@@ -58,6 +88,7 @@ const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
         syncSource: remote.syncSource ?? local.syncSource,
         syncTags: remote.syncTags ?? local.syncTags,
         deckId: local.deckId ?? remote.deckId,
+        syncPending: false,
       });
       return;
     }
@@ -66,6 +97,7 @@ const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
       ...remote,
       exportStatus: local.exportStatus ?? remote.exportStatus,
       ankiDeckName: local.ankiDeckName ?? remote.ankiDeckName,
+      syncPending: false,
     });
   });
 
@@ -114,7 +146,7 @@ export const cardsSyncMiddleware: Middleware<{}, RootState> = (store) => (next) 
         const token = await ensureValidAccessToken(store);
         if (!token) return;
         const { syncApiUrl } = store.getState().settings;
-        const cards = store.getState().cards.storedCards;
+        const cards = store.getState().cards.storedCards.filter((card) => shouldBatchSyncCard(card));
         for (const card of cards) {
           try {
             const meta = await cardsSyncService.upsertCard(syncApiUrl, token, card);
@@ -148,7 +180,7 @@ export const cardsSyncMiddleware: Middleware<{}, RootState> = (store) => (next) 
         const token = await ensureValidAccessToken(store);
         if (!token) return;
         const { syncApiUrl } = store.getState().settings;
-        const cards = store.getState().cards.storedCards;
+        const cards = store.getState().cards.storedCards.filter((card) => shouldBatchSyncCard(card));
         for (const card of cards) {
           try {
             const meta = await cardsSyncService.upsertCard(syncApiUrl, token, card);
