@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
-import { setFront, setBack, setText, setImageUrl } from '../store/actions/cards';
+import { setFront, setBack, setText, setImage, setImageUrl } from '../store/actions/cards';
 import { useTabAware } from './TabAwareProvider';
 import { getAIService, getApiKeyForProvider } from '../services/aiServiceFactory';
 import { ModelProvider } from '../store/reducers/settings';
@@ -21,6 +21,7 @@ import {
 import { setGlobalProgressCallback, getGlobalApiTracker } from '../services/apiTracker';
 import { forceFormulaDetection } from '../services/formulaDetectionService';
 import { buildSafeImagePrompt } from '../services/imagePromptSafety';
+import { imageUrlToBase64 } from '../services/ankiService';
 
 // Интерфейс для типов общих карточек
 interface GeneralCardTemplate {
@@ -131,6 +132,33 @@ const UniversalCardCreator: React.FC<UniversalCardCreatorProps> = ({
         showError(`Missing ${providerDisplayName} API key. Open settings and add a valid key to continue.`, 'warning');
     }, [providerDisplayName, showError]);
 
+    const normalizeImageForStorage = useCallback(async (
+        rawImage: string | null | undefined,
+        rawImageUrl: string | null | undefined
+    ): Promise<{ image: string | null; imageUrl: string | null }> => {
+        let normalizedImage = rawImage && rawImage.trim() !== '' ? rawImage : null;
+        let normalizedImageUrl = rawImageUrl && rawImageUrl.trim() !== '' ? rawImageUrl : null;
+
+        const isDataUrl = normalizedImage ? normalizedImage.startsWith('data:image') : false;
+
+        if ((!normalizedImage || !isDataUrl) && normalizedImageUrl) {
+            try {
+                const converted = await imageUrlToBase64(normalizedImageUrl);
+                if (converted) {
+                    normalizedImage = converted;
+                    normalizedImageUrl = null;
+                }
+            } catch (conversionError) {
+                console.error('Failed to convert image URL to base64 in universal card creator:', conversionError);
+            }
+        }
+
+        return {
+            image: normalizedImage,
+            imageUrl: normalizedImageUrl
+        };
+    }, []);
+
     // Timer effect
     useEffect(() => {
         if (isGenerating) {
@@ -211,6 +239,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         setIsGenerating(true);
         setCurrentLoadingMessage(null);
         setGenerationStep('');
+        dispatch(setImage(null));
+        dispatch(setImageUrl(null));
 
         // Reset global API tracker and set progress callback
         const globalTracker = getGlobalApiTracker();
@@ -344,8 +374,15 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             dispatch(setFront(front));
             dispatch(setBack(back));
             dispatch(setText(inputText));
-            if (imageUrl) {
+            if (imageUrl?.startsWith('data:image/')) {
+                dispatch(setImage(imageUrl));
+                dispatch(setImageUrl(null));
+            } else if (imageUrl) {
+                dispatch(setImage(null));
                 dispatch(setImageUrl(imageUrl));
+            } else {
+                dispatch(setImage(null));
+                dispatch(setImageUrl(null));
             }
             
         } catch (error) {
@@ -444,6 +481,12 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
 
         try {
             const cardId = `general_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const normalized = await normalizeImageForStorage(tabAware.image, tabAware.imageUrl);
+
+            if (normalized.image !== tabAware.image || normalized.imageUrl !== tabAware.imageUrl) {
+                tabAware.setImage(normalized.image);
+                tabAware.setImageUrl(normalized.imageUrl);
+            }
             
             const card: StoredCard = {
                 id: cardId,
@@ -451,6 +494,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                 front: generatedCard.front,
                 back: generatedCard.back,
                 text: inputText,
+                image: normalized.image,
+                imageUrl: normalized.imageUrl,
                 createdAt: new Date(),
                 exportStatus: 'not_exported'
             };
@@ -468,7 +513,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             console.error('Error saving card:', error);
             showError('Failed to save card', 'error');
         }
-    }, [generatedCard, inputText, tabAware, onCardCreated, showError]);
+    }, [generatedCard, inputText, normalizeImageForStorage, tabAware, onCardCreated, showError]);
 
     // Function to handle template selection
     const handleTemplateSelect = useCallback((template: GeneralCardTemplate) => {

@@ -208,11 +208,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         ));
 
-        // Draft view should stay compact and predictable.
-        if (activeFilter === 'new' || activeFilter === 'not_exported') {
-            return sorted.slice(0, 10);
-        }
-
         return sorted;
     }, [storedCards, activeFilter]);
 
