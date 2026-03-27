@@ -1363,7 +1363,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             }
 
             if (shouldSyncServer) {
-                const meta = await executeRequest((token) => cardsSyncService.upsertCard(syncApiUrl, token, updatedCardData));
+                const meta = await executeRequest((token) => cardsSyncService.upsertCard(syncApiUrl, token, {
+                    ...updatedCardData,
+                    syncPending: true,
+                }));
                 dispatch({
                     type: UPDATE_CARD_SYNC_META,
                     payload: {
