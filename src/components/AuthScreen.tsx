@@ -114,41 +114,27 @@ const MetricTile: React.FC<{
       borderRadius: 14,
       padding: 14,
       boxShadow: '0 4px 12px rgba(15, 23, 42, 0.04)',
+      minWidth: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      textAlign: 'center',
     }}
   >
     <div
       style={{
+        width: 34,
+        height: 34,
+        borderRadius: 12,
+        backgroundColor: `${accent}14`,
+        color: accent,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 10,
+        justifyContent: 'center',
+        flexShrink: 0,
       }}
     >
-      <div
-        style={{
-          width: 34,
-          height: 34,
-          borderRadius: 12,
-          backgroundColor: `${accent}14`,
-          color: accent,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-      </div>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color: colors.textSecondary,
-          textAlign: 'right',
-        }}
-      >
-        {label}
-      </div>
+      {icon}
     </div>
     <div
       style={{
@@ -161,6 +147,22 @@ const MetricTile: React.FC<{
       }}
     >
       {value}
+    </div>
+    <div
+      style={{
+        marginTop: 6,
+        maxWidth: '100%',
+        fontSize: 11,
+        fontWeight: 600,
+        color: colors.textSecondary,
+        lineHeight: 1.2,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+      title={label}
+    >
+      {label}
     </div>
   </div>
 );
@@ -233,22 +235,17 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
 
   const accountOverview = useMemo(() => {
     const totalCards = storedCards.length;
-    const cloudLinkedCards = storedCards.filter((card) => Boolean(card.deckId));
-    const syncedCards = cloudLinkedCards.filter(
+    const syncedCards = storedCards.filter(
       (card) =>
         Boolean(card.syncId) &&
         typeof card.syncVersion === 'number' &&
         !card.syncPending
     );
-    const pendingCards = cloudLinkedCards.filter(
-      (card) =>
-        card.syncPending || !card.syncId || typeof card.syncVersion !== 'number'
-    );
 
     return {
       totalCards,
       syncedCardsCount: syncedCards.length,
-      pendingCardsCount: pendingCards.length,
+      notSyncedCardsCount: Math.max(totalCards - syncedCards.length, 0),
     };
   }, [storedCards]);
 
@@ -549,8 +546,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
               />
               <MetricTile
                 icon={<FaClock size={15} />}
-                label="Pending"
-                value={accountOverview.pendingCardsCount}
+                label="Not synced"
+                value={accountOverview.notSyncedCardsCount}
                 accent="#F59E0B"
               />
             </div>

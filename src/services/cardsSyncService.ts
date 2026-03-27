@@ -1,11 +1,17 @@
-import { cardsSyncApi, DeckApi, NoteApi, isCardsSyncApiError } from './cardsSyncApi';
+import {
+  cardsSyncApi,
+  DeckApi,
+  NoteApi,
+  isCardsSyncApiError,
+} from './cardsSyncApi';
 import { StoredCard } from '../store/reducers/cards';
 import { Modes } from '../constants';
 import { authStorage } from './authStorage';
 
 const DEFAULT_DECK_NAME = 'Vaulto Cards';
 const DEFAULT_DECK_COLOR = '#4f46e5';
-const DEFAULT_DECK_DESCRIPTION = 'Cards created from the Vaulto Cards browser extension';
+const DEFAULT_DECK_DESCRIPTION =
+  'Cards created from the Vaulto Cards browser extension';
 const DEFAULT_SOURCE = 'extension';
 const CLOUD_SYNC_LOCK_NAME = 'vaulto-cloud-card-sync';
 
@@ -61,21 +67,26 @@ const buildNotesIndex = (notes: NoteApi[]): NotesIndex => {
   return { byGuid, byId };
 };
 
-const withCloudSyncLock = async <T>(operation: () => Promise<T>): Promise<T> => {
+const withCloudSyncLock = async <T>(
+  operation: () => Promise<T>
+): Promise<T> => {
   const locksApi = (globalThis as any)?.navigator?.locks;
   if (typeof locksApi?.request === 'function') {
     return locksApi.request(CLOUD_SYNC_LOCK_NAME, operation);
   }
 
-  const run = cloudSyncFallbackQueue
-    .catch(() => undefined)
-    .then(operation);
+  const run = cloudSyncFallbackQueue.catch(() => undefined).then(operation);
 
-  cloudSyncFallbackQueue = run.then(() => undefined, () => undefined);
+  cloudSyncFallbackQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
   return run;
 };
 
-const normalizeFieldsJson = (fields: Record<string, any> | null | undefined) => ({
+const normalizeFieldsJson = (
+  fields: Record<string, any> | null | undefined
+) => ({
   front: fields?.front ?? fields?.text ?? '',
   back: fields?.back ?? fields?.translation ?? '',
   text: fields?.text ?? fields?.front ?? '',
@@ -86,7 +97,9 @@ const normalizeFieldsJson = (fields: Record<string, any> | null | undefined) => 
   linguisticInfo: fields?.linguisticInfo ?? '',
   transcription: fields?.transcription ?? '',
   wordAudio: fields?.wordAudio ?? null,
-  examplesAudio: Array.isArray(fields?.examplesAudio) ? fields?.examplesAudio : [],
+  examplesAudio: Array.isArray(fields?.examplesAudio)
+    ? fields?.examplesAudio
+    : [],
 });
 
 const normalizeTags = (tags: string[] | null | undefined) =>
@@ -97,16 +110,19 @@ const normalizeTags = (tags: string[] | null | undefined) =>
 const isNoteEquivalentToCard = (
   note: NoteApi,
   fieldsJson: Record<string, any>,
-  tags: string[],
+  tags: string[]
 ) =>
-  JSON.stringify(normalizeFieldsJson(note.fields_json)) === JSON.stringify(normalizeFieldsJson(fieldsJson)) &&
-  JSON.stringify(normalizeTags(note.tags)) === JSON.stringify(normalizeTags(tags));
+  JSON.stringify(normalizeFieldsJson(note.fields_json)) ===
+    JSON.stringify(normalizeFieldsJson(fieldsJson)) &&
+  JSON.stringify(normalizeTags(note.tags)) ===
+    JSON.stringify(normalizeTags(tags));
 
 const getNoteMeta = (note: NoteApi) => ({
   id: note.id,
   version: note.version,
   source: note.source,
   tags: note.tags,
+  deckId: note.deck_id ?? null,
 });
 
 const setNoteInIndex = (index: NotesIndex, note: NoteApi) => {
@@ -119,7 +135,11 @@ const setNoteInIndex = (index: NotesIndex, note: NoteApi) => {
   }
 };
 
-const removeNoteFromIndex = (index: NotesIndex, card: StoredCard, noteId?: string | null) => {
+const removeNoteFromIndex = (
+  index: NotesIndex,
+  card: StoredCard,
+  noteId?: string | null
+) => {
   if (noteId) {
     index.byId.delete(noteId);
   }
@@ -129,7 +149,10 @@ const removeNoteFromIndex = (index: NotesIndex, card: StoredCard, noteId?: strin
   }
 };
 
-const findExistingNoteForCard = (index: NotesIndex, card: StoredCard): NoteApi | undefined => {
+const findExistingNoteForCard = (
+  index: NotesIndex,
+  card: StoredCard
+): NoteApi | undefined => {
   if (card.syncId) {
     const byId = index.byId.get(card.syncId);
     if (byId) {
@@ -145,15 +168,19 @@ const findExistingNoteForCard = (index: NotesIndex, card: StoredCard): NoteApi |
 };
 
 const isVersionConflictError = (error: unknown): boolean =>
-  isCardsSyncApiError(error) &&
-  /version conflict/i.test(error.message || '');
+  isCardsSyncApiError(error) && /version conflict/i.test(error.message || '');
 
 const inferMode = (note: NoteApi): Modes => {
   const modeTag = Array.isArray(note.tags)
-    ? note.tags.find((tag) => typeof tag === 'string' && tag.startsWith('mode:'))
+    ? note.tags.find(
+        (tag) => typeof tag === 'string' && tag.startsWith('mode:')
+      )
     : null;
   const modeValue = modeTag ? modeTag.slice('mode:'.length) : null;
-  if (modeValue === Modes.LanguageLearning || modeValue === Modes.GeneralTopic) {
+  if (
+    modeValue === Modes.LanguageLearning ||
+    modeValue === Modes.GeneralTopic
+  ) {
     return modeValue;
   }
 
@@ -188,7 +215,9 @@ const noteToStoredCard = (note: NoteApi): StoredCard | null => {
     linguisticInfo: fields.linguisticInfo ?? '',
     transcription: fields.transcription ?? '',
     wordAudio: fields.wordAudio ?? null,
-    examplesAudio: Array.isArray(fields?.examplesAudio) ? fields.examplesAudio : [],
+    examplesAudio: Array.isArray(fields?.examplesAudio)
+      ? fields.examplesAudio
+      : [],
     syncId: note.id ?? null,
     syncVersion: typeof note.version === 'number' ? note.version : null,
     syncSource: note.source ?? null,
@@ -202,7 +231,7 @@ const noteToStoredCard = (note: NoteApi): StoredCard | null => {
 const loadNotesIndex = async (
   baseUrl: string,
   accessToken: string,
-  forceRefresh = false,
+  forceRefresh = false
 ): Promise<NotesIndex> => {
   if (!forceRefresh && notesIndexPromise) {
     return notesIndexPromise;
@@ -213,13 +242,19 @@ const loadNotesIndex = async (
     .then((notes) => buildNotesIndex(notes))
     .catch((error) => {
       console.error('Failed to load notes index:', error);
-      return { byGuid: new Map<string, NoteApi>(), byId: new Map<string, NoteApi>() };
+      return {
+        byGuid: new Map<string, NoteApi>(),
+        byId: new Map<string, NoteApi>(),
+      };
     });
 
   return notesIndexPromise;
 };
 
-const ensureDefaultDeck = async (baseUrl: string, accessToken: string): Promise<DeckApi> => {
+const ensureDefaultDeck = async (
+  baseUrl: string,
+  accessToken: string
+): Promise<DeckApi> => {
   if (deckCache) {
     return deckCache;
   }
@@ -260,8 +295,14 @@ const resolveVersionConflict = async (
   card: StoredCard,
   fieldsJson: Record<string, any>,
   tags: string[],
-  error: unknown,
-): Promise<{ id: string; version: number; source: string; tags: string[] } | null> => {
+  error: unknown
+): Promise<{
+  id: string;
+  version: number;
+  source: string;
+  tags: string[];
+  deckId: string | null;
+} | null> => {
   if (!isVersionConflictError(error)) {
     return null;
   }
@@ -280,19 +321,34 @@ const resolveVersionConflict = async (
     return null;
   }
 
-  const updated = await cardsSyncApi.updateNote(baseUrl, accessToken, latestNote.id, {
-    fields_json: fieldsJson,
-    tags,
-    source: DEFAULT_SOURCE,
-    base_version: latestNote.version,
-  });
+  const updated = await cardsSyncApi.updateNote(
+    baseUrl,
+    accessToken,
+    latestNote.id,
+    {
+      fields_json: fieldsJson,
+      tags,
+      source: DEFAULT_SOURCE,
+      base_version: latestNote.version,
+    }
+  );
 
   setNoteInIndex(latestIndex, updated);
   return getNoteMeta(updated);
 };
 
 export const cardsSyncService = {
-  async upsertCard(baseUrl: string, accessToken: string, card: StoredCard): Promise<{ id: string; version: number; source: string; tags: string[] }> {
+  async upsertCard(
+    baseUrl: string,
+    accessToken: string,
+    card: StoredCard
+  ): Promise<{
+    id: string;
+    version: number;
+    source: string;
+    tags: string[];
+    deckId: string | null;
+  }> {
     return withCloudSyncLock(async () => {
       let deck: DeckApi;
       if (card.deckId) {
@@ -305,7 +361,10 @@ export const cardsSyncService = {
             deck = await ensureDefaultDeck(baseUrl, accessToken);
           }
         } catch (error) {
-          console.error('Failed to fetch specific deck, falling back to default:', error);
+          console.error(
+            'Failed to fetch specific deck, falling back to default:',
+            error
+          );
           deck = await ensureDefaultDeck(baseUrl, accessToken);
         }
       } else {
@@ -336,16 +395,30 @@ export const cardsSyncService = {
         }
 
         try {
-          const updated = await cardsSyncApi.updateNote(baseUrl, accessToken, existingNote.id, {
-            fields_json: fieldsJson,
-            tags,
-            source: DEFAULT_SOURCE,
-            ...(typeof existingNote.version === 'number' ? { base_version: existingNote.version } : {}),
-          });
+          const updated = await cardsSyncApi.updateNote(
+            baseUrl,
+            accessToken,
+            existingNote.id,
+            {
+              fields_json: fieldsJson,
+              tags,
+              source: DEFAULT_SOURCE,
+              ...(typeof existingNote.version === 'number'
+                ? { base_version: existingNote.version }
+                : {}),
+            }
+          );
           setNoteInIndex(index, updated);
           return getNoteMeta(updated);
         } catch (error) {
-          const resolved = await resolveVersionConflict(baseUrl, accessToken, card, fieldsJson, tags, error);
+          const resolved = await resolveVersionConflict(
+            baseUrl,
+            accessToken,
+            card,
+            fieldsJson,
+            tags,
+            error
+          );
           if (resolved) {
             return resolved;
           }
@@ -378,19 +451,28 @@ export const cardsSyncService = {
           throw error;
         }
 
-        const updated = await cardsSyncApi.updateNote(baseUrl, accessToken, latestNote.id, {
-          fields_json: fieldsJson,
-          tags,
-          source: DEFAULT_SOURCE,
-          base_version: latestNote.version,
-        });
+        const updated = await cardsSyncApi.updateNote(
+          baseUrl,
+          accessToken,
+          latestNote.id,
+          {
+            fields_json: fieldsJson,
+            tags,
+            source: DEFAULT_SOURCE,
+            base_version: latestNote.version,
+          }
+        );
         setNoteInIndex(latestIndex, updated);
         return getNoteMeta(updated);
       }
     });
   },
 
-  async deleteCard(baseUrl: string, accessToken: string, card: StoredCard): Promise<void> {
+  async deleteCard(
+    baseUrl: string,
+    accessToken: string,
+    card: StoredCard
+  ): Promise<void> {
     await withCloudSyncLock(async () => {
       let noteId = card.syncId;
       let baseVersion: number | undefined =
@@ -410,7 +492,12 @@ export const cardsSyncService = {
       }
 
       try {
-        await cardsSyncApi.deleteNote(baseUrl, accessToken, noteId, baseVersion);
+        await cardsSyncApi.deleteNote(
+          baseUrl,
+          accessToken,
+          noteId,
+          baseVersion
+        );
       } catch (error) {
         if (!isVersionConflictError(error)) {
           throw error;
@@ -423,7 +510,12 @@ export const cardsSyncService = {
         }
 
         noteId = latestNote.id;
-        await cardsSyncApi.deleteNote(baseUrl, accessToken, latestNote.id, latestNote.version);
+        await cardsSyncApi.deleteNote(
+          baseUrl,
+          accessToken,
+          latestNote.id,
+          latestNote.version
+        );
       }
 
       const index = await loadNotesIndex(baseUrl, accessToken);
@@ -431,7 +523,11 @@ export const cardsSyncService = {
     });
   },
 
-  async syncAll(baseUrl: string, accessToken: string, cards: StoredCard[]): Promise<void> {
+  async syncAll(
+    baseUrl: string,
+    accessToken: string,
+    cards: StoredCard[]
+  ): Promise<void> {
     for (const card of cards) {
       try {
         await this.upsertCard(baseUrl, accessToken, card);
@@ -441,7 +537,10 @@ export const cardsSyncService = {
     }
   },
 
-  async fetchRemoteCards(baseUrl: string, accessToken: string): Promise<StoredCard[]> {
+  async fetchRemoteCards(
+    baseUrl: string,
+    accessToken: string
+  ): Promise<StoredCard[]> {
     const index = await loadNotesIndex(baseUrl, accessToken, true);
     return Array.from(index.byId.values())
       .map((note) => noteToStoredCard(note))

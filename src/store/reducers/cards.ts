@@ -1,376 +1,456 @@
 import {
-    SAVE_ANKI_CARDS,
-    SET_EXAMPLES,
-    SET_IMAGE,
-    SET_IMAGE_URL,
-    SET_TRANSLATION,
-    SET_TEXT,
-    SET_BACK,
-    SET_FRONT,
-    SAVE_CARD_TO_STORAGE,
-    LOAD_STORED_CARDS,
-    DELETE_STORED_CARD,
-    SET_STORED_CARDS,
-    UPDATE_CARD_EXPORT_STATUS,
-    UPDATE_STORED_CARD,
-    SET_CURRENT_CARD_ID,
-    SET_LINGUISTIC_INFO,
-    SET_TRANSCRIPTION,
-    SET_WORD_AUDIO,
-    SET_EXAMPLES_AUDIO,
-    SET_IS_GENERATING_CARD,
-    UPDATE_CARD_SYNC_META,
+  SAVE_ANKI_CARDS,
+  SET_EXAMPLES,
+  SET_IMAGE,
+  SET_IMAGE_URL,
+  SET_TRANSLATION,
+  SET_TEXT,
+  SET_BACK,
+  SET_FRONT,
+  SAVE_CARD_TO_STORAGE,
+  LOAD_STORED_CARDS,
+  DELETE_STORED_CARD,
+  SET_STORED_CARDS,
+  UPDATE_CARD_EXPORT_STATUS,
+  UPDATE_STORED_CARD,
+  SET_CURRENT_CARD_ID,
+  SET_LINGUISTIC_INFO,
+  SET_TRANSCRIPTION,
+  SET_WORD_AUDIO,
+  SET_EXAMPLES_AUDIO,
+  SET_IS_GENERATING_CARD,
+  UPDATE_CARD_SYNC_META,
 } from '../actions/cards';
-import { CardLangLearning, CardGeneral } from "../../services/ankiService";
+import { CardLangLearning, CardGeneral } from '../../services/ankiService';
 import { Modes } from '../../constants';
 
 const isDev = false;
 const debugLog = (...args: unknown[]) => {
-    if (isDev) {
-        console.log(...args);
-    }
+  if (isDev) {
+    console.log(...args);
+  }
 };
 
-export type ExportStatus = 'not_exported' | 'exported_to_file' | 'exported_to_anki' | 'exported' | 'failed';
+export type ExportStatus =
+  | 'not_exported'
+  | 'exported_to_file'
+  | 'exported_to_anki'
+  | 'exported'
+  | 'failed';
 
 export interface StoredCard {
-    id: string;
-    mode: Modes;
-    front?: string;
-    back?: string | null;
-    text: string;
-    translation?: string | null;
-    examples?: Array<[string, string | null]>;
-    image?: string | null;
-    imageUrl?: string | null;
-    createdAt: Date;
-    exportStatus: ExportStatus;
-    linguisticInfo?: string;
-    transcription?: string;
-    wordAudio?: string | null;
-    examplesAudio?: Array<string | null>;
-    syncId?: string | null;
-    syncVersion?: number | null;
-    syncSource?: string | null;
-    syncTags?: string[] | null;
-    syncPending?: boolean;
-    deckId?: string | null;
-    ankiDeckName?: string | null;
+  id: string;
+  mode: Modes;
+  front?: string;
+  back?: string | null;
+  text: string;
+  translation?: string | null;
+  examples?: Array<[string, string | null]>;
+  image?: string | null;
+  imageUrl?: string | null;
+  createdAt: Date;
+  exportStatus: ExportStatus;
+  linguisticInfo?: string;
+  transcription?: string;
+  wordAudio?: string | null;
+  examplesAudio?: Array<string | null>;
+  syncId?: string | null;
+  syncVersion?: number | null;
+  syncSource?: string | null;
+  syncTags?: string[] | null;
+  syncPending?: boolean;
+  deckId?: string | null;
+  ankiDeckName?: string | null;
 }
 
 const initialState: CardState = {
-    ...{
-        savedCards: [],
-        storedCards: [],
-        text: "",
-        translation: "",
-        examples: [],
-        image: null,
-        imageUrl: null,
-        error: undefined,
-        back: null,
-        front: "",
-        currentCardId: null,
-        linguisticInfo: "",
-        transcription: "",
-        wordAudio: null,
-        examplesAudio: [],
-        isGeneratingCard: false
-    },
+  ...{
+    savedCards: [],
+    storedCards: [],
+    text: '',
+    translation: '',
+    examples: [],
+    image: null,
+    imageUrl: null,
+    error: undefined,
+    back: null,
+    front: '',
+    currentCardId: null,
+    linguisticInfo: '',
+    transcription: '',
+    wordAudio: null,
+    examplesAudio: [],
+    isGeneratingCard: false,
+  },
 };
 
 export interface CardState {
-    savedCards: CardLangLearning[] | CardGeneral[];
-    storedCards: StoredCard[];
-    text: string;
-    translation: string;
-    examples: Array<[string, string | null]>;
-    image: string | null;
-    imageUrl: string | null;
-    error: string | undefined;
-    back: string | null;
-    front: string;
-    currentCardId: string | null;
-    linguisticInfo: string;
-    transcription: string;
-    wordAudio: string | null;
-    examplesAudio: Array<string | null>;
-    isGeneratingCard: boolean;
+  savedCards: CardLangLearning[] | CardGeneral[];
+  storedCards: StoredCard[];
+  text: string;
+  translation: string;
+  examples: Array<[string, string | null]>;
+  image: string | null;
+  imageUrl: string | null;
+  error: string | undefined;
+  back: string | null;
+  front: string;
+  currentCardId: string | null;
+  linguisticInfo: string;
+  transcription: string;
+  wordAudio: string | null;
+  examplesAudio: Array<string | null>;
+  isGeneratingCard: boolean;
 }
 
-const ensureDate = (value: StoredCard['createdAt'] | string | number | undefined): Date => {
-    if (value instanceof Date) {
-        return value;
-    }
+const ensureDate = (
+  value: StoredCard['createdAt'] | string | number | undefined
+): Date => {
+  if (value instanceof Date) {
+    return value;
+  }
 
-    if (typeof value === 'string' || typeof value === 'number') {
-        const parsed = new Date(value);
-        if (!Number.isNaN(parsed.getTime())) {
-            return parsed;
-        }
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
     }
+  }
 
-    return new Date();
+  return new Date();
 };
 
 const cardsReducer = (state = initialState, action: any): CardState => {
-    const newState = { ...state };
+  const newState = { ...state };
 
-    switch (action.type) {
-        case SAVE_ANKI_CARDS:
-            newState.savedCards = [...state.savedCards, ...action.payload];
-            break;
-        case SAVE_CARD_TO_STORAGE:
-            debugLog('*** REDUCER: SAVE_CARD_TO_STORAGE action received ***');
-            debugLog('Action payload raw:', action.payload);
-            debugLog('Action payload image data:', {
-                hasImage: !!action.payload.image,
-                hasImageUrl: !!action.payload.imageUrl,
-                imageType: typeof action.payload.image,
-                imageUrlType: typeof action.payload.imageUrl,
-                imageValue: action.payload.image,
-                imageUrlValue: action.payload.imageUrl,
-                imageUndefinedCheck: action.payload.image !== undefined,
-                imageUrlUndefinedCheck: action.payload.imageUrl !== undefined
-            });
+  switch (action.type) {
+    case SAVE_ANKI_CARDS:
+      newState.savedCards = [...state.savedCards, ...action.payload];
+      break;
+    case SAVE_CARD_TO_STORAGE:
+      debugLog('*** REDUCER: SAVE_CARD_TO_STORAGE action received ***');
+      debugLog('Action payload raw:', action.payload);
+      debugLog('Action payload image data:', {
+        hasImage: !!action.payload.image,
+        hasImageUrl: !!action.payload.imageUrl,
+        imageType: typeof action.payload.image,
+        imageUrlType: typeof action.payload.imageUrl,
+        imageValue: action.payload.image,
+        imageUrlValue: action.payload.imageUrl,
+        imageUndefinedCheck: action.payload.image !== undefined,
+        imageUrlUndefinedCheck: action.payload.imageUrl !== undefined,
+      });
 
-            const newCardData: StoredCard = {
-                ...(action.payload.id ?
-                    action.payload :
-                    { ...action.payload, id: Date.now().toString() }),
-                image: action.payload.image !== undefined ? action.payload.image : null,
-                imageUrl: action.payload.imageUrl !== undefined ? action.payload.imageUrl : null,
-                exportStatus: action.payload.exportStatus || 'not_exported',
-                linguisticInfo: action.payload.linguisticInfo || "",
-                transcription: action.payload.transcription || "",
-                wordAudio: action.payload.wordAudio ?? null,
-                examplesAudio: Array.isArray(action.payload.examplesAudio) ? action.payload.examplesAudio : [],
-                syncId: action.payload.syncId ?? null,
-                syncVersion: typeof action.payload.syncVersion === 'number' ? action.payload.syncVersion : null,
-                syncSource: action.payload.syncSource ?? null,
-                syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null,
-                syncPending: typeof action.payload.syncPending === 'boolean' ? action.payload.syncPending : true,
-                deckId: action.payload.deckId ?? null,
-                ankiDeckName: action.payload.ankiDeckName ?? null
-            };
-            const newCard: StoredCard = {
-                ...newCardData,
-                createdAt: ensureDate(newCardData.createdAt)
-            };
+      const newCardData: StoredCard = {
+        ...(action.payload.id
+          ? action.payload
+          : { ...action.payload, id: Date.now().toString() }),
+        image: action.payload.image !== undefined ? action.payload.image : null,
+        imageUrl:
+          action.payload.imageUrl !== undefined
+            ? action.payload.imageUrl
+            : null,
+        exportStatus: action.payload.exportStatus || 'not_exported',
+        linguisticInfo: action.payload.linguisticInfo || '',
+        transcription: action.payload.transcription || '',
+        wordAudio: action.payload.wordAudio ?? null,
+        examplesAudio: Array.isArray(action.payload.examplesAudio)
+          ? action.payload.examplesAudio
+          : [],
+        syncId: action.payload.syncId ?? null,
+        syncVersion:
+          typeof action.payload.syncVersion === 'number'
+            ? action.payload.syncVersion
+            : null,
+        syncSource: action.payload.syncSource ?? null,
+        syncTags: Array.isArray(action.payload.syncTags)
+          ? action.payload.syncTags
+          : null,
+        syncPending:
+          typeof action.payload.syncPending === 'boolean'
+            ? action.payload.syncPending
+            : true,
+        deckId: action.payload.deckId ?? null,
+        ankiDeckName: action.payload.ankiDeckName ?? null,
+      };
+      const newCard: StoredCard = {
+        ...newCardData,
+        createdAt: ensureDate(newCardData.createdAt),
+      };
 
-            debugLog('REDUCER: Final card object created:', {
-                cardId: newCard.id,
-                hasImage: !!newCard.image,
-                hasImageUrl: !!newCard.imageUrl,
-                imageType: typeof newCard.image,
-                imageUrlType: typeof newCard.imageUrl,
-                imageLength: newCard.image?.length,
-                imageUrlLength: newCard.imageUrl?.length,
-                imageActualValue: newCard.image,
-                imageUrlActualValue: newCard.imageUrl,
-                imagePreview: newCard.image?.substring(0, 50),
-                imageUrlPreview: newCard.imageUrl?.substring(0, 50)
-            });
+      debugLog('REDUCER: Final card object created:', {
+        cardId: newCard.id,
+        hasImage: !!newCard.image,
+        hasImageUrl: !!newCard.imageUrl,
+        imageType: typeof newCard.image,
+        imageUrlType: typeof newCard.imageUrl,
+        imageLength: newCard.image?.length,
+        imageUrlLength: newCard.imageUrl?.length,
+        imageActualValue: newCard.image,
+        imageUrlActualValue: newCard.imageUrl,
+        imagePreview: newCard.image?.substring(0, 50),
+        imageUrlPreview: newCard.imageUrl?.substring(0, 50),
+      });
 
-            // Check for existing card by ID only, not by text
-            const existingCard = state.storedCards.find(card => card.id === newCard.id);
+      // Check for existing card by ID only, not by text
+      const existingCard = state.storedCards.find(
+        (card) => card.id === newCard.id
+      );
 
-            if (existingCard) {
-                newState.storedCards = state.storedCards.map(card =>
-                    card.id === existingCard.id ?
-                        { ...newCard, id: existingCard.id } :
-                        card
-                );
-                debugLog('Updated existing card with ID:', newCard.id, 'text:', newCard.text);
-            } else {
-                newState.storedCards = [...state.storedCards, newCard];
-                debugLog('Added new card with ID:', newCard.id, 'text:', newCard.text);
-                debugLog('Total stored cards after addition:', newState.storedCards.length);
-            }
-            break;
-        case UPDATE_CARD_EXPORT_STATUS:
-            newState.storedCards = state.storedCards.map(card =>
-                card.id === action.payload.cardId
-                    ? { ...card, exportStatus: action.payload.status }
-                    : card
-            );
-            break;
-        case UPDATE_STORED_CARD:
-            debugLog('*** REDUCER: UPDATE_STORED_CARD action received ***');
-            debugLog('Update payload image info:', {
-                cardId: action.payload.id,
-                hasImage: !!action.payload.image,
-                hasImageUrl: !!action.payload.imageUrl,
-                imageType: typeof action.payload.image,
-                imageUrlType: typeof action.payload.imageUrl,
-                imageValue: action.payload.image,
-                imageUrlValue: action.payload.imageUrl,
-                imageLength: action.payload.image?.length,
-                imageUrlLength: action.payload.imageUrl?.length
-            });
+      if (existingCard) {
+        newState.storedCards = state.storedCards.map((card) =>
+          card.id === existingCard.id
+            ? { ...newCard, id: existingCard.id }
+            : card
+        );
+        debugLog(
+          'Updated existing card with ID:',
+          newCard.id,
+          'text:',
+          newCard.text
+        );
+      } else {
+        newState.storedCards = [...state.storedCards, newCard];
+        debugLog('Added new card with ID:', newCard.id, 'text:', newCard.text);
+        debugLog(
+          'Total stored cards after addition:',
+          newState.storedCards.length
+        );
+      }
+      break;
+    case UPDATE_CARD_EXPORT_STATUS:
+      newState.storedCards = state.storedCards.map((card) =>
+        card.id === action.payload.cardId
+          ? { ...card, exportStatus: action.payload.status }
+          : card
+      );
+      break;
+    case UPDATE_STORED_CARD:
+      debugLog('*** REDUCER: UPDATE_STORED_CARD action received ***');
+      debugLog('Update payload image info:', {
+        cardId: action.payload.id,
+        hasImage: !!action.payload.image,
+        hasImageUrl: !!action.payload.imageUrl,
+        imageType: typeof action.payload.image,
+        imageUrlType: typeof action.payload.imageUrl,
+        imageValue: action.payload.image,
+        imageUrlValue: action.payload.imageUrl,
+        imageLength: action.payload.image?.length,
+        imageUrlLength: action.payload.imageUrl?.length,
+      });
 
-            if (!action.payload.id) {
-                console.error('Cannot update card without ID');
-                return state;
-            }
+      if (!action.payload.id) {
+        console.error('Cannot update card without ID');
+        return state;
+      }
 
-            const cardExists = state.storedCards.some(card => card.id === action.payload.id);
+      const cardExists = state.storedCards.some(
+        (card) => card.id === action.payload.id
+      );
 
-            if (cardExists) {
-                newState.storedCards = state.storedCards.map(card =>
-                    card.id === action.payload.id
-                        ? {
-                            ...card,
-                            ...action.payload,
-                            image: action.payload.image !== undefined
-                                ? action.payload.image
-                                : (card.image ?? null),
-                            imageUrl: action.payload.imageUrl !== undefined
-                                ? action.payload.imageUrl
-                                : (card.imageUrl ?? null),
-                            createdAt: ensureDate(action.payload.createdAt ?? card.createdAt),
-                            exportStatus: action.payload.exportStatus || card.exportStatus,
-                            linguisticInfo: action.payload.linguisticInfo || card.linguisticInfo,
-                            transcription: action.payload.transcription || card.transcription,
-                            wordAudio: action.payload.wordAudio ?? card.wordAudio ?? null,
-                            examplesAudio: Array.isArray(action.payload.examplesAudio)
-                                ? action.payload.examplesAudio
-                                : (Array.isArray(card.examplesAudio) ? card.examplesAudio : []),
-                            syncId: action.payload.syncId ?? card.syncId ?? null,
-                            syncVersion: typeof action.payload.syncVersion === 'number'
-                                ? action.payload.syncVersion
-                                : (typeof card.syncVersion === 'number' ? card.syncVersion : null),
-                            syncSource: action.payload.syncSource ?? card.syncSource ?? null,
-                            syncTags: Array.isArray(action.payload.syncTags)
-                                ? action.payload.syncTags
-                                : (Array.isArray(card.syncTags) ? card.syncTags : null),
-                            syncPending: typeof action.payload.syncPending === 'boolean'
-                                ? action.payload.syncPending
-                                : true,
-                            deckId: action.payload.deckId ?? card.deckId ?? null,
-                            ankiDeckName: action.payload.ankiDeckName ?? card.ankiDeckName ?? null
-                        }
-                        : card
-                );
-                debugLog('UPDATE_STORED_CARD: Updated existing card with ID:', action.payload.id, 'image:', !!action.payload.image);
-            } else {
-                const newCardToAdd = {
-                    ...action.payload,
-                    createdAt: ensureDate(action.payload.createdAt),
-                    exportStatus: action.payload.exportStatus || 'not_exported',
-                    linguisticInfo: action.payload.linguisticInfo || "",
-                    transcription: action.payload.transcription || "",
-                    wordAudio: action.payload.wordAudio ?? null,
-                    examplesAudio: Array.isArray(action.payload.examplesAudio) ? action.payload.examplesAudio : [],
-                    syncId: action.payload.syncId ?? null,
-                    syncVersion: typeof action.payload.syncVersion === 'number' ? action.payload.syncVersion : null,
-                    syncSource: action.payload.syncSource ?? null,
-                    syncTags: Array.isArray(action.payload.syncTags) ? action.payload.syncTags : null,
-                    syncPending: typeof action.payload.syncPending === 'boolean' ? action.payload.syncPending : true,
-                    deckId: action.payload.deckId ?? null,
-                    ankiDeckName: action.payload.ankiDeckName ?? null
-                };
-                newState.storedCards = [...state.storedCards, newCardToAdd];
-                debugLog('UPDATE_STORED_CARD: Added new card with ID:', action.payload.id, 'image:', !!newCardToAdd.image);
-            }
-            break;
-        case UPDATE_CARD_SYNC_META:
-            newState.storedCards = state.storedCards.map((card) =>
-                card.id === action.payload.cardId
-                    ? {
-                        ...card,
-                        syncId: action.payload.syncId,
-                        syncVersion: action.payload.syncVersion,
-                        syncSource: action.payload.syncSource,
-                        syncTags: action.payload.syncTags,
-                        syncPending: false,
-                    }
-                    : card
-            );
-            break;
-        case LOAD_STORED_CARDS:
-            // This will be handled by the persistence middleware
-            break;
-        case SET_STORED_CARDS:
-            const normalizedCards = (action.payload || []).map((card: StoredCard) => ({
+      if (cardExists) {
+        newState.storedCards = state.storedCards.map((card) =>
+          card.id === action.payload.id
+            ? {
                 ...card,
-                createdAt: ensureDate(card.createdAt),
-                image: card.image ?? null,
-                imageUrl: card.imageUrl ?? null,
-                wordAudio: card.wordAudio ?? null,
-                examplesAudio: Array.isArray(card.examplesAudio) ? card.examplesAudio : [],
-                syncId: card.syncId ?? null,
-                syncVersion: typeof card.syncVersion === 'number' ? card.syncVersion : null,
-                syncSource: card.syncSource ?? null,
-                syncTags: Array.isArray(card.syncTags) ? card.syncTags : null,
-                syncPending: Boolean(card.syncPending),
-                deckId: card.deckId ?? null,
-                ankiDeckName: card.ankiDeckName ?? null
-            }));
-            newState.storedCards = normalizedCards;
-            break;
-        case DELETE_STORED_CARD:
-            newState.storedCards = state.storedCards.filter(card => card.id !== action.payload);
-            break;
-        case SET_TEXT:
-            newState.text = action.payload;
-            // SPECIAL CASE: If text is being completely cleared (empty string), 
-            // also clear images to prevent them from appearing on the next card
-            if (action.payload === '' || action.payload.trim() === '') {
-                debugLog('Text cleared completely, also clearing images');
-                newState.image = null;
-                newState.imageUrl = null;
-                newState.wordAudio = null;
-                newState.examplesAudio = [];
+                ...action.payload,
+                image:
+                  action.payload.image !== undefined
+                    ? action.payload.image
+                    : card.image ?? null,
+                imageUrl:
+                  action.payload.imageUrl !== undefined
+                    ? action.payload.imageUrl
+                    : card.imageUrl ?? null,
+                createdAt: ensureDate(
+                  action.payload.createdAt ?? card.createdAt
+                ),
+                exportStatus: action.payload.exportStatus || card.exportStatus,
+                linguisticInfo:
+                  action.payload.linguisticInfo || card.linguisticInfo,
+                transcription:
+                  action.payload.transcription || card.transcription,
+                wordAudio: action.payload.wordAudio ?? card.wordAudio ?? null,
+                examplesAudio: Array.isArray(action.payload.examplesAudio)
+                  ? action.payload.examplesAudio
+                  : Array.isArray(card.examplesAudio)
+                  ? card.examplesAudio
+                  : [],
+                syncId: action.payload.syncId ?? card.syncId ?? null,
+                syncVersion:
+                  typeof action.payload.syncVersion === 'number'
+                    ? action.payload.syncVersion
+                    : typeof card.syncVersion === 'number'
+                    ? card.syncVersion
+                    : null,
+                syncSource:
+                  action.payload.syncSource ?? card.syncSource ?? null,
+                syncTags: Array.isArray(action.payload.syncTags)
+                  ? action.payload.syncTags
+                  : Array.isArray(card.syncTags)
+                  ? card.syncTags
+                  : null,
+                syncPending:
+                  typeof action.payload.syncPending === 'boolean'
+                    ? action.payload.syncPending
+                    : true,
+                deckId: action.payload.deckId ?? card.deckId ?? null,
+                ankiDeckName:
+                  action.payload.ankiDeckName ?? card.ankiDeckName ?? null,
+              }
+            : card
+        );
+        debugLog(
+          'UPDATE_STORED_CARD: Updated existing card with ID:',
+          action.payload.id,
+          'image:',
+          !!action.payload.image
+        );
+      } else {
+        const newCardToAdd = {
+          ...action.payload,
+          createdAt: ensureDate(action.payload.createdAt),
+          exportStatus: action.payload.exportStatus || 'not_exported',
+          linguisticInfo: action.payload.linguisticInfo || '',
+          transcription: action.payload.transcription || '',
+          wordAudio: action.payload.wordAudio ?? null,
+          examplesAudio: Array.isArray(action.payload.examplesAudio)
+            ? action.payload.examplesAudio
+            : [],
+          syncId: action.payload.syncId ?? null,
+          syncVersion:
+            typeof action.payload.syncVersion === 'number'
+              ? action.payload.syncVersion
+              : null,
+          syncSource: action.payload.syncSource ?? null,
+          syncTags: Array.isArray(action.payload.syncTags)
+            ? action.payload.syncTags
+            : null,
+          syncPending:
+            typeof action.payload.syncPending === 'boolean'
+              ? action.payload.syncPending
+              : true,
+          deckId: action.payload.deckId ?? null,
+          ankiDeckName: action.payload.ankiDeckName ?? null,
+        };
+        newState.storedCards = [...state.storedCards, newCardToAdd];
+        debugLog(
+          'UPDATE_STORED_CARD: Added new card with ID:',
+          action.payload.id,
+          'image:',
+          !!newCardToAdd.image
+        );
+      }
+      break;
+    case UPDATE_CARD_SYNC_META:
+      newState.storedCards = state.storedCards.map((card) =>
+        card.id === action.payload.cardId
+          ? {
+              ...card,
+              syncId: action.payload.syncId,
+              syncVersion: action.payload.syncVersion,
+              syncSource: action.payload.syncSource,
+              syncTags: action.payload.syncTags,
+              syncPending: false,
+              deckId: action.payload.deckId ?? card.deckId ?? null,
             }
-            // Otherwise, preserve images for text changes (editing existing cards)
-            break;
-        case SET_TRANSLATION:
-            newState.translation = action.payload;
-            break;
-        case SET_EXAMPLES:
-            newState.examples = action.payload;
-            newState.examplesAudio = (action.payload || []).map((_item: unknown, index: number) => newState.examplesAudio[index] ?? null);
-            break;
-        case SET_IMAGE:
-            debugLog('*** REDUCER: SET_IMAGE called with:', {
-                hasPayload: !!action.payload,
-                payloadType: typeof action.payload,
-                payloadLength: action.payload?.length,
-                payloadPreview: action.payload?.substring(0, 50)
-            });
-            newState.image = action.payload;
-            break;
-        case SET_IMAGE_URL:
-            debugLog('*** REDUCER: SET_IMAGE_URL called with:', {
-                hasPayload: !!action.payload,
-                payloadType: typeof action.payload,
-                payloadLength: action.payload?.length,
-                payloadPreview: action.payload?.substring(0, 50)
-            });
-            return { ...state, imageUrl: action.payload };
-        case SET_BACK:
-            return { ...state, back: action.payload };
-        case SET_FRONT:
-            return { ...state, front: action.payload };
-        case SET_CURRENT_CARD_ID:
-            return { ...state, currentCardId: action.payload };
-        case SET_LINGUISTIC_INFO:
-            return { ...state, linguisticInfo: action.payload };
-        case SET_TRANSCRIPTION:
-            return { ...state, transcription: action.payload };
-        case SET_WORD_AUDIO:
-            return { ...state, wordAudio: action.payload ?? null };
-        case SET_EXAMPLES_AUDIO:
-            return { ...state, examplesAudio: Array.isArray(action.payload) ? action.payload : [] };
-        case SET_IS_GENERATING_CARD:
-            return { ...state, isGeneratingCard: action.payload };
-        default:
-            return state;
-    }
+          : card
+      );
+      break;
+    case LOAD_STORED_CARDS:
+      // This will be handled by the persistence middleware
+      break;
+    case SET_STORED_CARDS:
+      const normalizedCards = (action.payload || []).map(
+        (card: StoredCard) => ({
+          ...card,
+          createdAt: ensureDate(card.createdAt),
+          image: card.image ?? null,
+          imageUrl: card.imageUrl ?? null,
+          wordAudio: card.wordAudio ?? null,
+          examplesAudio: Array.isArray(card.examplesAudio)
+            ? card.examplesAudio
+            : [],
+          syncId: card.syncId ?? null,
+          syncVersion:
+            typeof card.syncVersion === 'number' ? card.syncVersion : null,
+          syncSource: card.syncSource ?? null,
+          syncTags: Array.isArray(card.syncTags) ? card.syncTags : null,
+          syncPending: Boolean(card.syncPending),
+          deckId: card.deckId ?? null,
+          ankiDeckName: card.ankiDeckName ?? null,
+        })
+      );
+      newState.storedCards = normalizedCards;
+      break;
+    case DELETE_STORED_CARD:
+      newState.storedCards = state.storedCards.filter(
+        (card) => card.id !== action.payload
+      );
+      break;
+    case SET_TEXT:
+      newState.text = action.payload;
+      // SPECIAL CASE: If text is being completely cleared (empty string),
+      // also clear images to prevent them from appearing on the next card
+      if (action.payload === '' || action.payload.trim() === '') {
+        debugLog('Text cleared completely, also clearing images');
+        newState.image = null;
+        newState.imageUrl = null;
+        newState.wordAudio = null;
+        newState.examplesAudio = [];
+      }
+      // Otherwise, preserve images for text changes (editing existing cards)
+      break;
+    case SET_TRANSLATION:
+      newState.translation = action.payload;
+      break;
+    case SET_EXAMPLES:
+      newState.examples = action.payload;
+      newState.examplesAudio = (action.payload || []).map(
+        (_item: unknown, index: number) => newState.examplesAudio[index] ?? null
+      );
+      break;
+    case SET_IMAGE:
+      debugLog('*** REDUCER: SET_IMAGE called with:', {
+        hasPayload: !!action.payload,
+        payloadType: typeof action.payload,
+        payloadLength: action.payload?.length,
+        payloadPreview: action.payload?.substring(0, 50),
+      });
+      newState.image = action.payload;
+      break;
+    case SET_IMAGE_URL:
+      debugLog('*** REDUCER: SET_IMAGE_URL called with:', {
+        hasPayload: !!action.payload,
+        payloadType: typeof action.payload,
+        payloadLength: action.payload?.length,
+        payloadPreview: action.payload?.substring(0, 50),
+      });
+      return { ...state, imageUrl: action.payload };
+    case SET_BACK:
+      return { ...state, back: action.payload };
+    case SET_FRONT:
+      return { ...state, front: action.payload };
+    case SET_CURRENT_CARD_ID:
+      return { ...state, currentCardId: action.payload };
+    case SET_LINGUISTIC_INFO:
+      return { ...state, linguisticInfo: action.payload };
+    case SET_TRANSCRIPTION:
+      return { ...state, transcription: action.payload };
+    case SET_WORD_AUDIO:
+      return { ...state, wordAudio: action.payload ?? null };
+    case SET_EXAMPLES_AUDIO:
+      return {
+        ...state,
+        examplesAudio: Array.isArray(action.payload) ? action.payload : [],
+      };
+    case SET_IS_GENERATING_CARD:
+      return { ...state, isGeneratingCard: action.payload };
+    default:
+      return state;
+  }
 
-    return newState;
+  return newState;
 };
-
 
 export default cardsReducer;
