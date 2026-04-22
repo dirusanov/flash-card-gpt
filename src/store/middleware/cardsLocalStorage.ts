@@ -3,6 +3,7 @@ import { RootState } from '..';
 import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS, SET_STORED_CARDS, UPDATE_CARD_SYNC_META } from '../actions/cards';
 import { SAVE_TAB_CARD, DELETE_TAB_CARD, UPDATE_TAB_STORED_CARD, UPDATE_TAB_CARD_EXPORT_STATUS, SET_CURRENT_TAB_ID } from '../actions/tabState';
 import { StoredCard } from '../reducers/cards';
+import { normalizeCardImageList } from '../../services/cardImagePersistence';
 
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
 const TAB_STORAGE_KEY_PREFIX = 'anki_tab_cards';
@@ -246,6 +247,25 @@ const requestToPromise = <T = unknown>(request: IDBRequest<T>): Promise<T> =>
 
 const buildImageRecordKey = (scope: string, cardId: string) => `${scope}:${cardId}`;
 
+const normalizeCardsForPersistence = async (
+    cards: StoredCard[],
+    context: string
+): Promise<{ cards: StoredCard[]; changed: boolean }> => {
+    if (!Array.isArray(cards) || cards.length === 0) {
+        return { cards: Array.isArray(cards) ? cards : [], changed: false };
+    }
+
+    const { normalizedValues, changed, errors } = await normalizeCardImageList(cards);
+    errors.forEach((error) => {
+        console.warn(`Failed to normalize card image during ${context}:`, error);
+    });
+
+    return {
+        cards: normalizedValues as StoredCard[],
+        changed,
+    };
+};
+
 const getPersistableImage = (card: StoredCard): string | null => {
     if (typeof card.image === 'string' && card.image.startsWith('data:image/')) {
         return card.image;
@@ -270,7 +290,8 @@ const stripLargeImagePayload = (card: StoredCard): StoredCard => {
 };
 
 const persistCardImages = async (scope: string, cards: StoredCard[]): Promise<StoredCard[]> => {
-    const sanitizedCards = cards.map((card) => stripLargeImagePayload(card));
+    const { cards: normalizedCards } = await normalizeCardsForPersistence(cards, `persist ${scope}`);
+    const sanitizedCards = normalizedCards.map((card) => stripLargeImagePayload(card));
 
     try {
         await withImagesStore('readwrite', async (store) => {
@@ -278,7 +299,7 @@ const persistCardImages = async (scope: string, cards: StoredCard[]): Promise<St
             const existingKeys = await requestToPromise<IDBValidKey[]>(scopeIndex.getAllKeys(IDBKeyRange.only(scope)));
             const validKeys = new Set<string>();
 
-            for (const card of cards) {
+            for (const card of normalizedCards) {
                 if (!card.id) {
                     continue;
                 }
@@ -319,11 +340,12 @@ const persistCardImageMutations = async (
     upsertCards: StoredCard[],
     deleteIds: string[]
 ): Promise<StoredCard[]> => {
-    const sanitizedCards = upsertCards.map((card) => stripLargeImagePayload(card));
+    const { cards: normalizedCards } = await normalizeCardsForPersistence(upsertCards, `mutation persist ${scope}`);
+    const sanitizedCards = normalizedCards.map((card) => stripLargeImagePayload(card));
 
     try {
         await withImagesStore('readwrite', async (store) => {
-            for (const card of upsertCards) {
+            for (const card of normalizedCards) {
                 if (!card.id) {
                     continue;
                 }
@@ -664,7 +686,14 @@ export const loadCardsFromStorage = async (): Promise<StoredCard[]> => {
                         });
                 }
                 
-                return hydrateCardImages('global', cardsWithDates);
+                const hydratedCards = await hydrateCardImages('global', cardsWithDates);
+                const { cards: normalizedCards, changed } = await normalizeCardsForPersistence(hydratedCards, 'global load');
+
+                if (changed) {
+                    await saveCardsToStorage(normalizedCards);
+                }
+
+                return normalizedCards;
             } catch (parseError) {
                 console.error('JSON parse error:', parseError);
                 // Attempt recovery by clearing corrupt data
@@ -781,7 +810,14 @@ export const loadTabCardsFromStorage = async (tabId: number): Promise<StoredCard
                 createdAt: new Date(card.createdAt)
             }));
 
-            return hydrateCardImages(`tab:${tabId}`, cardsWithDates);
+            const hydratedCards = await hydrateCardImages(`tab:${tabId}`, cardsWithDates);
+            const { cards: normalizedCards, changed } = await normalizeCardsForPersistence(hydratedCards, `tab ${tabId} load`);
+
+            if (changed) {
+                await saveTabCardsToStorage(tabId, normalizedCards);
+            }
+
+            return normalizedCards;
         }
     } catch (error) {
         logStorageError(`Error loading cards for tab ${tabId}`, error);

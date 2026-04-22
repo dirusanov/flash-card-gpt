@@ -17,6 +17,8 @@ import { authApi } from '../../services/authApi';
 import { authStorage } from '../../services/authStorage';
 import { setAuthSession } from '../actions/auth';
 import { ensureValidAccessToken } from '../utils/auth';
+import { loadCardsFromStorage } from './cardsLocalStorage';
+import { normalizeCardImageList } from '../../services/cardImagePersistence';
 
 let syncQueue: Promise<void> = Promise.resolve();
 
@@ -40,6 +42,35 @@ const shouldBatchSyncCard = (card: any) => {
   }
 
   return typeof card.syncVersion !== 'number';
+};
+
+const isPersistentImage = (value: unknown): value is string =>
+  typeof value === 'string' && value.startsWith('data:image/');
+
+const mergeRemoteImageFields = (local: any, remote: any) => {
+  const remoteHasPersistentImage =
+    isPersistentImage(remote?.image) || isPersistentImage(remote?.imageUrl);
+  const localHasPersistentImage =
+    isPersistentImage(local?.image) || isPersistentImage(local?.imageUrl);
+
+  if (remoteHasPersistentImage) {
+    return {
+      image: remote.image ?? null,
+      imageUrl: remote.imageUrl ?? null,
+    };
+  }
+
+  if (localHasPersistentImage) {
+    return {
+      image: local.image ?? null,
+      imageUrl: local.imageUrl ?? null,
+    };
+  }
+
+  return {
+    image: remote?.image ?? local?.image ?? null,
+    imageUrl: remote?.imageUrl ?? local?.imageUrl ?? null,
+  };
 };
 
 const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
@@ -120,6 +151,7 @@ const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
 
     merged.set(remote.id, {
       ...remote,
+      ...mergeRemoteImageFields(local, remote),
       exportStatus: local.exportStatus ?? remote.exportStatus,
       ankiDeckName: local.ankiDeckName ?? remote.ankiDeckName,
       syncPending: false,
@@ -161,9 +193,25 @@ export const cardsSyncMiddleware: Middleware<{}, RootState> =
               syncApiUrl,
               token
             );
-            const localCards = store.getState().cards.storedCards;
+            const currentLocalCards = store.getState().cards.storedCards;
+            const localCards =
+              currentLocalCards.length > 0
+                ? currentLocalCards
+                : await loadCardsFromStorage();
             const merged = mergeRemoteCards(localCards, remoteCards);
-            store.dispatch({ type: SET_STORED_CARDS, payload: merged });
+            const { normalizedValues, errors } = await normalizeCardImageList(
+              merged
+            );
+            errors.forEach((error) => {
+              console.warn(
+                'Failed to normalize image while merging remote cards:',
+                error
+              );
+            });
+            store.dispatch({
+              type: SET_STORED_CARDS,
+              payload: normalizedValues,
+            });
           } catch (error) {
             console.error('Failed to pull cards from server:', error);
           }

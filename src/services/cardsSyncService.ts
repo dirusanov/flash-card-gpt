@@ -7,6 +7,7 @@ import {
 import { StoredCard } from '../store/reducers/cards';
 import { Modes } from '../constants';
 import { authStorage } from './authStorage';
+import { normalizeCardImageFields } from './cardImagePersistence';
 
 const DEFAULT_DECK_NAME = 'Vaulto Cards';
 const DEFAULT_DECK_COLOR = '#4f46e5';
@@ -371,19 +372,28 @@ export const cardsSyncService = {
         deck = await ensureDefaultDeck(baseUrl, accessToken);
       }
 
-      const fieldsJson = buildFieldsJson(card);
-      const tags = buildTags(card);
+      const normalizedCardResult = await normalizeCardImageFields(card);
+      if (normalizedCardResult.error) {
+        console.warn(
+          `Failed to normalize image before cloud sync for card ${card.id}:`,
+          normalizedCardResult.error
+        );
+      }
+
+      const normalizedCard = normalizedCardResult.normalizedValue;
+      const fieldsJson = buildFieldsJson(normalizedCard);
+      const tags = buildTags(normalizedCard);
       let index = await loadNotesIndex(baseUrl, accessToken);
-      let existingNote = findExistingNoteForCard(index, card);
+      let existingNote = findExistingNoteForCard(index, normalizedCard);
 
       if (existingNote?.id) {
         if (isNoteEquivalentToCard(existingNote, fieldsJson, tags)) {
-          if (!card.syncPending) {
+          if (!normalizedCard.syncPending) {
             return getNoteMeta(existingNote);
           }
 
           const latestIndex = await loadNotesIndex(baseUrl, accessToken, true);
-          const latestNote = findExistingNoteForCard(latestIndex, card);
+          const latestNote = findExistingNoteForCard(latestIndex, normalizedCard);
           if (latestNote?.id) {
             if (isNoteEquivalentToCard(latestNote, fieldsJson, tags)) {
               return getNoteMeta(latestNote);
@@ -414,7 +424,7 @@ export const cardsSyncService = {
           const resolved = await resolveVersionConflict(
             baseUrl,
             accessToken,
-            card,
+            normalizedCard,
             fieldsJson,
             tags,
             error
@@ -429,7 +439,7 @@ export const cardsSyncService = {
       try {
         const created = await cardsSyncApi.createNote(baseUrl, accessToken, {
           deck_id: deck.id,
-          guid: card.id,
+          guid: normalizedCard.id,
           fields_json: fieldsJson,
           tags,
           source: DEFAULT_SOURCE,
@@ -438,7 +448,7 @@ export const cardsSyncService = {
         return getNoteMeta(created);
       } catch (error) {
         const latestIndex = await loadNotesIndex(baseUrl, accessToken, true);
-        const latestNote = findExistingNoteForCard(latestIndex, card);
+        const latestNote = findExistingNoteForCard(latestIndex, normalizedCard);
         if (!latestNote?.id) {
           throw error;
         }
@@ -447,7 +457,7 @@ export const cardsSyncService = {
           return getNoteMeta(latestNote);
         }
 
-        if (!card.syncPending) {
+        if (!normalizedCard.syncPending) {
           throw error;
         }
 
