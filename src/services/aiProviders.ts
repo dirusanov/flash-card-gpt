@@ -1,9 +1,22 @@
 import { formatErrorMessage } from './errorFormatting';
+import {
+  OPENAI_IMAGE_BACKGROUND,
+  OPENAI_IMAGE_MODEL,
+  OPENAI_IMAGE_QUALITY,
+  OPENAI_IMAGE_SIZE,
+  OPENAI_TEXT_MODEL,
+} from '../constants';
 import { ModelProvider } from '../store/reducers/settings';
 import { TranscriptionResult } from './aiServiceFactory';
 import { getGlobalApiTracker } from './apiTracker';
 import { backgroundFetch } from './backgroundFetch';
-import { formatOpenAIErrorMessage, cacheQuotaExceededError, getAbstractImagePromptAgent, isAbstract } from './openaiApi';
+import {
+  formatOpenAIErrorMessage,
+  cacheQuotaExceededError,
+  getAbstractImagePromptAgent,
+  getFallbackImageModelForError,
+  isAbstract,
+} from './openaiApi';
 import { getLanguageEnglishName } from './languageNames';
 import { getImagePromptCacheKey, loadCachedPrompt, saveCachedPrompt } from './promptCache';
 import {
@@ -865,7 +878,7 @@ INVALID`;
 export class OpenAIProvider extends BaseAIProvider {
   private readonly baseUrl: string = 'https://api.openai.com/v1';
   
-  constructor(apiKey: string, modelName: string = 'gpt-5-nano') {
+  constructor(apiKey: string, modelName: string = OPENAI_TEXT_MODEL) {
     super(apiKey, modelName);
   }
   
@@ -972,43 +985,61 @@ export class OpenAIProvider extends BaseAIProvider {
 
       const noTextRule = ' no text, no letters, no numbers, no captions, no signs, no logos, no watermarks, no typography, no written content.';
       const finalPrompt = `${description}${noTextRule}`;
-      const response = await backgroundFetch(
-        `${this.baseUrl}/images/generations`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'gpt-image-1',
-            prompt: finalPrompt,
-            n: 1,
-            size: '512x512',
-          }),
-        }
-      );
+      const modelsToTry = [OPENAI_IMAGE_MODEL];
+      let imageSource: string | null = null;
 
-      const data = await response.json();
+      for (let modelIndex = 0; modelIndex < modelsToTry.length; modelIndex++) {
+        const currentModel = modelsToTry[modelIndex];
+        const response = await backgroundFetch(
+          `${this.baseUrl}/images/generations`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: currentModel,
+              prompt: finalPrompt,
+              n: 1,
+              size: OPENAI_IMAGE_SIZE,
+              quality: OPENAI_IMAGE_QUALITY,
+              background: OPENAI_IMAGE_BACKGROUND,
+            }),
+          }
+        );
 
-      if (!response.ok) {
-        if (data?.error) {
-          const errorMessage = formatOpenAIErrorMessage(data);
+        const data = await response.json();
 
-          if (data.error.code === 'insufficient_quota' || response.status === 429) {
-            cacheQuotaExceededError(errorMessage);
+        if (!response.ok) {
+          if (data?.error) {
+            const fallbackModel = getFallbackImageModelForError(data, currentModel);
+            if (fallbackModel && !modelsToTry.includes(fallbackModel)) {
+              console.warn(`Falling back from ${currentModel} to ${fallbackModel} because organization verification is required.`);
+              modelsToTry.push(fallbackModel);
+              continue;
+            }
+
+            const errorMessage = formatOpenAIErrorMessage(data);
+
+            if (data.error.code === 'insufficient_quota' || response.status === 429) {
+              cacheQuotaExceededError(errorMessage);
+            }
+
+            tracker.errorRequest(requestId);
+            throw new Error(errorMessage);
           }
 
           tracker.errorRequest(requestId);
-          throw new Error(errorMessage);
+          throw new Error(`OpenAI image API error: ${response.status} ${response.statusText}`);
         }
 
-        tracker.errorRequest(requestId);
-        throw new Error(`OpenAI image API error: ${response.status} ${response.statusText}`);
+        const { imageUrl, imageBase64 } = extractOpenAIImagePayload(data);
+        imageSource = imageBase64 || imageUrl;
+        if (imageSource) {
+          break;
+        }
       }
-
-      const { imageUrl, imageBase64 } = extractOpenAIImagePayload(data);
-      const imageSource = imageBase64 || imageUrl;
 
       if (imageSource) {
         tracker.completeRequest(requestId);
@@ -1156,8 +1187,8 @@ export const createAIProvider = (
 ): AIProviderInterface => {
   switch (provider) {
     case ModelProvider.OpenAI:
-      return new OpenAIProvider(apiKey, modelName || 'gpt-5-nano');
+      return new OpenAIProvider(apiKey, modelName || OPENAI_TEXT_MODEL);
     default:
-      return new OpenAIProvider(apiKey, modelName || 'gpt-5-nano');
+      return new OpenAIProvider(apiKey, modelName || OPENAI_TEXT_MODEL);
   }
 }; 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { setAnkiConnectApiKey, setAnkiConnectUrl, setOpenAiKey, setUseAnkiConnect, setAutoSaveToServer } from "../store/actions/settings";
 import { RootState } from "../store";
+import { OPENAI_TEXT_MODEL } from '../constants';
 import chatGptLogo from '../assets/img/chat-gpt.png';
 import CopyIcon from '../assets/img/copy-icon.svg';
 import { backgroundFetch } from '../services/backgroundFetch';
@@ -72,7 +73,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
         'Authorization': `Bearer ${apiKey}`
       };
       body = {
-        model: 'gpt-5-nano',
+        model: OPENAI_TEXT_MODEL,
         messages: [
           {
             role: "user",

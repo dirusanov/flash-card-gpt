@@ -19,10 +19,16 @@ import { useAuthenticatedRequest } from '../hooks/useAuthenticatedRequest';
 import useErrorNotification from './useErrorHandler';
 import { setDeckId } from '../store/actions/decks';
 import Loader from './Loader';
-import { getDescriptionImage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
+import { formatOpenAIErrorMessage, getDescriptionImage, getFallbackImageModelForError, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { backgroundFetch } from "../services/backgroundFetch";
 import ResultDisplay from './ResultDisplay';
 import { buildSafeImagePrompt, extractOpenAIImagePayload } from '../services/imagePromptSafety';
+import {
+    OPENAI_IMAGE_BACKGROUND,
+    OPENAI_IMAGE_MODEL,
+    OPENAI_IMAGE_QUALITY,
+    OPENAI_IMAGE_SIZE,
+} from '../constants';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const debugLog = (...args: unknown[]) => {
@@ -1450,37 +1456,63 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 ? `${safeDescriptionImage}. ${imageInstructions}`
                 : safeDescriptionImage) + noTextRule;
 
-            const response = await backgroundFetch(
-                'https://api.openai.com/v1/images/generations',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${openAiKey}`
-                    },
-                    body: JSON.stringify({
-                        model: 'gpt-image-1',
-                        prompt: finalPrompt,
-                        n: 1,
-                        size: '512x512'
-                    })
+            const modelsToTry = [OPENAI_IMAGE_MODEL];
+            let imageSource: string | null = null;
+
+            for (let modelIndex = 0; modelIndex < modelsToTry.length; modelIndex++) {
+                const currentModel = modelsToTry[modelIndex];
+                const response = await backgroundFetch(
+                    'https://api.openai.com/v1/images/generations',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${openAiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: currentModel,
+                            prompt: finalPrompt,
+                            n: 1,
+                            size: OPENAI_IMAGE_SIZE,
+                            quality: OPENAI_IMAGE_QUALITY,
+                            background: OPENAI_IMAGE_BACKGROUND
+                        })
+                    }
+                );
+
+                const data = await response.json();
+                debugLog('OpenAI direct API response:', data);
+
+                if (!response.ok) {
+                    if (data?.error) {
+                        const fallbackModel = getFallbackImageModelForError(data, currentModel);
+                        if (fallbackModel && !modelsToTry.includes(fallbackModel)) {
+                            console.warn(`Falling back from ${currentModel} to ${fallbackModel} because organization verification is required.`);
+                            modelsToTry.push(fallbackModel);
+                            continue;
+                        }
+
+                        throw new Error(formatOpenAIErrorMessage(data));
+                    }
+
+                    throw new Error(`OpenAI image API error: ${response.status} ${response.statusText}`);
                 }
-            );
 
-            const data = await response.json();
-            debugLog('OpenAI direct API response:', data);
-
-            const { imageUrl, imageBase64 } = extractOpenAIImagePayload(data);
-            const imageSource = imageBase64 || imageUrl;
+                const { imageUrl, imageBase64 } = extractOpenAIImagePayload(data);
+                imageSource = imageBase64 || imageUrl;
+                if (imageSource) {
+                    break;
+                }
+            }
 
             if (!imageSource) {
                 throw new Error('OpenAI did not return image data');
             }
 
-            debugLog('Image payload generated:', imageBase64 ? 'base64' : imageUrl);
+            debugLog('Image payload generated:', imageSource.startsWith('data:image') ? 'base64' : 'url');
 
-            const imageData = imageBase64 || await new Promise((resolve, reject) => {
-                chrome.runtime.sendMessage(imageUrl, (response) => {
+            const imageData = imageSource.startsWith('data:image') ? imageSource : await new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage(imageSource, (response) => {
                     if (chrome.runtime.lastError) {
                         console.error('Error sending message:', chrome.runtime.lastError);
                         reject(chrome.runtime.lastError);

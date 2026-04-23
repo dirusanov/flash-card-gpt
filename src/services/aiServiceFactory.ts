@@ -40,6 +40,40 @@ const isAbortLikeError = (error: unknown): boolean => {
   return /abort|aborted|cancelled|canceled/i.test(message);
 };
 
+const stringifyUnknownError = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (error && typeof error === 'object') {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string' && maybeMessage.trim()) {
+      return maybeMessage;
+    }
+
+    const maybeNestedError = (error as { error?: unknown }).error;
+    if (typeof maybeNestedError === 'string' && maybeNestedError.trim()) {
+      return maybeNestedError;
+    }
+
+    if (maybeNestedError instanceof Error) {
+      return maybeNestedError.message;
+    }
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return 'Unknown error';
+    }
+  }
+
+  return String(error);
+};
+
 // Функция для быстрого retry с backoff для критически важных API вызовов
 const retryWithBackoff = async <T>(
   fn: () => Promise<T>,
@@ -548,7 +582,7 @@ export const createCardComponentsParallel = async (
     ))
       .then(result => ({ type: 'translation', result }))
       .catch(error => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = stringifyUnknownError(error);
         if (isApiKeyErrorMessage(message)) {
           throw new ApiKeyAuthorizationError(message);
         }
@@ -561,7 +595,7 @@ export const createCardComponentsParallel = async (
     timed('examples', createExamples(service, apiKey, text, translateToLanguage, true, customPrompt, sourceLanguage, abortSignal))
       .then(result => ({ type: 'examples', result }))
       .catch(error => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = stringifyUnknownError(error);
         if (isApiKeyErrorMessage(message)) {
           throw new ApiKeyAuthorizationError(message);
         }
@@ -574,7 +608,7 @@ export const createCardComponentsParallel = async (
     timed('flashcard', createFlashcard(service, apiKey, text, abortSignal))
       .then(result => ({ type: 'flashcard', result }))
       .catch(error => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = stringifyUnknownError(error);
         if (isApiKeyErrorMessage(message)) {
           throw new ApiKeyAuthorizationError(message);
         }
@@ -588,7 +622,7 @@ export const createCardComponentsParallel = async (
       timed('transcription', service.createTranscription(apiKey, text, sourceLanguage, translateToLanguage))
         .then(result => ({ type: 'transcription', result }))
         .catch(error => {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = stringifyUnknownError(error);
           if (isApiKeyErrorMessage(message)) {
             throw new ApiKeyAuthorizationError(message);
           }
@@ -603,7 +637,7 @@ export const createCardComponentsParallel = async (
       timed('linguisticInfo', createFastLinguisticInfo(service, apiKey, text, sourceLanguage, translateToLanguage))
         .then(result => ({ type: 'linguisticInfo', result: result.linguisticInfo }))
         .catch(error => {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = stringifyUnknownError(error);
           if (isApiKeyErrorMessage(message)) {
             throw new ApiKeyAuthorizationError(message);
           }
@@ -727,7 +761,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
       timed('imageUrl', imagePromise())
         .then(result => ({ type: 'imageUrl', result }))
         .catch(error => {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = stringifyUnknownError(error);
           if (isApiKeyErrorMessage(message)) {
             throw new ApiKeyAuthorizationError(message);
           }
@@ -762,7 +796,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
       timed('wordAudio', audioPromise())
         .then(result => ({ type: 'wordAudio', result }))
         .catch(error => {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = stringifyUnknownError(error);
           return { type: 'wordAudio', error: message };
         })
     );

@@ -8,7 +8,7 @@ import { RootState } from "../store";
 import { setBack, setExamples, setExamplesAudio, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio, saveAnkiCards } from "../store/actions/cards";
 import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { setMode, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
-import { Modes } from "../constants";
+import { Modes, OPENAI_TEXT_MODEL } from "../constants";
 import ResultDisplay from "./ResultDisplay";
 import DeckSelector from "./CreateCard/DeckSelector";
 import { type DetailedLoadingMessage } from '../services/loadingMessages';
@@ -2102,7 +2102,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Показываем предупреждения для неудачных компонентов
                 for (const error of result.errors) {
-                    const detailsMessage = error.error || '';
+                    const rawError = error.error as unknown;
+                    const detailsMessage = typeof rawError === 'string'
+                        ? rawError
+                        : rawError
+                            ? JSON.stringify(rawError)
+                            : '';
                     const normalizedComponent = `${error.component} generation failed: ${detailsMessage}`;
                     if (error.component === 'translation') {
                         // Перевод критичен - показываем ошибку
@@ -4823,7 +4828,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 Authorization: `Bearer ${openAiKey}`,
                             },
                             body: JSON.stringify({
-                                model: 'gpt-5-nano',
+                                model: OPENAI_TEXT_MODEL,
                                 messages: [
                                     {
                                         role: 'system',

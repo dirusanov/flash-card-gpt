@@ -2,6 +2,14 @@ import { backgroundFetch } from './backgroundFetch';
 import { getGlobalApiTracker } from './apiTracker';
 import { getLanguageEnglishName } from './languageNames';
 import {
+  OPENAI_IMAGE_BACKGROUND,
+  OPENAI_IMAGE_FALLBACK_MODEL,
+  OPENAI_IMAGE_MODEL,
+  OPENAI_IMAGE_QUALITY,
+  OPENAI_IMAGE_SIZE,
+  OPENAI_TEXT_MODEL,
+} from '../constants';
+import {
   buildSafeImagePrompt,
   containsSourceTermInImagePrompt,
   extractOpenAIImagePayload,
@@ -11,8 +19,6 @@ import {
 // Image style handling
 type ImageStyle = 'photorealistic' | 'painting';
 const DEFAULT_IMAGE_STYLE: ImageStyle = 'photorealistic';
-const OPENAI_IMAGE_MODEL = 'gpt-image-1';
-const OPENAI_IMAGE_SIZE = '1024x1024';
 
 // Try to infer style preference from custom instructions (supports EN/RU keywords)
 const detectImageStyle = (customInstructions: string | undefined | null): ImageStyle | null => {
@@ -39,6 +45,32 @@ const isContentPolicyViolation = (errorPayload: any, messageFallback: string = '
     message.includes('safety system') ||
     message.includes('policy violation')
   );
+};
+
+const requiresVerifiedOrganizationForImageModel = (errorPayload: any, modelName: string): boolean => {
+  const type = (errorPayload?.error?.type || '').toString().toLowerCase();
+  const message = (errorPayload?.error?.message || '').toString().toLowerCase();
+  const normalizedModel = (modelName || '').toLowerCase();
+
+  return (
+    type === 'invalid_request_error' &&
+    message.includes(normalizedModel) &&
+    (message.includes('organization must be verified') || message.includes('verify organization'))
+  );
+};
+
+export const getFallbackImageModelForError = (
+  errorPayload: any,
+  requestedModel: string
+): string | null => {
+  if (
+    requestedModel === OPENAI_IMAGE_MODEL &&
+    requiresVerifiedOrganizationForImageModel(errorPayload, requestedModel)
+  ) {
+    return OPENAI_IMAGE_FALLBACK_MODEL;
+  }
+
+  return null;
 };
 
 const buildPolicySafeImagePrompt = (prompt: string): string => {
@@ -135,7 +167,7 @@ const rewriteImagePromptWithoutSourceTerm = async (
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-5-nano',
+        model: OPENAI_TEXT_MODEL,
         messages: [
           {
             role: 'system',
@@ -273,7 +305,9 @@ export const formatOpenAIErrorMessage = (errorData: any): string => {
   } else if (code === 'invalid_api_key' || normalizedMessage.includes('invalid api key') || normalizedMessage.includes('incorrect api key') || normalizedMessage.includes('api key provided is incorrect') || normalizedMessage.includes('api key is invalid')) {
     formattedMessage = "Authentication failed: Your OpenAI API key is invalid or revoked.\n\nOpen Settings and paste a valid key to continue.";
   } else if (type === "invalid_request_error") {
-    formattedMessage = "Invalid request to OpenAI.\n\nPlease review your API key and request settings.";
+    formattedMessage = message
+      ? `Invalid request to OpenAI.\n\n${message}`
+      : "Invalid request to OpenAI.\n\nPlease review your API key and request settings.";
   } else if (type === "rate_limit_exceeded") {
     formattedMessage = "OpenAI rate limit exceeded.\n\nPlease try again in a few minutes.";
   } else {
@@ -324,7 +358,7 @@ export const translateText = async (
       : basePrompt;
     
     const body = {
-      model: 'gpt-5-nano',
+      model: OPENAI_TEXT_MODEL,
       messages: [
         {
           role: 'system',
@@ -536,7 +570,7 @@ Return ONLY the examples, one per line, without any numbering, explanations, or 
   ];
 
   const body = {
-    model: 'gpt-5-nano',
+    model: OPENAI_TEXT_MODEL,
     messages: promptMessages,
 
   };
@@ -679,7 +713,7 @@ export const isAbstract = async (
   ];
 
   const body = {
-    model: 'gpt-5-nano',
+    model: OPENAI_TEXT_MODEL,
     messages: promptMessages,
 
   };
@@ -774,7 +808,7 @@ export const getDescriptionImage = async (
   ];
 
   const body = {
-    model: 'gpt-5-nano',
+    model: OPENAI_TEXT_MODEL,
     messages: promptMessages,
 
   };
@@ -876,7 +910,7 @@ export const getAbstractImagePromptAgent = async (
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-5-nano',
+          model: OPENAI_TEXT_MODEL,
           messages: [
             {
               role: 'system',
@@ -959,68 +993,88 @@ const getImageUrlRequest = async (
 
     let lastPolicyViolation = false;
     let lastErrorMessage = '';
+    const modelsToTry = [OPENAI_IMAGE_MODEL];
 
-    for (let i = 0; i < prompts.length; i++) {
-      const currentPrompt = prompts[i];
+    for (let modelIndex = 0; modelIndex < modelsToTry.length; modelIndex++) {
+      const currentModel = modelsToTry[modelIndex];
+      let shouldTryNextModel = false;
 
-      const response = await backgroundFetch(
-        'https://api.openai.com/v1/images/generations',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
+      for (let i = 0; i < prompts.length; i++) {
+        const currentPrompt = prompts[i];
+
+        const response = await backgroundFetch(
+          'https://api.openai.com/v1/images/generations',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: currentModel,
+              prompt: currentPrompt,
+              n: 1,
+              size: OPENAI_IMAGE_SIZE,
+              quality: OPENAI_IMAGE_QUALITY,
+              background: OPENAI_IMAGE_BACKGROUND,
+            }),
           },
-          body: JSON.stringify({
-            model: OPENAI_IMAGE_MODEL,
-            prompt: currentPrompt,
-            n: 1,
-            size: OPENAI_IMAGE_SIZE,
-          }),
-        },
-        abortSignal
-      );
+          abortSignal
+        );
 
-      const data = await response.json();
+        const data = await response.json();
 
-      if (response.ok) {
-        const { imageUrl, imageBase64 } = extractOpenAIImagePayload(data);
+        if (response.ok) {
+          const { imageUrl, imageBase64 } = extractOpenAIImagePayload(data);
 
-        if (imageUrl) {
-          tracker.completeRequest(requestId);
-          return imageUrl;
+          if (imageUrl) {
+            tracker.completeRequest(requestId);
+            return imageUrl;
+          }
+
+          if (imageBase64) {
+            tracker.completeRequest(requestId);
+            return imageBase64;
+          }
+
+          if (!imageUrl && !imageBase64) {
+            tracker.errorRequest(requestId);
+            throw new Error('OpenAI did not return image data. Please try again.');
+          }
         }
 
-        if (imageBase64) {
-          tracker.completeRequest(requestId);
-          return imageBase64;
-        }
+        if (data && data.error) {
+          const fallbackModel = getFallbackImageModelForError(data, currentModel);
+          if (fallbackModel && !modelsToTry.includes(fallbackModel)) {
+            console.warn(`Falling back from ${currentModel} to ${fallbackModel} because organization verification is required.`);
+            modelsToTry.push(fallbackModel);
+            shouldTryNextModel = true;
+            break;
+          }
 
-        if (!imageUrl && !imageBase64) {
-          tracker.errorRequest(requestId);
-          throw new Error('OpenAI did not return image data. Please try again.');
-        }
-      }
+          const errorMessage = formatOpenAIErrorMessage(data);
+          lastErrorMessage = errorMessage;
 
-      if (data && data.error) {
-        const errorMessage = formatOpenAIErrorMessage(data);
-        lastErrorMessage = errorMessage;
+          if (data.error.code === 'insufficient_quota' || response.status === 429) {
+            cacheQuotaExceededError(errorMessage);
+            throw new Error(errorMessage);
+          }
 
-        if (data.error.code === 'insufficient_quota' || response.status === 429) {
-          cacheQuotaExceededError(errorMessage);
+          const isPolicy = isContentPolicyViolation(data, errorMessage);
+          if (isPolicy && i < prompts.length - 1) {
+            lastPolicyViolation = true;
+            continue;
+          }
+
           throw new Error(errorMessage);
         }
 
-        const isPolicy = isContentPolicyViolation(data, errorMessage);
-        if (isPolicy && i < prompts.length - 1) {
-          lastPolicyViolation = true;
-          continue;
-        }
-
-        throw new Error(errorMessage);
+        throw new Error(`OpenAI image API error: ${response.status} ${response.statusText}`);
       }
 
-      throw new Error(`OpenAI image API error: ${response.status} ${response.statusText}`);
+      if (shouldTryNextModel) {
+        continue;
+      }
     }
 
     if (lastPolicyViolation) {
@@ -1180,7 +1234,7 @@ const getLanguageNameText = async (
     }
   
   const body = {
-    model: 'gpt-5-nano',
+    model: OPENAI_TEXT_MODEL,
     messages: [
       { role: 'system', content: 'You are language expert' },
       {
@@ -1259,7 +1313,7 @@ export const generateAnkiFront = async (
   const language = await getLanguageNameText(apiKey, text);
 
   const body = {
-    model: 'gpt-5-nano',
+    model: OPENAI_TEXT_MODEL,
     messages: [
       {
         role: 'system',
@@ -1329,7 +1383,7 @@ export const generateAnkiBack = async (
   const language = await getLanguageNameText(apiKey, text);
 
   const body = {
-    model: 'gpt-5-nano',
+    model: OPENAI_TEXT_MODEL,
     messages: [
       {
         role: 'system',
