@@ -1,4 +1,6 @@
 // src/pages/Background/index.js
+import { recordDailyActivity } from '../../services/usageMetrics';
+
 const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
 const STORED_CARDS_KEY = 'anki_stored_cards';
 const MERGE_STORED_CARDS_ACTION = 'mergeStoredCards';
@@ -152,18 +154,92 @@ async function sendMessageToTabWithRetry(tabId, message, maxAttempts = CONTENT_S
   throw lastError || new Error('Failed to deliver message to content script');
 }
 
+const CREATE_CARD_MENU_ID = 'vaulto-create-card-from-selection';
+const HTTP_URL_PATTERNS = ['http://*/*', 'https://*/*'];
+
+function registerContextMenu() {
+  try {
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create({
+        id: CREATE_CARD_MENU_ID,
+        title: 'Create card from "%s"',
+        contexts: ['selection'],
+        documentUrlPatterns: HTTP_URL_PATTERNS,
+      });
+    });
+  } catch (error) {
+    console.error('Failed to register context menu:', error);
+  }
+}
+
+// Opens the panel on `tabId` and hands it the current selection. When the user prefers the
+// floating window, background has to relay `showFloating` itself: a content script cannot
+// deliver a runtime message to its own listeners.
+async function createCardFromSelection(tabId, selectionText) {
+  if (tabId == null) return;
+
+  void recordDailyActivity();
+
+  try {
+    await sendMessageToTabWithRetry(tabId, {
+      action: 'createCardFromSelection',
+      tabId,
+      selectionText: selectionText || '',
+    });
+  } catch (error) {
+    console.error('Failed to start card creation from selection:', error);
+    return;
+  }
+
+  const view = await getViewPrefs();
+  const mode = (view.preferredModeByTab && view.preferredModeByTab[tabId]) || view.globalMode || 'sidebar';
+  if (mode !== 'float') return;
+
+  try {
+    await sendMessageToTabWithRetry(tabId, { action: 'showFloating', tabId });
+  } catch (error) {
+    console.error('Failed to show floating window for selection:', error);
+  }
+}
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== CREATE_CARD_MENU_ID || !tab || tab.id == null) return;
+  void createCardFromSelection(tab.id, info.selectionText);
+});
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== 'create-card-from-selection') return;
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs && tabs[0];
+    if (!tab || tab.id == null) return;
+    const url = tab.url || '';
+    if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+    void createCardFromSelection(tab.id, '');
+  });
+});
+
 chrome.tabs.onActivated.addListener(({ tabId }) => chrome.tabs.get(tabId, configureActionForTab));
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!tab || !tab.active) return;
   if (changeInfo.status === 'complete' || changeInfo.url) configureActionForTab(tab);
 });
 chrome.runtime.onInstalled.addListener(() => {
+  registerContextMenu();
   chrome.tabs.query({ currentWindow: true, active: true }, (tabs) => tabs[0] && configureActionForTab(tabs[0]));
 });
+
+// Chrome keeps registered menus across service worker restarts, so onInstalled covers the
+// normal case. This re-registration is belt and braces for a profile that somehow lost it;
+// removeAll() first keeps it from failing on a duplicate id.
+chrome.runtime.onStartup.addListener(registerContextMenu);
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || tab.id == null) return;
   const tabId = tab.id;
+
+  // Counted here rather than on worker startup: opening the panel means the extension was
+  // actually used, while a startup event only means the browser woke the worker up.
+  void recordDailyActivity();
 
   const view = await getViewPrefs();
   const mode = (view.preferredModeByTab && view.preferredModeByTab[tabId]) || view.globalMode || 'sidebar';

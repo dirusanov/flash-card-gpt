@@ -17,6 +17,7 @@ import { setCurrentTabId } from './store/actions/tabState';
 import { TabAwareProvider, useTabAware } from './components/TabAwareProvider';
 import { selectPreferredMode, selectVisible, selectFloatGeometry } from './store/reducers/view';
 import { hydrateView, setPreferredMode, setVisible, setFloatGeometry } from './store/actions/view';
+import { subscribeToPendingSelection } from './services/pendingSelection';
 
 interface AppProps { tabId: number; }
 
@@ -658,6 +659,10 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   };
 
   const handlePageChange = useCallback((page: string) => setCurrentPage(page), [setCurrentPage]);
+
+  // A selection sent from the context menu or the shortcut is useless on the settings or the
+  // saved-cards screen. Switching here also mounts CreateCard, which is what reads the value.
+  useEffect(() => subscribeToPendingSelection(() => setCurrentPage('createCard')), [setCurrentPage]);
 
   const sharedContentStyle = useMemo<React.CSSProperties>(() => {
     const topPadding = currentPage !== 'createCard' ? '46px' : '12px';

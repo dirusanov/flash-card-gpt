@@ -10,6 +10,14 @@
   "action": {
     "default_title": "Vaulto Cards"
   },
+  "commands": {
+    "create-card-from-selection": {
+      "suggested_key": {
+        "default": "Alt+C"
+      },
+      "description": "Create a card from the selected text"
+    }
+  },
   "icons": {
     "16": "logo-16.png",
     "48": "logo-48.png",
@@ -35,6 +43,7 @@
     "storage",
     "unlimitedStorage",
     "activeTab",
+    "contextMenus",
     "identity"
   ],
   "host_permissions": [

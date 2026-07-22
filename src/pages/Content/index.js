@@ -10,6 +10,8 @@ import { initializeAuthPersistence } from '../../services/authPersistence';
 import { initializeSettingsPersistence } from '../../services/settingsPersistence';
 import { initializeDeckSelectionPersistence } from '../../services/deckSelectionPersistence';
 import { setCurrentTabId } from '../../store/actions/tabState';
+import { migrateAndPurgeLegacyLocalStorage } from '../../services/legacyLocalStorageCleanup';
+import { setPendingSelection } from '../../services/pendingSelection';
 import brandLogo from '../../assets/img/vaulto-cards-logo.png';
 
 const isDev = false;
@@ -291,10 +293,36 @@ const ensureAppInitialized = async () => {
   await appInitPromise;
 };
 
-const warmInitializeApp = () => {
-  void ensureAppInitialized().catch((error) => {
-    console.error('Failed to warm initialize extension UI:', error);
-  });
+// Reads the live selection. Preferred over the menu's selectionText, which Chrome truncates.
+const readPageSelection = () => {
+  try {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      return '';
+    }
+    return selection.toString().trim();
+  } catch {
+    return '';
+  }
+};
+
+// Opens whichever UI the user prefers, without toggling it shut when it is already open.
+// The floating window is finished by background relaying `showFloating` back to this tab —
+// a content script cannot deliver runtime messages to its own listeners.
+const openPreferredUI = async (tabId) => {
+  const state = await uiState.get(tabId);
+  const preferred = state.preferredMode || 'sidebar';
+
+  if (preferred === 'floating') {
+    await prepareInitialFloatingState(tabId, true);
+    await ensureAppInitialized();
+    return;
+  }
+
+  await prepareInitialSidebarShow(tabId);
+  await showSidebarLoaderImmediately(true);
+  await ensureAppInitialized();
+  showSidebar();
 };
 
 const prepareInitialSidebarToggle = async (tabId) => {
@@ -688,6 +716,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Контекстное меню / горячая клавиша: открыть UI и передать выделенный текст
+  if (message.action === 'createCardFromSelection') {
+    const currentTabId = message.tabId;
+    if (!currentTabId) {
+      sendResponse && sendResponse({ ok: false, error: 'Unknown tab ID' });
+      return true;
+    }
+
+    // Живое выделение точнее, чем selectionText из меню: Chrome обрезает его по длине.
+    const selectedText = readPageSelection() || (message.selectionText || '').trim();
+
+    openPreferredUI(currentTabId)
+      .then(() => {
+        if (selectedText) {
+          setPendingSelection(selectedText);
+        }
+        sendResponse && sendResponse({ ok: true, hasText: !!selectedText });
+      })
+      .catch((error) => {
+        console.error('Failed to open UI for selection:', error);
+        sendResponse && sendResponse({ ok: false, error: String(error) });
+      });
+    return true;
+  }
+
   // Может прилететь до монтирования React — просто отвечаем «ок»
   if (message.action === 'toggleFloating' || message.action === 'showFloating' || message.action === 'hideFloating') {
     if (!isAppInitialized) {
@@ -726,4 +779,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-warmInitializeApp();
+// The React app is mounted lazily, on the first message that actually needs UI. Booting it on
+// every page would load the whole bundle into every tab the user opens.
+//
+// This purge, by contrast, must run everywhere: it removes credentials that older versions
+// mirrored into the localStorage of every visited origin.
+void migrateAndPurgeLegacyLocalStorage().catch((error) => {
+  console.error('Failed to purge legacy localStorage mirrors:', error);
+});

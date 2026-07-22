@@ -25,6 +25,7 @@ import { createAIAgentService, PageContentContext } from '../services/aiAgentSer
 import { imageUrlToBase64, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
 import { PageContentExtractor } from '../services/pageContentExtractor';
 import { buildSafeImagePrompt } from '../services/imagePromptSafety';
+import { consumePendingSelection, subscribeToPendingSelection } from '../services/pendingSelection';
 
 interface GeneralCardTemplate {
     id: string;
@@ -1706,6 +1707,20 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         return () => {
             document.removeEventListener('mouseup', handleMouseUp);
         };
+    }, [handleTextSelection]);
+
+    // Text handed over by the context menu or the keyboard shortcut. It can arrive before this
+    // component mounts, so drain whatever is parked first, then listen for later invocations.
+    useEffect(() => {
+        const drain = () => {
+            const parked = consumePendingSelection();
+            if (parked) {
+                handleTextSelection(parked);
+            }
+        };
+
+        drain();
+        return subscribeToPendingSelection(drain);
     }, [handleTextSelection]);
 
     useEffect(() => {
