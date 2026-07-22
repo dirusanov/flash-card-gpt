@@ -11,6 +11,7 @@ import { initializeSettingsPersistence } from '../../services/settingsPersistenc
 import { initializeDeckSelectionPersistence } from '../../services/deckSelectionPersistence';
 import { setCurrentTabId } from '../../store/actions/tabState';
 import { migrateAndPurgeLegacyLocalStorage } from '../../services/legacyLocalStorageCleanup';
+import { deleteLegacyCardImageDatabase } from '../../services/legacyCardImageCleanup';
 import { setPendingSelection } from '../../services/pendingSelection';
 import brandLogo from '../../assets/img/vaulto-cards-logo.png';
 
@@ -786,4 +787,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // mirrored into the localStorage of every visited origin.
 void migrateAndPurgeLegacyLocalStorage().catch((error) => {
   console.error('Failed to purge legacy localStorage mirrors:', error);
+});
+
+// Same reasoning for card images, which older versions kept in an IndexedDB belonging to the
+// visited site rather than to the extension.
+void deleteLegacyCardImageDatabase().catch((error) => {
+  console.error('Failed to delete legacy card image database:', error);
 });
