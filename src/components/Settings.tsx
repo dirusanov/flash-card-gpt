@@ -175,6 +175,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
             placeholder="sk-..."
             style={{
               width: '100%',
+              boxSizing: 'border-box',
               padding: '10px 40px 10px 12px',
               borderRadius: '8px',
               border: '1px solid #E5E7EB',
@@ -281,7 +282,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
                 onChange={handleAnkiConnectUrlChange}
                 placeholder="http://127.0.0.1:8765"
                 style={{
-                  width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #D1D5DB',
+                  width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: '8px', border: '1px solid #D1D5DB',
                   backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none'
                 }}
               />
@@ -299,7 +300,7 @@ const Settings: React.FC<SettingsProps> = ({ onBackClick, popup = false }) => {
                   onChange={handleAnkiConnectApiKeyChange}
                   placeholder="Enter API key if configured"
                   style={{
-                    width: '100%', padding: '10px 40px 10px 12px', borderRadius: '8px', border: '1px solid #D1D5DB',
+                    width: '100%', boxSizing: 'border-box', padding: '10px 40px 10px 12px', borderRadius: '8px', border: '1px solid #D1D5DB',
                     backgroundColor: '#ffffff', color: '#374151', fontSize: '13px', outline: 'none'
                   }}
                 />

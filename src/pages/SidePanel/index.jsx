@@ -3,6 +3,14 @@ import { createRoot } from 'react-dom/client';
 import { Provider } from 'react-redux';
 
 import App from '../../App';
+// These used to be <link>ed into the in-page shadow root. The panel is a plain extension page,
+// so they have to be bundled — tailwind first, because its preflight sets box-sizing on
+// everything and the layout of the forms depends on it.
+import '../../assets/styles/tailwind.css';
+import '../../assets/styles/grammarStyles.css';
+import '../../assets/styles/richMarkdownStyles.css';
+import '../../assets/styles/prism-theme.css';
+import '../../assets/styles/transcriptionStyles.css';
 import './index.css';
 import { instantiateStore } from '../../store';
 import { initializeApiKeyPersistence } from '../../services/apiKeyStorage';
