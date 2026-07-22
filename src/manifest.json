@@ -27,8 +27,7 @@
     {
       "matches": [
         "http://*/*",
-        "https://*/*",
-        "<all_urls>"
+        "https://*/*"
       ],
       "js": [
         "contentScript.bundle.js"
@@ -48,14 +47,12 @@
   ],
   "host_permissions": [
     "https://api.openai.com/*",
-    "https://api-inference.huggingface.co/*",
     "https://oaidalleapiprodscus.blob.core.windows.net/*",
-    "https://cdn.jsdelivr.net/*",
-    "https://*/*",
+    "https://auth.vaultonote.com/*",
+    "https://api-cards.vaultonote.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],
-  "devtools_page": "devtools.html",
   "web_accessible_resources": [
     {
       "resources": [

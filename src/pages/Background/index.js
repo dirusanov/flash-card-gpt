@@ -1,7 +1,10 @@
 // src/pages/Background/index.js
 import { recordDailyActivity } from '../../services/usageMetrics';
+import { dropScope } from '../../services/cardImageStore';
 
 const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
+// Mirrors TAB_STORAGE_KEY_PREFIX in the cards storage middleware.
+const TAB_CARDS_KEY_PREFIX = 'anki_tab_cards';
 const STORED_CARDS_KEY = 'anki_stored_cards';
 const MERGE_STORED_CARDS_ACTION = 'mergeStoredCards';
 const activeFetchControllers = new Map();
@@ -218,14 +221,54 @@ chrome.commands.onCommand.addListener((command) => {
   });
 });
 
+// Everything keyed by tab id is dead once the tab is gone, and nothing else ever removes it:
+// Chrome also reuses tab ids, so leftovers can surface as another tab's draft.
+async function cleanupTabData(tabId) {
+  try {
+    await new Promise((resolve) => {
+      chrome.storage.local.remove(
+        [`anki_ui_tab_${tabId}`, `${TAB_CARDS_KEY_PREFIX}_${tabId}`],
+        () => resolve(),
+      );
+    });
+
+    await dropScope(`tab:${tabId}`);
+
+    const view = await getViewPrefs();
+    const hadEntry = [view.preferredModeByTab, view.visibleByTab, view.floatGeometryByTab]
+      .some((map) => Object.prototype.hasOwnProperty.call(map, tabId));
+
+    if (hadEntry) {
+      delete view.preferredModeByTab[tabId];
+      delete view.visibleByTab[tabId];
+      delete view.floatGeometryByTab[tabId];
+      await new Promise((resolve) => {
+        chrome.storage.local.set({ [VIEW_STORAGE_KEY]: view }, () => resolve());
+      });
+    }
+  } catch (error) {
+    console.error(`Failed to clean up storage for tab ${tabId}:`, error);
+  }
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void cleanupTabData(tabId);
+});
+
 chrome.tabs.onActivated.addListener(({ tabId }) => chrome.tabs.get(tabId, configureActionForTab));
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!tab || !tab.active) return;
   if (changeInfo.status === 'complete' || changeInfo.url) configureActionForTab(tab);
 });
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(({ reason }) => {
   registerContextMenu();
   chrome.tabs.query({ currentWindow: true, active: true }, (tabs) => tabs[0] && configureActionForTab(tabs[0]));
+
+  // A fresh install cannot create a single card until an API key is entered, and nothing in
+  // the panel says so until a generation has already failed. Updates stay silent.
+  if (reason === 'install') {
+    chrome.runtime.openOptionsPage();
+  }
 });
 
 // Chrome keeps registered menus across service worker restarts, so onInstalled covers the

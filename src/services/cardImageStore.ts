@@ -178,6 +178,22 @@ export const replaceScopeImages = (
     await writeScopeIndex(scope, nextIds);
   });
 
+/**
+ * Forgets an entire scope. Used when a tab closes: its images would otherwise sit in the
+ * extension's storage forever, and `unlimitedStorage` means nothing ever evicts them.
+ */
+export const dropScope = (scope: string): Promise<void> =>
+  serialize(async () => {
+    const index = await readIndex();
+    const cardIds = index[scope];
+    if (!cardIds || cardIds.length === 0) {
+      return;
+    }
+
+    await removeKeys(cardIds.map((cardId) => buildCardImageKey(scope, cardId)));
+    await writeScopeIndex(scope, []);
+  });
+
 /** Applies a partial update without touching images of cards not mentioned. */
 export const applyScopeImageMutations = (
   scope: string,

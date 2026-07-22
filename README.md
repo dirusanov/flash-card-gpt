@@ -13,27 +13,22 @@ Tip: Put your demo GIF at `screenshots/demo.gif` for this preview to work.
 
 1. Go to the webpage from which you want to create a flashcard.
 2. Highlight the text you want to use to create a card.
-3. Click on the Vaulto Cards extension icon in the browser panel.
+3. Right-click and choose **Create card from "…"**, or press <kbd>Alt</kbd>+<kbd>C</kbd>. Clicking
+   the Vaulto Cards icon in the toolbar opens the panel as well.
 4. Follow the instructions to create and save your flashcard.
 
-### Mode: Learning Language
-![Usage Example 1](</screenshots/lang-learn.png>)
-
-### Mode: General Topic
-![Usage Example 2](</screenshots/gen-topic-sample.png>)
+![Usage Example](</screenshots/lang-learn.png>)
 
 ## Features
 
-- Instant card creation from selected text
-- AI‑powered translation, examples, and card structure
+- Instant card creation from selected text, via the context menu or a keyboard shortcut
+- AI‑powered translation, transcription, examples, and card structure
 - Smart image generation with consistent style (photorealistic or painting)
 - Anki integration via AnkiConnect (optional)
+- Optional Vaulto account to sync cards across devices
 
-## Functionality
-
-* **Creating flashcards on the fly:** You don't need to open a new tab or application to create cards. Just highlight the text and click on the extension icon.
-* **Variety of topics:** Whether you're learning a foreign language, researching a medical term, or just want to memorize an interesting fact from history, you can create a card on any topic.
-* **Using AI (GPT):** Our extension uses the latest achievements of artificial intelligence to optimize the process of creating cards.
+Cards are currently built for **language learning**. An earlier general-topic mode is present in
+the codebase but disabled; the panel always runs in language-learning mode.
 
 ## Installation and Build
 
@@ -76,7 +71,9 @@ For more information about AnkiConnect, visit the [AnkiConnect homepage](https:/
 
 ## Extension Settings
 
-Once the extension is installed, you will need to configure it with your OpenAI API key and (optionally) AnkiConnect settings. To do this, click on the Vaulto Cards extension icon and go to the settings page.
+The setup page opens by itself right after installation. You can reopen it any time from
+`chrome://extensions` → Vaulto Cards → **Details** → **Extension options**, or from the Settings
+tab inside the panel. Enter your OpenAI API key there and, optionally, the AnkiConnect settings.
 
 ![Extension Settings](</screenshots/settings.png>)
 
