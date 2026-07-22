@@ -1,41 +1,8 @@
 // src/pages/Background/index.js
 import { recordDailyActivity } from '../../services/usageMetrics';
 import { dropScope } from '../../services/cardImageStore';
-
-const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
-// Mirrors TAB_STORAGE_KEY_PREFIX in the cards storage middleware.
-const TAB_CARDS_KEY_PREFIX = 'anki_tab_cards';
-const STORED_CARDS_KEY = 'anki_stored_cards';
-const MERGE_STORED_CARDS_ACTION = 'mergeStoredCards';
-const activeFetchControllers = new Map();
-const CONTENT_SCRIPT_RETRY_DELAY_MS = 120;
-const CONTENT_SCRIPT_MAX_ATTEMPTS = 12;
-let storedCardsMergeQueue = Promise.resolve();
-
-function getViewPrefs() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get([VIEW_STORAGE_KEY], (res) => {
-        const stored = res[VIEW_STORAGE_KEY] || {};
-        resolve({
-          preferredModeByTab: stored.preferredModeByTab || {},
-          visibleByTab: stored.visibleByTab || {},
-          floatGeometryByTab: stored.floatGeometryByTab || {},
-          globalMode: stored.globalMode === 'float' ? 'float' : 'sidebar',
-          globalVisible: typeof stored.globalVisible === 'boolean' ? stored.globalVisible : false,
-        });
-      });
-    } catch (e) {
-      resolve({
-        preferredModeByTab: {},
-        visibleByTab: {},
-        floatGeometryByTab: {},
-        globalMode: 'sidebar',
-        globalVisible: false,
-      });
-    }
-  });
-}
+import { setPendingSelection } from '../../services/pendingSelection';
+import { GET_PAGE_SELECTION } from '../../services/pageContextBridge';
 
 function parseStoredCards(value) {
   if (typeof value !== 'string') {
@@ -175,51 +142,35 @@ function registerContextMenu() {
   }
 }
 
-// Opens the panel on `tabId` and hands it the current selection. When the user prefers the
-// floating window, background has to relay `showFloating` itself: a content script cannot
-// deliver a runtime message to its own listeners.
-async function createCardFromSelection(tabId, selectionText) {
+// Opens the native side panel and parks the selection for it to pick up. `sidePanel.open`
+// must be called while the user gesture is still live, so it goes first and the slower work
+// (asking the page for the exact selection) happens after.
+function createCardFromSelection(tabId, selectionText) {
   if (tabId == null) return;
 
   void recordDailyActivity();
 
   try {
-    await sendMessageToTabWithRetry(tabId, {
-      action: 'createCardFromSelection',
-      tabId,
-      selectionText: selectionText || '',
+    chrome.sidePanel.open({ tabId }).catch((error) => {
+      console.error('Failed to open the side panel:', error);
     });
   } catch (error) {
-    console.error('Failed to start card creation from selection:', error);
-    return;
+    console.error('Failed to open the side panel:', error);
   }
 
-  const view = await getViewPrefs();
-  const mode = (view.preferredModeByTab && view.preferredModeByTab[tabId]) || view.globalMode || 'sidebar';
-  if (mode !== 'float') return;
-
-  try {
-    await sendMessageToTabWithRetry(tabId, { action: 'showFloating', tabId });
-  } catch (error) {
-    console.error('Failed to show floating window for selection:', error);
-  }
+  // The menu's selectionText is truncated by Chrome, so prefer the live selection and fall
+  // back only when the page cannot answer.
+  sendMessageToTabWithRetry(tabId, { action: GET_PAGE_SELECTION })
+    .then((response) => (response && response.ok && response.text) || selectionText || '')
+    .catch(() => selectionText || '')
+    .then((text) => {
+      if (text) {
+        return setPendingSelection(tabId, text);
+      }
+      return undefined;
+    })
+    .catch((error) => console.error('Failed to hand the selection to the panel:', error));
 }
-
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== CREATE_CARD_MENU_ID || !tab || tab.id == null) return;
-  void createCardFromSelection(tab.id, info.selectionText);
-});
-
-chrome.commands.onCommand.addListener((command) => {
-  if (command !== 'create-card-from-selection') return;
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    const tab = tabs && tabs[0];
-    if (!tab || tab.id == null) return;
-    const url = tab.url || '';
-    if (!url.startsWith('http://') && !url.startsWith('https://')) return;
-    void createCardFromSelection(tab.id, '');
-  });
-});
 
 // Everything keyed by tab id is dead once the tab is gone, and nothing else ever removes it:
 // Chrome also reuses tab ids, so leftovers can surface as another tab's draft.
@@ -234,18 +185,6 @@ async function cleanupTabData(tabId) {
 
     await dropScope(`tab:${tabId}`);
 
-    const view = await getViewPrefs();
-    const hadEntry = [view.preferredModeByTab, view.visibleByTab, view.floatGeometryByTab]
-      .some((map) => Object.prototype.hasOwnProperty.call(map, tabId));
-
-    if (hadEntry) {
-      delete view.preferredModeByTab[tabId];
-      delete view.visibleByTab[tabId];
-      delete view.floatGeometryByTab[tabId];
-      await new Promise((resolve) => {
-        chrome.storage.local.set({ [VIEW_STORAGE_KEY]: view }, () => resolve());
-      });
-    }
   } catch (error) {
     console.error(`Failed to clean up storage for tab ${tabId}:`, error);
   }
@@ -276,34 +215,11 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
 // removeAll() first keeps it from failing on a duplicate id.
 chrome.runtime.onStartup.addListener(registerContextMenu);
 
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab || tab.id == null) return;
-  const tabId = tab.id;
-
-  // Counted here rather than on worker startup: opening the panel means the extension was
-  // actually used, while a startup event only means the browser woke the worker up.
-  void recordDailyActivity();
-
-  const view = await getViewPrefs();
-  const mode = (view.preferredModeByTab && view.preferredModeByTab[tabId]) || view.globalMode || 'sidebar';
-  const visibleMap = view.visibleByTab || {};
-  const hasVisibleEntry = Object.prototype.hasOwnProperty.call(visibleMap, tabId);
-  const visible = hasVisibleEntry ? !!visibleMap[tabId] : !!view.globalVisible;
-
-  if (mode === 'float') {
-    try {
-      await sendMessageToTabWithRetry(tabId, { action: visible ? 'hideFloating' : 'showFloating', tabId });
-    } catch (error) {
-      console.error('Failed to toggle floating UI:', error);
-    }
-  } else {
-    // режим сайдбара переключаем
-    try {
-      await sendMessageToTabWithRetry(tabId, { action: 'toggleSidebar', tabId });
-    } catch (error) {
-      console.error('Failed to toggle sidebar UI:', error);
-    }
-  }
+// Chrome opens the panel on the toolbar click for us; doing it here would need a user
+// gesture we do not have.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((error) => console.error('Failed to set side panel behavior:', error));
 });
 
 // утилита для прокси загрузки картинок по URL -> dataURL

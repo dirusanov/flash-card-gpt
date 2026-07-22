@@ -1,48 +1,96 @@
 /**
- * Hand-off point between the content script bootstrap and the React app.
+ * Hand-off of a selection from background to the side panel.
  *
- * The context menu and the keyboard shortcut can fire before the app is mounted, or while the
- * user sits on a different screen, so the text is parked here rather than pushed. Subscribers
- * are only woken up — they read the value themselves, and whoever handles it clears it. That
- * keeps a single owner for the value and stops a stale selection from resurfacing the next
- * time the card screen mounts.
+ * The two now live in separate documents, so a shared module variable no longer reaches both.
+ * The text is parked in extension storage instead, which also solves the timing problem: the
+ * context menu and the shortcut open the panel, and the panel takes a moment to boot, so the
+ * value has to survive until something is there to read it.
  *
- * Both sides live in the same bundle and isolated world, so a plain module holds the value
- * without touching globals or storage.
+ * Whoever handles the text clears it, keeping a single owner and stopping a stale selection
+ * from resurfacing the next time the card screen mounts.
  */
 
-type Listener = () => void;
+const PENDING_KEY = 'vaulto_pending_selection';
 
-let pendingText: string | null = null;
-const listeners = new Set<Listener>();
+type PendingSelection = {
+  tabId: number;
+  text: string;
+};
 
-export const setPendingSelection = (text: string): void => {
-  const normalized = text.trim();
-  if (!normalized) {
-    return;
+const getChromeStorage = () => {
+  try {
+    if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
+      return chrome.storage.local;
+    }
+  } catch {
+    // No storage: the hand-off simply does not happen.
   }
+  return null;
+};
 
-  pendingText = normalized;
-  listeners.forEach((listener) => {
+export const setPendingSelection = (tabId: number, text: string): Promise<void> =>
+  new Promise((resolve) => {
+    const normalized = text.trim();
+    const storage = getChromeStorage();
+    if (!storage || !normalized) {
+      resolve();
+      return;
+    }
+
     try {
-      listener();
-    } catch (error) {
-      console.error('Pending selection listener failed:', error);
+      storage.set({ [PENDING_KEY]: { tabId, text: normalized } as PendingSelection }, () => resolve());
+    } catch {
+      resolve();
     }
   });
-};
 
-/** Returns the parked text once, then forgets it. */
-export const consumePendingSelection = (): string | null => {
-  const text = pendingText;
-  pendingText = null;
-  return text;
-};
+/** Returns the parked text for this tab once, then forgets it. */
+export const consumePendingSelection = (tabId: number): Promise<string | null> =>
+  new Promise((resolve) => {
+    const storage = getChromeStorage();
+    if (!storage) {
+      resolve(null);
+      return;
+    }
 
-/** Notifies that text is waiting. Listeners must call `consumePendingSelection` to read it. */
-export const subscribeToPendingSelection = (listener: Listener): (() => void) => {
-  listeners.add(listener);
+    try {
+      storage.get([PENDING_KEY], (items) => {
+        const pending = items?.[PENDING_KEY] as PendingSelection | undefined;
+        if (!pending?.text || pending.tabId !== tabId) {
+          resolve(null);
+          return;
+        }
+
+        storage.remove([PENDING_KEY], () => resolve(pending.text));
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+
+/** Fires when text is parked. Listeners must call `consumePendingSelection` to read it. */
+export const subscribeToPendingSelection = (listener: () => void): (() => void) => {
+  const onChanged = (
+    changes: Record<string, chrome.storage.StorageChange>,
+    areaName: string,
+  ) => {
+    if (areaName !== 'local' || !changes[PENDING_KEY]?.newValue) {
+      return;
+    }
+    listener();
+  };
+
+  try {
+    chrome.storage.onChanged.addListener(onChanged);
+  } catch {
+    return () => undefined;
+  }
+
   return () => {
-    listeners.delete(listener);
+    try {
+      chrome.storage.onChanged.removeListener(onChanged);
+    } catch {
+      // Extension context is gone; nothing to detach from.
+    }
   };
 };

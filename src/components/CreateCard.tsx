@@ -23,9 +23,10 @@ import { getAIService, getApiKeyForProvider, createTranslation, createExamples, 
 import { ModelProvider } from '../store/reducers/settings';
 import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
 import { imageUrlToBase64, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
-import { PageContentExtractor } from '../services/pageContentExtractor';
+import { requestPageContext } from '../services/pageContextBridge';
 import { buildSafeImagePrompt } from '../services/imagePromptSafety';
 import { consumePendingSelection, subscribeToPendingSelection } from '../services/pendingSelection';
+import { SELECTION_CHANGED } from '../services/pageContextBridge';
 
 interface GeneralCardTemplate {
     id: string;
@@ -1673,55 +1674,32 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         debugLog('Text set via tabAware.setText:', selectedText);
     }, [tabAware, text]);
 
-    useEffect(() => {
-        const handleMouseUp = (event: MouseEvent) => {
-            // Проверяем, что событие произошло не внутри sidebar расширения
-            const sidebar = document.getElementById('sidebar');
-            if (sidebar && sidebar.contains(event.target as Node)) {
-                // Если клик был внутри sidebar, не обрабатываем выделение текста
-                return;
-            }
-
-            // Дополнительная проверка для Shadow DOM
-            if (event.target && event.composedPath) {
-                const path = event.composedPath();
-                for (const element of path) {
-                    if (element instanceof Element && element.id === 'sidebar') {
-                        return;
-                    }
-                    // Также проверяем, не находится ли элемент внутри Shadow Root расширения
-                    if (element instanceof ShadowRoot && element.host && element.host.id === 'sidebar') {
-                        return;
-                    }
-                }
-            }
-
-            const selectedText = window.getSelection()?.toString().trim();
-            if (selectedText && selectedText.length > 0) {
-                handleTextSelection(selectedText);
-            }
-        };
-
-        document.addEventListener('mouseup', handleMouseUp);
-
-        return () => {
-            document.removeEventListener('mouseup', handleMouseUp);
-        };
-    }, [handleTextSelection]);
-
-    // Text handed over by the context menu or the keyboard shortcut. It can arrive before this
-    // component mounts, so drain whatever is parked first, then listen for later invocations.
+    // The panel has no access to the page, so the content script reports selections and the
+    // context menu / shortcut park theirs in storage. Both funnel into handleTextSelection.
     useEffect(() => {
         const drain = () => {
-            const parked = consumePendingSelection();
-            if (parked) {
-                handleTextSelection(parked);
-            }
+            void consumePendingSelection(tabId).then((parked) => {
+                if (parked) {
+                    handleTextSelection(parked);
+                }
+            });
         };
 
         drain();
-        return subscribeToPendingSelection(drain);
-    }, [handleTextSelection]);
+        const unsubscribe = subscribeToPendingSelection(drain);
+
+        const onMessage = (message: any) => {
+            if (message?.action === SELECTION_CHANGED && message.text) {
+                handleTextSelection(message.text);
+            }
+        };
+        chrome.runtime.onMessage.addListener(onMessage);
+
+        return () => {
+            unsubscribe();
+            chrome.runtime.onMessage.removeListener(onMessage);
+        };
+    }, [handleTextSelection, tabId]);
 
     useEffect(() => {
         // Always enforce Language Learning mode and update persisted selection
@@ -1953,8 +1931,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // Extract page context for multimedia
                     let pageContext: PageContentContext | undefined;
                     try {
-                        const { PageContentExtractor } = await import('../services/pageContentExtractor');
-                        pageContext = PageContentExtractor.extractPageContent(currentText);
+                        pageContext = (await requestPageContext(tabId, currentText)) ?? undefined;
                         debugLog(`📋 General mode: Extracted page context with ${pageContext?.pageImages?.length || 0} images`);
                     } catch (extractError) {
                         console.warn('Failed to extract page content for General mode:', extractError);
@@ -5855,20 +5832,13 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             let pageContext: PageContentContext | undefined;
 
             try {
-                // Пытаемся найти элемент с выделенным текстом
-                const selection = window.getSelection();
-                let selectionElement: Element | undefined;
+                // The panel cannot read the tab's DOM; the content script locates the
+                // selection and extracts the surrounding content on our behalf.
+                pageContext = (await requestPageContext(tabId, currentText)) ?? undefined;
 
-                if (selection && selection.rangeCount > 0) {
-                    const range = selection.getRangeAt(0);
-                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-                        ? range.commonAncestorContainer as Element
-                        : range.commonAncestorContainer.parentElement || undefined;
-                }
-
-                // Извлекаем контент страницы асинхронно для загрузки внешних изображений
-                pageContext = await PageContentExtractor.extractPageContentAsync(currentText, selectionElement);
-
+                // A tab we cannot reach — chrome:// pages, a tab still loading — is normal, and
+                // card creation carries on without page context.
+                if (pageContext) {
                 debugLog('📄 Extracted page content:', {
                     images: pageContext.pageImages.length,
                     formulas: pageContext.formulas.length,
@@ -5888,6 +5858,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         hasBase64: !!img.base64
                     });
                 });
+                }
 
             } catch (extractError) {
                 console.warn('Failed to extract page content, proceeding without multimedia:', extractError);
@@ -6169,17 +6140,7 @@ Original text: ${text}`;
             // Извлекаем контент страницы для анализа (если возможно)
             let pageContext: PageContentContext | undefined;
             try {
-                const selection = window.getSelection();
-                let selectionElement: Element | undefined;
-
-                if (selection && selection.rangeCount > 0) {
-                    const range = selection.getRangeAt(0);
-                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-                        ? range.commonAncestorContainer as Element
-                        : range.commonAncestorContainer.parentElement || undefined;
-                }
-
-                pageContext = await PageContentExtractor.extractPageContentAsync(text, selectionElement);
+                pageContext = (await requestPageContext(tabId, text)) ?? undefined;
             } catch (extractError) {
                 console.warn('Failed to extract page content for recreation:', extractError);
                 pageContext = undefined;

@@ -10,6 +10,9 @@
   "action": {
     "default_title": "Vaulto Cards"
   },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "commands": {
     "create-card-from-selection": {
       "suggested_key": {
@@ -32,9 +35,6 @@
       "js": [
         "contentScript.bundle.js"
       ],
-      "css": [
-        "contentScript.css"
-      ],
       "run_at": "document_start"
     }
   ],
@@ -43,7 +43,8 @@
     "unlimitedStorage",
     "activeTab",
     "contextMenus",
-    "identity"
+    "identity",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://api.openai.com/*",
@@ -52,20 +53,5 @@
     "https://api-cards.vaultonote.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "assets/img/*.png",
-        "assets/img/*.svg",
-        "tailwind.css",
-        "*.woff",
-        "*.woff2",
-        "*.ttf"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
-    }
   ]
 }
