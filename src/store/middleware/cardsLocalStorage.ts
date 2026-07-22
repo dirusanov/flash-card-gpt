@@ -238,11 +238,15 @@ const persistCardImages = async (scope: string, cards: StoredCard[]): Promise<St
     return sanitizedCards;
 };
 
+// Returns both shapes on purpose. `sanitized` is what gets serialized into the cards record,
+// which must stay free of base64. `normalized` still carries the images and is what any caller
+// that feeds cards back into a full save must use — a stripped card looks to `persistCardImages`
+// like a card whose image was removed, and it would delete the image just written here.
 const persistCardImageMutations = async (
     scope: string,
     upsertCards: StoredCard[],
     deleteIds: string[]
-): Promise<StoredCard[]> => {
+): Promise<{ sanitized: StoredCard[]; normalized: StoredCard[] }> => {
     const { cards: normalizedCards } = await normalizeCardsForPersistence(upsertCards, `mutation persist ${scope}`);
     const sanitizedCards = normalizedCards.map((card) => stripLargeImagePayload(card));
 
@@ -269,7 +273,7 @@ const persistCardImageMutations = async (
         logStorageError(`Failed to persist card image mutations for scope ${scope}`, error);
     }
 
-    return sanitizedCards;
+    return { sanitized: sanitizedCards, normalized: normalizedCards };
 };
 
 const hydrateCardImages = async (scope: string, cards: StoredCard[]): Promise<StoredCard[]> => {
@@ -369,7 +373,10 @@ const persistGlobalMutationBatch = async (batch: GlobalPersistenceBatch): Promis
         return;
     }
 
-    const sanitizedUpserts = await persistCardImageMutations('global', batch.upserts, batch.deleteIds);
+    const {
+        sanitized: sanitizedUpserts,
+        normalized: normalizedUpserts,
+    } = await persistCardImageMutations('global', batch.upserts, batch.deleteIds);
 
     try {
         if (await mergeGlobalCardsViaBackground({
@@ -396,7 +403,10 @@ const persistGlobalMutationBatch = async (batch: GlobalPersistenceBatch): Promis
             mergedCards.delete(cardId);
         });
 
-        sanitizedUpserts.forEach((card) => {
+        // The image-carrying copies: `loadCardsFromStorage` above hydrated the existing cards,
+        // and saveCardsToStorage below rebuilds the whole image scope from what it is given.
+        // Merging the stripped copies here would erase the images of every upserted card.
+        normalizedUpserts.forEach((card) => {
             if (!card?.id) {
                 return;
             }

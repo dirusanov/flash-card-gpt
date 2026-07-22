@@ -32,16 +32,16 @@ const getChromeStorage = () => {
 export const buildCardImageKey = (scope: string, cardId: string): string =>
   `${IMAGE_KEY_PREFIX}:${scope}:${cardId}`;
 
-const readKeys = (keys: string[] | null): Promise<Record<string, unknown>> =>
+const readKeys = (keys: string[]): Promise<Record<string, unknown>> =>
   new Promise((resolve) => {
     const storage = getChromeStorage();
-    if (!storage) {
+    if (!storage || keys.length === 0) {
       resolve({});
       return;
     }
 
     try {
-      storage.get(keys as never, (items) => {
+      storage.get(keys, (items) => {
         resolve(chrome?.runtime?.lastError ? {} : items || {});
       });
     } catch {
