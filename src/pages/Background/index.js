@@ -1,36 +1,8 @@
 // src/pages/Background/index.js
-const VIEW_STORAGE_KEY = 'anki_view_prefs_v1';
-const STORED_CARDS_KEY = 'anki_stored_cards';
-const MERGE_STORED_CARDS_ACTION = 'mergeStoredCards';
-const activeFetchControllers = new Map();
-const CONTENT_SCRIPT_RETRY_DELAY_MS = 120;
-const CONTENT_SCRIPT_MAX_ATTEMPTS = 12;
-let storedCardsMergeQueue = Promise.resolve();
-
-function getViewPrefs() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get([VIEW_STORAGE_KEY], (res) => {
-        const stored = res[VIEW_STORAGE_KEY] || {};
-        resolve({
-          preferredModeByTab: stored.preferredModeByTab || {},
-          visibleByTab: stored.visibleByTab || {},
-          floatGeometryByTab: stored.floatGeometryByTab || {},
-          globalMode: stored.globalMode === 'float' ? 'float' : 'sidebar',
-          globalVisible: typeof stored.globalVisible === 'boolean' ? stored.globalVisible : false,
-        });
-      });
-    } catch (e) {
-      resolve({
-        preferredModeByTab: {},
-        visibleByTab: {},
-        floatGeometryByTab: {},
-        globalMode: 'sidebar',
-        globalVisible: false,
-      });
-    }
-  });
-}
+import { recordDailyActivity } from '../../services/usageMetrics';
+import { dropScope } from '../../services/cardImageStore';
+import { setPendingSelection } from '../../services/pendingSelection';
+import { GET_PAGE_SELECTION } from '../../services/pageContextBridge';
 
 function parseStoredCards(value) {
   if (typeof value !== 'string') {
@@ -152,39 +124,102 @@ async function sendMessageToTabWithRetry(tabId, message, maxAttempts = CONTENT_S
   throw lastError || new Error('Failed to deliver message to content script');
 }
 
+const CREATE_CARD_MENU_ID = 'vaulto-create-card-from-selection';
+const HTTP_URL_PATTERNS = ['http://*/*', 'https://*/*'];
+
+function registerContextMenu() {
+  try {
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create({
+        id: CREATE_CARD_MENU_ID,
+        title: 'Create card from "%s"',
+        contexts: ['selection'],
+        documentUrlPatterns: HTTP_URL_PATTERNS,
+      });
+    });
+  } catch (error) {
+    console.error('Failed to register context menu:', error);
+  }
+}
+
+// Opens the native side panel and parks the selection for it to pick up. `sidePanel.open`
+// must be called while the user gesture is still live, so it goes first and the slower work
+// (asking the page for the exact selection) happens after.
+function createCardFromSelection(tabId, selectionText) {
+  if (tabId == null) return;
+
+  void recordDailyActivity();
+
+  try {
+    chrome.sidePanel.open({ tabId }).catch((error) => {
+      console.error('Failed to open the side panel:', error);
+    });
+  } catch (error) {
+    console.error('Failed to open the side panel:', error);
+  }
+
+  // The menu's selectionText is truncated by Chrome, so prefer the live selection and fall
+  // back only when the page cannot answer.
+  sendMessageToTabWithRetry(tabId, { action: GET_PAGE_SELECTION })
+    .then((response) => (response && response.ok && response.text) || selectionText || '')
+    .catch(() => selectionText || '')
+    .then((text) => {
+      if (text) {
+        return setPendingSelection(tabId, text);
+      }
+      return undefined;
+    })
+    .catch((error) => console.error('Failed to hand the selection to the panel:', error));
+}
+
+// Everything keyed by tab id is dead once the tab is gone, and nothing else ever removes it:
+// Chrome also reuses tab ids, so leftovers can surface as another tab's draft.
+async function cleanupTabData(tabId) {
+  try {
+    await new Promise((resolve) => {
+      chrome.storage.local.remove(
+        [`anki_ui_tab_${tabId}`, `${TAB_CARDS_KEY_PREFIX}_${tabId}`],
+        () => resolve(),
+      );
+    });
+
+    await dropScope(`tab:${tabId}`);
+
+  } catch (error) {
+    console.error(`Failed to clean up storage for tab ${tabId}:`, error);
+  }
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void cleanupTabData(tabId);
+});
+
 chrome.tabs.onActivated.addListener(({ tabId }) => chrome.tabs.get(tabId, configureActionForTab));
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!tab || !tab.active) return;
   if (changeInfo.status === 'complete' || changeInfo.url) configureActionForTab(tab);
 });
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  registerContextMenu();
   chrome.tabs.query({ currentWindow: true, active: true }, (tabs) => tabs[0] && configureActionForTab(tabs[0]));
+
+  // A fresh install cannot create a single card until an API key is entered, and nothing in
+  // the panel says so until a generation has already failed. Updates stay silent.
+  if (reason === 'install') {
+    chrome.runtime.openOptionsPage();
+  }
 });
 
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab || tab.id == null) return;
-  const tabId = tab.id;
+// Chrome keeps registered menus across service worker restarts, so onInstalled covers the
+// normal case. This re-registration is belt and braces for a profile that somehow lost it;
+// removeAll() first keeps it from failing on a duplicate id.
+chrome.runtime.onStartup.addListener(registerContextMenu);
 
-  const view = await getViewPrefs();
-  const mode = (view.preferredModeByTab && view.preferredModeByTab[tabId]) || view.globalMode || 'sidebar';
-  const visibleMap = view.visibleByTab || {};
-  const hasVisibleEntry = Object.prototype.hasOwnProperty.call(visibleMap, tabId);
-  const visible = hasVisibleEntry ? !!visibleMap[tabId] : !!view.globalVisible;
-
-  if (mode === 'float') {
-    try {
-      await sendMessageToTabWithRetry(tabId, { action: visible ? 'hideFloating' : 'showFloating', tabId });
-    } catch (error) {
-      console.error('Failed to toggle floating UI:', error);
-    }
-  } else {
-    // режим сайдбара переключаем
-    try {
-      await sendMessageToTabWithRetry(tabId, { action: 'toggleSidebar', tabId });
-    } catch (error) {
-      console.error('Failed to toggle sidebar UI:', error);
-    }
-  }
+// Chrome opens the panel on the toolbar click for us; doing it here would need a user
+// gesture we do not have.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((error) => console.error('Failed to set side panel behavior:', error));
 });
 
 // утилита для прокси загрузки картинок по URL -> dataURL

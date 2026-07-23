@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { Provider } from 'react-redux';
 
 import Popup from './Popup';
+// Settings relies on Tailwind's preflight for box-sizing on its inputs.
+import '../../assets/styles/tailwind.css';
 import './index.css';
 import { instantiateStore } from '../../store';
 import { initializeApiKeyPersistence } from '../../services/apiKeyStorage';

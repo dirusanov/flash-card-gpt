@@ -5,11 +5,9 @@ import cardsReducer from "./reducers/cards";
 import {settingsReducer} from "./reducers/settings";
 import currentPageReducer from "./reducers/page";
 import ankiReducer from './reducers/anki';
-import sidebarReducer from './reducers/sidebar';
 import notificationsReducer from './reducers/notifications';
 import tabStateReducer from './reducers/tabState';
 import cardsLocalStorageMiddleware from './middleware/cardsLocalStorage';
-import { viewReducer } from './reducers/view';
 import { authReducer } from './reducers/auth';
 import cardsSyncMiddleware from './middleware/cardsSyncMiddleware';
 
@@ -19,10 +17,8 @@ const rootReducer = combineReducers({
     settings: settingsReducer,
     currentPage: currentPageReducer,
     anki: ankiReducer,
-    sidebar: sidebarReducer,
     notifications: notificationsReducer,
     tabState: tabStateReducer,
-    view: viewReducer,
     auth: authReducer,
 });
 

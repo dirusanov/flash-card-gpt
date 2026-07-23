@@ -26,3 +26,7 @@
 # secrets
 secrets.*.js
 *.pem
+
+# build artifacts
+build.zip
+.codex
