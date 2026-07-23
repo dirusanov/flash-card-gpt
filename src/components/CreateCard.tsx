@@ -23,7 +23,7 @@ import { getAIService, getApiKeyForProvider, createTranslation, createExamples, 
 import { ModelProvider } from '../store/reducers/settings';
 import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
 import { imageUrlToBase64, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
-import { requestPageContext } from '../services/pageContextBridge';
+import { requestPageContext, getActiveTabId } from '../services/pageContextBridge';
 import { buildSafeImagePrompt } from '../services/imagePromptSafety';
 import { consumePendingSelection, subscribeToPendingSelection } from '../services/pendingSelection';
 import { SELECTION_CHANGED } from '../services/pageContextBridge';
@@ -1678,7 +1678,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // context menu / shortcut park theirs in storage. Both funnel into handleTextSelection.
     useEffect(() => {
         const drain = () => {
-            void consumePendingSelection(tabId).then((parked) => {
+            void consumePendingSelection().then((parked) => {
                 if (parked) {
                     handleTextSelection(parked);
                 }
@@ -1699,7 +1699,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             unsubscribe();
             chrome.runtime.onMessage.removeListener(onMessage);
         };
-    }, [handleTextSelection, tabId]);
+    }, [handleTextSelection]);
 
     useEffect(() => {
         // Always enforce Language Learning mode and update persisted selection
@@ -1931,7 +1931,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // Extract page context for multimedia
                     let pageContext: PageContentContext | undefined;
                     try {
-                        pageContext = (await requestPageContext(tabId, currentText)) ?? undefined;
+                        pageContext = (await requestPageContext(await getActiveTabId(), currentText)) ?? undefined;
                         debugLog(`📋 General mode: Extracted page context with ${pageContext?.pageImages?.length || 0} images`);
                     } catch (extractError) {
                         console.warn('Failed to extract page content for General mode:', extractError);
@@ -5834,7 +5834,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             try {
                 // The panel cannot read the tab's DOM; the content script locates the
                 // selection and extracts the surrounding content on our behalf.
-                pageContext = (await requestPageContext(tabId, currentText)) ?? undefined;
+                pageContext = (await requestPageContext(await getActiveTabId(), currentText)) ?? undefined;
 
                 // A tab we cannot reach — chrome:// pages, a tab still loading — is normal, and
                 // card creation carries on without page context.
@@ -6140,7 +6140,7 @@ Original text: ${text}`;
             // Извлекаем контент страницы для анализа (если возможно)
             let pageContext: PageContentContext | undefined;
             try {
-                pageContext = (await requestPageContext(tabId, text)) ?? undefined;
+                pageContext = (await requestPageContext(await getActiveTabId(), text)) ?? undefined;
             } catch (extractError) {
                 console.warn('Failed to extract page content for recreation:', extractError);
                 pageContext = undefined;

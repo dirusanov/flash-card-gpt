@@ -79,32 +79,10 @@ const StoreInitializer = () => {
     };
   }, []);
 
-  // The panel outlives tab switches, so it has to re-target rather than assume the tab it
-  // opened on. Each tab keeps its own draft, which is what the user expects when switching back.
-  useEffect(() => {
-    if (!store) return undefined;
-
-    const retarget = (nextTabId) => {
-      if (nextTabId == null) return;
-      setTabId((current) => (current === nextTabId ? current : nextTabId));
-      store.dispatch(setCurrentTabId(nextTabId));
-    };
-
-    const onActivated = ({ tabId: nextTabId }) => retarget(nextTabId);
-    const onUpdated = (updatedTabId, changeInfo, tab) => {
-      if (tab?.active && changeInfo.status === 'complete') {
-        retarget(updatedTabId);
-      }
-    };
-
-    chrome.tabs.onActivated.addListener(onActivated);
-    chrome.tabs.onUpdated.addListener(onUpdated);
-
-    return () => {
-      chrome.tabs.onActivated.removeListener(onActivated);
-      chrome.tabs.onUpdated.removeListener(onUpdated);
-    };
-  }, [store]);
+  // One shared workspace per window: the panel does NOT re-target on tab switch. The draft and
+  // the generation in progress stay put no matter which tab is active, so a loader that is
+  // visible across tabs is correct, not a glitch. Page context for a new card is read from
+  // whichever tab is active at the moment of generation, not from this fixed scope.
 
   if (!store || tabId === null) {
     return <div className="sidepanel-loading">Loading…</div>;

@@ -12,11 +12,6 @@
 
 const PENDING_KEY = 'vaulto_pending_selection';
 
-type PendingSelection = {
-  tabId: number;
-  text: string;
-};
-
 const getChromeStorage = () => {
   try {
     if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
@@ -28,7 +23,9 @@ const getChromeStorage = () => {
   return null;
 };
 
-export const setPendingSelection = (tabId: number, text: string): Promise<void> =>
+// The panel is one shared workspace, so a parked selection is not tied to any tab — whichever
+// tab the user triggered it from, the single panel picks it up.
+export const setPendingSelection = (text: string): Promise<void> =>
   new Promise((resolve) => {
     const normalized = text.trim();
     const storage = getChromeStorage();
@@ -38,14 +35,14 @@ export const setPendingSelection = (tabId: number, text: string): Promise<void> 
     }
 
     try {
-      storage.set({ [PENDING_KEY]: { tabId, text: normalized } as PendingSelection }, () => resolve());
+      storage.set({ [PENDING_KEY]: normalized }, () => resolve());
     } catch {
       resolve();
     }
   });
 
-/** Returns the parked text for this tab once, then forgets it. */
-export const consumePendingSelection = (tabId: number): Promise<string | null> =>
+/** Returns the parked text once, then forgets it. */
+export const consumePendingSelection = (): Promise<string | null> =>
   new Promise((resolve) => {
     const storage = getChromeStorage();
     if (!storage) {
@@ -55,13 +52,13 @@ export const consumePendingSelection = (tabId: number): Promise<string | null> =
 
     try {
       storage.get([PENDING_KEY], (items) => {
-        const pending = items?.[PENDING_KEY] as PendingSelection | undefined;
-        if (!pending?.text || pending.tabId !== tabId) {
+        const pending = items?.[PENDING_KEY];
+        if (typeof pending !== 'string' || !pending) {
           resolve(null);
           return;
         }
 
-        storage.remove([PENDING_KEY], () => resolve(pending.text));
+        storage.remove([PENDING_KEY], () => resolve(pending));
       });
     } catch {
       resolve(null);

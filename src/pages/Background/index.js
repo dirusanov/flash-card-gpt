@@ -165,7 +165,7 @@ function createCardFromSelection(tabId, selectionText) {
     .catch(() => selectionText || '')
     .then((text) => {
       if (text) {
-        return setPendingSelection(tabId, text);
+        return setPendingSelection(text);
       }
       return undefined;
     })
