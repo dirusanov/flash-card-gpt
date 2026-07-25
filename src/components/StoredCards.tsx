@@ -23,8 +23,8 @@ import { formatOpenAIErrorMessage, getDescriptionImage, getFallbackImageModelFor
 import { getAIService, getApiKeyForProvider, createExamples, createTranslation, createCardComponentsParallel, createLinguisticInfo } from '../services/aiServiceFactory';
 import { planInstruction, ACTION_STATUS } from '../services/instructionRouter';
 import { SrsGrade, applyReview, createInitialSrsState, isDue, srsEquals } from '../services/srs';
-import { ReviewLogEntry, StudyStats, appendReviewLog, computeStats, loadReviewLogs, serverStatsToStudyStats } from '../services/reviewLog';
-import { pullSrsUpdates, pushReview } from '../services/srsSync';
+import { ReviewLogEntry, StudyStats, appendReviewLog, computeStats, loadReviewLogs, markReviewLogsSynced, pendingReviewLogs, serverStatsToStudyStats } from '../services/reviewLog';
+import { flushPendingReviews, pullSrsUpdates, pushReview } from '../services/srsSync';
 import StudySession from './StoredCards/StudySession';
 import StatsPanel from './StoredCards/StatsPanel';
 import { cardsSyncApi, cardsStatsApi } from '../services/cardsSyncApi';
@@ -197,6 +197,29 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const storedCardsRef = useRef(storedCards);
     storedCardsRef.current = storedCards;
 
+    // Anything studied while offline goes up as soon as there is a connection again.
+    useEffect(() => {
+        if (!isLoggedIn) return undefined;
+
+        let cancelled = false;
+        loadReviewLogs().then((logs) => {
+            const pending = pendingReviewLogs(logs);
+            if (cancelled || pending.length === 0) return;
+
+            const cardsById = new Map(storedCardsRef.current.map((card) => [card.id, card]));
+            executeRequest((token) => flushPendingReviews(syncApiUrl, token, pending, cardsById))
+                .then((handled) => {
+                    if (!cancelled && handled.length > 0) {
+                        markReviewLogsSynced(handled).then(setReviewLogs);
+                    }
+                })
+                .catch((error) => console.warn('Could not send pending reviews yet:', error));
+        });
+
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLoggedIn, syncApiUrl]);
+
     useEffect(() => {
         if (!isLoggedIn) return undefined;
 
@@ -239,10 +262,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }).then(({ entry, logs }) => {
             setReviewLogs(logs);
             if (!isLoggedIn || !card.syncId) return;
-            // Best-effort: a failed push must never cost the user their review, which is
-            // already saved locally and will be re-sent by a later review of this card.
+            // A failed push must never cost the user their review: it is already saved
+            // locally and stays flagged pending, so studying offline just means the
+            // reviews go up the next time the panel opens with a connection.
             executeRequest((token) => pushReview(syncApiUrl, token, card, nextState, entry))
-                .catch((error) => console.warn('Failed to push review to Vaulto Cloud:', error));
+                .then((sent) => (sent ? markReviewLogsSynced([entry.id]).then(setReviewLogs) : undefined))
+                .catch((error) => console.warn('Review saved locally, will retry sync:', error));
         });
     }, [tabAware, isLoggedIn, executeRequest, syncApiUrl]);
 

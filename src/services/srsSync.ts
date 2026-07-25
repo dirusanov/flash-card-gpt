@@ -136,6 +136,52 @@ export const pushReview = async (
     return true;
 };
 
+/**
+ * Sends reviews that never made it up — studied offline, or a push that simply failed.
+ *
+ * Each log is paired with its card's *current* schedule rather than the one it produced:
+ * the server only needs the latest state, and replaying stale intermediate schedules
+ * would be wrong anyway. Logs whose card has no `syncId`, or that no longer match a card,
+ * are reported as handled so they stop being retried forever.
+ */
+export const flushPendingReviews = async (
+    baseUrl: string,
+    accessToken: string,
+    pending: ReviewLogEntry[],
+    cardsById: Map<string, StoredCard>,
+    limit = 100
+): Promise<string[]> => {
+    const batch = pending.slice(0, limit);
+    if (batch.length === 0) return [];
+
+    const changes: SyncChange[] = [];
+    const sendable: string[] = [];
+    const undeliverable: string[] = [];
+    const seenCards = new Set<string>();
+
+    for (const log of batch) {
+        const card = cardsById.get(log.cardId);
+        if (!card?.syncId || !card.srsState) {
+            undeliverable.push(log.id);
+            continue;
+        }
+
+        // One card change per card, however many of its reviews are queued.
+        if (!seenCards.has(card.syncId)) {
+            seenCards.add(card.syncId);
+            changes.push(buildCardChange(card.syncId, card, card.srsState));
+        }
+        changes.push(buildReviewLogChange(card.syncId, log));
+        sendable.push(log.id);
+    }
+
+    if (changes.length > 0) {
+        await srsSyncApi.push(baseUrl, accessToken, changes);
+    }
+
+    return [...sendable, ...undeliverable];
+};
+
 export interface PulledSrs {
     /** Keyed by note id (`StoredCard.syncId`). */
     byNoteId: Record<string, CardSrsState>;

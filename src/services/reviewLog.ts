@@ -15,6 +15,13 @@ export interface ReviewLogEntry {
     grade: SrsGrade;
     reviewedAt: string;      // ISO datetime
     responseTimeMs: number | null;
+    /**
+     * False once the server has accepted it. Reviews done offline stay true and are
+     * re-sent on the next opportunity — the mobile app keeps the same flag as
+     * `pending_sync`, and without it a session studied on a plane would be lost to the
+     * cloud entirely.
+     */
+    pendingSync?: boolean;
 }
 
 const STORAGE_KEY = 'vaulto_review_logs';
@@ -110,12 +117,26 @@ export const appendReviewLog = async (
     entry: Omit<ReviewLogEntry, 'id'>
 ): Promise<{ entry: ReviewLogEntry; logs: ReviewLogEntry[] }> => {
     const logs = await loadReviewLogs();
-    const created: ReviewLogEntry = { ...entry, id: newLogId() };
+    const created: ReviewLogEntry = { ...entry, id: newLogId(), pendingSync: true };
     const next = [...logs, created];
     const trimmed = next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next;
     await writeRaw(JSON.stringify(trimmed));
     return { entry: created, logs: trimmed };
 };
+
+/** Clears the pending flag once the server has accepted these logs. */
+export const markReviewLogsSynced = async (ids: string[]): Promise<ReviewLogEntry[]> => {
+    if (ids.length === 0) return loadReviewLogs();
+    const synced = new Set(ids);
+    const logs = await loadReviewLogs();
+    const next = logs.map((log) => (synced.has(log.id) ? { ...log, pendingSync: false } : log));
+    await writeRaw(JSON.stringify(next));
+    return next;
+};
+
+/** Logs still waiting to reach the server, oldest first. */
+export const pendingReviewLogs = (logs: ReviewLogEntry[]): ReviewLogEntry[] =>
+    logs.filter((log) => log.pendingSync);
 
 // ─── Statistics ───────────────────────────────────────────────────────────────
 
