@@ -497,6 +497,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // AbortController for cancelling AI requests
     const abortControllerRef = useRef<AbortController | null>(null);
+    // Bumped at the start of every generation (and on cancel) so delayed loader-hiding
+    // setTimeouts can tell whether they still belong to the generation that scheduled them.
+    // abortControllerRef alone can't answer that: it gets nulled out synchronously in each
+    // generation's own finally block, well before any of its delayed timeouts get a chance
+    // to fire, so comparing against it would make those timeouts never fire at all.
+    const generationIdRef = useRef(0);
     const criticalApiErrorRef = useRef(false);
     const lastProgressPaintRef = useRef(0);
     const pendingProgressRef = useRef<{ message: DetailedLoadingMessage; completed: number; total: number } | null>(null);
@@ -1909,6 +1915,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
+        // Delayed loader-hiding callbacks below compare against this to tell "cancelled/
+        // superseded by a newer generation" apart from "still the active generation".
+        generationIdRef.current += 1;
+        const myGenerationId = generationIdRef.current;
 
         // Set card generation state to true to disable navigation buttons
         tabAware.setIsGeneratingCard(true);
@@ -2280,6 +2290,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Hide loading when content is ready and visible
                 setTimeout(() => {
+                    // A newer generation may have started (or this one may have been
+                    // cancelled) while this delay was pending — don't let a stale timeout
+                    // hide the loader out from under a different generation cycle.
+                    if (generationIdRef.current !== myGenerationId) return;
                     debugLog('🎯 Parallel content is ready - hiding loading');
                     setLoadingGetResult(false);
                     setCurrentLoadingMessage(null);
@@ -2371,6 +2385,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
         }
+
+        // Invalidate this generation's delayed loader-hiding timeouts too, so one firing
+        // after cancel can't flip the loader (or the selected-options map) back on.
+        generationIdRef.current += 1;
 
         setShowResult(false);
         setIsEdited(false);
@@ -2606,6 +2624,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
+        // See the single-card generation function above for why this is captured.
+        generationIdRef.current += 1;
+        const myGenerationId = generationIdRef.current;
 
         debugLog('*** MULTIPLE CARDS CREATION STARTED ***');
         debugLog('Image generation settings:', {
@@ -2878,6 +2899,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Use the same smart loading management as main function
             setTimeout(() => {
+                // A newer generation may have started (or this one may have been cancelled)
+                // while this delay was pending — the global tracker's in-progress count by
+                // then belongs to whatever generation is running now, not necessarily this one.
+                if (generationIdRef.current !== myGenerationId) return;
+
                 debugLog('⏳ Checking for pending operations in multiple cards creation...');
 
                 const tracker = getGlobalApiTracker();
@@ -2896,6 +2922,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     debugLog('⏸️ Keeping loader visible for multiple cards - operations still running');
                     // Wait a bit longer for multiple cards
                     setTimeout(() => {
+                        if (generationIdRef.current !== myGenerationId) return;
                         debugLog('⏳ Final check for multiple cards...');
                         const finalCheckStats = tracker.getStats();
                         if (finalCheckStats.inProgress === 0) {
@@ -4506,6 +4533,9 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
+        // See the single-card generation function above for why this is captured.
+        generationIdRef.current += 1;
+        const myGenerationId = generationIdRef.current;
 
         setForceHideLoader(false);
         setLoadingGetResult(true);
@@ -4622,6 +4652,11 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             // Add delay to prevent window disappearing too quickly
             // Use a longer delay and check for any pending operations
             setTimeout(() => {
+                // A newer generation may have started (or this one may have been cancelled)
+                // while this delay was pending — don't let a stale timeout hide the loader
+                // out from under a different generation cycle.
+                if (generationIdRef.current !== myGenerationId) return;
+
                 debugLog('⏳ Checking for pending operations before hiding loader...');
 
                 // Check if there are any pending operations by looking at API tracker
@@ -4652,6 +4687,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     debugLog('⏸️ Keeping loader visible - operations still running');
                     // If there are still pending operations, wait a bit longer
                     setTimeout(() => {
+                        if (generationIdRef.current !== myGenerationId) return;
                         debugLog('⏳ Second check after additional delay...');
                         const secondCheckStats = tracker.getStats();
                         const stillHasPending = secondCheckStats.inProgress > 0;
