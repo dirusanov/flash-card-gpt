@@ -24,10 +24,10 @@ interface StudyCardProps {
     onGrammarChange?: (serialized: string) => void;
 }
 
-// A card is as tall as what is on it, between these bounds: short enough to read at a
-// glance without a scrollbar, tall enough that a bare word still looks like a card, and
-// never taller than the sheet can show.
-const MIN_CARD_HEIGHT = 240;
+// Cards rest at one comfortable size and only grow past it when there is genuinely more
+// to show. A question is usually a single word, so sizing purely to content made the
+// front a thin strip — the resting height is what makes it read as a card.
+const STANDARD_CARD_HEIGHT = 340;
 const MAX_CARD_HEIGHT = 600;
 /**
  * What the shell must add on top of a face's own content height.
@@ -112,9 +112,11 @@ const StudyCard: React.FC<StudyCardProps> = ({
     }, [editable, card.id, imageHidden]);
 
     const faceHeight = flipped ? faceHeights.back : faceHeights.front;
-    const shellHeight = Math.max(
-        MIN_CARD_HEIGHT,
-        Math.min(faceHeight > 0 ? faceHeight + FACE_CHROME : 0, maxCardHeight())
+    // The cap is applied last: on a short window it has to win over the resting height,
+    // or the card would grow past what the sheet can show.
+    const shellHeight = Math.min(
+        maxCardHeight(),
+        Math.max(STANDARD_CARD_HEIGHT, faceHeight > 0 ? faceHeight + FACE_CHROME : 0)
     );
 
     useEffect(() => () => {
@@ -170,7 +172,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
             <div className="px-4 pb-4 pt-2">
                 <div
                     className={`overflow-y-auto rounded-sheet border border-ok-border bg-ok-subtle p-4 shadow-card ${busy ? 'pointer-events-none opacity-60' : ''}`}
-                    style={{ minHeight: MIN_CARD_HEIGHT, maxHeight: maxCardHeight() }}
+                    style={{ minHeight: Math.min(STANDARD_CARD_HEIGHT, maxCardHeight()), maxHeight: maxCardHeight() }}
                 >
                     {/* Word — the card's title, edited in place */}
                     <input
