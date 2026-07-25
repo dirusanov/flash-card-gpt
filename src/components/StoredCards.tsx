@@ -8,7 +8,7 @@ import { setAnkiAvailability } from '../store/actions/anki';
 import { StoredCard } from '../store/reducers/cards';
 import { useTabAware } from './TabAwareProvider';
 import { Modes } from '../constants';
-import { FaDownload, FaTimes, FaEllipsisH, FaSearch, FaCheckSquare, FaCloud, FaCheckCircle, FaChevronRight, FaExclamationTriangle, FaDesktop, FaPlay, FaChartBar } from 'react-icons/fa';
+import { FaDownload, FaTimes, FaEllipsisH, FaSearch, FaCheckSquare, FaCloud, FaCheckCircle, FaChevronRight, FaChevronDown, FaExclamationTriangle, FaDesktop, FaPlay, FaChartBar, FaLayerGroup } from 'react-icons/fa';
 import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards, format_back_lang_learning, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
 import useErrorNotification from './useErrorHandler';
 import Menu from './ui/Menu';
@@ -27,6 +27,7 @@ import { ReviewLogEntry, StudyStats, appendReviewLog, computeStats, loadReviewLo
 import { flushPendingReviews, pullSrsUpdates, pushReview } from '../services/srsSync';
 import StudySession from './StoredCards/StudySession';
 import StatsPanel from './StoredCards/StatsPanel';
+import DeckSheet from './StoredCards/DeckSheet';
 import { cardsSyncApi, cardsStatsApi } from '../services/cardsSyncApi';
 import { DEFAULT_DECK_NAME } from '../services/cardsSyncService';
 import { useAuthenticatedRequest } from '../hooks/useAuthenticatedRequest';
@@ -144,9 +145,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const [instructionText, setInstructionText] = useState('');
     const [loadingInstruction, setLoadingInstruction] = useState(false);
     const [instructionStatus, setInstructionStatus] = useState<string | null>(null);
-    // The deck picker serves both the read-only preview and the editor, so it remembers
-    // which one opened it rather than being wired to the editor alone.
-    const [deckPickerFor, setDeckPickerFor] = useState<'edit' | 'preview' | null>(null);
+    // The deck picker serves the editor, the preview and plain "move these cards", so it
+    // remembers what opened it rather than being wired to the editor alone.
+    type DeckPickerTarget =
+        | { kind: 'edit' }
+        | { kind: 'preview' }
+        | { kind: 'cards'; ids: string[] };
+    const [deckPickerFor, setDeckPickerFor] = useState<DeckPickerTarget | null>(null);
+    const [showDeckSheet, setShowDeckSheet] = useState(false);
     // The debounced auto-save skips the first change after a card is opened (that first
     // change is just seeding localEditingCardData from the card, not a real edit).
     const skipNextAutoSave = useRef(true);
@@ -434,20 +440,32 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         setStudyCards(due.length > 0 ? due : filteredCards);
     }, [filteredCards]);
 
-    const deckFilterOptions = useMemo(() => {
+    // Decks with the two numbers that matter on the mobile deck list: how many cards are
+    // in it, and how many of those are ready to review.
+    const deckOptions = useMemo(() => {
         const ids = Object.keys(backendDeckNames);
         if (ids.length === 0) return [];
 
-        const options = [{ id: null as string | null, name: 'All', count: storedCards.length }];
+        const options = [{
+            id: null as string | null,
+            name: 'All cards',
+            count: storedCards.length,
+            due: storedCards.filter((card) => isDue(card.srsState)).length,
+        }];
+
         ids.forEach((id) => {
+            const inDeck = storedCards.filter((card) => cardMatchesDeck(card, id));
             options.push({
                 id,
                 name: backendDeckNames[id],
-                count: storedCards.filter((card) => cardMatchesDeck(card, id)).length,
+                count: inDeck.length,
+                due: inDeck.filter((card) => isDue(card.srsState)).length,
             });
         });
         return options;
     }, [backendDeckNames, storedCards, cardMatchesDeck]);
+
+    const activeDeckName = activeDeckId ? backendDeckNames[activeDeckId] : null;
 
     // A deck that disappears (renamed or deleted elsewhere) must not leave the list stuck
     // showing nothing with no obvious way back.
@@ -772,33 +790,21 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
     // Decks are the mobile app's primary way in, so the same grouping exists here: pick a
     // deck, see just its cards, study them.
-    const renderDeckFilter = () => {
-        if (!isLoggedIn || deckFilterOptions.length <= 1) return null;
+    // One control instead of a scrolling chip row: it names the deck in view and opens
+    // the full list, where each deck shows its due count and can be studied directly.
+    const renderDeckButton = () => {
+        if (!isLoggedIn || deckOptions.length <= 1) return null;
 
         return (
-            <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5">
-                {deckFilterOptions.map((option) => {
-                    const active = activeDeckId === option.id;
-                    return (
-                        <button
-                            key={option.id ?? 'all'}
-                            type="button"
-                            onClick={() => setActiveDeckId(option.id)}
-                            aria-pressed={active}
-                            className={[
-                                'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors',
-                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-                                active
-                                    ? 'border-accent-border bg-accent-subtle font-semibold text-accent'
-                                    : 'border-line bg-white font-medium text-gray-500 hover:bg-surface-sunken',
-                            ].join(' ')}
-                        >
-                            <span className="max-w-[120px] truncate">{option.name}</span>
-                            <span className={active ? 'text-accent/70' : 'text-gray-400'}>{option.count}</span>
-                        </button>
-                    );
-                })}
-            </div>
+            <button
+                type="button"
+                onClick={() => setShowDeckSheet(true)}
+                className="flex h-9 shrink-0 items-center gap-1.5 rounded-control border border-line bg-surface-muted px-2.5 text-xs font-medium text-gray-600 transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+                <FaLayerGroup size={11} className="shrink-0 text-gray-400" />
+                <span className="max-w-[110px] truncate">{activeDeckName || 'All cards'}</span>
+                <FaChevronDown size={9} className="shrink-0 text-gray-400" />
+            </button>
         );
     };
 
@@ -882,11 +888,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                     label={`Actions for ${front}`}
                                     items={[
                                         { value: 'edit', label: 'Edit card' },
+                                        ...(isLoggedIn ? [{ value: 'move', label: 'Move to deck' }] : []),
                                         { value: 'delete', label: 'Delete card' },
                                     ]}
                                     value={''}
                                     onSelect={(action) => {
                                         if (action === 'edit') handleStartEditing(card);
+                                        else if (action === 'move') setDeckPickerFor({ kind: 'cards', ids: [card.id] });
                                         else handleDelete(card);
                                     }}
                                     trigger={({ open, toggle }) => (
@@ -950,7 +958,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         setInstructionStatus(null);
         setLoadingInstruction(false);
         // Otherwise the picker would survive the modal that opened it.
-        setDeckPickerFor(prev => (prev === 'edit' ? null : prev));
+        setDeckPickerFor(prev => (prev?.kind === 'edit' ? null : prev));
         skipNextAutoSave.current = true;
         debugLog('Edit canceled, modal should be hidden now.');
     };
@@ -1475,7 +1483,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     // From the editor the change joins the debounced auto-save; from the preview there is
     // no draft to fold it into, so it is written straight through.
     const applyDeckChange = (patch: Partial<StoredCard>) => {
-        if (deckPickerFor === 'preview') {
+        if (deckPickerFor?.kind === 'preview') {
             if (!previewCard) return;
             // Persist outside the state updater: updaters must stay pure (React can run
             // them twice), and a doubled updateStoredCard would fire two syncs.
@@ -1484,6 +1492,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             tabAware.updateStoredCard(updated);
             return;
         }
+
+        if (deckPickerFor?.kind === 'cards') {
+            // Moving cards from the list: no draft to fold into, write straight through.
+            const ids = new Set(deckPickerFor.ids);
+            storedCards
+                .filter((card) => ids.has(card.id))
+                .forEach((card) => tabAware.updateStoredCard({ ...card, ...patch }));
+            return;
+        }
+
         setLocalEditingCardData(prev => prev ? ({ ...prev, ...patch }) : prev);
     };
 
@@ -1594,7 +1612,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
     // Where a card is saved, as chips — tapping anywhere on the row opens the picker, so
     // the destination can be changed from the preview as well as from the editor.
-    const renderDestinationRow = (card: StoredCard, target: 'edit' | 'preview') => {
+    const renderDestinationRow = (card: StoredCard, target: DeckPickerTarget) => {
         const effectiveAnkiDeck = card.ankiDeckName ?? deckId ?? null;
         const showAnki = Boolean(useAnkiConnect && isAnkiAvailable && effectiveAnkiDeck);
 
@@ -1634,7 +1652,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     // Rather than a dead greyed-out button, say why export is unavailable and offer the fix.
     const renderAnkiIssue = (
         issue: { text: string; action: 'settings' | 'deck' },
-        target: 'edit' | 'preview'
+        target: DeckPickerTarget
     ) => (
         <div className="flex items-center gap-2 rounded-control border border-line bg-white px-2.5 py-1.5">
             <FaExclamationTriangle size={10} className="shrink-0 text-warn" />
@@ -1695,10 +1713,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         />
 
                         <div className="border-t border-line pt-2.5">
-                            {renderDestinationRow(localEditingCardData, 'edit')}
+                            {renderDestinationRow(localEditingCardData, { kind: 'edit' })}
                         </div>
 
-                        {ankiIssue && renderAnkiIssue(ankiIssue, 'edit')}
+                        {ankiIssue && renderAnkiIssue(ankiIssue, { kind: 'edit' })}
 
                         <div className="flex items-center gap-2">
                             {!ankiIssue && (
@@ -1742,11 +1760,21 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     // One picker for both the preview and the editor; the target decides what it writes to.
     const renderDeckPicker = () => {
         if (!deckPickerFor) return null;
-        const card = deckPickerFor === 'preview' ? previewCard : localEditingCardData;
+        const card = deckPickerFor.kind === 'preview' ? previewCard
+            : deckPickerFor.kind === 'cards' ? storedCards.find((c) => c.id === deckPickerFor.ids[0])
+            : localEditingCardData;
         if (!card) return null;
 
         return (
-            <Modal open onClose={() => setDeckPickerFor(null)} title="Where this card is saved">
+            <Modal
+                open
+                onClose={() => setDeckPickerFor(null)}
+                title={
+                    deckPickerFor.kind === 'cards' && deckPickerFor.ids.length > 1
+                        ? `Move ${deckPickerFor.ids.length} cards`
+                        : 'Where this card is saved'
+                }
+            >
                 <div className="px-3 pb-3">
                     <DeckSelector
                         onBackendDeckChange={handleBackendDeckChangeInModal}
@@ -1999,10 +2027,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 className="h-9 w-full rounded-control border border-line bg-surface-muted pl-9 pr-3 text-sm text-gray-800 transition-colors placeholder:text-gray-400 focus:border-accent focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent/20"
                             />
                         </div>
+                        {renderDeckButton()}
                         {renderCloudStatusIcon()}
                     </div>
-
-                    {renderDeckFilter()}
 
                     {/* In selection mode this becomes a real select-all checkbox, sitting in
                         the same column as the row checkboxes. It used to be a small "All"
@@ -2096,6 +2123,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                             </label>
                         )}
                         <div className="flex items-center gap-2">
+                            {isLoggedIn && (
+                                <Button
+                                    size="sm"
+                                    onClick={() => setDeckPickerFor({ kind: 'cards', ids: selectedCards })}
+                                    disabled={selectedCards.length === 0}
+                                    icon={<FaLayerGroup size={11} />}
+                                >
+                                    Move
+                                </Button>
+                            )}
                             <Button
                                 size="sm"
                                 onClick={exportCardsAsFile}
@@ -2365,7 +2402,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             {previewCard && (
                 <Modal
                     open
-                    onClose={() => { setPreviewCard(null); setDeckPickerFor(prev => (prev === 'preview' ? null : prev)); }}
+                    onClose={() => { setPreviewCard(null); setDeckPickerFor(prev => (prev?.kind === 'preview' ? null : prev)); }}
                     title={(previewCard.text || previewCard.front || 'Card').trim() || 'Card'}
                     maxWidth={360}
                     footer={(() => {
@@ -2374,9 +2411,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                             <div className="flex flex-col gap-2.5">
                                 {/* Destination is editable straight from the preview: you no
                                     longer have to enter edit mode just to change a deck. */}
-                                {renderDestinationRow(previewCard, 'preview')}
+                                {renderDestinationRow(previewCard, { kind: 'preview' })}
 
-                                {previewAnkiIssue && renderAnkiIssue(previewAnkiIssue, 'preview')}
+                                {previewAnkiIssue && renderAnkiIssue(previewAnkiIssue, { kind: 'preview' })}
 
                                 {/* Equal halves rather than two small buttons huddled in the
                                     corner — the sheet is narrow, so they fill it. */}
@@ -2438,6 +2475,21 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 <Modal open onClose={() => setShowStats(false)} title="Statistics" maxWidth={360}>
                     <StatsPanel stats={stats} />
                 </Modal>
+            )}
+
+            {showDeckSheet && (
+                <DeckSheet
+                    decks={deckOptions}
+                    activeDeckId={activeDeckId}
+                    onSelect={setActiveDeckId}
+                    onStudy={(deckId) => {
+                        setActiveDeckId(deckId);
+                        const inDeck = storedCards.filter((card) => cardMatchesDeck(card, deckId));
+                        const due = inDeck.filter((card) => isDue(card.srsState));
+                        setStudyCards(due.length > 0 ? due : inDeck);
+                    }}
+                    onClose={() => setShowDeckSheet(false)}
+                />
             )}
 
             {/* Rendered last so it stacks above whichever modal opened it. */}
