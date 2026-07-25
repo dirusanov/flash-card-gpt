@@ -164,12 +164,20 @@ export abstract class BaseAIProvider implements AIProviderInterface {
    */
   protected getPrompts() {
     return {
-      translate: (text: string, language: string) => 
-        `Translate the following text to ${language}: "${text}".
+      translate: (text: string, language: string) => {
+        // Offering comma-separated alternatives is only sensible for a single word or short
+        // phrase (synonyms). For a full sentence, alternates joined by commas read as one
+        // broken run-on sentence, so ask for exactly one translation instead.
+        const isShortText = text.trim().split(/\s+/).filter(Boolean).length <= 4;
+        const variantsInstruction = isShortText
+          ? `If the word or short phrase commonly has more than one natural translation, provide 2–3 of the most common, separated by commas (e.g., "перевод1, перевод2, перевод3"). If it is clearly unambiguous, return just one.`
+          : `Return exactly ONE natural translation of the whole sentence. Do not offer alternative phrasings and do not join multiple versions with commas.`;
+        return `Translate the following text to ${language}: "${text}".
 Output ONLY the translation(s), without any additional text, explanations, quotes, examples, or formatting.
-If the word or short phrase commonly has more than one natural translation, provide 2–3 of the most common, separated by commas (e.g., "перевод1, перевод2, перевод3"). If it is clearly unambiguous, return just one.
+${variantsInstruction}
 Do not include definitions, examples, notes, or part of speech information like (noun), (verb), (adjective), etc.
-Only provide the clean translated word or phrase without any parenthetical information.`,
+Only provide the clean translated word or phrase without any parenthetical information.`;
+      },
       
       examples: (word: string, sourceLanguage?: string) => {
         // Если sourceLanguage указан, используем его, иначе позволяем модели определить
@@ -381,8 +389,14 @@ Rules:
         .sort((a, b) => a.length - b.length)
         .slice(0, 3);
 
+      // Joining with ", " only makes sense for synonym variants of a single word/short
+      // phrase. For a full sentence, several "variants" are alternate whole-sentence
+      // translations — joining them would glue unrelated sentences together, so just
+      // keep the best (shortest) one instead.
       // Если ничего не получилось распарсить — вернем первую строку как есть
-      let cleanedTranslation = variants.length > 0 ? variants.join(', ') : (normalized.split('\n')[0] || '').trim();
+      let cleanedTranslation = variants.length > 0
+        ? (isShortSourceText ? variants.join(', ') : variants[0])
+        : (normalized.split('\n')[0] || '').trim();
 
       if (!cleanedTranslation && response) {
         cleanedTranslation = (response.split('\n')[0] || '').trim();
@@ -804,9 +818,13 @@ IMPORTANT:
 USER_LANG: [how the word sounds in ${userLanguage}]
 IPA: [ˈaɪ.pi.eɪ notation]
 
-Example for Russian "короткая" with Spanish user language:
+Example for Russian "короткая" with Spanish user language (Latin script, since Spanish uses Latin script):
 USER_LANG: korotkaya
 IPA: [kəˈrotkəjə]
+
+Example for English "cat" with Russian user language (Cyrillic script, since Russian uses Cyrillic script):
+USER_LANG: кэт
+IPA: [kæt]
 
 Provide ONLY the two lines as shown above, no additional text.`;
   }

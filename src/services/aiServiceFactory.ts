@@ -11,7 +11,6 @@ class ApiKeyAuthorizationError extends Error {
 const API_KEY_ERROR_INDICATORS = [
   '401',
   'unauthorized',
-  'forbidden',
   'invalid api key',
   'incorrect api key',
   'authentication failed',
