@@ -15,6 +15,7 @@ import LanguagePairBar from "./CreateCard/LanguagePairBar";
 import DeckDestination from "./CreateCard/DeckDestination";
 import RegenerateControl from "./CreateCard/RegenerateControl";
 import GenerationChips from "./CreateCard/GenerationChips";
+import CardFrontInput from "./CreateCard/CardFrontInput";
 import Button from "./ui/Button";
 import Textarea from "./ui/Textarea";
 import Modal from "./ui/Modal";
@@ -4961,23 +4962,37 @@ Original text: ${text}`;
                         </div>
                     )}
 
-                    <label htmlFor="text" className="sr-only">
-                        Text for the card
-                    </label>
-                    <Textarea
-                        id="text"
-                        fill
-                        autoFocus
-                        value={textInputValue}
-                        onChange={(e) => handleTextChange(e.target.value)}
-                        onKeyDown={handleComposerKeyDown}
-                        onBlur={() => flushTextInputSync()}
-                        placeholder={
-                            mode === Modes.GeneralTopic
-                                ? 'Paste the text you want cards from — or select it on the page'
-                                : 'Paste a word or phrase — or select one on the page'
-                        }
-                    />
+                    {/* A language card is its headword, so you type it onto the front you
+                        will later flip. General mode takes pasted articles, where a big
+                        centred font would be unreadable — it keeps the plain composer.
+                        The card input labels itself, so the sr-only label belongs to the
+                        textarea branch rather than dangling over both. */}
+                    {mode === Modes.LanguageLearning ? (
+                        <CardFrontInput
+                            autoFocus
+                            value={textInputValue}
+                            onChange={handleTextChange}
+                            onKeyDown={handleComposerKeyDown}
+                            onBlur={() => flushTextInputSync()}
+                            placeholder="Type a word or phrase — or select one on the page"
+                        />
+                    ) : (
+                        <>
+                        <label htmlFor="text" className="sr-only">
+                            Text for the card
+                        </label>
+                        <Textarea
+                            id="text"
+                            fill
+                            autoFocus
+                            value={textInputValue}
+                            onChange={(e) => handleTextChange(e.target.value)}
+                            onKeyDown={handleComposerKeyDown}
+                            onBlur={() => flushTextInputSync()}
+                            placeholder="Paste the text you want cards from — or select it on the page"
+                        />
+                        </>
+                    )}
 
                     {cameFromSelection && textInputValue.trim() !== '' && (
                         <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-accent-subtle px-2.5 py-1 text-[11px] font-medium text-accent">
