@@ -883,29 +883,28 @@ export function createQualityLinguisticPrompt(
 The brief MUST be written entirely in: ${sourceLanguage}.
 
 CONSTRAINTS:
-- 1–2 bullet points only (2 max).
-- Each bullet: unique emoji + 1–2 words (no sentences).
-- Include ONLY essential information that is clearly applicable.
+- 1–3 lines only (3 max).
+- Each line: one emoji + a short label + a concise value (a tag, not a sentence).
+- Include ONLY essential information that clearly applies to "${text}".
 
 MANDATORY:
-1) First bullet is ALWAYS: "📚 Part of speech".
-2) Add AT MOST ONE extra characteristic IF relevant to "${text}".
+1) The FIRST line is ALWAYS part of speech, prefixed with 📚.
+2) Add extra lines ONLY when they genuinely apply (skip anything uncertain).
 
-ALLOWED EXTRA EMOJIS (pick at most one that really applies):
-- ⚥ Gender | 📋 Number | 🎯 Case | ⏰ Tense
+CHOOSE EMOJIS FROM (one per line, never repeat):
+📚 part of speech | ⚥ gender | 📋 number | 🎯 case | ⏰ tense | 🔀 aspect | 🔤 form
 
-OUTPUT LANGUAGE:
-- All labels and values must be in ${sourceLanguage} (not transliterated, no translations to other languages).
+OUTPUT FORMAT (plain text — NO HTML, NO markdown, NO bullets):
+<emoji> <label>: <value>
 
-FORMAT (exactly this HTML structure):
-<div class="grammar-item">
-  <span class="icon-pos">[emoji]</span> <strong>[label]:</strong> <span class="grammar-tag">[value]</span>
-</div>
+Example shape (translate labels/values into ${sourceLanguage}):
+📚 Part of speech: noun
+⚥ Gender: feminine
 
 RULES:
-- If an extra characteristic is not applicable or uncertain, OMIT it (do not guess).
-- Keep values as concise tags (e.g., “существительное”, “женский”, “множественное”, “родительный”, “прошедшее”).
-- No additional text before or after the HTML blocks.
+- All labels and values must be written in ${sourceLanguage} (not transliterated, not in another language).
+- Keep each value to 1–3 words.
+- One fact per line. No text before or after the lines.
 
 Create the brief for "${text}":`;
 }
@@ -950,6 +949,9 @@ ${originalReference}
 
 Если справка в целом корректна → ответь "СПРАВКА КОРРЕКТНА"
 Если есть существенные ошибки → создай исправленную версию
+
+ФОРМАТ исправленной версии (обычный текст, БЕЗ HTML и markdown, по одному факту на строку):
+<эмодзи> <метка>: <значение>
 
 ИСПРАВЬ если нужно:`;
 }
