@@ -154,9 +154,12 @@ const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
       ...mergeRemoteImageFields(local, remote),
       exportStatus: local.exportStatus ?? remote.exportStatus,
       ankiDeckName: local.ankiDeckName ?? remote.ankiDeckName,
-      // A note stored before study progress existed carries no schedule; taking the
-      // remote's `undefined` would silently reset the card to "new".
-      srsState: remote.srsState ?? local.srsState,
+      // The schedule comes from /sync, not from the note. `remote.srsState` is only the
+      // copy we ourselves wrote into fields_json, which the phone never updates — so a
+      // note re-pulled after the phone rescheduled the card would carry a stale value
+      // and undo what /sync/pull had just applied. Local wins; the note copy is used
+      // only when there is no local schedule at all, i.e. after a reinstall.
+      srsState: local.srsState ?? remote.srsState,
       syncPending: false,
     });
   });

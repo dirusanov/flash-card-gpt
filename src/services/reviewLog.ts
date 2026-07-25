@@ -71,7 +71,15 @@ export const loadReviewLogs = async (): Promise<ReviewLogEntry[]> => {
     if (!raw) return [];
     try {
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed.filter((entry) => entry?.cardId && entry?.grade) : [];
+        if (!Array.isArray(parsed)) return [];
+        // An unparseable date would bucket into a "NaN-NaN-NaN" day and quietly corrupt
+        // the heatmap and the streak, so entries are dropped rather than trusted.
+        return parsed.filter((entry) => (
+            entry?.cardId
+            && entry?.grade
+            && typeof entry.reviewedAt === 'string'
+            && !Number.isNaN(Date.parse(entry.reviewedAt))
+        ));
     } catch {
         return [];
     }
