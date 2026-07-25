@@ -145,21 +145,26 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   // saved-cards screen. Switching here also mounts CreateCard, which is what reads the value.
   useEffect(() => subscribeToPendingSelection(() => setCurrentPage('createCard')), [setCurrentPage]);
 
+  // Every screen now reaches Create through the tab bar, so none of them has to leave
+  // room at the top for a button that only existed to get back.
   const sharedContentStyle = useMemo<React.CSSProperties>(() => ({
     width: '100%',
     flex: 1,
-    paddingTop: currentPage !== 'createCard' ? '52px' : '8px',
+    paddingTop: '8px',
     paddingBottom: '58px',
     overflowY: 'auto',
     overflowX: 'hidden',
     boxSizing: 'border-box'
-  }), [currentPage]);
+  }), []);
 
   const cardContentStyle = useMemo<React.CSSProperties>(() => ({
     ...sharedContentStyle,
     display: 'flex',
     flexDirection: 'column',
-    position: 'relative'
+    position: 'relative',
+    // CreateCard scrolls its own composer and pins the primary action below it, so a
+    // second scroll container here would let that footer drift out of view.
+    overflowY: 'hidden'
   }), [sharedContentStyle]);
 
   const renderMainContent = () => {
@@ -182,62 +187,47 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
     }
   };
 
+  // Four destinations, four tabs. Create used to be a blue primary-looking button pinned
+  // above every other screen, which read as "make something" when its actual job was
+  // "go back" — and cost each of those screens 52px of top padding.
   const renderChrome = () => {
-    const shouldHideBottomNav = tabAware.isGeneratingCard;
-    return (
-      <>
-        {currentPage !== 'createCard' && (
-          <div style={{ position: 'absolute', top: '8px', left: '12px', right: '12px', zIndex: 20 }}>
-            <button
-              onClick={() => handlePageChange('createCard')}
-              style={{
-                backgroundColor: '#2563EB', border: 'none', cursor: 'pointer', padding: '8px 14px',
-                color: '#fff', borderRadius: 8, width: '100%', minHeight: 36, fontSize: 13,
-                fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                gap: '8px', lineHeight: 1.1, boxShadow: '0 1px 3px rgba(37,99,235,0.2)', transition: 'all .2s'
-              }}
-              onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#1D4ED8'; }}
-              onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#2563EB'; }}
-            >
-              <FaPlus size={14} />
-              <span>New Card</span>
-            </button>
-          </div>
-        )}
+    const tabs = [
+      { page: 'createCard', icon: <FaPlus size={15} />, label: 'Create', title: 'Create a new card' },
+      { page: 'storedCards', icon: <FaList size={15} />, label: 'Cards', title: 'View your saved cards' },
+      { page: 'auth', icon: <FaUser size={15} />, label: auth.accessToken ? 'Account' : 'Login', title: auth.accessToken ? 'Account' : 'Sign in to back up your cards' },
+      { page: 'settings', icon: <FaCog size={15} />, label: 'Settings', title: 'App settings and API configuration' },
+    ] as const;
 
-        {!shouldHideBottomNav && (
-          <div style={{ position: 'absolute', bottom: '8px', left: '12px', right: '12px', display: 'flex', gap: '6px', zIndex: 20 }}>
-            {([
-              { page: 'storedCards', icon: <FaList size={16} />, label: 'Cards', title: 'View your saved cards' },
-              { page: 'auth', icon: <FaUser size={16} />, label: auth.accessToken ? 'Account' : 'Login', title: auth.accessToken ? 'Account' : 'Sign in to sync cards' },
-              { page: 'settings', icon: <FaCog size={16} />, label: 'Settings', title: 'App settings and API configuration' },
-            ] as const).map(({ page, icon, label, title }) => {
-              const active = currentPage === page;
-              return (
-                <button
-                  key={page}
-                  onClick={() => handlePageChange(page)}
-                  className="nav-button"
-                  style={{
-                    backgroundColor: active ? '#EFF6FF' : '#F9FAFB',
-                    border: `1px solid ${active ? '#BFDBFE' : '#E5E7EB'}`,
-                    cursor: 'pointer', padding: '10px 14px',
-                    color: active ? '#2563EB' : '#6B7280',
-                    borderRadius: '10px', transition: 'all 0.2s ease', display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', justifyContent: 'center', flex: 1, gap: '3px', fontSize: '11px',
-                    fontWeight: active ? 600 : 500,
-                    boxShadow: active ? '0 2px 4px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)'
-                  }}
-                  title={title}
-                >
-                  {icon}
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </>
+    return (
+      <div className="absolute bottom-2 left-3 right-3 z-20 flex gap-1.5">
+        {tabs.map(({ page, icon, label, title }) => {
+          const active = currentPage === page;
+          // Generation is tab-scoped and cancelling it lives on the create screen, so the
+          // other tabs lock rather than the whole bar disappearing mid-run.
+          const locked = tabAware.isGeneratingCard && page !== 'createCard';
+          return (
+            <button
+              key={page}
+              onClick={() => handlePageChange(page)}
+              disabled={locked}
+              aria-current={active ? 'page' : undefined}
+              className={[
+                'flex flex-1 flex-col items-center justify-center gap-0.5 rounded-card border px-2 py-2 text-[11px]',
+                'transition-colors duration-150',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                'disabled:cursor-not-allowed disabled:opacity-40',
+                active
+                  ? 'border-accent-border bg-accent-subtle font-semibold text-accent'
+                  : 'border-line bg-surface-muted font-medium text-gray-500 hover:bg-surface-sunken',
+              ].join(' ')}
+              title={title}
+            >
+              {icon}
+              <span>{label}</span>
+            </button>
+          );
+        })}
+      </div>
     );
   };
 
