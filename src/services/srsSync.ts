@@ -1,5 +1,5 @@
 import { srsSyncApi, SyncChange } from './cardsSyncApi';
-import { CardSrsState, SrsGrade, normalizeSrsState } from './srs';
+import { CardSrsState, SrsGrade, createInitialSrsState, normalizeSrsState } from './srs';
 import { ReviewLogEntry } from './reviewLog';
 import { StoredCard } from '../store/reducers/cards';
 
@@ -141,8 +141,13 @@ export const pushReview = async (
  *
  * Each log is paired with its card's *current* schedule rather than the one it produced:
  * the server only needs the latest state, and replaying stale intermediate schedules
- * would be wrong anyway. Logs whose card has no `syncId`, or that no longer match a card,
- * are reported as handled so they stop being retried forever.
+ * would be wrong anyway.
+ *
+ * Returns the ids that no longer need retrying. A card that is simply not uploaded yet
+ * is **not** among them: studying signed out and then signing in leaves reviews whose
+ * cards get their `syncId` only once the login sync finishes, and giving up on them there
+ * would silently drop that whole session from the cloud. Only logs whose card is gone
+ * entirely are abandoned.
  */
 export const flushPendingReviews = async (
     baseUrl: string,
@@ -156,20 +161,27 @@ export const flushPendingReviews = async (
 
     const changes: SyncChange[] = [];
     const sendable: string[] = [];
-    const undeliverable: string[] = [];
+    const abandoned: string[] = [];
     const seenCards = new Set<string>();
 
     for (const log of batch) {
         const card = cardsById.get(log.cardId);
-        if (!card?.syncId || !card.srsState) {
-            undeliverable.push(log.id);
+
+        if (!card) {
+            // The card was deleted; there is nothing left to attach the review to.
+            abandoned.push(log.id);
+            continue;
+        }
+
+        if (!card.syncId) {
+            // Not uploaded yet — stay pending and try again once it has been.
             continue;
         }
 
         // One card change per card, however many of its reviews are queued.
         if (!seenCards.has(card.syncId)) {
             seenCards.add(card.syncId);
-            changes.push(buildCardChange(card.syncId, card, card.srsState));
+            changes.push(buildCardChange(card.syncId, card, card.srsState ?? createInitialSrsState()));
         }
         changes.push(buildReviewLogChange(card.syncId, log));
         sendable.push(log.id);
@@ -179,7 +191,7 @@ export const flushPendingReviews = async (
         await srsSyncApi.push(baseUrl, accessToken, changes);
     }
 
-    return [...sendable, ...undeliverable];
+    return [...sendable, ...abandoned];
 };
 
 export interface PulledSrs {

@@ -197,6 +197,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const storedCardsRef = useRef(storedCards);
     storedCardsRef.current = storedCards;
 
+    // Grows as the login sync uploads cards, which is what re-triggers the flush below.
+    const syncedCardCount = useMemo(
+        () => storedCards.filter((card) => Boolean(card.syncId)).length,
+        [storedCards]
+    );
+
     // Anything studied while offline goes up as soon as there is a connection again.
     useEffect(() => {
         if (!isLoggedIn) return undefined;
@@ -217,8 +223,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         });
 
         return () => { cancelled = true; };
+        // Re-runs as cards acquire syncIds after signing in — exactly when reviews
+        // studied signed out become deliverable. A run with nothing pending sends no
+        // request, so this stays quiet.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isLoggedIn, syncApiUrl]);
+    }, [isLoggedIn, syncApiUrl, syncedCardCount]);
 
     useEffect(() => {
         if (!isLoggedIn) return undefined;
