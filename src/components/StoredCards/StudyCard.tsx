@@ -45,6 +45,26 @@ const FACE_CHROME = 3;
 const maxCardHeight = () =>
     Math.min(MAX_CARD_HEIGHT, Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * 0.68));
 
+/**
+ * How tall the card may grow inside its sheet.
+ *
+ * Measuring the container directly is circular — the sheet sizes itself to its content,
+ * so the card would be capped by its own current height and could never grow. What is
+ * stable is the sheet's *limit* and the chrome around the body: header and footer do not
+ * depend on the card. Returns 0 outside a sheet, where the viewport bound is the answer.
+ */
+const measureRoom = (root: HTMLElement | null): number => {
+    const body = root?.parentElement;
+    const sheet = root?.closest('[role="dialog"]') as HTMLElement | null;
+    if (!body || !sheet) return 0;
+
+    const limit = parseFloat(getComputedStyle(sheet).maxHeight);
+    if (!Number.isFinite(limit) || limit <= 0) return 0;
+
+    const chrome = sheet.clientHeight - body.clientHeight;
+    return Math.round(limit - chrome - ROOT_VERTICAL_PADDING);
+};
+
 // A flip study card that mirrors vaulto-cards' FlashCard: white "question" side with the
 // word, tap to flip to the mint "answer" side with the translation, image, grammar and
 // examples. With `editable`, the very same card becomes the editor — the fields turn into
@@ -99,9 +119,10 @@ const StudyCard: React.FC<StudyCardProps> = ({
             // re-render on every frame of the flip for nothing.
             setFaceHeights((prev) => (prev.front === front && prev.back === back ? prev : { front, back }));
 
-            const container = rootRef.current?.parentElement;
-            const room = container ? container.clientHeight - ROOT_VERTICAL_PADDING : 0;
-            setAvailableHeight((prev) => (prev === room ? prev : room));
+            setAvailableHeight((prev) => {
+                const room = measureRoom(rootRef.current);
+                return prev === room ? prev : room;
+            });
         };
 
         measure();
