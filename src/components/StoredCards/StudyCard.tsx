@@ -29,6 +29,8 @@ interface StudyCardProps {
 // front a thin strip — the resting height is what makes it read as a card.
 const STANDARD_CARD_HEIGHT = 340;
 const MAX_CARD_HEIGHT = 600;
+/** `pt-2` + `pb-4` on the card's own wrapper, which eats into the room it is given. */
+const ROOT_VERTICAL_PADDING = 24;
 /**
  * What the shell must add on top of a face's own content height.
  *
@@ -82,17 +84,24 @@ const StudyCard: React.FC<StudyCardProps> = ({
     // long answer — and neither gets a scrollbar until it genuinely needs one.
     const frontRef = useRef<HTMLDivElement>(null);
     const backRef = useRef<HTMLDivElement>(null);
+    const rootRef = useRef<HTMLDivElement>(null);
     const [faceHeights, setFaceHeights] = useState({ front: 0, back: 0 });
+    // How much room the sheet actually gives the card. Capping against the viewport
+    // instead let the card grow taller than the modal body, so the body scrolled *and*
+    // the card scrolled — two scrollbars for one overflow.
+    const [availableHeight, setAvailableHeight] = useState(0);
 
     useLayoutEffect(() => {
-        if (editable) return undefined;
-
         const measure = () => {
             const front = frontRef.current?.scrollHeight ?? 0;
             const back = backRef.current?.scrollHeight ?? 0;
             // Only re-render on a real change: a fresh object every observer tick would
             // re-render on every frame of the flip for nothing.
             setFaceHeights((prev) => (prev.front === front && prev.back === back ? prev : { front, back }));
+
+            const container = rootRef.current?.parentElement;
+            const room = container ? container.clientHeight - ROOT_VERTICAL_PADDING : 0;
+            setAvailableHeight((prev) => (prev === room ? prev : room));
         };
 
         measure();
@@ -102,6 +111,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
         if (observer) {
             if (frontRef.current) observer.observe(frontRef.current);
             if (backRef.current) observer.observe(backRef.current);
+            if (rootRef.current?.parentElement) observer.observe(rootRef.current.parentElement);
         }
         window.addEventListener('resize', measure);
 
@@ -115,10 +125,13 @@ const StudyCard: React.FC<StudyCardProps> = ({
     // card — and the sheet around it — resize mid-flip, which is exactly the jump a flip
     // should not have. Both faces share one height, so turning the card only turns it.
     const tallestFace = Math.max(faceHeights.front, faceHeights.back);
-    // The cap is applied last: on a short window it has to win over the resting height,
-    // or the card would grow past what the sheet can show.
+    // Never taller than the room the sheet gives, so overflow is handled once — inside
+    // the card — instead of by both the card and its container.
+    const cap = availableHeight > 0 ? Math.min(maxCardHeight(), availableHeight) : maxCardHeight();
+    // The cap is applied last: on a short sheet it has to win over the resting height,
+    // or the card would grow past what can be shown.
     const shellHeight = Math.min(
-        maxCardHeight(),
+        cap,
         Math.max(STANDARD_CARD_HEIGHT, tallestFace > 0 ? tallestFace + FACE_CHROME : 0)
     );
 
@@ -172,10 +185,10 @@ const StudyCard: React.FC<StudyCardProps> = ({
         };
 
         return (
-            <div className="px-4 pb-4 pt-2">
+            <div ref={rootRef} className="px-4 pb-4 pt-2">
                 <div
                     className={`overflow-y-auto rounded-sheet border border-ok-border bg-ok-subtle p-4 shadow-card ${busy ? 'pointer-events-none opacity-60' : ''}`}
-                    style={{ minHeight: Math.min(STANDARD_CARD_HEIGHT, maxCardHeight()), maxHeight: maxCardHeight() }}
+                    style={{ minHeight: Math.min(STANDARD_CARD_HEIGHT, cap), maxHeight: cap }}
                 >
                     {/* Word — the card's title, edited in place */}
                     <input
@@ -261,7 +274,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
 
     // ─── Read mode: the flip study card ────────────────────────────────────────
     return (
-        <div className="px-4 pb-4 pt-2" style={{ perspective: 1200 }}>
+        <div ref={rootRef} className="px-4 pb-4 pt-2" style={{ perspective: 1200 }}>
             <div
                 className="relative w-full transition-[transform,height] duration-500"
                 style={{
