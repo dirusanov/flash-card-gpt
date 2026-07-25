@@ -120,13 +120,18 @@ const StudySession: React.FC<StudySessionProps> = ({ cards, onClose, onReview })
                         />
                     </div>
 
-                    {flipped ? (
-                        <RatingButtons onRate={handleRate} intervalPreviews={intervalPreviews} />
-                    ) : (
-                        <Button variant="primary" fullWidth onClick={() => setFlipped(true)}>
-                            Show answer
-                        </Button>
-                    )}
+                    {/* The rating row is taller than the reveal button, and the card is
+                        sized by the room this footer leaves — so the slot keeps one height
+                        and revealing an answer does not resize the card underneath it. */}
+                    <div className="flex min-h-[74px] flex-col justify-end">
+                        {flipped ? (
+                            <RatingButtons onRate={handleRate} intervalPreviews={intervalPreviews} />
+                        ) : (
+                            <Button variant="primary" fullWidth onClick={() => setFlipped(true)}>
+                                Show answer
+                            </Button>
+                        )}
+                    </div>
                 </div>
             }
         >

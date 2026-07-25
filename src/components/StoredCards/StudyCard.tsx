@@ -24,24 +24,13 @@ interface StudyCardProps {
     onGrammarChange?: (serialized: string) => void;
 }
 
-// Cards rest at one comfortable size and only grow past it when there is genuinely more
-// to show. A question is usually a single word, so sizing purely to content made the
-// front a thin strip — the resting height is what makes it read as a card.
-const STANDARD_CARD_HEIGHT = 340;
+// A card simply takes the room it is given. Sizing it to its content meant measuring both
+// faces, reconciling them so the flip did not jump, and animating between sizes — a lot of
+// machinery whose best case still looked like the card growing at you. One size, decided
+// once, is steadier to read and to reason about.
 const MAX_CARD_HEIGHT = 600;
 /** `pt-2` + `pb-4` on the card's own wrapper, which eats into the room it is given. */
 const ROOT_VERTICAL_PADDING = 24;
-/**
- * What the shell must add on top of a face's own content height.
- *
- * Each face is `absolute inset-0` with a 1px border, so its border-box equals the shell
- * while its content box is 2px shorter — and the scroll area inside resolves `h-full`
- * against that content box. Sizing the shell to the bare content therefore left the face
- * 2px short and produced a permanent sliver of a scrollbar. The third pixel absorbs
- * sub-pixel rounding, since `scrollHeight` is an integer approximation of a fractional
- * layout height.
- */
-const FACE_CHROME = 3;
 const maxCardHeight = () =>
     Math.min(MAX_CARD_HEIGHT, Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * 0.68));
 
@@ -98,41 +87,24 @@ const StudyCard: React.FC<StudyCardProps> = ({
         setImageHidden(false);
     }, [resetKey, card.id]);
 
-    // Both faces are absolutely positioned so they can share one 3D box, which means the
-    // box has to be told how tall to be. Measure each face's natural height and follow
-    // whichever one is showing, so a one-word front is not padded out to the height of a
-    // long answer — and neither gets a scrollbar until it genuinely needs one.
-    const frontRef = useRef<HTMLDivElement>(null);
-    const backRef = useRef<HTMLDivElement>(null);
     const rootRef = useRef<HTMLDivElement>(null);
-    const [faceHeights, setFaceHeights] = useState({ front: 0, back: 0 });
-    // How much room the sheet actually gives the card. Capping against the viewport
-    // instead let the card grow taller than the modal body, so the body scrolled *and*
-    // the card scrolled — two scrollbars for one overflow.
+    // How much room the sheet gives the card. Bounding by the viewport alone let the card
+    // grow taller than the modal body, so the body scrolled *and* the card scrolled — two
+    // scrollbars for one overflow.
     const [availableHeight, setAvailableHeight] = useState(0);
 
     useLayoutEffect(() => {
-        const measure = () => {
-            const front = frontRef.current?.scrollHeight ?? 0;
-            const back = backRef.current?.scrollHeight ?? 0;
-            // Only re-render on a real change: a fresh object every observer tick would
-            // re-render on every frame of the flip for nothing.
-            setFaceHeights((prev) => (prev.front === front && prev.back === back ? prev : { front, back }));
-
-            setAvailableHeight((prev) => {
-                const room = measureRoom(rootRef.current);
-                return prev === room ? prev : room;
-            });
-        };
+        const measure = () => setAvailableHeight((prev) => {
+            const room = measureRoom(rootRef.current);
+            return prev === room ? prev : room;
+        });
 
         measure();
 
-        // Images and audio buttons arrive late, and the panel itself can be resized.
+        // The panel can be resized, and the sheet's footer changes height with its state.
         const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-        if (observer) {
-            if (frontRef.current) observer.observe(frontRef.current);
-            if (backRef.current) observer.observe(backRef.current);
-            if (rootRef.current?.parentElement) observer.observe(rootRef.current.parentElement);
+        if (observer && rootRef.current?.parentElement) {
+            observer.observe(rootRef.current.parentElement);
         }
         window.addEventListener('resize', measure);
 
@@ -140,21 +112,12 @@ const StudyCard: React.FC<StudyCardProps> = ({
             observer?.disconnect();
             window.removeEventListener('resize', measure);
         };
-    }, [editable, card.id, imageHidden]);
+    }, [editable, card.id]);
 
-    // Size to the taller face, not the one on screen. Following the visible face made the
-    // card — and the sheet around it — resize mid-flip, which is exactly the jump a flip
-    // should not have. Both faces share one height, so turning the card only turns it.
-    const tallestFace = Math.max(faceHeights.front, faceHeights.back);
-    // Never taller than the room the sheet gives, so overflow is handled once — inside
-    // the card — instead of by both the card and its container.
-    const cap = availableHeight > 0 ? Math.min(maxCardHeight(), availableHeight) : maxCardHeight();
-    // The cap is applied last: on a short sheet it has to win over the resting height,
-    // or the card would grow past what can be shown.
-    const shellHeight = Math.min(
-        cap,
-        Math.max(STANDARD_CARD_HEIGHT, tallestFace > 0 ? tallestFace + FACE_CHROME : 0)
-    );
+    // One height for everything: both faces, every card, from the first frame.
+    const shellHeight = availableHeight > 0
+        ? Math.min(maxCardHeight(), availableHeight)
+        : maxCardHeight();
 
     useEffect(() => () => {
         audioRef.current?.pause();
@@ -209,7 +172,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
             <div ref={rootRef} className="px-4 pb-4 pt-2">
                 <div
                     className={`overflow-y-auto rounded-sheet border border-ok-border bg-ok-subtle p-4 shadow-card ${busy ? 'pointer-events-none opacity-60' : ''}`}
-                    style={{ minHeight: Math.min(STANDARD_CARD_HEIGHT, cap), maxHeight: cap }}
+                    style={{ height: shellHeight }}
                 >
                     {/* Word — the card's title, edited in place */}
                     <input
@@ -297,7 +260,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
     return (
         <div ref={rootRef} className="px-4 pb-4 pt-2" style={{ perspective: 1200 }}>
             <div
-                className="relative w-full transition-[transform,height] duration-500"
+                className="relative w-full transition-transform duration-500"
                 style={{
                     height: shellHeight,
                     transformStyle: 'preserve-3d',
@@ -313,7 +276,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                 >
                     {/* `m-auto` centres the face while there is room and simply stops when
                         there is not — unlike justify-center, which clips overflow. */}
-                    <div ref={frontRef} className="m-auto flex w-full flex-col items-center gap-2 p-5">
+                    <div className="m-auto flex w-full flex-col items-center gap-2 p-5">
                         <span className="text-[32px] font-bold leading-tight tracking-tight text-gray-900">
                             {word || 'Untitled card'}
                         </span>
@@ -348,7 +311,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         role="button"
                         aria-label="Back to question"
                     >
-                    <div ref={backRef} className="p-4">
+                    <div className="p-4">
                         <div className="mb-2 text-center text-[13px] font-semibold text-gray-500">{word}</div>
 
                         {imageUrl && (
