@@ -32,17 +32,20 @@ action, not a filter (see §11).
 
 Toolbar, top to bottom:
 
-- **Search + cloud icon.** The icon is the whole sync status: green cloud = everything
-  backed up, spinner = still syncing (count in the tooltip), accent cloud = signed out.
-  Clicking it goes to Settings (signed in) or the auth screen (signed out).
-- **Deck chips** — `All` plus one chip per Vaulto deck with counts. Only when signed in
-  and more than one deck exists. Cards with no explicit `deckId` are counted under the
-  **default deck** (`Vaulto Cards`), because that is where they physically land.
+- **Search, deck button, sync status** share one row.
+  - The deck button names the deck in view and opens the deck sheet (§8).
+  - Signed in, sync is a quiet icon: green cloud when everything is backed up, a spinner
+    while it is not (count in the tooltip). It opens Settings.
+  - Signed out it becomes loud, because that is the only state that can lose data: a
+    struck-through cloud labelled **"Not backed up"** in warning colours, opening sign-in.
+    The slash is drawn with a rotated bar — Font Awesome 5 free has no `cloud-slash`, and
+    a plain cloud reads as "fine".
 - **Row of actions** — card count, 📊 statistics, ▶ **Study** (with the due count), and
   *Select* for bulk mode.
 
 A row shows front/back, an `Anki` tag if exported, a faint cloud **only** if the card has
-not reached the cloud yet, and its age. Tapping a row opens the preview.
+not reached the cloud yet, and its age. Tapping a row opens the preview; the `⋯` menu
+holds *Edit*, *Move to deck* and *Delete*. Selection mode adds a bulk **Move**.
 
 ---
 
@@ -60,8 +63,29 @@ drops you into a different-looking screen.
   clipped.
 
 Both the preview and the editor can change the deck and export to Anki — you do **not**
-have to enter edit mode to do either. The deck picker is one component driven by
-`deckPickerFor: 'edit' | 'preview' | null`.
+have to enter edit mode to do either. One deck picker serves the editor, the preview and
+plain "move these cards", driven by `deckPickerFor: {kind: 'edit'} | {kind: 'preview'} |
+{kind: 'cards', ids}`.
+
+### Card sizing
+
+A card takes the room its sheet gives it — one height for both faces, every card, from the
+first frame. That is deliberately dumber than it was: sizing to content meant measuring
+both faces, reconciling them so the flip did not jump, adding back the 2px the faces'
+borders ate, and animating between sizes, and the best that produced was a card that grew
+at you.
+
+The one bound that remains stops a second scrollbar. The cap is the **sheet's limit**
+(read from its computed `max-height`) minus the header and footer, not the container's
+current height — the sheet sizes itself to its content, so measuring it directly is
+circular and pins the card to whatever height it already had. Outside a sheet the viewport
+bound applies. A `ResizeObserver` on the body keeps it current.
+
+Because the card is sized by the room the footer leaves, a footer that changes height
+would resize the card. The study session therefore reserves the rating row's height even
+before the answer is revealed.
+
+Overflow is handled once, inside the card.
 
 Edits **auto-save** (debounced 800 ms) and, when signed in, auto-sync. There is no Save
 button; *Done* just closes.
@@ -137,7 +161,9 @@ due it falls back to the whole selection.
 5. **Answer quality** — 14 days, good/easy vs hard/again.
 6. **Forecast** — cards due over the next 14 days.
 
-Review logs are stored locally under `vaulto_review_logs` and capped at 20 000 entries.
+Review logs are stored locally under `vaulto_review_logs`, capped at 20 000 entries, and
+dropped on load if `reviewedAt` will not parse — such an entry buckets into a
+`NaN-NaN-NaN` day and quietly corrupts the heatmap and the streak.
 
 **Where the numbers come from.** Review logs are pushed to the server but never pulled
 back — `/sync/pull` carries no `review_log` entries — so a local calculation can only
@@ -198,11 +224,22 @@ rows. A card with no `syncId` has never been uploaded and is skipped entirely.
 `srsState: createInitialSrsState()` and never reads it. That field is therefore only a
 local reinstall backup — the `/sync` channel is what actually crosses devices.
 
-- **Push** happens after each grade, best-effort: a failure is logged as
-  `Failed to push review to Vaulto Cloud:` and never costs the user their review.
+- **Push** happens after each grade, best-effort: it never costs the user their review.
+- **Reviews that do not get through stay queued.** A log carries `pendingSync` until the
+  server accepts it, and opening the Cards screen with a connection flushes the backlog in
+  one request — one card change per card carrying its *current* schedule (the server only
+  wants the latest; replaying stale intermediate schedules would be wrong) plus every
+  queued log. Without this, studying offline was silently lost to the cloud.
+  A card that is merely **not uploaded yet stays queued** rather than being abandoned:
+  that is the studied-signed-out path, where cards get their `syncId` only once the login
+  sync finishes. Only a log whose card is gone entirely is dropped. The flush re-runs as
+  cards acquire `syncId`s.
 - **Pull** runs when the Cards screen opens while signed in, paginating 200 at a time and
   storing the cursor in `vaulto_srs_sync_cursor`. Its payload carries SRS only, so it is
-  merged onto existing cards and creates nothing.
+  merged onto existing cards and creates nothing. Timestamps are canonicalised on the way
+  in and compared semantically (`srsEquals`) — the server sends Python `isoformat`
+  (`…+00:00`) where we store `toISOString` (`….000Z`), and a string compare would treat
+  every pulled schedule as a change and rewrite every card on every pull.
 - `interval_days` is rounded to whole days (a sub-day "again" becomes `0`); the real
   10-minute delay lives in `due_at`. Mobile rounds identically.
 
@@ -210,8 +247,11 @@ local reinstall backup — the `/sync` channel is what actually crosses devices.
 
 - Login forces `autoSaveToServer = true` (`cardsSyncMiddleware.ts`).
 - Merge keeps local `exportStatus`/`ankiDeckName`, and uses
-  `srsState: remote.srsState ?? local.srsState` so an older note without a schedule cannot
-  silently reset a card to "new".
+  `srsState: local.srsState ?? remote.srsState` — **local wins**. `remote.srsState` is only
+  the copy we ourselves wrote into `fields_json`, which the phone never updates, so a note
+  re-pulled after the phone rescheduled a card would carry a stale value and undo what
+  `/sync/pull` had just applied. The note copy is used only when there is no local
+  schedule, i.e. after a reinstall.
 - `updateNote` sends `deck_id`, **but only when the card has an explicit local deck**.
   The deck resolution falls back to the default deck, and since the server honours
   `deck_id` on update, sending that fallback would drag a card filed elsewhere (on the
@@ -242,6 +282,34 @@ source of unexplained Vaulto decks.
 the service icon carries the service name so the deck name never repeats it. The Anki chip
 hides when AnkiConnect is off or unreachable.
 
+### Browsing and managing decks
+
+`src/components/StoredCards/DeckSheet.tsx` is the mobile deck list, sized for the panel:
+every deck with its card count, its due count and a ▶ button that studies it directly.
+"All cards" is the first row. It replaced a horizontal chip row, which scrolled out of
+sight once there were a few decks and had nowhere to put a due count.
+
+Rename is inline; delete asks first and says that the cards move to the default deck.
+
+**The default deck is found by name**, which makes two operations dangerous, and both are
+blocked rather than documented:
+
+- It offers neither rename nor delete. Renaming it would make the next deckless card
+  create a second one; deleting it would leave nothing to move cards into.
+- No other deck may be renamed *to* that name, for the same reason from the other side.
+
+**Deleting never destroys cards.** The client always passes `move_to`, and if the default
+deck is not known yet it refuses the delete instead of risking it — without a target the
+server soft-deletes the cards along with the deck.
+
+This needed a backend change (`services/cards_sync_service`). `DELETE /decks/{id}` used to
+flip `is_deleted` on the deck alone, leaving its notes and cards pointing at a deck that no
+longer existed; `/notes` still returned them, so they came back on the next full sync and
+the mobile app's "delete this deck and all its cards, this cannot be undone" quietly undid
+itself. Deletion now settles the contents in the same transaction: `move_to` reassigns
+them, and without it they are soft-deleted too. Every moved or deleted row logs a sync
+change so other devices converge.
+
 ---
 
 ## 9. Storage keys
@@ -259,24 +327,32 @@ hides when AnkiConnect is off or unreachable.
 
 ```
 services/
-  srs.ts                 SM-2 engine (port of mobile sm2.ts)
-  reviewLog.ts           review log storage + computeStats (port of useStats)
-  srsSync.ts             /sync/push + /sync/pull client, cursor
+  srs.ts                 SM-2 engine (port of mobile sm2.ts) + srsEquals
+  reviewLog.ts           log storage, pendingSync, computeStats, server-stats mapping
+  srsSync.ts             /sync/push + /sync/pull client, cursor, offline flush
   instructionRouter.ts   model-driven intent routing
   grammar.ts             structured grammar parse/serialize
-  cardsSyncApi.ts        /notes + srsSyncApi
+  cardsSyncApi.ts        /notes, /decks, srsSyncApi, cardsStatsApi
   cardsSyncService.ts    note<->card mapping, DEFAULT_DECK_NAME
 components/
-  StoredCards.tsx                 list, filters, preview/edit, export, study entry
+  StoredCards.tsx                 list, deck filter, preview/edit, export, study entry
   StoredCards/StudyCard.tsx       flip card, also the in-place editor
   StoredCards/StudySession.tsx    SRS session
   StoredCards/RatingButtons.tsx   again/hard/good/easy + previews
   StoredCards/StatsPanel.tsx      six statistics blocks
+  StoredCards/DeckSheet.tsx       deck list: counts, due, study, rename, delete
   StoredCards/InstructionComposer.tsx
+  CreateCard/CardFrontInput.tsx   the composer as the card's front face
   CreateCard/DeckSelector.tsx     Vaulto + Anki destinations
   CreateCard/DeckDestination.tsx  one-line summary
   ui/Modal.tsx, ui/Button.tsx, ui/AutoTextarea.tsx
 ```
+
+`CreateCard/CardFrontInput.tsx` makes the composer the face you will later flip: one big
+centred word on a white sheet. Language cards only — general mode takes pasted articles,
+where a 30px centred font would be unreadable. It keeps `flex-1` so it fills the panel
+rather than leaving a gap above the footer, and its floor sits well under the resting
+height, because a hard minimum overflowed a short panel and put a scrollbar on the column.
 
 `ui/Modal.tsx` keeps a module-level stack of open modals so only the **topmost** reacts to
 Escape and traps Tab, and it holds `onClose` in a ref — otherwise the focus effect re-ran
@@ -294,6 +370,10 @@ on every keystroke and stole the caret after one character.
   Anki.
 - **Per-card sync status removed** from the editor footer: one global indicator is enough.
 - **No keyword intent routing.** See §4.
+- **Cards do not size to their content.** One height, both faces, decided once. The
+  content-fitting version is written up in §3 along with why it was not worth its cost —
+  don't rebuild it.
+- **The composer card is language-only.** General mode keeps a plain textarea on purpose.
 
 ## 12. Known gaps
 
