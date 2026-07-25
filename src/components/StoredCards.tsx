@@ -614,17 +614,22 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             const modelName = 'Basic';
             const selectedCardsData = storedCards.filter(card => selectedCardIds.has(card.id));
 
-            // Group cards by target deck and mode
+            // Group cards by target deck and mode. IDs are tracked in parallel arrays (same
+            // index as the corresponding card) so a partial AnkiConnect failure — some notes
+            // in a batch rejected as duplicates — can be mapped back to the specific cards
+            // that did or didn't actually make it into Anki.
             const exportGroups: Record<string, {
                 lang: CardLangLearning[];
+                langIds: string[];
                 general: CardGeneral[];
+                generalIds: string[];
             }> = {};
 
             // Process cards one by one to handle async image processing
             for (const card of selectedCardsData) {
                 const targetDeckName = card.ankiDeckName || deckId;
                 if (!exportGroups[targetDeckName]) {
-                    exportGroups[targetDeckName] = { lang: [], general: [] };
+                    exportGroups[targetDeckName] = { lang: [], langIds: [], general: [], generalIds: [] };
                 }
 
                 if (card.mode === Modes.LanguageLearning && card.translation) {
@@ -662,6 +667,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                     });
 
                     exportGroups[targetDeckName].lang.push(ankiCard);
+                    exportGroups[targetDeckName].langIds.push(card.id);
                 } else if (card.mode === Modes.GeneralTopic && (card.front || card.text) && (card.back || card.text)) {
                     // Process image data for GeneralTopic cards too
                     let processedImageBase64 = null;
@@ -723,41 +729,75 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                     });
 
                     exportGroups[targetDeckName].general.push(generalCard);
+                    exportGroups[targetDeckName].generalIds.push(card.id);
                 }
             }
 
-            // Export each group to its respective deck
+            // Export each group to its respective deck. Each dispatch is wrapped in its own
+            // try/catch so a whole-batch failure in one deck's group (e.g. every note in it
+            // already exists in Anki) does not abort the groups still waiting to be sent.
+            const succeededIds = new Set<string>();
+            let lastGroupError: unknown = null;
+
             for (const [targetDeckName, groups] of Object.entries(exportGroups)) {
                 if (groups.lang.length > 0) {
-                    await dispatch(saveAnkiCards(
-                        Modes.LanguageLearning,
-                        ankiConnectUrl,
-                        ankiConnectApiKey,
-                        targetDeckName,
-                        modelName,
-                        groups.lang
-                    ));
+                    try {
+                        const langResult = await dispatch(saveAnkiCards(
+                            Modes.LanguageLearning,
+                            ankiConnectUrl,
+                            ankiConnectApiKey,
+                            targetDeckName,
+                            modelName,
+                            groups.lang
+                        ));
+                        groups.langIds.forEach((cardId, i) => {
+                            if (langResult?.[i] != null) succeededIds.add(cardId);
+                        });
+                    } catch (error) {
+                        lastGroupError = error;
+                    }
                 }
                 if (groups.general.length > 0) {
-                    await dispatch(saveAnkiCards(
-                        Modes.GeneralTopic,
-                        ankiConnectUrl,
-                        ankiConnectApiKey,
-                        targetDeckName,
-                        modelName,
-                        groups.general
-                    ));
+                    try {
+                        const generalResult = await dispatch(saveAnkiCards(
+                            Modes.GeneralTopic,
+                            ankiConnectUrl,
+                            ankiConnectApiKey,
+                            targetDeckName,
+                            modelName,
+                            groups.general
+                        ));
+                        groups.generalIds.forEach((cardId, i) => {
+                            if (generalResult?.[i] != null) succeededIds.add(cardId);
+                        });
+                    } catch (error) {
+                        lastGroupError = error;
+                    }
                 }
             }
 
-            // Update export status for selected cards
-            selectedCards.forEach(cardId => {
+            // Only mark the cards Anki actually accepted — a duplicate or other per-note
+            // rejection must never be reported back to the user as a successful export.
+            succeededIds.forEach(cardId => {
                 tabAware.updateCardExportStatus(cardId, 'exported_to_anki');
                 debugLog(`Updated card ${cardId} export status to 'exported_to_anki'`);
             });
             setSelectedCards([]);
 
-            showError(getAnkiSaveSuccessMessage(selectedCards.length), 'success');
+            const failedCount = selectedCards.length - succeededIds.size;
+            if (failedCount === 0) {
+                showError(getAnkiSaveSuccessMessage(selectedCards.length), 'success');
+            } else if (succeededIds.size === 0) {
+                showError(
+                    getAnkiSaveErrorMessage(lastGroupError, selectedCards.length),
+                    isAnkiDuplicateError(lastGroupError) ? 'warning' : 'error'
+                );
+            } else {
+                showError(
+                    `${succeededIds.size} of ${selectedCards.length} cards saved to Anki. ${failedCount} were not added (likely already exist there).`,
+                    'warning'
+                );
+            }
 
             // Verify export statuses in active tab state after update.
             setTimeout(() => {

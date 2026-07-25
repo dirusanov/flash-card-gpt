@@ -52,6 +52,7 @@ export const saveAnkiCards =
         cards
       );
       dispatch({ type: SAVE_ANKI_CARDS, payload: result });
+      return result;
     } catch (error) {
       if (!isAnkiDuplicateError(error)) {
         console.error('Error saving Anki cards:', error);

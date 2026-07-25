@@ -412,8 +412,14 @@ export const createAnkiCards = async (
             headers: { 'Content-Type': 'application/json' },
         });
 
+        // AnkiConnect always answers with HTTP 200, even on failure — success/failure is
+        // only ever signaled through the JSON body's `error` field, never the HTTP status.
         if (!createDeckResponse.ok) {
             throw new Error('Failed to create deck.');
+        }
+        const createDeckResult = await createDeckResponse.json();
+        if (createDeckResult?.error) {
+            throw new Error(`Failed to create deck: ${createDeckResult.error}`);
         }
 
         const notes = await Promise.all(cards.map(async (card, index) => {
@@ -486,7 +492,18 @@ export const createAnkiCards = async (
         if (result.error) {
             throw new Error(getAnkiSaveErrorMessage(result.error, cards.length));
         }
-        return result.result;
+
+        // addNotes returns one entry per input note: the new note ID on success, or null
+        // if that specific note was rejected (most commonly a duplicate, since we always
+        // send allowDuplicate: false). A null here does NOT populate `result.error` above,
+        // so callers that only checked for a thrown error would otherwise treat this as a
+        // full success even though nothing was actually saved to Anki for that note.
+        const noteResults: Array<number | null> = Array.isArray(result.result) ? result.result : [];
+        if (noteResults.length > 0 && noteResults.every((id) => id === null)) {
+            throw new Error('cannot create note because it is a duplicate');
+        }
+
+        return noteResults;
     } catch (error) {
         throw error; // Пробрасываем ошибку, чтобы вызвать showError в компоненте
     }
