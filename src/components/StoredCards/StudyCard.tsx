@@ -111,12 +111,15 @@ const StudyCard: React.FC<StudyCardProps> = ({
         };
     }, [editable, card.id, imageHidden]);
 
-    const faceHeight = flipped ? faceHeights.back : faceHeights.front;
+    // Size to the taller face, not the one on screen. Following the visible face made the
+    // card — and the sheet around it — resize mid-flip, which is exactly the jump a flip
+    // should not have. Both faces share one height, so turning the card only turns it.
+    const tallestFace = Math.max(faceHeights.front, faceHeights.back);
     // The cap is applied last: on a short window it has to win over the resting height,
     // or the card would grow past what the sheet can show.
     const shellHeight = Math.min(
         maxCardHeight(),
-        Math.max(STANDARD_CARD_HEIGHT, faceHeight > 0 ? faceHeight + FACE_CHROME : 0)
+        Math.max(STANDARD_CARD_HEIGHT, tallestFace > 0 ? tallestFace + FACE_CHROME : 0)
     );
 
     useEffect(() => () => {
