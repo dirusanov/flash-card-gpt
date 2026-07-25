@@ -34,24 +34,46 @@ const ROOT_VERTICAL_PADDING = 24;
 const maxCardHeight = () =>
     Math.min(MAX_CARD_HEIGHT, Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * 0.68));
 
+/** The nearest ancestor that scrolls, which is the thing the card must not overflow. */
+const findScroller = (root: HTMLElement, sheet: HTMLElement): HTMLElement | null => {
+    let node: HTMLElement | null = root.parentElement;
+    while (node && node !== sheet.parentElement) {
+        const overflowY = getComputedStyle(node).overflowY;
+        if (overflowY === 'auto' || overflowY === 'scroll') return node;
+        node = node.parentElement;
+    }
+    return null;
+};
+
 /**
  * How tall the card may grow inside its sheet.
  *
  * Measuring the container directly is circular — the sheet sizes itself to its content,
  * so the card would be capped by its own current height and could never grow. What is
- * stable is the sheet's *limit* and the chrome around the body: header and footer do not
- * depend on the card. Returns 0 outside a sheet, where the viewport bound is the answer.
+ * stable is the sheet's *limit* and everything that is not the card: the header and
+ * footer outside the scroll area, and whatever shares the scroll area with it. Both are
+ * derived as differences, which cancels the card's own height out of the arithmetic.
+ *
+ * The card is not always the only thing in the scroll area — the create sheet puts card
+ * navigation and the deck destination above it — and assuming otherwise handed the card
+ * more room than it had, so the sheet scrolled *and* the card scrolled.
+ *
+ * Returns 0 outside a sheet, where the viewport bound is the answer.
  */
 const measureRoom = (root: HTMLElement | null): number => {
-    const body = root?.parentElement;
     const sheet = root?.closest('[role="dialog"]') as HTMLElement | null;
-    if (!body || !sheet) return 0;
+    if (!root || !sheet) return 0;
+
+    const scroller = findScroller(root, sheet);
+    if (!scroller) return 0;
 
     const limit = parseFloat(getComputedStyle(sheet).maxHeight);
     if (!Number.isFinite(limit) || limit <= 0) return 0;
 
-    const chrome = sheet.clientHeight - body.clientHeight;
-    return Math.round(limit - chrome - ROOT_VERTICAL_PADDING);
+    const outsideScroller = sheet.clientHeight - scroller.clientHeight;
+    const besideCard = scroller.scrollHeight - root.offsetHeight;
+
+    return Math.round(limit - outsideScroller - besideCard - ROOT_VERTICAL_PADDING);
 };
 
 // A flip study card that mirrors vaulto-cards' FlashCard: white "question" side with the
@@ -101,10 +123,13 @@ const StudyCard: React.FC<StudyCardProps> = ({
 
         measure();
 
-        // The panel can be resized, and the sheet's footer changes height with its state.
+        // The panel can be resized, the footer changes height with its state, and what
+        // shares the scroll area with the card can appear and disappear.
         const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-        if (observer && rootRef.current?.parentElement) {
-            observer.observe(rootRef.current.parentElement);
+        if (observer) {
+            const sheet = rootRef.current?.closest('[role="dialog"]');
+            if (sheet) observer.observe(sheet);
+            else if (rootRef.current?.parentElement) observer.observe(rootRef.current.parentElement);
         }
         window.addEventListener('resize', measure);
 

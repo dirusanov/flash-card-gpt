@@ -39,7 +39,7 @@ const isAbortLikeError = (error: unknown): boolean => {
 };
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const ENABLE_TRANSCRIPTION_VALIDATION = false;
+const ENABLE_TRANSCRIPTION_VALIDATION = true;
 
 /**
  * Интерфейс для работы с AI-провайдерами
@@ -341,7 +341,12 @@ Rules:
         }
       }
 
-      if (variants.length === 0 && normalized) {
+      // A comma is a legitimate separator between synonym variants for a single word/short
+      // phrase ("хотя, несмотря на то что"), but an ordinary sentence-internal comma for a
+      // full sentence — splitting there would chop one sentence into unrelated fragments.
+      const isShortSourceText = text.trim().split(/\s+/).filter(Boolean).length <= 4;
+
+      if (variants.length === 0 && normalized && isShortSourceText) {
         // Пытаемся разбить по типовым разделителям (/, ;, |, or, или)
         const parts = normalized
           .split(/\s*(?:,|\/|;|\||\bor\b|\bили\b)\s*/i)
@@ -352,6 +357,8 @@ Rules:
         } else if (parts.length === 1) {
           variants = [parts[0]];
         }
+      } else if (variants.length === 0 && normalized) {
+        variants = [normalized];
       }
 
       // Нормализуем/фильтруем варианты

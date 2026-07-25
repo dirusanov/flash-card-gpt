@@ -873,14 +873,15 @@ export async function createLinguisticInfo(
 
 /**
  * Create a compact grammar brief prompt for any language.
- * The resulting brief (the model's answer) MUST be written in sourceLanguage.
+ * The resulting brief (the model's answer) MUST be written in outputLanguage —
+ * the learner's interface language, not the language of "text" being studied.
  */
 export function createQualityLinguisticPrompt(
   text: string,
-  sourceLanguage: string,
+  outputLanguage: string,
 ): string {
   return `TASK: Produce a VERY SHORT grammar brief for the expression "${text}".
-The brief MUST be written entirely in: ${sourceLanguage}.
+The brief MUST be written entirely in: ${outputLanguage}.
 
 CONSTRAINTS:
 - 1–3 lines only (3 max).
@@ -897,43 +898,17 @@ CHOOSE EMOJIS FROM (one per line, never repeat):
 OUTPUT FORMAT (plain text — NO HTML, NO markdown, NO bullets):
 <emoji> <label>: <value>
 
-Example shape (translate labels/values into ${sourceLanguage}):
+Example shape (translate labels/values into ${outputLanguage}):
 📚 Part of speech: noun
 ⚥ Gender: feminine
 
 RULES:
-- All labels and values must be written in ${sourceLanguage} (not transliterated, not in another language).
+- All labels and values must be written in ${outputLanguage} (not transliterated, not in another language).
 - Keep each value to 1–3 words.
 - One fact per line. No text before or after the lines.
 
 Create the brief for "${text}":`;
 }
-
-export function createFormatPreservingTranslationPrompt(
-  text: string,
-  targetLanguage: string,
-  sourceLanguage?: string
-): string {
-  return `TASK: Translate the content into ${targetLanguage}${sourceLanguage ? ` from ${sourceLanguage}` : ""
-    }.
-
-HARD REQUIREMENTS (DO NOT VIOLATE):
-- Preserve ALL original formatting EXACTLY (tags, attributes, classes, Markdown syntax, code blocks, inline code, links, whitespace, line breaks, punctuation, emojis).
-- Translate ONLY human-readable text nodes (labels/values/paragraphs), DO NOT modify:
-  * HTML/Markdown syntax
-  * Tag and attribute names/values
-  * Backticked/ fenced code
-  * URLs and IDs
-- Keep the same number of characters for all non-text syntax parts.
-- No extra comments or text before/after.
-
-INPUT:
-${text}
-
-OUTPUT:
-Return ONLY the translated content with formatting 100% unchanged, except for translated human-readable text.`;
-}
-
 
 // Упрощенный валидатор (менее строгий, только по существу)
 function createSimpleValidatorPrompt(originalReference: string, word: string, userLanguage: string): string {
@@ -1011,7 +986,7 @@ export async function createValidatedLinguisticInfo(
     console.log(`Creating validated linguistic info for "${text}"`);
 
     // 1. Создаем первоначальную справку
-    const prompt = createQualityLinguisticPrompt(text, sourceLanguage);
+    const prompt = createQualityLinguisticPrompt(text, userLanguage);
 
     const completion = await aiService.createChatCompletion(apiKey, [
       {
@@ -1606,8 +1581,7 @@ export async function createFastLinguisticInfo(
     console.log(`Creating fast linguistic info for "${text}" (1 request only)`);
 
     // Создаем улучшенный промпт, который сразу выдает качественную справку
-    const promptInit = createQualityLinguisticPrompt(text, sourceLanguage);
-    const prompt = createFormatPreservingTranslationPrompt(promptInit, sourceLanguage);
+    const prompt = createQualityLinguisticPrompt(text, userLanguage);
 
     const completion = await aiService.createChatCompletion(apiKey, [
       {
@@ -1643,7 +1617,7 @@ export async function createOptimizedLinguisticInfo(
     console.log(`Creating optimized linguistic info for "${text}" (max 2 requests)`);
 
     // ШАГ 1: Создаем первоначальную справку
-    const prompt = createQualityLinguisticPrompt(text, sourceLanguage);
+    const prompt = createQualityLinguisticPrompt(text, userLanguage);
 
     const completion = await aiService.createChatCompletion(apiKey, [
       {
