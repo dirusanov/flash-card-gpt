@@ -9,12 +9,13 @@ import { setBack, setExamples, setExamplesAudio, setImage, setImageUrl, setTrans
 import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { setMode, setTranslateToLanguage } from "../store/actions/settings";
 import { Modes, OPENAI_TEXT_MODEL } from "../constants";
-import ResultDisplay from "./ResultDisplay";
 import DeckSelector from "./CreateCard/DeckSelector";
 import LanguagePairBar from "./CreateCard/LanguagePairBar";
 import DeckDestination from "./CreateCard/DeckDestination";
 import RegenerateControl from "./CreateCard/RegenerateControl";
 import GenerationChips from "./CreateCard/GenerationChips";
+import StudyCard from "./StoredCards/StudyCard";
+import { buildPreviewCard } from "./CreateCard/previewCard";
 import CardFrontInput from "./CreateCard/CardFrontInput";
 import Button from "./ui/Button";
 import Textarea from "./ui/Textarea";
@@ -356,6 +357,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [currentLoadingMessage, setCurrentLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
     const [currentProgress, setCurrentProgress] = useState({ completed: 0, total: 0 });
     const [isEdited, setIsEdited] = useState(false);
+    // The result sheet opens as the card you will see once it is saved; this turns the
+    // very same component into its editor rather than swapping in a different screen.
+    const [isEditingResult, setIsEditingResult] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
     const [forceHideLoader, setForceHideLoader] = useState(false);
@@ -749,6 +753,18 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         } else {
             // Check if this text already exists as a card
             checkExistingCard(newText);
+        }
+    };
+
+    // The studied word is `front` for language cards and for general ones alike; `text`
+    // follows it so the card keeps one headword however it was made.
+    const handleFrontUpdate = (newFront: string) => {
+        tabAware.setFront(newFront);
+        if (mode === Modes.LanguageLearning) {
+            tabAware.setText(newFront);
+        }
+        if (isSaved) {
+            setIsEdited(true);
         }
     };
 
@@ -2399,6 +2415,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Function to handle modal close
     const handleCloseModal = () => {
         debugLog('Modal close handler. Card saved status:', isSaved, 'isEdited:', isEdited);
+        // Otherwise the next card opens straight into the editor.
+        setIsEditingResult(false);
 
         // Если карточки созданы с помощью множественного выделения, просто закрываем модальное окно
         // без дополнительных действий, чтобы предотвратить автоматическое сохранение
@@ -2443,6 +2461,19 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 title={isMultipleCards ? `Card ${currentCardIndex + 1} of ${createdCards.length}` : 'Your card'}
                 footer={
                     <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setIsEditingResult((prev) => !prev)}
+                            aria-pressed={isEditingResult}
+                            title={isEditingResult ? 'Done editing' : 'Edit card'}
+                            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-control border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                                isEditingResult
+                                    ? 'border-accent-border bg-accent-subtle text-accent'
+                                    : 'border-line bg-white text-gray-500 hover:bg-surface-sunken'
+                            }`}
+                        >
+                            {isEditingResult ? <FaCheck size={13} /> : <FaEdit size={13} />}
+                        </button>
                         <RegenerateControl
                             onNewImage={handleNewImage}
                             onNewExamples={handleNewExamples}
@@ -2511,39 +2542,31 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         <DeckDestination />
                     </div>
 
-                    <ResultDisplay
-                        mode={mode}
-                        front={front}
-                        translation={translation}
-                        examples={examples}
-                        examplesAudio={examplesAudio}
-                        imageUrl={imageUrl}
-                        image={image}
-                        linguisticInfo={linguisticInfo}
-                        transcription={transcription}
-                        wordAudio={wordAudio}
-                        onNewImage={handleNewImage}
-                        onNewExamples={handleNewExamples}
-                        onGenerateAudio={handleGenerateAudio}
-                        onAccept={handleAccept}
-                        onViewSavedCards={handleViewSavedCards}
-                        onCancel={handleCancel}
-                        loadingNewImage={loadingNewImage}
-                        loadingNewExamples={loadingNewExamples}
-                        loadingAudio={loadingWordAudio}
-                        createdAt={new Date()}
-                        loadingAccept={loadingAccept}
-                        loadingGetResult={loadingGetResult}
-                        shouldGenerateImage={shouldGenerateImage}
-                        isSaved={isSaved}
-                        isEdited={isEdited}
-                        isGeneratingCard={isGeneratingCard}
-                        setTranslation={handleTranslationUpdate}
-                        setBack={handleBackUpdate}
-                        setExamples={handleExamplesUpdate}
-                        setLinguisticInfo={handleLinguisticInfoUpdate}
-                        showStatus={false}
-                        hideActionButtons
+                    {/* The same component that shows a saved card: a card being made and a
+                        card already kept are the same thing at different ages, and seeing
+                        one turn into the other is the point. */}
+                    <StudyCard
+                        card={buildPreviewCard({
+                            mode,
+                            front,
+                            back,
+                            text,
+                            translation,
+                            examples,
+                            examplesAudio,
+                            image,
+                            imageUrl,
+                            linguisticInfo,
+                            transcription,
+                            wordAudio,
+                        })}
+                        resetKey={`${currentCardIndex}-${front ?? ''}`}
+                        editable={isEditingResult}
+                        busy={isProcessingCustomInstruction || loadingNewImage || loadingNewExamples}
+                        onWordChange={handleFrontUpdate}
+                        onTranslationChange={mode === Modes.LanguageLearning ? handleTranslationUpdate : handleBackUpdate}
+                        onExamplesChange={handleExamplesUpdate}
+                        onGrammarChange={handleLinguisticInfoUpdate}
                     />
                 </div>
             </Modal>
@@ -5230,49 +5253,22 @@ Original text: ${text}`;
                             </div>
                         )}
 
-                        {/* Content - Using unified ResultDisplay style */}
+                        {/* Content */}
                         <div style={{
                             flex: 1,
                             overflow: 'auto',
                             padding: '16px',
                             backgroundColor: '#ffffff'
                         }}>
-                            {/* Current Card Display using ResultDisplay component style */}
+                            {/* The saved-card view, reused */}
                             {previewCards[currentPreviewIndex] && (
                                 <div style={{ animation: 'slideIn 0.3s ease-out' }}>
                                     <DeckSelector />
-                                    <ResultDisplay
-                                        front={previewCards[currentPreviewIndex].front || null}
-                                        back={previewCards[currentPreviewIndex].back || null}
-                                        translation={null}
-                                        examples={[]}
-                                        imageUrl={previewCards[currentPreviewIndex].imageUrl || null}
-                                        image={previewCards[currentPreviewIndex].image || null}
-                                        linguisticInfo=""
-                                        transcription={null}
-                                        wordAudio={previewCards[currentPreviewIndex].wordAudio || null}
-                                        onNewImage={() => { }}
-                                        onNewExamples={() => { }}
-                                        onAccept={handleSaveCurrentCard}
-                                        onViewSavedCards={() => { }}
-                                        loadingNewImage={false}
-                                        loadingNewExamples={false}
-                                        loadingAccept={loadingAccept}
-                                        createdAt={new Date()}
-                                        mode={Modes.GeneralTopic}
-                                        shouldGenerateImage={false}
-                                        isSaved={savedCardIndices.has(currentPreviewIndex)}
-                                        isEdited={false}
-                                        isGeneratingCard={false}
-                                        hideActionButtons={true}
-                                        setBack={(newBack) => {
-                                            const newPreviewCards = [...previewCards];
-                                            newPreviewCards[currentPreviewIndex] = {
-                                                ...newPreviewCards[currentPreviewIndex],
-                                                back: newBack
-                                            };
-                                            setPreviewCards(newPreviewCards);
-                                        }}
+                                    {/* Already a StoredCard, so it needs no adapter —
+                                        the same component that shows it once saved. */}
+                                    <StudyCard
+                                        card={previewCards[currentPreviewIndex]}
+                                        resetKey={String(currentPreviewIndex)}
                                     />
 
                                     {/* Removed unnecessary card metadata - cleaner interface */}

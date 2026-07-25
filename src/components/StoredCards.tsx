@@ -1526,7 +1526,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         });
     };
 
-    // Handle translation update from ResultDisplay
+    // Translation edited on the card.
     const handleTranslationUpdate = (newTranslation: string) => {
         // Обновляем локальное состояние вместо глобального Redux
         if (localEditingCardData) {
@@ -1570,7 +1570,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         applyDeckChange({ deckId: deckIdValue });
     };
 
-    // Handle examples update from ResultDisplay
+    // Examples edited on the card; audio is dropped for any example whose text changed.
     const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
         // Обновляем локальное состояние вместо глобального Redux
         if (localEditingCardData) {
@@ -1645,7 +1645,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }
     };
 
-    // Handle back field update from ResultDisplay
+    // Back field edited on the card (general-topic mode).
     const handleBackUpdate = (newBack: string) => {
         // Обновляем локальное состояние вместо глобального Redux
         if (localEditingCardData) {
@@ -1656,7 +1656,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }
     };
 
-    // Handle linguistic info update from ResultDisplay
+    // Grammar reference edited on the card.
     const handleLinguisticInfoUpdate = (newInfo: string) => {
         // Обновляем локальное состояние вместо глобального Redux
         if (localEditingCardData) {
