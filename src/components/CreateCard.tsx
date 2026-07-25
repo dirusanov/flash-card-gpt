@@ -3091,9 +3091,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const wordCount = selectedText.trim().split(/\s+/).length;
         debugLog('Word count:', wordCount);
 
-        // If text is a short phrase (3 words or less), use it directly without showing modal
-        if (wordCount <= 3 && !selectedText.includes('.') && !selectedText.includes('\n')) {
-            debugLog('Using short text directly (≤3 words)');
+        // Scripts without spaces between words (Chinese, Japanese, Thai, etc.) always collapse
+        // to a single "word" here, so word count alone can't tell a short phrase from a whole
+        // paragraph — fall back to character length for those.
+        const hasWhitespace = /\s/.test(selectedText.trim());
+        const isShortSelection = hasWhitespace ? wordCount <= 3 : selectedText.trim().length <= 6;
+        // Also recognize full-width CJK sentence punctuation, not just the ASCII '.'.
+        const looksLikeSentence = /[.!?。！？]/.test(selectedText);
+
+        // If text is a short phrase, use it directly without showing modal
+        if (isShortSelection && !looksLikeSentence && !selectedText.includes('\n')) {
+            debugLog('Using short text directly');
             // Принудительно закрываем модальное окно
             setShowTextOptionsModal(false);
 
