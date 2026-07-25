@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FaVolumeUp, FaEyeSlash, FaRegImage, FaTimes, FaPlus } from 'react-icons/fa';
 import { StoredCard } from '../../store/reducers/cards';
 import GrammarCard from '../grammar/GrammarCard';
@@ -24,9 +24,13 @@ interface StudyCardProps {
     onGrammarChange?: (serialized: string) => void;
 }
 
-// The shared shell height, so the card fills the sheet instead of leaving dead space
-// above and below.
-const SHELL = 'h-[68vh] max-h-[600px] min-h-[420px]';
+// A card is as tall as what is on it, between these bounds: short enough to read at a
+// glance without a scrollbar, tall enough that a bare word still looks like a card, and
+// never taller than the sheet can show.
+const MIN_CARD_HEIGHT = 240;
+const MAX_CARD_HEIGHT = 600;
+const maxCardHeight = () =>
+    Math.min(MAX_CARD_HEIGHT, Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * 0.68));
 
 // A flip study card that mirrors vaulto-cards' FlashCard: white "question" side with the
 // word, tap to flip to the mint "answer" side with the translation, image, grammar and
@@ -60,6 +64,46 @@ const StudyCard: React.FC<StudyCardProps> = ({
         setInternalFlipped(false);
         setImageHidden(false);
     }, [resetKey, card.id]);
+
+    // Both faces are absolutely positioned so they can share one 3D box, which means the
+    // box has to be told how tall to be. Measure each face's natural height and follow
+    // whichever one is showing, so a one-word front is not padded out to the height of a
+    // long answer — and neither gets a scrollbar until it genuinely needs one.
+    const frontRef = useRef<HTMLDivElement>(null);
+    const backRef = useRef<HTMLDivElement>(null);
+    const [faceHeights, setFaceHeights] = useState({ front: 0, back: 0 });
+
+    useLayoutEffect(() => {
+        if (editable) return undefined;
+
+        const measure = () => {
+            const front = frontRef.current?.scrollHeight ?? 0;
+            const back = backRef.current?.scrollHeight ?? 0;
+            // Only re-render on a real change: a fresh object every observer tick would
+            // re-render on every frame of the flip for nothing.
+            setFaceHeights((prev) => (prev.front === front && prev.back === back ? prev : { front, back }));
+        };
+
+        measure();
+
+        // Images and audio buttons arrive late, and the panel itself can be resized.
+        const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+        if (observer) {
+            if (frontRef.current) observer.observe(frontRef.current);
+            if (backRef.current) observer.observe(backRef.current);
+        }
+        window.addEventListener('resize', measure);
+
+        return () => {
+            observer?.disconnect();
+            window.removeEventListener('resize', measure);
+        };
+    }, [editable, card.id, imageHidden]);
+
+    const shellHeight = Math.max(
+        MIN_CARD_HEIGHT,
+        Math.min(flipped ? faceHeights.back : faceHeights.front, maxCardHeight())
+    );
 
     useEffect(() => () => {
         audioRef.current?.pause();
@@ -112,7 +156,10 @@ const StudyCard: React.FC<StudyCardProps> = ({
 
         return (
             <div className="px-4 pb-4 pt-2">
-                <div className={`${SHELL} overflow-y-auto rounded-sheet border border-ok-border bg-ok-subtle p-4 shadow-card ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                <div
+                    className={`overflow-y-auto rounded-sheet border border-ok-border bg-ok-subtle p-4 shadow-card ${busy ? 'pointer-events-none opacity-60' : ''}`}
+                    style={{ minHeight: MIN_CARD_HEIGHT, maxHeight: maxCardHeight() }}
+                >
                     {/* Word — the card's title, edited in place */}
                     <input
                         value={card.text || card.front || ''}
@@ -199,18 +246,23 @@ const StudyCard: React.FC<StudyCardProps> = ({
     return (
         <div className="px-4 pb-4 pt-2" style={{ perspective: 1200 }}>
             <div
-                className={`relative ${SHELL} w-full transition-transform duration-500`}
-                style={{ transformStyle: 'preserve-3d', transform: flipped ? 'rotateY(180deg)' : 'none' }}
+                className="relative w-full transition-[transform,height] duration-500"
+                style={{
+                    height: shellHeight,
+                    transformStyle: 'preserve-3d',
+                    transform: flipped ? 'rotateY(180deg)' : 'none',
+                }}
             >
                 {/* Front — the question */}
                 <button
                     type="button"
                     onClick={() => setFlipped(true)}
                     aria-label="Reveal answer"
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-sheet border border-line bg-white p-5 text-center shadow-card [backface-visibility:hidden] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="absolute inset-0 flex overflow-y-auto rounded-sheet border border-line bg-white text-center shadow-card [backface-visibility:hidden] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                    <div className="flex-1" />
-                    <div className="flex flex-col items-center gap-2">
+                    {/* `m-auto` centres the face while there is room and simply stops when
+                        there is not — unlike justify-center, which clips overflow. */}
+                    <div ref={frontRef} className="m-auto flex w-full flex-col items-center gap-2 p-5">
                         <span className="text-[32px] font-bold leading-tight tracking-tight text-gray-900">
                             {word || 'Untitled card'}
                         </span>
@@ -230,9 +282,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                                 <FaVolumeUp size={16} />
                             </span>
                         )}
-                    </div>
-                    <div className="flex flex-1 items-end">
-                        <span className="text-[11px] font-medium text-gray-400">Tap to reveal answer</span>
+                        <span className="mt-3 text-[11px] font-medium text-gray-400">Tap to reveal answer</span>
                     </div>
                 </button>
 
@@ -242,11 +292,12 @@ const StudyCard: React.FC<StudyCardProps> = ({
                     style={{ transform: 'rotateY(180deg)' }}
                 >
                     <div
-                        className="h-full overflow-y-auto p-4"
+                        className="h-full overflow-y-auto"
                         onClick={() => setFlipped(false)}
                         role="button"
                         aria-label="Back to question"
                     >
+                    <div ref={backRef} className="p-4">
                         <div className="mb-2 text-center text-[13px] font-semibold text-gray-500">{word}</div>
 
                         {imageUrl && (
@@ -317,6 +368,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                                 </ul>
                             </div>
                         )}
+                    </div>
                     </div>
                 </div>
             </div>
