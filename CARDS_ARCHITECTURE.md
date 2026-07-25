@@ -139,6 +139,16 @@ due it falls back to the whole selection.
 
 Review logs are stored locally under `vaulto_review_logs` and capped at 20 000 entries.
 
+**Where the numbers come from.** Review logs are pushed to the server but never pulled
+back — `/sync/pull` carries no `review_log` entries — so a local calculation can only
+ever see this device's study. When signed in, the panel therefore reads
+`GET /cards/stats`, which the server computes from *every* device's logs, and falls back
+to the local calculation when signed out or offline. The mobile app's `useStats` does the
+same, so both surfaces show identical figures.
+
+Blocks 1–3 and 6 derive from card state and would match anyway once schedules sync; 4 and
+5 (heatmap, answer quality) and the streak are the ones that need the shared source.
+
 ---
 
 ## 7. Cross-device sync — two channels
@@ -296,6 +306,7 @@ on every keystroke and stole the caret after one character.
   `200` and `{"applied": 2}`).
 - **A brand-new card may skip its first push** — it has no `syncId` until it reaches the
   cloud. The schedule catches up on the next grade.
-- **Statistics are per-device.** The extension pushes review logs but never pulls
-  `review_log` entities back (the pull only enriches `card` entries), so streaks and
-  heatmaps do not merge with the phone's.
+- **Timezone edges.** Server day keys are UTC (`_to_day_key`), the local fallback uses
+  local dates, so a review near midnight can land in a different heatmap cell depending
+  on which source is showing. Both clients read the same server keys, so they agree with
+  each other.

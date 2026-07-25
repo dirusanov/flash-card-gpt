@@ -200,6 +200,24 @@ export const cardsSyncApi = {
 export const isCardsSyncApiError = (error: unknown): error is CardsSyncApiError =>
   error instanceof CardsSyncApiError;
 
+// Server-side study statistics, aggregated over every device's review logs. Review logs
+// are pushed up but never come back down (/sync/pull carries no review_log entries), so
+// this endpoint is the only way for the numbers to include reviews done on the phone.
+export type CardsStatsApi = {
+  today: { due: number; overdue: number; new_cards: number; estimated_time_min: number; total_studied: number };
+  pipeline: { new_cards: number; learning: number; reviewing: number; mature: number; total: number };
+  heatmap: Record<string, { count: number; time_ms: number }>;
+  retention: { date: string; good_or_easy: number; total: number }[];
+  forecast: { date: string; due: number }[];
+  streak: { current: number; max: number; active_this_week: number; best_day: number };
+};
+
+export const cardsStatsApi = {
+  get(baseUrl: string, accessToken: string): Promise<CardsStatsApi> {
+    return requestJson<CardsStatsApi>(baseUrl, '/cards/stats', { method: 'GET' }, accessToken);
+  },
+};
+
 // ─── /sync protocol ───────────────────────────────────────────────────────────
 // The study schedule travels on a different channel from note content: the mobile app
 // pushes `card` and `review_log` entities here, with flat SRS columns, and reads them

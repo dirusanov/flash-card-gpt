@@ -1,4 +1,5 @@
 import { CardSrsState, SrsGrade, toDateString } from './srs';
+import { CardsStatsApi } from './cardsSyncApi';
 
 /**
  * Review history + the statistics derived from it.
@@ -130,6 +131,58 @@ export interface StudyStats {
 export interface StatsCardInput {
     srsState?: CardSrsState;
 }
+
+/**
+ * Maps the server's statistics onto the same shape `computeStats` produces.
+ *
+ * The server aggregates review logs from every device, so these numbers include study
+ * done on the phone — the local ones never can, because review logs only travel upwards.
+ * Its retention window is the same 30 days ending today, in the same order, which is how
+ * the full date is recovered from the compact "MM-DD" labels it returns.
+ */
+export const serverStatsToStudyStats = (dto: CardsStatsApi, now = new Date()): StudyStats => {
+    const retention = dto.retention.map((entry, index) => {
+        const day = new Date(now);
+        day.setDate(day.getDate() - (dto.retention.length - 1 - index));
+        return {
+            date: entry.date,
+            fullDate: toDateString(day),
+            goodOrEasy: entry.good_or_easy,
+            total: entry.total,
+        };
+    });
+
+    const heatmap: StudyStats['heatmap'] = {};
+    Object.entries(dto.heatmap ?? {}).forEach(([day, value]) => {
+        heatmap[day] = { count: value.count, timeMs: value.time_ms };
+    });
+
+    return {
+        today: {
+            due: dto.today.due,
+            overdue: dto.today.overdue,
+            newCards: dto.today.new_cards,
+            estimatedTimeMin: dto.today.estimated_time_min,
+            totalStudied: dto.today.total_studied,
+        },
+        pipeline: {
+            newCards: dto.pipeline.new_cards,
+            learning: dto.pipeline.learning,
+            reviewing: dto.pipeline.reviewing,
+            mature: dto.pipeline.mature,
+            total: dto.pipeline.total,
+        },
+        heatmap,
+        retention,
+        forecast: dto.forecast.map((entry) => ({ date: entry.date, due: entry.due })),
+        streak: {
+            current: dto.streak.current,
+            max: dto.streak.max,
+            activeThisWeek: dto.streak.active_this_week,
+            bestDay: dto.streak.best_day,
+        },
+    };
+};
 
 /**
  * Same buckets as the mobile Stats screen:

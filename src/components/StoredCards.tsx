@@ -23,11 +23,11 @@ import { formatOpenAIErrorMessage, getDescriptionImage, getFallbackImageModelFor
 import { getAIService, getApiKeyForProvider, createExamples, createTranslation, createCardComponentsParallel, createLinguisticInfo } from '../services/aiServiceFactory';
 import { planInstruction, ACTION_STATUS } from '../services/instructionRouter';
 import { SrsGrade, applyReview, createInitialSrsState, isDue, srsEquals } from '../services/srs';
-import { ReviewLogEntry, appendReviewLog, computeStats, loadReviewLogs } from '../services/reviewLog';
+import { ReviewLogEntry, StudyStats, appendReviewLog, computeStats, loadReviewLogs, serverStatsToStudyStats } from '../services/reviewLog';
 import { pullSrsUpdates, pushReview } from '../services/srsSync';
 import StudySession from './StoredCards/StudySession';
 import StatsPanel from './StoredCards/StatsPanel';
-import { cardsSyncApi } from '../services/cardsSyncApi';
+import { cardsSyncApi, cardsStatsApi } from '../services/cardsSyncApi';
 import { DEFAULT_DECK_NAME } from '../services/cardsSyncService';
 import { useAuthenticatedRequest } from '../hooks/useAuthenticatedRequest';
 import { ModelProvider } from '../store/reducers/settings';
@@ -120,6 +120,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const [studyCards, setStudyCards] = useState<StoredCard[] | null>(null);
     const [showStats, setShowStats] = useState(false);
     const [reviewLogs, setReviewLogs] = useState<ReviewLogEntry[]>([]);
+    // Cross-device statistics from the server; null means "show the local ones".
+    const [serverStats, setServerStats] = useState<StudyStats | null>(null);
     // Bulk mode used to be permanently on: a Select All row and two greyed-out buttons
     // greeted you before you had chosen anything.
     const [selectionMode, setSelectionMode] = useState(false);
@@ -244,10 +246,32 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         });
     }, [tabAware, isLoggedIn, executeRequest, syncApiUrl]);
 
-    const stats = useMemo(
+    // Local numbers only ever see this device's reviews. When signed in, the server has
+    // every device's, so it is the honest source — with the local computation as the
+    // offline/signed-out fallback.
+    const localStats = useMemo(
         () => computeStats(storedCards, reviewLogs),
         [storedCards, reviewLogs]
     );
+    const stats = serverStats ?? localStats;
+
+    useEffect(() => {
+        if (!isLoggedIn || !showStats) return undefined;
+
+        let cancelled = false;
+        executeRequest((token) => cardsStatsApi.get(syncApiUrl, token))
+            .then((dto) => { if (!cancelled) setServerStats(serverStatsToStudyStats(dto)); })
+            .catch((error) => {
+                // Keep whatever we can show rather than an empty panel.
+                console.warn('Failed to load study statistics from Vaulto Cloud:', error);
+            });
+
+        return () => { cancelled = true; };
+    }, [isLoggedIn, showStats, syncApiUrl, executeRequest]);
+
+    useEffect(() => {
+        if (!isLoggedIn) setServerStats(null);
+    }, [isLoggedIn]);
 
     // The Vaulto deck a card lives in. No explicit deck still means a real deck — the
     // auto-created default one — so it is named rather than shown as "none".
