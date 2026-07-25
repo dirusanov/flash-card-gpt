@@ -165,8 +165,19 @@ This is the part that is easy to get wrong: **content and schedule travel separa
   "reviewed_at":"…","response_time_ms":4200}}
 ```
 
-Envelope: `client_id: 'vaulto-extension'`, `platform: 'web'` — the values the extension
-already used for note deletion, so the server is known to accept them.
+Envelope: `client_id: 'vaulto-extension'`, `platform: 'web'`. Verified against
+`services/cards_sync_service/app/presentation/api/routes/sync.py`:
+
+- `platform` is a free-form `str(min 1, max 32)`, so `'web'` is accepted.
+- `entity_id` is typed `UUID | None` — it must be the note id, not our guid.
+- `_apply_card_change` reads **only** `due_at`, `interval_days`, `ease_factor`,
+  `repetitions`, `lapses`. `front`/`back` are ignored (the card row has no such
+  columns); we send them only to stay byte-compatible with the mobile client.
+- A card the server does not have yet is skipped silently, mirroring our own skip for
+  cards without a `syncId`.
+- `client_review_id` and `card_id` are parsed with `UUID(...)`, and a parse failure makes
+  the log **silently dropped** — which is why review log ids are real UUIDs.
+- Review logs de-duplicate on `client_review_id`, so a re-push is harmless.
 
 **Identity trap.** The server keys cards by the **note id**. Locally that is
 `StoredCard.syncId`; `StoredCard.id` is our own guid. Pushing `id` would create orphan
@@ -270,16 +281,21 @@ on every keystroke and stole the caret after one character.
 
 ## 12. Known gaps
 
-- **Live end-to-end sync is unverified.** Payloads, endpoints and identity were checked
-  line-by-line against the mobile client and exercised with a recorded transport, but no
-  real request to `api-cards.vaultonote.com` has been observed. Browser automation cannot
-  open `chrome-extension://` pages; verify in the side panel's own DevTools (Network,
-  filter `sync`: `GET /sync/pull` on opening Cards, `POST /sync/push` after a grade,
-  expect `200` and `{"applied": 2}`).
+- **Moving a card between Vaulto decks does not reach the server.** The client sends
+  `deck_id` on `PATCH /notes/{id}`, but `NoteUpdateDTO` has no such field and pydantic
+  ignores extras, so it is dropped without an error. `/sync/push` with
+  `entity_type: 'note'` does not help either — `_apply_note_change` never assigns
+  `deck_id` to an existing note. **This needs a backend change** (add `deck_id` to
+  `NoteUpdateDTO` and assign it in `update_note`); the client side is already in place.
+- **No live end-to-end run has been observed.** Every payload, endpoint, id type and
+  validation rule has now been checked against the backend source, and the client was
+  exercised with a recorded transport — but no real request to
+  `api-cards.vaultonote.com` has been watched. Browser automation cannot open
+  `chrome-extension://` pages; verify in the side panel's own DevTools (Network, filter
+  `sync`: `GET /sync/pull` on opening Cards, `POST /sync/push` after a grade, expect
+  `200` and `{"applied": 2}`).
 - **A brand-new card may skip its first push** — it has no `syncId` until it reaches the
   cloud. The schedule catches up on the next grade.
-- **Statistics are per-device.** The extension stores review logs locally and pushes them,
-  but never pulls `review_log` entities back, so streaks/heatmaps do not merge with the
-  phone's.
-- **`deck_id` on `PATCH /notes/{id}`** is now sent by the client; backend support was not
-  confirmed. If ignored, moving a card between Vaulto decks will not stick.
+- **Statistics are per-device.** The extension pushes review logs but never pulls
+  `review_log` entities back (the pull only enriches `card` entries), so streaks and
+  heatmaps do not merge with the phone's.

@@ -77,16 +77,31 @@ export const loadReviewLogs = async (): Promise<ReviewLogEntry[]> => {
     }
 };
 
+// The id doubles as `client_review_id` on push, and the server parses that with
+// `UUID(...)` — anything else raises and the log is dropped without an error. So this
+// must be a real UUID, not a timestamp-and-random string.
+const newLogId = (): string => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    // RFC 4122 v4 fallback for contexts without randomUUID.
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        crypto.getRandomValues(bytes);
+    } else {
+        for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
 export const appendReviewLog = async (
     entry: Omit<ReviewLogEntry, 'id'>
 ): Promise<{ entry: ReviewLogEntry; logs: ReviewLogEntry[] }> => {
     const logs = await loadReviewLogs();
-    // The id doubles as `client_review_id` when the log is pushed, which is how the
-    // server de-duplicates a review that gets sent twice.
-    const created: ReviewLogEntry = {
-        ...entry,
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-    };
+    const created: ReviewLogEntry = { ...entry, id: newLogId() };
     const next = [...logs, created];
     const trimmed = next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next;
     await writeRaw(JSON.stringify(trimmed));

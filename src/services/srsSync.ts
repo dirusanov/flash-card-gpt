@@ -72,9 +72,11 @@ export const setSrsCursor = (cursor: number): Promise<void> =>
     writeStored(CURSOR_KEY, String(cursor));
 
 /**
- * The card half of a review, in exactly the shape the mobile app pushes — including
- * `front`/`back`, which the phone always sends. Omitting them risks the server treating
- * the upsert as authoritative and blanking those columns.
+ * The card half of a review, in the shape the mobile app pushes.
+ *
+ * `_apply_card_change` on the server reads only the five SRS fields; `front`/`back` are
+ * ignored (the card row has no such columns — content lives on the note). They are sent
+ * anyway purely to stay byte-compatible with the mobile client.
  */
 export const buildCardChange = (
     noteId: string,
