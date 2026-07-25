@@ -110,9 +110,13 @@ export const setAutoSaveToServer = (enabled: boolean) => ({
     payload: enabled,
 });
 
-export const setSelectedBackendDeckId = (deckId: string | null) => ({
+// Carries the name alongside the id so the "where cards are saved" summary can label the
+// deck without re-fetching the deck list. Pass null to fall back to the default deck.
+export const setSelectedBackendDeckId = (
+    deck: { id: string; name: string } | null
+) => ({
     type: SET_SELECTED_BACKEND_DECK_ID,
-    payload: deckId,
+    payload: deck,
 });
 
 export const setSelectedAnkiDeckName = (deckName: string | null) => ({

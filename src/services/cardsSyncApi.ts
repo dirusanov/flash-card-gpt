@@ -154,6 +154,7 @@ export const cardsSyncApi = {
     accessToken: string,
     noteId: string,
     payload: {
+      deck_id?: string;
       fields_json?: Record<string, any>;
       tags?: string[];
       source?: string;
@@ -198,3 +199,64 @@ export const cardsSyncApi = {
 
 export const isCardsSyncApiError = (error: unknown): error is CardsSyncApiError =>
   error instanceof CardsSyncApiError;
+
+// ─── /sync protocol ───────────────────────────────────────────────────────────
+// The study schedule travels on a different channel from note content: the mobile app
+// pushes `card` and `review_log` entities here, with flat SRS columns, and reads them
+// back through the cursor-based pull. Matching this exactly is what makes a card
+// reviewed in the panel show up already-scheduled on the phone.
+
+export type SyncChange = {
+  entity_type: 'card' | 'review_log' | 'note';
+  op: 'upsert' | 'delete';
+  entity_id?: string;
+  payload: Record<string, any>;
+};
+
+export type SyncPullChange = {
+  cursor: number;
+  entity_type: string;
+  entity_id: string;
+  op: string;
+  version: number;
+  changed_at: string;
+  payload?: Record<string, any>;
+};
+
+export type SyncPullResponse = {
+  cursor: number;
+  next_cursor: number;
+  changes: SyncPullChange[];
+};
+
+// `platform: 'web'` and this client id are what the extension already sends when it
+// deletes a note through /sync/push, so the server is known to accept them.
+const SYNC_CLIENT_ID = 'vaulto-extension';
+const SYNC_PLATFORM = 'web';
+
+export const srsSyncApi = {
+  push(baseUrl: string, accessToken: string, changes: SyncChange[]): Promise<{ applied: number }> {
+    return requestJson<{ applied: number }>(
+      baseUrl,
+      '/sync/push',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          client_id: SYNC_CLIENT_ID,
+          platform: SYNC_PLATFORM,
+          changes,
+        }),
+      },
+      accessToken,
+    );
+  },
+
+  pull(baseUrl: string, accessToken: string, cursor: number, limit = 200): Promise<SyncPullResponse> {
+    return requestJson<SyncPullResponse>(
+      baseUrl,
+      `/sync/pull?cursor=${cursor}&limit=${limit}`,
+      { method: 'GET' },
+      accessToken,
+    );
+  },
+};

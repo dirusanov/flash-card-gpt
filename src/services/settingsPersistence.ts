@@ -23,6 +23,7 @@ type PersistedSettings = Partial<Pick<
   | 'syncApiUrl'
   | 'autoSaveToServer'
   | 'selectedBackendDeckId'
+  | 'selectedBackendDeckName'
   | 'selectedAnkiDeckName'
 >>;
 
@@ -66,6 +67,9 @@ const normalizeSettings = (raw: unknown): PersistedSettings => {
   if (typeof record.autoSaveToServer === 'boolean') result.autoSaveToServer = record.autoSaveToServer;
   if (typeof record.selectedBackendDeckId === 'string' || record.selectedBackendDeckId === null) {
     result.selectedBackendDeckId = record.selectedBackendDeckId as string | null;
+  }
+  if (typeof record.selectedBackendDeckName === 'string' || record.selectedBackendDeckName === null) {
+    result.selectedBackendDeckName = record.selectedBackendDeckName as string | null;
   }
   if (typeof record.selectedAnkiDeckName === 'string' || record.selectedAnkiDeckName === null) {
     result.selectedAnkiDeckName = record.selectedAnkiDeckName as string | null;
@@ -115,6 +119,7 @@ const snapshotSettings = (state: RootState): PersistedSettings => ({
   syncApiUrl: state.settings.syncApiUrl,
   autoSaveToServer: state.settings.autoSaveToServer,
   selectedBackendDeckId: state.settings.selectedBackendDeckId,
+  selectedBackendDeckName: state.settings.selectedBackendDeckName,
   selectedAnkiDeckName: state.settings.selectedAnkiDeckName,
 });
 

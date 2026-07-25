@@ -48,6 +48,9 @@ interface SettingsState {
     syncApiUrl: string
     autoSaveToServer: boolean
     selectedBackendDeckId: string | null
+    /** Cached name of the selected Vaulto deck, so the destination summary can show it
+     *  without re-fetching the deck list. Null means "the default deck". */
+    selectedBackendDeckName: string | null
     selectedAnkiDeckName: string | null
 }
 
@@ -72,6 +75,7 @@ const initialState: SettingsState = {
     syncApiUrl: 'https://api-cards.vaultonote.com',
     autoSaveToServer: false,
     selectedBackendDeckId: null,
+    selectedBackendDeckName: null,
     selectedAnkiDeckName: null
 };
 
@@ -170,7 +174,8 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
         case SET_SELECTED_BACKEND_DECK_ID:
             return {
                 ...state,
-                selectedBackendDeckId: action.payload,
+                selectedBackendDeckId: action.payload?.id ?? null,
+                selectedBackendDeckName: action.payload?.name ?? null,
             };
         case SET_SELECTED_ANKI_DECK_NAME:
             return {

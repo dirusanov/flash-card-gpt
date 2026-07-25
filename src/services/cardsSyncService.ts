@@ -8,8 +8,11 @@ import { StoredCard } from '../store/reducers/cards';
 import { Modes } from '../constants';
 import { authStorage } from './authStorage';
 import { normalizeCardImageFields } from './cardImagePersistence';
+import { normalizeSrsState } from './srs';
 
-const DEFAULT_DECK_NAME = 'Vaulto Cards';
+// Exported so the deck picker can name the deck cards actually land in when the user
+// has not chosen one — it used to offer a misleading "(None) — Local Storage Only".
+export const DEFAULT_DECK_NAME = 'Vaulto Cards';
 const DEFAULT_DECK_COLOR = '#4f46e5';
 const DEFAULT_DECK_DESCRIPTION =
   'Cards created from the Vaulto Cards browser extension';
@@ -40,6 +43,9 @@ const buildFieldsJson = (card: StoredCard): Record<string, any> => {
     transcription: card.transcription ?? '',
     wordAudio: card.wordAudio ?? null,
     examplesAudio: card.examplesAudio ?? [],
+    // Study progress rides along with the note so a reinstall does not reset every
+    // card's schedule back to "new".
+    srsState: card.srsState ?? null,
   };
 };
 
@@ -226,6 +232,7 @@ const noteToStoredCard = (note: NoteApi): StoredCard | null => {
     syncPending: false,
     deckId: note.deck_id ?? null,
     ankiDeckName: null,
+    srsState: fields.srsState ? normalizeSrsState(fields.srsState) : undefined,
   };
 };
 
@@ -296,6 +303,7 @@ const resolveVersionConflict = async (
   card: StoredCard,
   fieldsJson: Record<string, any>,
   tags: string[],
+  deckId: string,
   error: unknown
 ): Promise<{
   id: string;
@@ -327,6 +335,7 @@ const resolveVersionConflict = async (
     accessToken,
     latestNote.id,
     {
+      deck_id: deckId,
       fields_json: fieldsJson,
       tags,
       source: DEFAULT_SOURCE,
@@ -410,6 +419,9 @@ export const cardsSyncService = {
             accessToken,
             existingNote.id,
             {
+              // Without this a deck change never reached the server: the card stayed in
+              // whatever deck it was first created in (usually the default one).
+              deck_id: deck.id,
               fields_json: fieldsJson,
               tags,
               source: DEFAULT_SOURCE,
@@ -427,6 +439,7 @@ export const cardsSyncService = {
             normalizedCard,
             fieldsJson,
             tags,
+            deck.id,
             error
           );
           if (resolved) {
