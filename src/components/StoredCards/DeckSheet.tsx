@@ -48,9 +48,15 @@ const DeckSheet: React.FC<DeckSheetProps> = ({
         setRenameValue(deck.name);
     };
 
+    // The default deck is found by name, so letting another deck take that name would
+    // leave two candidates and make "where do deckless cards go" ambiguous.
+    const renameClashesWithDefault =
+        renameValue.trim().toLowerCase() === defaultDeckName.toLowerCase();
+    const canSaveRename = Boolean(renameValue.trim()) && !renameClashesWithDefault;
+
     const commitRename = async () => {
         const name = renameValue.trim();
-        if (!renamingId || !name) { setRenamingId(null); return; }
+        if (!renamingId || !canSaveRename) return;
         await onRename(renamingId, name);
         setRenamingId(null);
     };
@@ -66,35 +72,42 @@ const DeckSheet: React.FC<DeckSheetProps> = ({
 
                         if (renamingId && renamingId === deck.id) {
                             return (
-                                <div key={deck.id} className="flex items-center gap-1.5 rounded-card border border-accent-border bg-white p-1.5">
-                                    <input
-                                        autoFocus
-                                        value={renameValue}
-                                        onChange={(e) => setRenameValue(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') void commitRename();
-                                            if (e.key === 'Escape') setRenamingId(null);
-                                        }}
-                                        aria-label="Deck name"
-                                        className="h-8 min-w-0 flex-1 rounded-control border border-accent bg-white px-2.5 text-[13px] text-gray-900 outline-none ring-2 ring-accent"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => void commitRename()}
-                                        disabled={!renameValue.trim()}
-                                        aria-label="Save name"
-                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-accent text-white transition-colors hover:bg-accent-hover disabled:bg-surface-sunken disabled:text-gray-400"
-                                    >
-                                        <FaCheck size={11} />
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setRenamingId(null)}
-                                        aria-label="Cancel"
-                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600"
-                                    >
-                                        <FaTimes size={11} />
-                                    </button>
+                                <div key={deck.id} className="rounded-card border border-accent-border bg-white p-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                        <input
+                                            autoFocus
+                                            value={renameValue}
+                                            onChange={(e) => setRenameValue(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') void commitRename();
+                                                if (e.key === 'Escape') setRenamingId(null);
+                                            }}
+                                            aria-label="Deck name"
+                                            className="h-8 min-w-0 flex-1 rounded-control border border-accent bg-white px-2.5 text-[13px] text-gray-900 outline-none ring-2 ring-accent"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => void commitRename()}
+                                            disabled={!canSaveRename}
+                                            aria-label="Save name"
+                                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-accent text-white transition-colors hover:bg-accent-hover disabled:bg-surface-sunken disabled:text-gray-400"
+                                        >
+                                            <FaCheck size={11} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setRenamingId(null)}
+                                            aria-label="Cancel"
+                                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600"
+                                        >
+                                            <FaTimes size={11} />
+                                        </button>
+                                    </div>
+                                    {renameClashesWithDefault && (
+                                        <p className="m-0 mt-1.5 px-1 text-[11px] leading-snug text-warn-strong">
+                                            “{defaultDeckName}” is reserved for cards without a deck.
+                                        </p>
+                                    )}
                                 </div>
                             );
                         }
