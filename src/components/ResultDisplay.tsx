@@ -40,6 +40,13 @@ interface ResultDisplayProps {
     setExamples?: (examples: Array<[string, string | null]>) => void;
     setLinguisticInfo?: (info: string) => void;
     hideActionButtons?: boolean; // Hide action buttons in preview mode
+    /** Forces inline editing on (or off) instead of the internal "Edit Card" toggle.
+     *  The edit modal is already an editing context, so it passes `true` and the
+     *  fields are directly editable — no second button to press. */
+    editable?: boolean;
+    /** The status pill and timestamp. Pointless right after creation, where the card
+     *  is obviously new and seconds old; useful when reviewing a stored card. */
+    showStatus?: boolean;
     createdAt?: Date; // Add creation time support
 }
 
@@ -113,15 +120,21 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             setExamples,
             setLinguisticInfo,
             hideActionButtons = false,
+            editable,
+            showStatus = true,
             createdAt
         }
     ) => {
-    
+
     const [isEditingTranslation, setIsEditingTranslation] = useState(false);
     const [localTranslation, setLocalTranslation] = useState(translation || '');
     const [isEditingBack, setIsEditingBack] = useState(false);
     const [localBack, setLocalBack] = useState(back || '');
-    const [isEditMode, setIsEditMode] = useState(false);
+    const [internalEditMode, setInternalEditMode] = useState(false);
+    // When `editable` is supplied (the edit modal), it drives edit mode directly so
+    // there is no separate "Edit Card" button to press first.
+    const isEditMode = editable !== undefined ? editable : internalEditMode;
+    const setIsEditMode = setInternalEditMode;
     const [expandedExamples, setExpandedExamples] = useState(true);
     const [expandedLinguistics, setExpandedLinguistics] = useState(true);
     const hasMissingExamplesAudio = examples.some((_example, index) => !examplesAudio[index]);
@@ -166,10 +179,6 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
         }
     }, [loadingAccept]);
 
-    useEffect(() => {
-        setLinguisticInfoValue(linguisticInfo || '');
-    }, [linguisticInfo]);
-
     // Включить режим редактирования
     const enableEditMode = () => {
         setIsEditMode(true);
@@ -199,12 +208,9 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             setEditingExampleIndex(null);
         }
         
-        // 4. Сохраняем изменения в лингвистической информации
-        if (linguisticInfoEditable && setLinguisticInfo) {
-            setLinguisticInfo(linguisticInfoValue);
-            setLinguisticInfoEditable(false);
-        }
-        
+        // 4. Grammar facts persist inline through GrammarCard's onChange, so nothing to
+        //    flush here on exit.
+
         // 5. Для уже сохраненных карточек автоматически сохраняем изменения
         if (isSaved) {
             onAccept();
@@ -303,8 +309,25 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
         }
     };
 
+    // The mobile study card bolds the studied word inside each example so the eye lands on
+    // it. Same treatment here keeps the two views recognisably one card.
+    const highlightStudiedWord = (text: string): React.ReactNode => {
+        const word = (front || '').trim();
+        if (!word) return text;
+        const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+        return parts.map((part, i) =>
+            part.toLowerCase() === word.toLowerCase()
+                ? <strong key={i} className="font-bold text-gray-900">{part}</strong>
+                : <React.Fragment key={i}>{part}</React.Fragment>
+        );
+    };
+
     // Рендер кнопки редактирования/сохранения
     const renderEditSaveButton = () => {
+        // In a controlled (modal) context the fields are already editable, so neither
+        // the "Edit Card" nor the "Finish Editing" button belongs here.
+        if (editable !== undefined) return null;
         // Если карточка в режиме редактирования, показываем кнопку "Save and Finish"
         if (isEditMode) {
             return (
@@ -344,7 +367,9 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
     // Рендерим подсказку для редактирования в режиме редактирования
     const renderEditingHint = () => {
         if (!isEditMode) return null;
-        
+        // The modal's own composer explains how to change the card; the blue banner is noise there.
+        if (editable !== undefined) return null;
+
         return (
             <div className="mb-4 rounded-md border border-blue-100 bg-blue-50 p-2.5 text-[13px] text-blue-800">
                 <div className="mb-1.5 flex items-center gap-2 font-semibold">
@@ -393,32 +418,13 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
         }
     };
 
-    const [linguisticInfoEditable, setLinguisticInfoEditable] = useState(false);
-    const [linguisticInfoValue, setLinguisticInfoValue] = useState(linguisticInfo || '');
-    
-    const handleLinguisticInfoChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setLinguisticInfoValue(e.target.value);
-    };
-    
-    const handleLinguisticInfoSave = () => {
-        if (setLinguisticInfo) {
-            setLinguisticInfo(linguisticInfoValue);
-        }
-        setLinguisticInfoEditable(false);
-    };
-    
-    const handleLinguisticInfoCancel = () => {
-        setLinguisticInfoValue(linguisticInfo || '');
-        setLinguisticInfoEditable(false);
-    };
-
     return (
-        <div className={`w-full max-w-full overflow-x-hidden rounded-lg border-l-4 p-4 shadow ${isEditMode ? 'border-l-blue-500 bg-zinc-50' : 'border-l-transparent bg-white'}`}>
-            {/* Status indicator with creation time - improved and more intuitive */}
-            <div className={`mb-3 flex flex-col items-end gap-1 rounded border px-2 py-1.5 text-right text-[10px] ${isEditMode ? 'border-blue-100 bg-blue-50 text-blue-800' : isSaved ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-gray-100 bg-gray-50 text-gray-500'}`}>
+        <div className={`w-full max-w-full overflow-x-hidden ${isEditMode && editable === undefined ? 'rounded-card border border-accent-border bg-accent-subtle/40 p-3' : ''}`}>
+            {showStatus && (
+            <div className={`mb-3 flex flex-col items-end gap-1 rounded-control border px-2 py-1.5 text-right text-[10px] ${isEditMode ? 'border-accent-border bg-accent-subtle text-accent' : isSaved ? 'border-ok-border bg-ok-subtle text-ok-strong' : 'border-line bg-surface-muted text-gray-500'}`}>
                 <div className="flex items-center gap-1">
-                    <span className={`inline-block h-2 w-2 rounded-full ${isEditMode ? 'bg-blue-500' : isSaved ? 'bg-emerald-500' : 'bg-gray-500'}`}></span>
-                    <strong className={`${isEditMode ? 'text-blue-900' : isSaved ? 'text-emerald-600' : 'text-gray-600'}`}>{isEditMode 
+                    <span className={`inline-block h-2 w-2 rounded-full ${isEditMode ? 'bg-accent' : isSaved ? 'bg-ok' : 'bg-gray-400'}`}></span>
+                    <strong className={`${isEditMode ? 'text-accent' : isSaved ? 'text-ok-strong' : 'text-gray-600'}`}>{isEditMode
                         ? 'Editing' 
                         : (isSaved 
                             ? 'Saved to Collection'
@@ -437,6 +443,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     })}
                 </div>
             </div>
+            )}
 
             {/* Кнопка редактирования/сохранения - показывается вверху карточки */}
             {renderEditSaveButton()}
@@ -462,25 +469,25 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                             const wordPart = parts[0]?.trim() || ''
                             const pronunciation = parts.length > 1 ? `/${parts.slice(1).join('/').replace(/\/$/, '')}` : ''
                             return (
-                                <div className="rounded-lg bg-gray-100 p-3 text-center">
-                                    <h3 className="m-0 mb-1.5 text-xl font-bold text-gray-900">{wordPart}</h3>
+                                <div className="text-center">
+                                    <h3 className="m-0 text-[30px] font-bold leading-tight tracking-tight text-gray-900">{wordPart}</h3>
                                     {pronunciation && (
-                                        <div className="text-sm italic text-gray-500">{pronunciation}</div>
+                                        <div className="mt-1 font-mono text-sm text-gray-500">{pronunciation}</div>
                                     )}
                                 </div>
                             )
                         })()
                     ) : (
-                        <h3 className="my-0.5 rounded-lg bg-gray-100 p-2.5 text-center text-lg font-semibold text-gray-900">{front}</h3>
+                        <h3 className="m-0 text-center text-[30px] font-bold leading-tight tracking-tight text-gray-900">{front}</h3>
                     )}
                 </div>
             )}
             
             {/* Транскрипция - отображается между словом и переводом */}
             {transcription && (
-                <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-center">
-                    <div 
-                        className="text-sm leading-relaxed text-slate-600"
+                <div className="-mt-1 mb-3 text-center">
+                    <div
+                        className="font-mono text-sm leading-relaxed text-gray-500"
                         dangerouslySetInnerHTML={{
                             __html: transcription
                         }}
@@ -493,20 +500,19 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                     {wordAudio && (
                         <button
                             onClick={handlePlayAudio}
-                            className="inline-flex h-8.5 w-8.5 items-center justify-center rounded-full border border-blue-300 bg-gradient-to-b from-sky-50 to-blue-100 text-blue-900 shadow-sm"
-                            title="Play pronunciation audio"
+                            aria-label="Play pronunciation"
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-accent-subtle text-accent transition-colors hover:bg-accent-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
-                            <FaVolumeUp size={14} />
+                            <FaVolumeUp size={16} />
                         </button>
                     )}
                     {onGenerateAudio && hasMissingAnyAudio && (
                         <button
                             onClick={onGenerateAudio}
                             disabled={loadingAudio}
-                            className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:bg-gray-100"
-                            title="Generate missing audio for word and examples"
+                            className="rounded-control px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-surface-sunken hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
-                            {loadingAudio ? 'Generating audio...' : 'Generate audio'}
+                            {loadingAudio ? 'Generating…' : 'Add audio'}
                         </button>
                     )}
                 </div>
@@ -515,7 +521,6 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             {/* Display translation for Language Learning mode or back for General mode */}
             {(mode === Modes.LanguageLearning ? translation : back) && (
                 <>
-                    <hr className="my-2.5 border-0 border-t border-gray-200" />
                     
                     {/* Editing mode for translation (Language Learning) or back (General) */}
                     {(mode === Modes.LanguageLearning ? isEditingTranslation : isEditingBack) && isEditMode ? (
@@ -525,7 +530,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     type="text"
                                     value={localTranslation}
                                     onChange={(e) => setLocalTranslation(e.target.value)}
-                                    className="w-full rounded-md border border-blue-500 bg-white px-3 py-2 text-center text-sm font-semibold text-gray-900 outline-none"
+                                    className="w-full rounded-control border border-accent bg-white px-3 py-2 text-center text-sm font-semibold text-gray-900 outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                     autoFocus
                                     onBlur={handleTranslationSave}
                                     onKeyDown={(e) => {
@@ -538,7 +543,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                 <textarea
                                     value={localBack}
                                     onChange={(e) => setLocalBack(e.target.value)}
-                                    className="min-h-[120px] w-full resize-y rounded-md border border-blue-500 bg-white p-3 text-sm font-normal leading-6 text-gray-900 outline-none"
+                                    className="min-h-[120px] w-full resize-y rounded-control border border-accent bg-white p-3 text-sm font-normal leading-6 text-gray-900 outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                     autoFocus
                                     onBlur={handleBackSave}
                                     onKeyDown={(e) => {
@@ -557,11 +562,11 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         </div>
                     ) : (
                         <div
-                        className={`relative mb-3 ${mode === Modes.LanguageLearning ? 'text-center' : 'text-left'} ${isEditMode ? 'cursor-pointer rounded border border-dashed border-gray-200 bg-zinc-50 p-2 pr-6 transition-colors hover:border-blue-500 hover:bg-gray-50' : ''}`}
+                        className={`relative mb-3 ${mode === Modes.LanguageLearning ? 'text-center' : 'text-left'} ${isEditMode ? 'cursor-text rounded-control border border-dashed border-line bg-surface-muted p-2 pr-8 transition-colors hover:border-accent hover:bg-surface-sunken' : ''}`}
                         onClick={isEditMode ? (mode === Modes.LanguageLearning ? handleTranslationEdit : handleBackEdit) : undefined}
                         >
                             {mode === Modes.LanguageLearning ? (
-                                <p className="m-0 text-sm font-semibold text-gray-900">{translation}</p>
+                                <p className={`m-0 font-semibold text-gray-900 ${isEditMode ? 'text-base' : 'text-[22px] leading-snug'}`}>{translation}</p>
                             ) : (
                                 <MathContentRenderer
                                     content={back || ''}
@@ -576,7 +581,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                         e.stopPropagation(); // Предотвращаем всплытие события
                                         mode === Modes.LanguageLearning ? handleTranslationEdit() : handleBackEdit();
                                     }}
-                                    className="absolute right-2 top-1/2 flex -translate-y-1/2 cursor-pointer rounded bg-gray-100 p-1 text-gray-500 shadow-sm transition-colors hover:bg-gray-200 hover:text-blue-500"
+                                    className="absolute right-2 top-1/2 flex -translate-y-1/2 cursor-pointer rounded-control bg-white p-1 text-gray-400 shadow-control transition-colors hover:bg-surface-sunken hover:text-accent"
                                     title={mode === Modes.LanguageLearning ? "Edit translation" : "Edit content"}
                                 >
                                     <FaPen size={12} />
@@ -587,65 +592,31 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                 </>
             )}
             
-            {/* Лингвистическая справка сразу после перевода */}
+            {/* Grammar Reference — the mint panel mirrors the mobile study card, so a card
+                looks the same in the extension and in the app. */}
             {linguisticInfo && (
-                <div className={`mb-4 mt-3 overflow-hidden rounded-[10px] border shadow-[0_2px_8px_rgba(0,0,0,0.05)] transition-all duration-300 ${expandedLinguistics ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}>
-                    {/* Заголовок секции с разделенной логикой клика */}
-                    <div 
-                        className={`flex items-center justify-between px-4 py-3 transition-colors ${expandedLinguistics ? 'border-b border-blue-200' : ''}`}
+                <div className="mb-4 mt-3 rounded-card border border-ok-border bg-ok-subtle p-3">
+                    <button
+                        type="button"
+                        aria-expanded={expandedLinguistics}
+                        onClick={() => setExpandedLinguistics(!expandedLinguistics)}
+                        className="flex w-full items-center justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
-                        <div className={`flex flex-1 items-center gap-2.5 text-sm font-semibold ${expandedLinguistics ? 'text-blue-700' : 'text-gray-600'}`}>
-                            <FaGraduationCap size={16} className={expandedLinguistics ? 'text-blue-600' : 'text-gray-500'} />
-                            <span>Grammar & Linguistics</span>
-                        </div>
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setExpandedLinguistics(!expandedLinguistics);
-                            }}
-                            className="flex items-center justify-center rounded p-1 transition-colors hover:bg-black/5"
-                        >
-                            {expandedLinguistics ? 
-                                <FaChevronUp size={14} className="text-gray-500" /> : 
-                                <FaChevronDown size={14} className="text-gray-500" />
-                            }
-                        </button>
-                    </div>
-                    
-                    {/* Содержимое раздела без onClick */}
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-ok-strong">
+                            Grammar Reference
+                        </span>
+                        {expandedLinguistics
+                            ? <FaChevronUp size={12} className="shrink-0 text-ok-strong" />
+                            : <FaChevronDown size={12} className="shrink-0 text-ok-strong" />}
+                    </button>
+
                     {expandedLinguistics && (
-                        <div className="p-4">
-                            {linguisticInfoEditable ? (
-                                <div className="w-full">
-                                    <textarea
-                                        value={linguisticInfoValue}
-                                        onChange={handleLinguisticInfoChange}
-                                        className="mb-2 min-h-[120px] w-full resize-y rounded-md border border-gray-200 px-3 py-2.5 text-sm leading-6"
-                                    />
-                                    <div className="flex justify-end gap-2">
-                                        <button
-                                            onClick={handleLinguisticInfoCancel}
-                                            className="cursor-pointer rounded-md border border-gray-200 bg-gray-100 px-3 py-1.5 text-[13px] text-gray-600 hover:bg-gray-200"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            onClick={handleLinguisticInfoSave}
-                                            className="cursor-pointer rounded-md bg-blue-600 px-3 py-1.5 text-[13px] text-white hover:bg-blue-700"
-                                        >
-                                            Save
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="relative">
-                                    <GrammarCard 
-                                        content={linguisticInfo || ''} 
-                                        isEditable={isEditMode} 
-                                        onEditClick={() => setLinguisticInfoEditable(true)} 
-                                    />
-                                </div>
-                            )}
+                        <div className="pt-2.5">
+                            <GrammarCard
+                                content={linguisticInfo || ''}
+                                isEditable={isEditMode}
+                                onChange={(serialized) => setLinguisticInfo?.(serialized)}
+                            />
                         </div>
                     )}
                 </div>
@@ -653,20 +624,17 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             
             {examples.length > 0 && (
                 <>
-                    <hr className="my-2.5 border-0 border-t border-gray-200" />
                     <div className="mb-3">
-                        <div className="mb-2 flex items-center justify-between">
-                            <h4 className="m-0 text-sm font-semibold text-gray-700">Examples</h4>
-                        </div>
-                        
-                        <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                        <h4 className="m-0 mb-2.5 border-t border-line pt-3 text-[13px] font-semibold text-gray-500">Examples</h4>
+
+                        <ul className="m-0 flex list-none flex-col gap-3 p-0">
                             {examples.map(([example, translatedExample], index) => (
-                                <li key={index} className={`relative min-h-0 break-words overflow-visible rounded-md bg-gray-50 p-3 ${isEditMode ? 'border border-dashed border-slate-300 shadow-sm' : ''}`}>
+                                <li key={index} className={`relative min-h-0 break-words overflow-visible ${isEditMode ? 'rounded-control border border-dashed border-line bg-white p-3' : ''}`}>
                                     {isEditMode && (
                                         <div className="absolute right-2 top-2 z-[5] flex gap-2">
                                             <button
                                                 onClick={() => handleDeleteExample(index)}
-                                                className="flex cursor-pointer items-center justify-center rounded bg-red-100 px-1.5 py-1 text-[11px] font-medium text-red-500 hover:bg-red-200"
+                                                className="flex cursor-pointer items-center justify-center rounded-control bg-danger-subtle px-1.5 py-1 text-[11px] font-medium text-danger-strong hover:bg-danger-border"
                                                 title="Delete example"
                                             >
                                                 <FaTrash size={10} className="mr-1" />
@@ -681,7 +649,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                                 <textarea
                                                     value={example}
                                                     onChange={(e) => handleExampleEdit(index, true, e.target.value)}
-                                                    className="min-h-10 w-full resize-y rounded border border-gray-200 bg-white px-2 py-1.5 text-[13px] font-medium leading-6 text-gray-900"
+                                                    className="min-h-10 w-full resize-y rounded-control border border-line bg-white px-2 py-1.5 text-[13px] font-medium leading-6 text-gray-900 outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent"
                                                     placeholder="Example sentence"
                                                 />
                                             </div>
@@ -690,35 +658,35 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                                 <textarea
                                                     value={translatedExample || ''}
                                                     onChange={(e) => handleExampleEdit(index, false, e.target.value)}
-                                                    className="min-h-10 w-full resize-y rounded border border-gray-200 bg-white px-2 py-1.5 text-[13px] italic leading-6 text-gray-500"
+                                                    className="min-h-10 w-full resize-y rounded-control border border-line bg-white px-2 py-1.5 text-[13px] italic leading-6 text-gray-500 outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent"
                                                     placeholder="Translation (optional)"
                                                 />
                                             </div>
                                         </>
                                     ) : (
-                                        <>
-                                            {!isEditMode && (
-                                                <div className="mb-1.5 flex justify-end gap-1.5">
-                                                    {examplesAudio[index] && (
-                                                        <button
-                                                            onClick={() => handlePlayExampleAudio(index)}
-                                                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-gradient-to-b from-slate-50 to-blue-50 text-blue-900"
-                                                            title="Play example audio"
-                                                        >
-                                                            <FaVolumeUp size={10} />
-                                                        </button>
-                                                    )}
-                                                </div>
+                                        <div className="flex items-start gap-2.5">
+                                            {examplesAudio[index] ? (
+                                                <button
+                                                    onClick={() => handlePlayExampleAudio(index)}
+                                                    aria-label="Play example"
+                                                    className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-subtle text-accent transition-colors hover:bg-accent-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                                >
+                                                    <FaVolumeUp size={10} />
+                                                </button>
+                                            ) : (
+                                                <span className="mt-0.5 shrink-0 text-[15px] leading-5 text-ok-strong" aria-hidden>•</span>
                                             )}
-                                            <div className={`break-words overflow-visible whitespace-normal text-[13px] font-medium leading-6 text-gray-900 ${translatedExample ? 'mb-1.5' : 'mb-0'}`}>
-                                                {example}
+                                            <div className="min-w-0 flex-1">
+                                                <div className="break-words whitespace-normal text-[14px] leading-6 text-gray-900">
+                                                    {highlightStudiedWord(example)}
+                                                </div>
+                                                {translatedExample && (
+                                                    <div className="mt-0.5 break-words overflow-visible whitespace-normal text-[13px] leading-5 text-gray-500">
+                                                        {translatedExample}
+                                                    </div>
+                                                )}
                                             </div>
-                                            {translatedExample && (
-                                                <div className="break-words overflow-visible whitespace-normal text-[13px] italic leading-6 text-gray-500">
-                                                    {translatedExample}
-                                                </div>
-                                            )}
-                                        </>
+                                        </div>
                                     )}
                                 </li>
                             ))}
@@ -727,7 +695,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         {isEditMode && (
                             <button
                                 onClick={handleAddExample}
-                                className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-blue-200 bg-blue-50 px-2.5 py-2.5 text-sm font-medium text-blue-500 transition-colors hover:border-blue-300 hover:bg-blue-100"
+                                className="mt-3 flex w-full items-center justify-center gap-2 rounded-control border border-dashed border-accent-border bg-accent-subtle px-2.5 py-2.5 text-sm font-medium text-accent transition-colors hover:border-accent hover:bg-accent-subtle/70"
                             >
                                 <FaPlus size={12} />
                                 Add Example
@@ -739,24 +707,23 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
             
             {(image || imageUrl) && (
                 <>
-                    <hr className="my-4 border-0 border-t border-gray-200" />
                     <div className="mb-4">
-                        <img 
-                            src={image || imageUrl || ''} 
-                            alt="" 
-                            className="w-full rounded-md shadow-sm" 
+                        <img
+                            src={image || imageUrl || ''}
+                            alt=""
+                            className="max-h-64 w-full rounded-sheet border border-line bg-white object-contain"
                         />
                     </div>
                 </>
             )}
             
-            {!isSaved && (
+            {!isSaved && !hideActionButtons && (
                 <div className="mb-2 flex gap-1.5">
                     {(image || imageUrl) && (
                         <button 
                             onClick={onNewImage} 
                             disabled={loadingNewImage}
-                            className="flex-1 rounded-md bg-amber-500 px-3 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
+                            className="flex-1 rounded-control border border-line bg-white px-3 py-2 text-[13px] font-semibold text-gray-700 shadow-control transition-colors hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-70"
                         >
                             {loadingNewImage ?
     <div className="flex items-center justify-center gap-1.5">
@@ -771,7 +738,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                         <button 
                             onClick={onNewExamples} 
                             disabled={loadingNewExamples}
-                            className="flex-1 rounded-md bg-amber-500 px-3 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
+                            className="flex-1 rounded-control border border-line bg-white px-3 py-2 text-[13px] font-semibold text-gray-700 shadow-control transition-colors hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-70"
                         >
                             {loadingNewExamples ?
     <div className="flex items-center justify-center gap-1.5">
@@ -797,7 +764,7 @@ const ResultDisplay: React.FC<ResultDisplayProps> = (
                                     <button 
                                         onClick={onAccept} 
                                         disabled={loadingAccept}
-                                        className="flex flex-1 items-center justify-center gap-2 rounded-md bg-green-500 px-2.5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-70"
+                                        className="flex flex-1 items-center justify-center gap-2 rounded-control bg-accent px-2.5 py-2.5 text-sm font-semibold text-white shadow-control transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-70"
                                     >
                                         <FaCheck />
                                         {loadingAccept ? 
