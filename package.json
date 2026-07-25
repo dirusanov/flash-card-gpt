@@ -21,7 +21,8 @@
     "prettier": "prettier --write '**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
     "watch:storybook": "start-storybook -p 6006",
     "storybook": "concurrently \"npm:watch:storybook\" \"npm:dev:css\"",
-    "build-storybook": "build-storybook"
+    "build-storybook": "build-storybook",
+    "test:ai-cards": "node utils/test-ai-cards/run.js"
   },
   "dependencies": {
     "@types/katex": "^0.16.7",
@@ -91,6 +92,7 @@
     "ts-loader": "^9.4.2",
     "type-fest": "^3.5.2",
     "typescript": "^4.9.4",
+    "undici": "^7.29.0",
     "webpack": "^5.75.0",
     "webpack-cli": "^4.10.0",
     "webpack-dev-server": "^4.11.1",
