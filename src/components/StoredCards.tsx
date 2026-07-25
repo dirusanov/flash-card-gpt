@@ -22,7 +22,7 @@ import Loader from './Loader';
 import { formatOpenAIErrorMessage, getDescriptionImage, getFallbackImageModelForError, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { getAIService, getApiKeyForProvider, createExamples, createTranslation, createCardComponentsParallel, createLinguisticInfo } from '../services/aiServiceFactory';
 import { planInstruction, ACTION_STATUS } from '../services/instructionRouter';
-import { SrsGrade, applyReview, createInitialSrsState, isDue } from '../services/srs';
+import { SrsGrade, applyReview, createInitialSrsState, isDue, srsEquals } from '../services/srs';
 import { ReviewLogEntry, appendReviewLog, computeStats, loadReviewLogs } from '../services/reviewLog';
 import { pullSrsUpdates, pushReview } from '../services/srsSync';
 import StudySession from './StoredCards/StudySession';
@@ -208,9 +208,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 storedCardsRef.current.forEach((card) => {
                     const remoteState = card.syncId ? byNoteId[card.syncId] : undefined;
                     if (!remoteState) return;
-                    // Whoever reviewed last wins; without a timestamp on either side there
-                    // is nothing better to compare, and the server is the shared record.
-                    if (card.srsState?.srs_due_at === remoteState.srs_due_at) return;
+                    // Our own pushes come back on the next pull, so skipping identical
+                    // schedules is what stops each pull from rewriting every card (and
+                    // triggering a note sync per card).
+                    if (srsEquals(card.srsState, remoteState)) return;
                     tabAware.updateStoredCard({ ...card, srsState: remoteState });
                 });
             })

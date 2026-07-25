@@ -303,7 +303,8 @@ const resolveVersionConflict = async (
   card: StoredCard,
   fieldsJson: Record<string, any>,
   tags: string[],
-  deckId: string,
+  /** Null when the card has no explicit deck — see the note in `upsertCard`. */
+  deckId: string | null,
   error: unknown
 ): Promise<{
   id: string;
@@ -335,7 +336,7 @@ const resolveVersionConflict = async (
     accessToken,
     latestNote.id,
     {
-      deck_id: deckId,
+      ...(deckId ? { deck_id: deckId } : {}),
       fields_json: fieldsJson,
       tags,
       source: DEFAULT_SOURCE,
@@ -419,9 +420,12 @@ export const cardsSyncService = {
             accessToken,
             existingNote.id,
             {
-              // Without this a deck change never reached the server: the card stayed in
-              // whatever deck it was first created in (usually the default one).
-              deck_id: deck.id,
+              // Only claim a deck when the card actually has one. `deck` falls back to
+              // the default deck, and since the server now honours deck_id on update,
+              // sending that fallback would drag a card filed elsewhere (on the phone,
+              // say) back into the default deck on the next edit. No local deck means
+              // "no opinion" — leave the server's.
+              ...(normalizedCard.deckId ? { deck_id: deck.id } : {}),
               fields_json: fieldsJson,
               tags,
               source: DEFAULT_SOURCE,
@@ -439,7 +443,7 @@ export const cardsSyncService = {
             normalizedCard,
             fieldsJson,
             tags,
-            deck.id,
+            normalizedCard.deckId ? deck.id : null,
             error
           );
           if (resolved) {

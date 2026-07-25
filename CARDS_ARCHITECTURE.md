@@ -202,8 +202,14 @@ local reinstall backup — the `/sync` channel is what actually crosses devices.
 - Merge keeps local `exportStatus`/`ankiDeckName`, and uses
   `srsState: remote.srsState ?? local.srsState` so an older note without a schedule cannot
   silently reset a card to "new".
-- `updateNote` now sends `deck_id`, so moving a card between Vaulto decks reaches the
-  server (it previously never did).
+- `updateNote` sends `deck_id`, **but only when the card has an explicit local deck**.
+  The deck resolution falls back to the default deck, and since the server honours
+  `deck_id` on update, sending that fallback would drag a card filed elsewhere (on the
+  phone, say) back into the default deck on the next edit. No local deck means "no
+  opinion" — the server keeps its own.
+  This required a matching backend change: `NoteUpdateDTO.deck_id` plus, in
+  `update_note`, moving the note *and its cards* and logging a `card` sync change for
+  each, so other devices learn about the move.
 
 ---
 
@@ -281,12 +287,6 @@ on every keystroke and stole the caret after one character.
 
 ## 12. Known gaps
 
-- **Moving a card between Vaulto decks does not reach the server.** The client sends
-  `deck_id` on `PATCH /notes/{id}`, but `NoteUpdateDTO` has no such field and pydantic
-  ignores extras, so it is dropped without an error. `/sync/push` with
-  `entity_type: 'note'` does not help either — `_apply_note_change` never assigns
-  `deck_id` to an existing note. **This needs a backend change** (add `deck_id` to
-  `NoteUpdateDTO` and assign it in `update_note`); the client side is already in place.
 - **No live end-to-end run has been observed.** Every payload, endpoint, id type and
   validation rule has now been checked against the backend source, and the client was
   exercised with a recorded transport — but no real request to
