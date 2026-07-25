@@ -466,6 +466,55 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     }, [backendDeckNames, storedCards, cardMatchesDeck]);
 
     const activeDeckName = activeDeckId ? backendDeckNames[activeDeckId] : null;
+    const [deckActionBusy, setDeckActionBusy] = useState(false);
+
+    const reloadDeckNames = useCallback(async () => {
+        const decks = await executeRequest((token) => cardsSyncApi.listDecks(syncApiUrl, token));
+        const names: Record<string, string> = {};
+        decks.forEach((deck) => { names[deck.id] = deck.name; });
+        setBackendDeckNames(names);
+        return names;
+    }, [executeRequest, syncApiUrl]);
+
+    const handleRenameDeck = useCallback(async (deckId: string, name: string) => {
+        setDeckActionBusy(true);
+        try {
+            await executeRequest((token) => cardsSyncApi.updateDeck(syncApiUrl, token, deckId, { name }));
+            await reloadDeckNames();
+        } catch (error: any) {
+            showError(error?.message || 'Could not rename the deck.');
+        } finally {
+            setDeckActionBusy(false);
+        }
+    }, [executeRequest, syncApiUrl, reloadDeckNames, showError]);
+
+    // Cards are moved to the default deck rather than deleted with the deck — the server
+    // does both in one transaction, so they can never be left pointing at a deck that is
+    // gone.
+    const handleDeleteDeck = useCallback(async (deckId: string) => {
+        // Without a target the server soft-deletes the cards along with the deck. Refuse
+        // rather than silently destroy them; the default deck appears on the first sync.
+        if (!defaultDeckId) {
+            showError('Cannot delete this deck yet — its cards have nowhere to move to.');
+            return;
+        }
+
+        setDeckActionBusy(true);
+        try {
+            await executeRequest((token) => cardsSyncApi.deleteDeck(syncApiUrl, token, deckId, defaultDeckId));
+
+            // Reflect the move locally so the list does not wait for the next sync.
+            storedCards
+                .filter((card) => card.deckId === deckId)
+                .forEach((card) => tabAware.updateStoredCard({ ...card, deckId: defaultDeckId }));
+            if (activeDeckId === deckId) setActiveDeckId(null);
+            await reloadDeckNames();
+        } catch (error: any) {
+            showError(error?.message || 'Could not delete the deck.');
+        } finally {
+            setDeckActionBusy(false);
+        }
+    }, [executeRequest, syncApiUrl, defaultDeckId, storedCards, tabAware, activeDeckId, reloadDeckNames, showError]);
 
     // A deck that disappears (renamed or deleted elsewhere) must not leave the list stuck
     // showing nothing with no obvious way back.
@@ -753,15 +802,23 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     // slot becomes the prompt to sign in, since that is the only real risk of data loss.
     const renderCloudStatusIcon = () => {
         if (!isLoggedIn) {
+            // Signed out is the one state that can actually lose data, so unlike the quiet
+            // signed-in icon it says so in words: an icon alone leaves people guessing,
+            // and a struck-through cloud next to "Not backed up" cannot be misread.
             return (
                 <button
                     type="button"
                     onClick={() => tabAware.setCurrentPage('auth')}
-                    title="Sign in to back up your cards"
-                    aria-label="Sign in to back up your cards"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-accent-border bg-accent-subtle text-accent transition-colors hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    title="Cards are only on this device. Sign in to back them up."
+                    className="flex h-9 shrink-0 items-center gap-1.5 rounded-control border border-warn-border bg-warn-subtle px-2.5 text-warn-strong transition-colors hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                    <FaCloud size={13} />
+                    <span className="relative flex h-3.5 w-3.5 items-center justify-center" aria-hidden>
+                        <FaCloud size={13} />
+                        {/* The slash is drawn rather than imported: Font Awesome 5 free has
+                            no cloud-slash, and a plain cloud reads as "fine". */}
+                        <span className="absolute h-[1.5px] w-[18px] rotate-45 rounded-full bg-warn-strong" />
+                    </span>
+                    <span className="text-[11px] font-semibold">Not backed up</span>
                 </button>
             );
         }
@@ -2481,6 +2538,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 <DeckSheet
                     decks={deckOptions}
                     activeDeckId={activeDeckId}
+                    defaultDeckName={DEFAULT_DECK_NAME}
+                    busy={deckActionBusy}
+                    onRename={handleRenameDeck}
+                    onDelete={handleDeleteDeck}
                     onSelect={setActiveDeckId}
                     onStudy={(deckId) => {
                         setActiveDeckId(deckId);

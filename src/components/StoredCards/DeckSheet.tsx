@@ -1,6 +1,8 @@
-import React from 'react';
-import { FaLayerGroup, FaPlay, FaCheck } from 'react-icons/fa';
+import React, { useState } from 'react';
+import { FaLayerGroup, FaPlay, FaCheck, FaEllipsisH, FaTimes, FaExclamationTriangle } from 'react-icons/fa';
 import Modal from '../ui/Modal';
+import Button from '../ui/Button';
+import Menu from '../ui/Menu';
 
 export interface DeckOption {
     id: string | null;
@@ -12,8 +14,13 @@ export interface DeckOption {
 interface DeckSheetProps {
     decks: DeckOption[];
     activeDeckId: string | null;
+    /** Name of the auto-created fallback deck; it cannot be renamed away or deleted. */
+    defaultDeckName: string;
+    busy?: boolean;
     onSelect: (deckId: string | null) => void;
     onStudy: (deckId: string | null) => void;
+    onRename: (deckId: string, name: string) => Promise<void>;
+    onDelete: (deckId: string) => Promise<void>;
     onClose: () => void;
 }
 
@@ -21,70 +28,204 @@ interface DeckSheetProps {
 // how much is ready to review, and can be studied straight from the row. It replaces the
 // horizontal chip row, which scrolled out of sight once there were a few decks and had
 // nowhere to put a due count.
-const DeckSheet: React.FC<DeckSheetProps> = ({ decks, activeDeckId, onSelect, onStudy, onClose }) => (
-    <Modal open onClose={onClose} title="Decks" maxWidth={360}>
-        <div className="flex flex-col gap-1 px-3 pb-3 pt-1">
-            {decks.map((deck) => {
-                const active = deck.id === activeDeckId;
-                return (
-                    <div
-                        key={deck.id ?? 'all'}
-                        className={`flex items-center gap-2.5 rounded-card border px-2.5 py-2 transition-colors ${
-                            active ? 'border-accent-border bg-accent-subtle' : 'border-line bg-white'
-                        }`}
-                    >
-                        <button
-                            type="button"
-                            onClick={() => { onSelect(deck.id); onClose(); }}
-                            className="flex min-w-0 flex-1 items-center gap-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-control"
-                        >
-                            <span
-                                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-card ${
-                                    active ? 'bg-white text-accent' : 'bg-surface-muted text-gray-400'
-                                }`}
-                            >
-                                {active ? <FaCheck size={12} /> : <FaLayerGroup size={13} />}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                                <span className="block truncate text-[13px] font-semibold text-gray-900">
-                                    {deck.name}
-                                </span>
-                                <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-gray-500">
-                                    <span>{deck.count} {deck.count === 1 ? 'card' : 'cards'}</span>
-                                    {deck.due > 0 && (
-                                        <>
-                                            <span className="text-gray-300">·</span>
-                                            <span className="font-semibold text-ok-strong">{deck.due} due</span>
-                                        </>
-                                    )}
-                                </span>
-                            </span>
-                        </button>
+const DeckSheet: React.FC<DeckSheetProps> = ({
+    decks,
+    activeDeckId,
+    defaultDeckName,
+    busy = false,
+    onSelect,
+    onStudy,
+    onRename,
+    onDelete,
+    onClose,
+}) => {
+    const [renamingId, setRenamingId] = useState<string | null>(null);
+    const [renameValue, setRenameValue] = useState('');
+    const [confirmDelete, setConfirmDelete] = useState<DeckOption | null>(null);
 
-                        {deck.count > 0 && (
-                            <button
-                                type="button"
-                                onClick={() => { onStudy(deck.id); onClose(); }}
-                                aria-label={`Study ${deck.name}`}
-                                title={`Study ${deck.name}`}
-                                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-card transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                                    deck.due > 0
-                                        ? 'bg-accent text-white hover:bg-accent-hover'
-                                        : 'bg-surface-muted text-gray-400 hover:bg-surface-sunken'
+    const startRename = (deck: DeckOption) => {
+        setRenamingId(deck.id);
+        setRenameValue(deck.name);
+    };
+
+    const commitRename = async () => {
+        const name = renameValue.trim();
+        if (!renamingId || !name) { setRenamingId(null); return; }
+        await onRename(renamingId, name);
+        setRenamingId(null);
+    };
+
+    return (
+        <>
+            <Modal open onClose={onClose} title="Decks" maxWidth={360}>
+                <div className={`flex flex-col gap-1 px-3 pb-3 pt-1 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                    {decks.map((deck) => {
+                        const active = deck.id === activeDeckId;
+                        const isAll = deck.id === null;
+                        const isDefault = deck.name === defaultDeckName;
+
+                        if (renamingId && renamingId === deck.id) {
+                            return (
+                                <div key={deck.id} className="flex items-center gap-1.5 rounded-card border border-accent-border bg-white p-1.5">
+                                    <input
+                                        autoFocus
+                                        value={renameValue}
+                                        onChange={(e) => setRenameValue(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') void commitRename();
+                                            if (e.key === 'Escape') setRenamingId(null);
+                                        }}
+                                        aria-label="Deck name"
+                                        className="h-8 min-w-0 flex-1 rounded-control border border-accent bg-white px-2.5 text-[13px] text-gray-900 outline-none ring-2 ring-accent"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => void commitRename()}
+                                        disabled={!renameValue.trim()}
+                                        aria-label="Save name"
+                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-accent text-white transition-colors hover:bg-accent-hover disabled:bg-surface-sunken disabled:text-gray-400"
+                                    >
+                                        <FaCheck size={11} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setRenamingId(null)}
+                                        aria-label="Cancel"
+                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600"
+                                    >
+                                        <FaTimes size={11} />
+                                    </button>
+                                </div>
+                            );
+                        }
+
+                        return (
+                            <div
+                                key={deck.id ?? 'all'}
+                                className={`flex items-center gap-2 rounded-card border px-2.5 py-2 transition-colors ${
+                                    active ? 'border-accent-border bg-accent-subtle' : 'border-line bg-white'
                                 }`}
                             >
-                                <FaPlay size={10} />
-                            </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { onSelect(deck.id); onClose(); }}
+                                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded-control text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                >
+                                    <span
+                                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-card ${
+                                            active ? 'bg-white text-accent' : 'bg-surface-muted text-gray-400'
+                                        }`}
+                                    >
+                                        {active ? <FaCheck size={12} /> : <FaLayerGroup size={13} />}
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate text-[13px] font-semibold text-gray-900">
+                                            {deck.name}
+                                        </span>
+                                        <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-gray-500">
+                                            <span>{deck.count} {deck.count === 1 ? 'card' : 'cards'}</span>
+                                            {deck.due > 0 && (
+                                                <>
+                                                    <span className="text-gray-300">·</span>
+                                                    <span className="font-semibold text-ok-strong">{deck.due} due</span>
+                                                </>
+                                            )}
+                                        </span>
+                                    </span>
+                                </button>
+
+                                {deck.count > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => { onStudy(deck.id); onClose(); }}
+                                        aria-label={`Study ${deck.name}`}
+                                        title={`Study ${deck.name}`}
+                                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-card transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                                            deck.due > 0
+                                                ? 'bg-accent text-white hover:bg-accent-hover'
+                                                : 'bg-surface-muted text-gray-400 hover:bg-surface-sunken'
+                                        }`}
+                                    >
+                                        <FaPlay size={10} />
+                                    </button>
+                                )}
+
+                                {/* "All cards" is a view, not a deck. The default deck is
+                                    identified by its name — renaming it would make the next
+                                    deckless card create a second one — so it offers neither
+                                    action. */}
+                                {!isAll && deck.id && !isDefault && (
+                                    <Menu
+                                        label={`Actions for ${deck.name}`}
+                                        items={[
+                                            { value: 'rename', label: 'Rename deck' },
+                                            { value: 'delete', label: 'Delete deck' },
+                                        ]}
+                                        value=""
+                                        onSelect={(action) => {
+                                            if (action === 'rename') startRename(deck);
+                                            else setConfirmDelete(deck);
+                                        }}
+                                        trigger={({ open, toggle }) => (
+                                            <button
+                                                type="button"
+                                                aria-haspopup="menu"
+                                                aria-expanded={open}
+                                                aria-label={`Actions for ${deck.name}`}
+                                                onClick={toggle}
+                                                className="flex h-8 w-7 shrink-0 items-center justify-center rounded-control text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                            >
+                                                <FaEllipsisH size={12} />
+                                            </button>
+                                        )}
+                                    />
+                                )}
+                            </div>
+                        );
+                    })}
+
+                    <p className="m-0 mt-1.5 px-1 text-[11px] leading-snug text-gray-400">
+                        Decks live in Vaulto Cloud. To put a card in one, use “Move to deck”.
+                    </p>
+                </div>
+            </Modal>
+
+            {confirmDelete && confirmDelete.id && (
+                <Modal open onClose={() => setConfirmDelete(null)} title="Delete deck?" maxWidth={340}>
+                    <div className="px-4 py-4">
+                        <p className="m-0 text-[13px] leading-relaxed text-gray-600">
+                            <span className="font-semibold text-gray-900">{confirmDelete.name}</span> will be removed.
+                        </p>
+                        {confirmDelete.count > 0 && (
+                            <div className="mt-3 flex items-start gap-2 rounded-card border border-warn-border bg-warn-subtle px-3 py-2">
+                                <FaExclamationTriangle size={11} className="mt-0.5 shrink-0 text-warn" />
+                                <span className="text-[12px] leading-snug text-warn-strong">
+                                    Its {confirmDelete.count} {confirmDelete.count === 1 ? 'card moves' : 'cards move'} to
+                                    “{defaultDeckName}”. No cards are deleted.
+                                </span>
+                            </div>
                         )}
+                        <div className="mt-4 flex gap-2.5">
+                            <Button variant="secondary" fullWidth onClick={() => setConfirmDelete(null)}>
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="danger"
+                                fullWidth
+                                onClick={async () => {
+                                    const target = confirmDelete.id as string;
+                                    setConfirmDelete(null);
+                                    await onDelete(target);
+                                }}
+                            >
+                                Delete
+                            </Button>
+                        </div>
                     </div>
-                );
-            })}
-
-            <p className="m-0 mt-1.5 px-1 text-[11px] leading-snug text-gray-400">
-                Decks come from Vaulto Cloud. To put a card in one, use “Move to deck”.
-            </p>
-        </div>
-    </Modal>
-);
+                </Modal>
+            )}
+        </>
+    );
+};
 
 export default DeckSheet;

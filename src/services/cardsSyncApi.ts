@@ -111,10 +111,15 @@ export const cardsSyncApi = {
     );
   },
 
-  deleteDeck(baseUrl: string, accessToken: string, deckId: string): Promise<DeckApi> {
+  /**
+   * `moveTo` reassigns the deck's cards to another deck instead of deleting them along
+   * with it. Always pass it from the panel: deleting a folder should not destroy its
+   * contents.
+   */
+  deleteDeck(baseUrl: string, accessToken: string, deckId: string, moveTo?: string): Promise<DeckApi> {
     return requestJson<DeckApi>(
       baseUrl,
-      `/decks/${deckId}`,
+      `/decks/${deckId}${moveTo ? `?move_to=${encodeURIComponent(moveTo)}` : ''}`,
       {
         method: 'DELETE',
       },
