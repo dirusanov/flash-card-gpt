@@ -154,6 +154,9 @@ const mergeRemoteCards = (localCards: any[], remoteCards: any[]) => {
       ...mergeRemoteImageFields(local, remote),
       exportStatus: local.exportStatus ?? remote.exportStatus,
       ankiDeckName: local.ankiDeckName ?? remote.ankiDeckName,
+      // A note stored before study progress existed carries no schedule; taking the
+      // remote's `undefined` would silently reset the card to "new".
+      srsState: remote.srsState ?? local.srsState,
       syncPending: false,
     });
   });

@@ -22,6 +22,7 @@ import {
   UPDATE_CARD_SYNC_META,
 } from '../actions/cards';
 import { CardLangLearning, CardGeneral } from '../../services/ankiService';
+import { CardSrsState } from '../../services/srs';
 import { Modes } from '../../constants';
 
 const isDev = false;
@@ -61,6 +62,8 @@ export interface StoredCard {
   syncPending?: boolean;
   deckId?: string | null;
   ankiDeckName?: string | null;
+  /** Spaced-repetition schedule, shared shape with the mobile app. */
+  srsState?: CardSrsState;
 }
 
 const initialState: CardState = {

@@ -1,27 +1,37 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from '../store';
-import { saveAnkiCards, UPDATE_CARD_SYNC_META } from '../store/actions/cards';
+import { saveAnkiCards } from '../store/actions/cards';
 import { setAnkiAvailability } from '../store/actions/anki';
-import { StoredCard, ExportStatus } from '../store/reducers/cards';
+import { StoredCard } from '../store/reducers/cards';
 import { useTabAware } from './TabAwareProvider';
 import { Modes } from '../constants';
-import { FaTrash, FaDownload, FaSync, FaEdit, FaTimes, FaChevronLeft, FaChevronRight, FaMagic } from 'react-icons/fa';
+import { FaDownload, FaTimes, FaEllipsisH, FaSearch, FaCheckSquare, FaCloud, FaCheckCircle, FaChevronRight, FaExclamationTriangle, FaDesktop, FaPlay, FaChartBar } from 'react-icons/fa';
 import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards, format_back_lang_learning, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
-import { cardsSyncService } from '../services/cardsSyncService';
-import { authApi } from '../services/authApi';
-import { authStorage } from '../services/authStorage';
-import { setAuthSession, clearAuthSession } from '../store/actions/auth';
-import DeckSelector from './CreateCard/DeckSelector';
-import { useAuthenticatedRequest } from '../hooks/useAuthenticatedRequest';
 import useErrorNotification from './useErrorHandler';
+import Menu from './ui/Menu';
+import Button from './ui/Button';
+import Modal from './ui/Modal';
+import InstructionComposer, { InstructionSuggestion } from './StoredCards/InstructionComposer';
+import StudyCard from './StoredCards/StudyCard';
+import DeckSelector from './CreateCard/DeckSelector';
 import { setDeckId } from '../store/actions/decks';
 import Loader from './Loader';
 import { formatOpenAIErrorMessage, getDescriptionImage, getFallbackImageModelForError, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
+import { getAIService, getApiKeyForProvider, createExamples, createTranslation, createCardComponentsParallel, createLinguisticInfo } from '../services/aiServiceFactory';
+import { planInstruction, ACTION_STATUS } from '../services/instructionRouter';
+import { SrsGrade, applyReview, createInitialSrsState, isDue } from '../services/srs';
+import { ReviewLogEntry, appendReviewLog, computeStats, loadReviewLogs } from '../services/reviewLog';
+import { pullSrsUpdates, pushReview } from '../services/srsSync';
+import StudySession from './StoredCards/StudySession';
+import StatsPanel from './StoredCards/StatsPanel';
+import { cardsSyncApi } from '../services/cardsSyncApi';
+import { DEFAULT_DECK_NAME } from '../services/cardsSyncService';
+import { useAuthenticatedRequest } from '../hooks/useAuthenticatedRequest';
+import { ModelProvider } from '../store/reducers/settings';
 import { backgroundFetch } from "../services/backgroundFetch";
-import ResultDisplay from './ResultDisplay';
 import { buildSafeImagePrompt, extractOpenAIImagePayload } from '../services/imagePromptSafety';
 import {
     OPENAI_IMAGE_BACKGROUND,
@@ -42,17 +52,33 @@ interface StoredCardsProps {
     initialFilter?: CardFilterType;
 }
 
+// Kept only for the (now ignored) initialFilter prop callers still pass.
 type CardFilterType = 'new' | 'all' | 'not_exported' | 'exported';
 
-const normalizeFilter = (value: CardFilterType): 'new' | 'not_exported' | 'exported' => {
-    if (value === 'all') {
-        return 'new';
-    }
+const RELATIVE_UNITS: [limit: number, divisor: number, unit: Intl.RelativeTimeFormatUnit][] = [
+    [60_000, 1_000, 'second'],
+    [3_600_000, 60_000, 'minute'],
+    [86_400_000, 3_600_000, 'hour'],
+    [604_800_000, 86_400_000, 'day'],
+    [2_629_800_000, 604_800_000, 'week'],
+    [31_557_600_000, 2_629_800_000, 'month'],
+];
 
-    return value;
+// A full "24.07.2026, 00:15" per row is noise when scanning; "2 days ago" is what the
+// reader actually wants to know.
+const formatRelativeDate = (value: Date | string | number): string => {
+    const time = new Date(value).getTime();
+    if (Number.isNaN(time)) return '';
+    const diff = time - Date.now();
+    const abs = Math.abs(diff);
+    const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto', style: 'narrow' });
+    for (const [limit, divisor, unit] of RELATIVE_UNITS) {
+        if (abs < limit) return formatter.format(Math.round(diff / divisor), unit);
+    }
+    return formatter.format(Math.round(diff / 31_557_600_000), 'year');
 };
 
-const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, initialFilter = 'new' }) => {
+const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, initialFilter: _initialFilter = 'new' }) => {
     const dispatch = useDispatch<ThunkDispatch<RootState, void, AnyAction>>();
     const tabAware = useTabAware();
     const { storedCards } = tabAware;
@@ -65,32 +91,67 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const sourceLanguage = useSelector((state: RootState) => state.settings.sourceLanguage);
+    const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
+    const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
     const auth = useSelector((state: RootState) => state.auth);
-    const executeRequest = useAuthenticatedRequest();
-    const authApiUrl = useSelector((state: RootState) => state.settings.authApiUrl);
+    // Same generation context CreateCard uses, so instruction-driven regeneration of a
+    // stored card runs through the exact same services.
+    const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
+    const apiKey = useMemo(() => getApiKeyForProvider(modelProvider as ModelProvider, openAiKey), [modelProvider, openAiKey]);
     const syncApiUrl = useSelector((state: RootState) => state.settings.syncApiUrl);
+    const executeRequest = useAuthenticatedRequest();
+    const isLoggedIn = Boolean(auth.accessToken);
+    // Cloud sync is a separate axis from Anki/file export: a card can be fully backed up
+    // to Vaulto (and its cloud deck) while still being "Not exported" to Anki. This tells
+    // whether the latest version of the card has reached the server.
+    const isCardSynced = useCallback(
+        (card: StoredCard) =>
+            Boolean(card.syncId) && typeof card.syncVersion === 'number' && !card.syncPending,
+        []
+    );
 
     const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingDecks, setLoadingDecks] = useState(false);
-    const [activeFilter, setActiveFilter] = useState<'new' | 'not_exported' | 'exported'>(normalizeFilter(initialFilter));
-    const [showDeckSelector, setShowDeckSelector] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    // null = every deck. Mirrors the mobile app's deck-first navigation.
+    const [activeDeckId, setActiveDeckId] = useState<string | null>(null);
+    // The queue a study session was started with (null = not studying).
+    const [studyCards, setStudyCards] = useState<StoredCard[] | null>(null);
+    const [showStats, setShowStats] = useState(false);
+    const [reviewLogs, setReviewLogs] = useState<ReviewLogEntry[]>([]);
+    // Bulk mode used to be permanently on: a Select All row and two greyed-out buttons
+    // greeted you before you had chosen anything.
+    const [selectionMode, setSelectionMode] = useState(false);
+    // Deleting was instant and final. The row goes immediately, the card is kept here
+    // so the toast can put it back.
+    const [recentlyDeleted, setRecentlyDeleted] = useState<StoredCard | null>(null);
+    // Flip study preview (read/learn view, like the mobile app).
+    const [previewCard, setPreviewCard] = useState<StoredCard | null>(null);
     // Modal editing states
     const [editingCard, setEditingCard] = useState<StoredCard | null>(null);
     const [showEditModal, setShowEditModal] = useState(false);
-    const [customInstruction, setCustomInstruction] = useState('');
-    const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
 
     // Локальное состояние для редактирования карточки (избегаем конфликтов с глобальным Redux)
     const [localEditingCardData, setLocalEditingCardData] = useState<StoredCard | null>(null);
 
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
     const [loadingAudio, setLoadingAudio] = useState(false);
-    const [loadingAccept, setLoadingAccept] = useState(false);
     const [loadingSync, setLoadingSync] = useState(false);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [itemsPerPage, setItemsPerPage] = useState(10);
+    // Free-form "tell it what to change" composer in the edit modal.
+    const [instructionText, setInstructionText] = useState('');
+    const [loadingInstruction, setLoadingInstruction] = useState(false);
+    const [instructionStatus, setInstructionStatus] = useState<string | null>(null);
+    // The deck picker serves both the read-only preview and the editor, so it remembers
+    // which one opened it rather than being wired to the editor alone.
+    const [deckPickerFor, setDeckPickerFor] = useState<'edit' | 'preview' | null>(null);
+    // The debounced auto-save skips the first change after a card is opened (that first
+    // change is just seeding localEditingCardData from the card, not a real edit).
+    const skipNextAutoSave = useRef(true);
     const [ankiSettingsPrompt, setAnkiSettingsPrompt] = useState<'disabled' | 'unavailable' | null>(null);
+    // id → name for Vaulto decks, so a card can say which deck it lives in rather than
+    // just "in the cloud". Cosmetic: a failure here simply falls back to the default name.
+    const [backendDeckNames, setBackendDeckNames] = useState<Record<string, string>>({});
 
     // States for export file modal
     const [showExportModal, setShowExportModal] = useState(false);
@@ -98,12 +159,101 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const [isExporting, setIsExporting] = useState(false);
     const selectedCardIds = useMemo(() => new Set(selectedCards), [selectedCards]);
 
+
     const { showError, renderErrorNotification } = useErrorNotification();
 
-    // Re-apply filter when page explicitly opens cards in a specific mode.
     useEffect(() => {
-        setActiveFilter(normalizeFilter(initialFilter));
-    }, [initialFilter]);
+        if (!isLoggedIn) {
+            setBackendDeckNames({});
+            return undefined;
+        }
+
+        let cancelled = false;
+        (async () => {
+            try {
+                const decks = await executeRequest((token) => cardsSyncApi.listDecks(syncApiUrl, token));
+                if (cancelled) return;
+                const names: Record<string, string> = {};
+                decks.forEach((deck) => { names[deck.id] = deck.name; });
+                setBackendDeckNames(names);
+            } catch {
+                // Deck names are decoration; the default label still reads correctly.
+            }
+        })();
+
+        return () => { cancelled = true; };
+    }, [isLoggedIn, syncApiUrl, executeRequest]);
+
+    useEffect(() => {
+        let cancelled = false;
+        loadReviewLogs().then((logs) => { if (!cancelled) setReviewLogs(logs); });
+        return () => { cancelled = true; };
+    }, []);
+
+    // Pull schedules changed elsewhere (most often: studied on the phone) and merge them
+    // onto the local cards. The pull payload carries SRS only, so nothing else is touched.
+    const storedCardsRef = useRef(storedCards);
+    storedCardsRef.current = storedCards;
+
+    useEffect(() => {
+        if (!isLoggedIn) return undefined;
+
+        let cancelled = false;
+        executeRequest((token) => pullSrsUpdates(syncApiUrl, token))
+            .then(({ byNoteId }) => {
+                if (cancelled) return;
+                const updates = Object.keys(byNoteId);
+                if (updates.length === 0) return;
+
+                storedCardsRef.current.forEach((card) => {
+                    const remoteState = card.syncId ? byNoteId[card.syncId] : undefined;
+                    if (!remoteState) return;
+                    // Whoever reviewed last wins; without a timestamp on either side there
+                    // is nothing better to compare, and the server is the shared record.
+                    if (card.srsState?.srs_due_at === remoteState.srs_due_at) return;
+                    tabAware.updateStoredCard({ ...card, srsState: remoteState });
+                });
+            })
+            .catch((error) => console.warn('Failed to pull study progress:', error));
+
+        return () => { cancelled = true; };
+        // Runs once per sign-in/session: reviews made here are pushed as they happen.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLoggedIn, syncApiUrl]);
+
+    // Grading a card writes three things: the card's next schedule (SM-2), the review log
+    // the statistics are built from, and — when signed in — the same pair pushed to the
+    // cloud on the /sync channel the mobile app reads.
+    const handleReview = useCallback((card: StoredCard, grade: SrsGrade, responseTimeMs: number) => {
+        const nextState = applyReview(card.srsState ?? createInitialSrsState(), grade);
+        tabAware.updateStoredCard({ ...card, srsState: nextState });
+
+        appendReviewLog({
+            cardId: card.id,
+            grade,
+            reviewedAt: new Date().toISOString(),
+            responseTimeMs,
+        }).then(({ entry, logs }) => {
+            setReviewLogs(logs);
+            if (!isLoggedIn || !card.syncId) return;
+            // Best-effort: a failed push must never cost the user their review, which is
+            // already saved locally and will be re-sent by a later review of this card.
+            executeRequest((token) => pushReview(syncApiUrl, token, card, nextState, entry))
+                .catch((error) => console.warn('Failed to push review to Vaulto Cloud:', error));
+        });
+    }, [tabAware, isLoggedIn, executeRequest, syncApiUrl]);
+
+    const stats = useMemo(
+        () => computeStats(storedCards, reviewLogs),
+        [storedCards, reviewLogs]
+    );
+
+    // The Vaulto deck a card lives in. No explicit deck still means a real deck — the
+    // auto-created default one — so it is named rather than shown as "none".
+    const vaultoDeckLabel = useCallback(
+        (card: StoredCard) => (card.deckId && backendDeckNames[card.deckId]) || DEFAULT_DECK_NAME,
+        [backendDeckNames]
+    );
 
     // Load Anki decks when needed
     const loadAnkiDecks = useCallback(async () => {
@@ -153,12 +303,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     }, [useAnkiConnect, loadAnkiDecks, dispatch]);
 
     useEffect(() => {
-        if (!isAnkiAvailable) {
-            setShowDeckSelector(false);
-        }
-    }, [isAnkiAvailable]);
-
-    useEffect(() => {
         if (useAnkiConnect && isAnkiAvailable) {
             setAnkiSettingsPrompt(null);
         }
@@ -181,102 +325,102 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         tabAware.setCurrentPage('settings');
     }, [tabAware]);
 
+    // Cards with no explicit deck live in the auto-created default deck, so that deck's
+    // chip has to claim them too — otherwise it would look empty for most people.
+    const defaultDeckId = useMemo(
+        () => Object.keys(backendDeckNames).find((id) => backendDeckNames[id] === DEFAULT_DECK_NAME) ?? null,
+        [backendDeckNames]
+    );
+
+    const cardMatchesDeck = useCallback(
+        (card: StoredCard, targetDeckId: string | null) => {
+            if (!targetDeckId) return true;
+            if (card.deckId === targetDeckId) return true;
+            return !card.deckId && targetDeckId === defaultDeckId;
+        },
+        [defaultDeckId]
+    );
+
+    // Export to Anki/file is an action, not a saved status to filter by, so the only
+    // narrowing is search and the deck. Newest first.
     const filteredCards = useMemo(() => {
         if (!Array.isArray(storedCards) || storedCards.length === 0) {
             return [];
         }
 
-        if (isDev) {
-            debugLog('Stored cards total:', storedCards.length);
-        }
+        const query = searchQuery.trim().toLowerCase();
+        const candidates = storedCards.filter((card) => {
+            if (!cardMatchesDeck(card, activeDeckId)) return false;
+            if (!query) return true;
+            // Searching both sides of the card: you rarely remember which one you typed.
+            return [card.front, card.text, card.back, card.translation]
+                .some(field => (field || '').toLowerCase().includes(query));
+        });
 
-        const candidates = (() => {
-            switch (activeFilter) {
-                case 'new':
-                case 'not_exported':
-                    return storedCards.filter(card => card.exportStatus === 'not_exported');
-                case 'exported':
-                    return storedCards.filter(card =>
-                        card.exportStatus === 'exported_to_anki'
-                        || card.exportStatus === 'exported_to_file'
-                        || card.exportStatus === 'exported'
-                    );
-                default:
-                    return storedCards.filter(card => card.exportStatus === 'not_exported');
-            }
-        })();
-
-        if (isDev) {
-            debugLog(`Filtered cards (${activeFilter}):`, candidates.length);
-        }
-
-        const sorted = [...candidates].sort((a, b) => (
+        return [...candidates].sort((a, b) => (
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         ));
+    }, [storedCards, searchQuery, activeDeckId, cardMatchesDeck]);
 
-        return sorted;
-    }, [storedCards, activeFilter]);
+    // How many of the cards in view are ready for review right now.
+    const dueCount = useMemo(
+        () => filteredCards.filter((card) => isDue(card.srsState)).length,
+        [filteredCards]
+    );
 
-    const totalPages = useMemo(() => {
-        if (filteredCards.length === 0) {
-            return 1;
-        }
-        return Math.max(1, Math.ceil(filteredCards.length / itemsPerPage));
-    }, [filteredCards.length, itemsPerPage]);
+    // Mobile studies what is due; falling back to the whole selection means the button
+    // still does something useful when nothing has come up for review yet.
+    const startStudy = useCallback(() => {
+        const due = filteredCards.filter((card) => isDue(card.srsState));
+        setStudyCards(due.length > 0 ? due : filteredCards);
+    }, [filteredCards]);
 
-    const paginatedCards = useMemo(() => {
-        if (filteredCards.length === 0) {
-            return [];
-        }
+    const deckFilterOptions = useMemo(() => {
+        const ids = Object.keys(backendDeckNames);
+        if (ids.length === 0) return [];
 
-        const clampedPage = Math.min(Math.max(currentPage, 1), totalPages);
-        const startIndex = (clampedPage - 1) * itemsPerPage;
-        const endIndex = startIndex + itemsPerPage;
-
-        if (isDev) {
-            debugLog('Pagination debug:', {
-                totalCards: storedCards.length,
-                filteredCards: filteredCards.length,
-                currentPage,
-                clampedPage,
-                itemsPerPage,
-                startIndex,
-                endIndex,
+        const options = [{ id: null as string | null, name: 'All', count: storedCards.length }];
+        ids.forEach((id) => {
+            options.push({
+                id,
+                name: backendDeckNames[id],
+                count: storedCards.filter((card) => cardMatchesDeck(card, id)).length,
             });
-        }
-
-        return filteredCards.slice(startIndex, endIndex);
-    }, [filteredCards, currentPage, itemsPerPage, totalPages, storedCards.length]);
-
-    useEffect(() => {
-        setCurrentPage(prev => {
-            const clamped = Math.min(Math.max(prev, 1), totalPages);
-            return clamped === prev ? prev : clamped;
         });
-    }, [totalPages]);
+        return options;
+    }, [backendDeckNames, storedCards, cardMatchesDeck]);
 
-    const cardCounts = useMemo(() => {
-        let notExported = 0;
-        let exported = 0;
-
-        for (const card of storedCards) {
-            if (card.exportStatus === 'not_exported') {
-                notExported += 1;
-            } else if (
-                card.exportStatus === 'exported_to_anki'
-                || card.exportStatus === 'exported_to_file'
-                || card.exportStatus === 'exported'
-            ) {
-                exported += 1;
-            }
+    // A deck that disappears (renamed or deleted elsewhere) must not leave the list stuck
+    // showing nothing with no obvious way back.
+    useEffect(() => {
+        if (activeDeckId && !backendDeckNames[activeDeckId]) {
+            setActiveDeckId(null);
         }
+    }, [activeDeckId, backendDeckNames]);
+    const allVisibleSelected = filteredCards.length > 0 && selectedCards.length === filteredCards.length;
+    // `indeterminate` is not an attribute, so a partial selection has to be set on the node.
+    const selectAllRef = useRef<HTMLInputElement>(null);
+    useEffect(() => {
+        if (selectAllRef.current) {
+            selectAllRef.current.indeterminate = selectedCards.length > 0 && !allVisibleSelected;
+        }
+    }, [selectedCards.length, allVisibleSelected]);
 
+
+
+    // The cloud is the status worth showing: how many cards have reached Vaulto and how
+    // many are still on their way. Export to Anki is deliberately not counted here.
+    const syncSummary = useMemo(() => {
+        let synced = 0;
+        for (const card of storedCards) {
+            if (isCardSynced(card)) synced += 1;
+        }
         return {
-            new: notExported,
-            not_exported: notExported,
-            exported,
+            total: storedCards.length,
+            synced,
+            pending: Math.max(storedCards.length - synced, 0),
         };
-    }, [storedCards]);
+    }, [storedCards, isCardSynced]);
 
     const handleCardSelect = useCallback((cardId: string) => {
         if (editingCard) return;
@@ -298,9 +442,24 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         ));
     }, [editingCard, filteredCards]);
 
-    const handleDelete = (cardId: string) => {
-        tabAware.deleteStoredCard(cardId);
-        setSelectedCards(prev => prev.filter(id => id !== cardId));
+    const handleDelete = (card: StoredCard) => {
+        tabAware.deleteStoredCard(card.id);
+        setSelectedCards(prev => prev.filter(id => id !== card.id));
+        setRecentlyDeleted(card);
+    };
+
+    // The undo window closes on its own; the card is already out of the store by then.
+    useEffect(() => {
+        if (!recentlyDeleted) return undefined;
+        const timer = setTimeout(() => setRecentlyDeleted(null), 6000);
+        return () => clearTimeout(timer);
+    }, [recentlyDeleted]);
+
+    // UPDATE_STORED_CARD re-adds a card it cannot find, so restoring is a plain update.
+    const handleUndoDelete = () => {
+        if (!recentlyDeleted) return;
+        tabAware.updateStoredCard(recentlyDeleted);
+        setRecentlyDeleted(null);
     };
 
     const handleSaveToAnki = async () => {
@@ -510,643 +669,194 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         setShowExportModal(true);
     };
 
-    const formatDate = (dateString: Date) => {
-        const date = new Date(dateString);
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        return `${day}/${month} ${hours}:${minutes}`;
-    };
 
-    const renderCardStatus = (status: ExportStatus) => {
-        switch (status) {
-            case 'exported_to_anki':
-                return <span style={{ fontSize: '11px', color: '#10B981', marginLeft: '8px' }}>✓ Anki</span>;
-            case 'exported_to_file':
-                return <span style={{ fontSize: '11px', color: '#2563EB', marginLeft: '8px' }}>✓ File</span>;
-            case 'exported':
-                return <span style={{ fontSize: '11px', color: '#10B981', marginLeft: '8px' }}>✓ Exported</span>;
-            default:
-                return null;
-        }
-    };
 
-    const renderCardContent = (card: StoredCard) => {
-        // If card is in edit mode, don't render normal content
-        if (editingCard === card) {
-            return null;
-        }
-
-        const frontPreview = (card.front || card.text || '').replace(/\s+/g, ' ').trim();
-        const backPreview = (card.back || card.translation || '').replace(/\s+/g, ' ').trim();
-
-        // Unified display logic for both modes
-        return (
-            <div className="card-content" style={{ padding: '8px' }}>
-                {/* Main content - shows text for Language Learning, front for General */}
-                {(card.text || card.front) && (
-                    card.mode === Modes.LanguageLearning ? (
-                        <p style={{
-                            fontWeight: 'bold',
-                            fontSize: '14px',
-                            marginBottom: '4px',
-                            color: '#111827',
-                            lineHeight: '1.4',
-                            wordWrap: 'break-word'
-                        }}>
-                            {card.text || card.front || ''}
-                        </p>
-                    ) : (
-                        <div style={{
-                            fontWeight: 600,
-                            fontSize: '14px',
-                            marginBottom: '4px',
-                            color: '#111827',
-                            lineHeight: '1.4',
-                            wordWrap: 'break-word'
-                        }}>
-                            {frontPreview}
-                        </div>
-                    )
-                )}
-
-                {/* Secondary content - shows translation for Language Learning, back for General */}
-                {(card.translation || card.back) && (
-                    <div style={{
-                        color: '#374151',
-                        fontSize: '13px',
-                        marginBottom: '8px',
-                        lineHeight: '1.4',
-                        wordWrap: 'break-word'
-                    }}>
-                        {card.mode === Modes.LanguageLearning
-                            ? card.translation
-                            : (backPreview.length > 150 ? `${backPreview.substring(0, 150)}...` : backPreview)
-                        }
-                    </div>
-                )}
-
-                {/* Examples - only for Language Learning mode */}
-                {card.mode === Modes.LanguageLearning && card.examples && card.examples.length > 0 && (
-                    <div style={{ marginTop: '8px' }}>
-                        <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>Examples:</p>
-                        {card.examples.slice(0, 1).map(([example, translation], index) => (
-                            <div key={index} style={{ fontSize: '12px', marginBottom: '2px' }}>
-                                <p style={{
-                                    color: '#111827',
-                                    marginBottom: '2px',
-                                    lineHeight: '1.4',
-                                    wordWrap: 'break-word',
-                                    overflow: 'visible',
-                                    whiteSpace: 'normal'
-                                }}>{example}</p>
-                                {translation && <p style={{
-                                    color: '#6B7280',
-                                    fontStyle: 'italic',
-                                    lineHeight: '1.4',
-                                    wordWrap: 'break-word',
-                                    overflow: 'visible',
-                                    whiteSpace: 'normal'
-                                }}>{translation}</p>}
-                            </div>
-                        ))}
-                        {card.examples.length > 1 && (
-                            <p style={{ fontSize: '11px', color: '#6B7280' }}>+{card.examples.length - 1} more examples</p>
-                        )}
-                    </div>
-                )}
-
-                {/* Image display - for both modes */}
-                {(card.image || card.imageUrl) && (
-                    <div style={{ marginTop: '8px', textAlign: 'center' }}>
-                        <img
-                            src={(card.image || card.imageUrl || '') as string}
-                            alt="Card image"
-                            style={{
-                                maxWidth: '100%',
-                                maxHeight: '80px',
-                                borderRadius: '4px',
-                                border: '1px solid #E5E7EB',
-                                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-                            }}
-                            onError={(e) => {
-                                console.error('Image failed to load for card:', card.id, 'image data:', {
-                                    hasImage: !!card.image,
-                                    hasImageUrl: !!card.imageUrl,
-                                    imageLength: card.image?.length,
-                                    imageUrlLength: card.imageUrl?.length,
-                                    imagePreview: card.image?.substring(0, 50),
-                                    imageUrlPreview: card.imageUrl?.substring(0, 50),
-                                    imageSrc: (card.image || card.imageUrl || '').substring(0, 100),
-                                    usingType: card.image ? 'base64 (permanent)' : 'url (temporary)'
-                                });
-
-                                // Replace broken image with placeholder
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-
-                                // Create a placeholder div
-                                const placeholder = document.createElement('div');
-                                placeholder.style.cssText = `
-                                    width: 100%;
-                                    height: 60px;
-                                    background-color: #F3F4F6;
-                                    border: 1px dashed #D1D5DB;
-                                    border-radius: 4px;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: center;
-                                    color: #6B7280;
-                                    font-size: 12px;
-                                `;
-                                placeholder.textContent = card.image ? '🖼️ Image error' : '🖼️ URL expired';
-
-                                // Insert placeholder after the failed image
-                                target.parentNode?.insertBefore(placeholder, target.nextSibling);
-                            }}
-                            onLoad={() => {
-                                debugLog('✅ Image loaded successfully for card:', card.id, {
-                                    usingType: card.image ? 'base64 (permanent)' : 'url (temporary)',
-                                    imageLength: card.image?.length,
-                                    imageUrlLength: card.imageUrl?.length
-                                });
-                            }}
-                        />
-                    </div>
-                )}
-
-                {/* Mode indicator badge */}
-                <div style={{
-                    marginTop: '8px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
-                }}>
-                    <span style={{
-                        fontSize: '10px',
-                        color: '#6B7280',
-                        backgroundColor: card.mode === Modes.LanguageLearning ? '#EEF2FF' : '#F0FDF4',
-                        padding: '2px 6px',
-                        borderRadius: '12px',
-                        border: `1px solid ${card.mode === Modes.LanguageLearning ? '#C7D2FE' : '#BBF7D0'}`,
-                        fontWeight: '500'
-                    }}>
-                        {card.mode === Modes.LanguageLearning ? '🗣️ Language' : '📚 General'}
-                    </span>
-                    {/* Show creation date */}
-                    <span style={{
-                        fontSize: '10px',
-                        color: '#9CA3AF'
-                    }}>
-                        {formatDate(card.createdAt)}
-                    </span>
-                </div>
-            </div>
-        );
-    };
-
-    // Modified to render the tab navigation
-    const renderTabNavigation = () => {
-        const tabStyle = {
-            base: {
-                padding: '8px 16px',
-                fontSize: '14px',
-                fontWeight: '500',
-                borderRadius: '6px 6px 0 0',
-                cursor: 'pointer',
-                textAlign: 'center' as const,
-                transition: 'all 0.2s ease',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-            },
-            active: {
-                backgroundColor: '#ffffff',
-                color: '#2563EB',
-                borderBottom: '2px solid #2563EB',
-            },
-            inactive: {
-                backgroundColor: '#F3F4F6',
-                color: '#6B7280',
-                borderBottom: '2px solid transparent',
-            }
-        };
-
-        return (
-            <div style={{
-                display: 'flex',
-                width: '100%',
-                borderBottom: '1px solid #E5E7EB',
-                marginBottom: '16px',
-                backgroundColor: '#F3F4F6',
-                alignItems: 'stretch',
-            }}>
-                <div
-                    onClick={() => setActiveFilter('new')}
-                    style={{
-                        ...tabStyle.base,
-                        ...(activeFilter === 'new' ? tabStyle.active : tabStyle.inactive),
-                        flex: 1
-                    }}
-                >
-                    New
-                    <span style={{
-                        backgroundColor: activeFilter === 'new' ? '#2563EB' : '#9CA3AF',
-                        color: 'white',
-                        borderRadius: '9999px',
-                        fontSize: '12px',
-                        padding: '1px 6px',
-                        minWidth: '20px',
-                    }}>
-                        {cardCounts.new}
-                    </span>
-                </div>
-                <div
-                    onClick={() => setActiveFilter('exported')}
-                    style={{
-                        ...tabStyle.base,
-                        ...(activeFilter === 'exported' ? tabStyle.active : tabStyle.inactive),
-                        flex: 1
-                    }}
-                >
-                    Exported
-                    <span style={{
-                        backgroundColor: activeFilter === 'exported' ? '#2563EB' : '#9CA3AF',
-                        color: 'white',
-                        borderRadius: '9999px',
-                        fontSize: '12px',
-                        padding: '1px 6px',
-                        minWidth: '20px',
-                    }}>
-                        {cardCounts.exported}
-                    </span>
-                </div>
-            </div>
-        );
-    };
-
-    // Remove the renderCardsByStatus function and create a new function to render all cards
-    const renderCards = () => {
-        if (filteredCards.length === 0) {
+    // Sync deserves a glance, not a banner: a single icon next to the search field, with
+    // the detail (and the on/off switch) one tap away in Settings. Signed out, the same
+    // slot becomes the prompt to sign in, since that is the only real risk of data loss.
+    const renderCloudStatusIcon = () => {
+        if (!isLoggedIn) {
             return (
-                <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '200px',
-                    color: '#6B7280',
-                    textAlign: 'center',
-                    padding: '20px'
-                }}>
-                    <p style={{ fontSize: '14px' }}>
-                        {activeFilter === 'new' || activeFilter === 'not_exported' ? 'No new cards' :
-                                'No exported cards'}
-                    </p>
-                </div>
+                <button
+                    type="button"
+                    onClick={() => tabAware.setCurrentPage('auth')}
+                    title="Sign in to back up your cards"
+                    aria-label="Sign in to back up your cards"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-accent-border bg-accent-subtle text-accent transition-colors hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                    <FaCloud size={13} />
+                </button>
             );
         }
 
-        return paginatedCards.map(card => (
-            <div
-                key={card.id}
-                style={{
-                    border: '1px solid #E5E7EB',
-                    borderRadius: '6px',
-                    marginBottom: '8px',
-                    backgroundColor: selectedCardIds.has(card.id) ? '#F3F4F6' : '#ffffff'
-                }}
+        const syncing = syncSummary.pending > 0;
+        return (
+            <button
+                type="button"
+                onClick={() => tabAware.setCurrentPage('settings')}
+                title={
+                    syncing
+                        ? `Syncing to Vaulto Cloud… (${syncSummary.pending})`
+                        : 'All cards backed up to Vaulto Cloud'
+                }
+                aria-label={syncing ? 'Syncing to Vaulto Cloud' : 'All cards backed up'}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-line bg-surface-muted transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-                <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '8px 12px',
-                    borderBottom: editingCard === card ? 'none' : '1px solid #E5E7EB'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <input
-                            type="checkbox"
-                            checked={selectedCardIds.has(card.id)}
-                            onChange={() => handleCardSelect(card.id)}
-                            style={{ marginRight: '8px' }}
-                            disabled={editingCard !== null}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-                                <span style={{ fontSize: '12px', color: '#6B7280' }}>
-                                    {card.mode === Modes.LanguageLearning ? 'Language' : 'Topic'}
-                                </span>
-                                <span style={{ fontSize: '10px', color: '#9CA3AF' }}>
-                                    {formatDate(card.createdAt)}
-                                </span>
-                                {renderCardStatus(card.exportStatus)}
-                            </div>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        {editingCard !== card && (
-                            <>
-                                <button
-                                    onClick={() => handleStartEditing(card)}
-                                    style={{
-                                        backgroundColor: 'transparent',
-                                        border: '1px solid #E5E7EB',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        color: '#2563EB',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        padding: '6px 8px',
-                                        fontSize: '12px',
-                                        minWidth: '70px',
-                                        height: '32px',
-                                        transition: 'all 0.2s ease',
-                                        gap: '4px'
-                                    }}
-                                    title="Edit card"
-                                    onMouseOver={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#EFF6FF';
-                                        e.currentTarget.style.borderColor = '#2563EB';
-                                    }}
-                                    onMouseOut={(e) => {
-                                        e.currentTarget.style.backgroundColor = 'transparent';
-                                        e.currentTarget.style.borderColor = '#E5E7EB';
-                                    }}
-                                >
-                                    <FaEdit size={12} />
-                                    Edit
-                                </button>
-                                <button
-                                    onClick={() => handleDelete(card.id)}
-                                    style={{
-                                        backgroundColor: 'transparent',
-                                        border: '1px solid #E5E7EB',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        color: '#EF4444',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        padding: '6px 8px',
-                                        fontSize: '12px',
-                                        minWidth: '70px',
-                                        height: '32px',
-                                        transition: 'all 0.2s ease',
-                                        gap: '4px'
-                                    }}
-                                    title="Delete card"
-                                    onMouseOver={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#FEF2F2';
-                                        e.currentTarget.style.borderColor = '#EF4444';
-                                    }}
-                                    onMouseOut={(e) => {
-                                        e.currentTarget.style.backgroundColor = 'transparent';
-                                        e.currentTarget.style.borderColor = '#E5E7EB';
-                                    }}
-                                >
-                                    <FaTrash size={12} />
-                                    Delete
-                                </button>
-                            </>
-                        )}
-                    </div>
-                </div>
-                {renderCardContent(card)}
+                {syncing ? (
+                    <Loader type="spinner" size="small" inline color="#6C757D" />
+                ) : (
+                    <FaCloud size={13} className="text-ok-strong" />
+                )}
+            </button>
+        );
+    };
+
+    // Decks are the mobile app's primary way in, so the same grouping exists here: pick a
+    // deck, see just its cards, study them.
+    const renderDeckFilter = () => {
+        if (!isLoggedIn || deckFilterOptions.length <= 1) return null;
+
+        return (
+            <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5">
+                {deckFilterOptions.map((option) => {
+                    const active = activeDeckId === option.id;
+                    return (
+                        <button
+                            key={option.id ?? 'all'}
+                            type="button"
+                            onClick={() => setActiveDeckId(option.id)}
+                            aria-pressed={active}
+                            className={[
+                                'flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors',
+                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                                active
+                                    ? 'border-accent-border bg-accent-subtle font-semibold text-accent'
+                                    : 'border-line bg-white font-medium text-gray-500 hover:bg-surface-sunken',
+                            ].join(' ')}
+                        >
+                            <span className="max-w-[120px] truncate">{option.name}</span>
+                            <span className={active ? 'text-accent/70' : 'text-gray-400'}>{option.count}</span>
+                        </button>
+                    );
+                })}
             </div>
-        ));
+        );
+    };
+
+    // A row is the card's two sides and its age. Everything else — the mode label, the
+    // status pill, a full timestamp and two labelled buttons — was chrome that made the
+    // list unreadable at a glance.
+    const renderCards = () => {
+        if (filteredCards.length === 0) {
+            const message = searchQuery.trim()
+                ? `Nothing matches “${searchQuery.trim()}”`
+                : 'No saved cards yet';
+            return <p className="px-4 py-10 text-center text-sm text-gray-500">{message}</p>;
+        }
+
+        return (
+            <div className="divide-y divide-line overflow-hidden rounded-card border border-line bg-white">
+                {filteredCards.map(card => {
+                    const selected = selectedCardIds.has(card.id);
+                    const front = (card.front || card.text || '').replace(/\s+/g, ' ').trim();
+                    const back = (card.translation || card.back || '').replace(/\s+/g, ' ').trim();
+
+                    return (
+                        <div
+                            key={card.id}
+                            className={`flex items-start gap-2.5 px-3 py-2.5 transition-colors ${
+                                selected ? 'bg-accent-subtle' : 'bg-white'
+                            }`}
+                        >
+                            {selectionMode && (
+                                <input
+                                    type="checkbox"
+                                    checked={selected}
+                                    onChange={() => handleCardSelect(card.id)}
+                                    aria-label={`Select ${front}`}
+                                    className="mt-1 h-4 w-4 shrink-0 accent-accent"
+                                />
+                            )}
+
+                            <button
+                                type="button"
+                                onClick={() => (selectionMode ? handleCardSelect(card.id) : setPreviewCard(card))}
+                                className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            >
+                                <span className="block truncate text-[13px] font-semibold text-gray-900">
+                                    {front || 'Untitled card'}
+                                </span>
+                                {back && (
+                                    <span className="mt-0.5 block truncate text-xs text-gray-500">{back}</span>
+                                )}
+                            </button>
+
+                            {/* "In Anki" is a quiet, non-filterable hint — export is an action,
+                                not a status you navigate by. */}
+                            {(card.exportStatus === 'exported_to_anki' || card.exportStatus === 'exported') && (
+                                <span
+                                    title="Sent to Anki"
+                                    className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-ok-subtle px-1.5 py-0.5 text-[10px] font-semibold text-ok-strong"
+                                >
+                                    <FaCheckCircle size={9} /> Anki
+                                </span>
+                            )}
+
+                            {/* Cloud shows only as an exception: a card still on its way up. The
+                                normal, synced state is silent, like Drive/Notion. */}
+                            {isLoggedIn && !isCardSynced(card) && (
+                                <span
+                                    title="Waiting to sync to Vaulto Cloud"
+                                    aria-label="Waiting to sync"
+                                    className="shrink-0 pt-0.5 text-gray-300"
+                                >
+                                    <FaCloud size={11} />
+                                </span>
+                            )}
+
+                            <span className="shrink-0 pt-0.5 text-[11px] text-gray-400">
+                                {formatRelativeDate(card.createdAt)}
+                            </span>
+
+                            {!selectionMode && (
+                                <Menu
+                                    label={`Actions for ${front}`}
+                                    items={[
+                                        { value: 'edit', label: 'Edit card' },
+                                        { value: 'delete', label: 'Delete card' },
+                                    ]}
+                                    value={''}
+                                    onSelect={(action) => {
+                                        if (action === 'edit') handleStartEditing(card);
+                                        else handleDelete(card);
+                                    }}
+                                    trigger={({ open, toggle }) => (
+                                        <button
+                                            type="button"
+                                            aria-haspopup="menu"
+                                            aria-expanded={open}
+                                            aria-label={`Actions for ${front}`}
+                                            onClick={toggle}
+                                            className="-mr-1 shrink-0 rounded-control p-1.5 text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                        >
+                                            <FaEllipsisH size={12} />
+                                        </button>
+                                    )}
+                                />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
     };
 
     const handleDeckChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         dispatch(setDeckId(e.target.value));
     };
 
-    const toggleDeckSelector = () => {
-        setShowDeckSelector(prev => {
-            const next = !prev;
-            if (!prev && useAnkiConnect) {
-                loadAnkiDecks();
-            }
-            return next;
-        });
-    };
 
     // Render deck selector dropdown or button
-    const renderDeckSelector = () => {
-        if (!useAnkiConnect) return null;
-
-        const deckSelectorStyle = {
-            container: {
-                display: 'flex',
-                flexDirection: 'column' as const,
-                gap: '8px',
-                marginBottom: '16px',
-                backgroundColor: '#F9FAFB',
-                padding: '12px',
-                borderRadius: '8px',
-                border: '1px solid #E5E7EB'
-            },
-            header: {
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                width: '100%'
-            },
-            title: {
-                fontSize: '14px',
-                fontWeight: '600' as const,
-                color: '#111827',
-            },
-            button: {
-                backgroundColor: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#6B7280',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '0',
-                fontSize: '12px'
-            },
-            selectContainer: {
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                width: '100%'
-            },
-            select: {
-                flex: 1,
-                padding: '8px 12px',
-                borderRadius: '6px',
-                border: '1px solid #E5E7EB',
-                backgroundColor: '#ffffff',
-                color: '#374151',
-                fontSize: '14px',
-                cursor: 'pointer'
-            },
-            refreshButton: {
-                backgroundColor: '#F3F4F6',
-                border: '1px solid #E5E7EB',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                color: '#6B7280',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '6px 8px',
-                width: '36px',
-                height: '36px',
-                transition: 'all 0.2s ease'
-            }
-        };
-
-        const selectedDeckName = decks.find(d => d.deckId === deckId)?.name || 'None selected';
-        const statusColor = loadingDecks ? '#F59E0B' : (isAnkiAvailable ? '#10B981' : '#EF4444');
-        const statusText = loadingDecks
-            ? 'AnkiConnect: checking…'
-            : isAnkiAvailable
-                ? 'AnkiConnect: available'
-                : 'AnkiConnect: unavailable';
-
-        const statusBadge = (
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '12px',
-                padding: '8px 12px',
-                backgroundColor: '#F9FAFB',
-                borderRadius: '8px',
-                border: '1px solid #E5E7EB',
-                marginBottom: isAnkiAvailable ? '8px' : '16px'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{
-                        width: '8px',
-                        height: '8px',
-                        borderRadius: '999px',
-                        backgroundColor: statusColor,
-                        boxShadow: `0 0 0 3px ${statusColor}22`
-                    }} />
-                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#111827' }}>{statusText}</span>
-                </div>
-                <button
-                    onClick={loadAnkiDecks}
-                    disabled={loadingDecks}
-                    style={{
-                        backgroundColor: 'transparent',
-                        border: 'none',
-                        color: '#2563EB',
-                        cursor: loadingDecks ? 'default' : 'pointer',
-                        fontSize: '12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                    }}
-                >
-                    {loadingDecks ? (
-                        <Loader type="spinner" size="small" color="#2563EB" />
-                    ) : (
-                        <>
-                            <FaSync size={12} />
-                            {isAnkiAvailable ? 'Refresh' : 'Check'}
-                        </>
-                    )}
-                </button>
-            </div>
-        );
-
-        if (!isAnkiAvailable) {
-            return statusBadge;
-        }
-
-        if (!showDeckSelector) {
-            return (
-                <>
-                    {statusBadge}
-                    <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        width: '100%',
-                        marginBottom: '12px',
-                        padding: '8px 12px',
-                        backgroundColor: '#F9FAFB',
-                        borderRadius: '6px',
-                        border: '1px solid #E5E7EB'
-                    }}>
-                        <div>
-                            <span style={{ fontSize: '13px', color: '#6B7280' }}>Anki Deck:</span>
-                            <span style={{ fontSize: '14px', fontWeight: '500', marginLeft: '8px', color: '#111827' }}>
-                                {selectedDeckName}
-                            </span>
-                        </div>
-                        <button
-                            onClick={toggleDeckSelector}
-                            style={{
-                                backgroundColor: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: '#2563EB',
-                                fontSize: '13px'
-                            }}
-                        >
-                            Change
-                        </button>
-                    </div>
-                </>
-            );
-        }
-
-        return (
-            <>
-                {statusBadge}
-                <div style={deckSelectorStyle.container}>
-                    <div style={deckSelectorStyle.header}>
-                        <span style={deckSelectorStyle.title}>Select Anki Deck</span>
-                        <button
-                            onClick={toggleDeckSelector}
-                            style={deckSelectorStyle.button}
-                        >
-                            Hide
-                        </button>
-                    </div>
-
-                    <div style={deckSelectorStyle.selectContainer}>
-                        <select
-                            value={deckId}
-                            onChange={handleDeckChange}
-                            style={deckSelectorStyle.select}
-                            disabled={loadingDecks}
-                        >
-                            {decks.length === 0 && <option value="">No decks available</option>}
-                            {decks.map(deck => (
-                                <option key={deck.deckId} value={deck.deckId}>
-                                    {deck.name}
-                                </option>
-                            ))}
-                        </select>
-                        <button
-                            onClick={loadAnkiDecks}
-                            disabled={loadingDecks}
-                            title="Refresh decks list"
-                            style={deckSelectorStyle.refreshButton}
-                            aria-label="Refresh decks"
-                        >
-                            {loadingDecks ? (
-                                <span style={{ marginLeft: '2px' }}>
-                                    <Loader type="spinner" size="small" color="#4B5563" />
-                                </span>
-                            ) : (
-                                <FaSync size={14} />
-                            )}
-                        </button>
-                    </div>
-                </div>
-            </>
-        );
-    };
 
     // Start editing a card
     const handleStartEditing = (card: StoredCard) => {
@@ -1159,11 +869,12 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         setEditingCard(card);
         setLocalEditingCardData({ ...card }); // Создаем копию для локального редактирования
         setShowEditModal(true);
-        setCustomInstruction('');
-        setIsProcessingCustomInstruction(false);
         setLoadingNewExamples(false);
         setLoadingAudio(false);
-        setLoadingAccept(false);
+        setInstructionText('');
+        setInstructionStatus(null);
+        setLoadingInstruction(false);
+        skipNextAutoSave.current = true;
 
         debugLog('Modal state set for editing card:', card.id);
     };
@@ -1174,11 +885,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         setEditingCard(null);
         setLocalEditingCardData(null); // Очищаем локальные данные
         setShowEditModal(false);
-        setCustomInstruction('');
-        setIsProcessingCustomInstruction(false);
         setLoadingNewExamples(false);
         setLoadingAudio(false);
-        setLoadingAccept(false);
+        setInstructionText('');
+        setInstructionStatus(null);
+        setLoadingInstruction(false);
+        // Otherwise the picker would survive the modal that opened it.
+        setDeckPickerFor(prev => (prev === 'edit' ? null : prev));
+        skipNextAutoSave.current = true;
         debugLog('Edit canceled, modal should be hidden now.');
     };
 
@@ -1228,34 +942,34 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         return updatedCardData;
     };
 
-    // Save edited card from modal
-    const handleSaveEditFromModal = async () => {
-        if (!editingCard || !localEditingCardData) return;
-
-        try {
-            setLoadingAccept(true);
-
-            const updatedCardData = buildUpdatedCardData();
-            if (!updatedCardData) {
-                return;
-            }
-
-            debugLog('Final data being saved to Redux:', updatedCardData);
-
-            // Update the card in the Redux store
-            tabAware.updateStoredCard(updatedCardData);
-
-            // Reset the editing state
-            handleCancelEdit();
-
-            // Удалили навязчивое success уведомление
-        } catch (error) {
-            console.error('Error saving card:', error);
-            showError('Failed to update card. Please try again.');
-        } finally {
-            setLoadingAccept(false);
+    // Auto-save: every edit in the modal is persisted on its own (and, when logged in,
+    // mirrored to Vaulto Cloud by cardsSyncMiddleware). No "Save" button to press.
+    // Transient invalid states (a momentarily empty field) are skipped silently rather
+    // than flashing an error toast.
+    useEffect(() => {
+        if (!showEditModal || !editingCard || !localEditingCardData) return;
+        if (skipNextAutoSave.current) {
+            skipNextAutoSave.current = false;
+            return;
         }
-    };
+
+        const isLangLearning = localEditingCardData.mode === Modes.LanguageLearning;
+        const valid = isLangLearning
+            ? Boolean(localEditingCardData.text?.trim() && localEditingCardData.translation?.trim())
+            : Boolean(localEditingCardData.front?.trim() && localEditingCardData.back);
+        if (!valid) return;
+
+        const handle = setTimeout(() => {
+            tabAware.updateStoredCard({
+                ...editingCard,
+                ...localEditingCardData,
+                text: (localEditingCardData.text || editingCard.text || '').trim(),
+            });
+        }, 800);
+        return () => clearTimeout(handle);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [localEditingCardData]);
+
 
     const buildAnkiPayload = async (card: StoredCard): Promise<{ mode: Modes; cards: CardLangLearning[] | CardGeneral[] } | null> => {
         if (!card) return null;
@@ -1347,87 +1061,68 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         return null;
     };
 
-    const handleSyncFromModal = async () => {
-        if (!editingCard || !localEditingCardData) return;
+    // Local edits auto-save (and, when logged in, auto-sync to Vaulto Cloud via
+    // cardsSyncMiddleware). Anki is the one destination that is a deliberate push to an
+    // external app, so it keeps an explicit button.
+    // Shared by the preview and the editor, so a card can be exported without first
+    // having to enter edit mode.
+    const sendCardToAnki = async (card: StoredCard): Promise<boolean> => {
+        const targetAnkiDeck = card.ankiDeckName || deckId || '';
+        if (!targetAnkiDeck) {
+            showError('Please select an Anki deck first.');
+            return false;
+        }
 
         setLoadingSync(true);
         try {
-            const updatedCardData = buildUpdatedCardData();
-            if (!updatedCardData) {
-                return;
+            // Commit the latest edit up front so what lands in Anki matches the card.
+            tabAware.updateStoredCard(card);
+
+            const payload = await buildAnkiPayload(card);
+            if (!payload) {
+                showError('Unable to build Anki payload for this card.');
+                return false;
             }
-
-            tabAware.updateStoredCard(updatedCardData);
-
-            const shouldSyncServer = Boolean(auth.accessToken);
-            const shouldSyncAnki = useAnkiConnect && isAnkiAvailable;
-            const targetAnkiDeck = updatedCardData.ankiDeckName || deckId || '';
-
-            if (!shouldSyncServer && !shouldSyncAnki) {
-                showError('No sync targets available. Enable Cloud Sync or AnkiConnect.');
-                return;
-            }
-
-            if (shouldSyncServer) {
-                const meta = await executeRequest((token) => cardsSyncService.upsertCard(syncApiUrl, token, {
-                    ...updatedCardData,
-                    syncPending: true,
-                }));
-                dispatch({
-                    type: UPDATE_CARD_SYNC_META,
-                    payload: {
-                        cardId: updatedCardData.id,
-                        syncId: meta.id,
-                        syncVersion: meta.version,
-                        syncSource: meta.source,
-                        syncTags: meta.tags,
-                    },
-                });
-
-                setEditingCard(prev => prev ? ({
-                    ...prev,
-                    syncId: meta.id,
-                    syncVersion: meta.version,
-                    syncSource: meta.source,
-                    syncTags: meta.tags,
-                }) : prev);
-
-                setLocalEditingCardData(prev => prev ? ({
-                    ...prev,
-                    syncId: meta.id,
-                    syncVersion: meta.version,
-                    syncSource: meta.source,
-                    syncTags: meta.tags,
-                }) : prev);
-            }
-
-            if (shouldSyncAnki) {
-                if (!targetAnkiDeck) {
-                    showError('Please select an Anki deck before syncing.');
-                } else {
-                    const payload = await buildAnkiPayload(updatedCardData);
-                    if (!payload) {
-                        showError('Unable to build Anki payload for this card.');
-                    } else {
-                        await createAnkiCards(payload.mode, ankiConnectUrl, ankiConnectApiKey, targetAnkiDeck, 'Basic', payload.cards);
-                        tabAware.updateCardExportStatus(updatedCardData.id, 'exported_to_anki');
-                        showError(getAnkiSaveSuccessMessage(payload.cards.length), 'success');
-                    }
-                }
-            }
+            await createAnkiCards(payload.mode, ankiConnectUrl, ankiConnectApiKey, targetAnkiDeck, 'Basic', payload.cards);
+            tabAware.updateCardExportStatus(card.id, 'exported_to_anki');
+            showError(getAnkiSaveSuccessMessage(payload.cards.length), 'success');
+            return true;
         } catch (error: any) {
-            console.error('Sync failed:', error);
+            console.error('Anki export failed:', error);
             showError(
                 getAnkiSaveErrorMessage(error),
                 isAnkiDuplicateError(error) ? 'warning' : 'error'
             );
+            return false;
         } finally {
             setLoadingSync(false);
         }
     };
 
-    // Handle new image generation in modal
-    const handleNewImageInModal = async () => {
+    const handleSendToAnki = async () => {
+        if (!editingCard || !localEditingCardData) return;
+
+        const updatedCardData = buildUpdatedCardData();
+        if (!updatedCardData) return;
+
+        if (await sendCardToAnki(updatedCardData)) {
+            handleCancelEdit();
+        }
+    };
+
+    // Anki is optional, so a blocked export must say what to do about it instead of
+    // silently sitting there greyed out with a tooltip.
+    const getAnkiIssue = (card: StoredCard | null): { text: string; action: 'settings' | 'deck' } | null => {
+        if (!useAnkiConnect) return { text: 'Anki export is off.', action: 'settings' };
+        if (!isAnkiAvailable) return { text: "Anki isn't responding.", action: 'settings' };
+        if (!(card?.ankiDeckName ?? deckId ?? null)) return { text: 'No Anki deck picked yet.', action: 'deck' };
+        return null;
+    };
+
+    // Handle new image generation in modal. `instructionOverride` lets the instruction
+    // composer steer the picture ("watercolour", "flat icon", …) instead of the saved
+    // default image style.
+    const handleNewImageInModal = async (instructionOverride?: string) => {
         if (!editingCard) return;
 
         try {
@@ -1436,13 +1131,15 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 throw new Error('OpenAI API key is not configured. Please add it in the settings.');
             }
 
+            const effectiveImageInstruction = (instructionOverride?.trim() || imageInstructions || '');
+
             // Используем локальное состояние вместо Redux
             const currentText = localEditingCardData?.text || editingCard.text;
 
             debugLog('Starting image generation for text:', currentText);
 
             // 1. Get an image description
-            const descriptionImage = await getDescriptionImage(openAiKey, currentText, imageInstructions, undefined, sourceLanguage || undefined);
+            const descriptionImage = await getDescriptionImage(openAiKey, currentText, effectiveImageInstruction, undefined, sourceLanguage || undefined);
             const safeDescriptionImage = buildSafeImagePrompt(currentText, descriptionImage);
             debugLog('Description generated:', safeDescriptionImage);
 
@@ -1452,8 +1149,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
             // 2. Generate image using OpenAI API
             const noTextRule = ' no text, no letters, no numbers, no captions, no signs, no logos, no watermarks, no typography, no written content.';
-            const finalPrompt = (imageInstructions
-                ? `${safeDescriptionImage}. ${imageInstructions}`
+            const finalPrompt = (effectiveImageInstruction
+                ? `${safeDescriptionImage}. ${effectiveImageInstruction}`
                 : safeDescriptionImage) + noTextRule;
 
             const modelsToTry = [OPENAI_IMAGE_MODEL];
@@ -1547,51 +1244,162 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }
     };
 
-    // Handle new examples generation in modal
-    const handleNewExamplesInModal = async () => {
-        if (!editingCard) return;
+    // Handle new examples generation in modal — runs through the same createExamples the
+    // create screen uses. `instructionOverride` carries free-form asks ("5 examples",
+    // "make them formal") straight into the prompt.
+    const handleNewExamplesInModal = async (instructionOverride?: string) => {
+        if (!editingCard || !localEditingCardData) return;
+        if (!apiKey) {
+            showError('An AI API key is required to generate examples. Add it in Settings.');
+            return;
+        }
 
         try {
             setLoadingNewExamples(true);
-
-            // For now, just show a placeholder - you can implement actual examples generation here
-            showError('Examples generation would be implemented here', 'info');
-
+            const currentText = localEditingCardData.text || localEditingCardData.front || editingCard.text || '';
+            const result = await createExamples(
+                aiService,
+                apiKey,
+                currentText,
+                translateToLanguage,
+                true,
+                instructionOverride?.trim() || undefined,
+                sourceLanguage || undefined,
+            );
+            const newExamples = result.map((ex) => [ex.original, ex.translated] as [string, string | null]);
+            setLocalEditingCardData((prev) => prev ? ({
+                ...prev,
+                examples: newExamples,
+                examplesAudio: new Array(newExamples.length).fill(null),
+            }) : prev);
         } catch (error: any) {
             console.error('Error generating examples:', error);
             showError(`Examples generation failed: ${error?.message || 'Unknown error'}`);
+            throw error;
         } finally {
             setLoadingNewExamples(false);
         }
     };
 
-    // Handle custom instruction application
-    const handleApplyCustomInstruction = async () => {
-        if (!customInstruction.trim() || isProcessingCustomInstruction || !editingCard) {
+    // The centrepiece of the redesigned editor: the user types what they want in plain
+    // language, the model works out which parts that touches, and only those are redone.
+    const handleApplyInstructionInModal = async (rawInstruction: string) => {
+        const instruction = rawInstruction.trim();
+        if (!instruction || loadingInstruction || !localEditingCardData) return;
+
+        if (!apiKey && !openAiKey) {
+            showError('An AI API key is required. Add it in Settings.');
             return;
         }
 
-        setIsProcessingCustomInstruction(true);
+        setLoadingInstruction(true);
+        setInstructionStatus(null);
 
         try {
-            // For now, just show a placeholder - you can implement actual custom instruction processing here
-            showError(`Custom instruction "${customInstruction}" would be applied here`, 'info');
+            const currentText = localEditingCardData.text || localEditingCardData.front || '';
+            const hasImage = Boolean(localEditingCardData.image || localEditingCardData.imageUrl);
 
-            // Clear the instruction after applying
-            setCustomInstruction('');
-        } catch (error) {
-            console.error('Error applying custom instructions:', error);
-            showError('Failed to apply custom instructions');
+            // The model decides which parts of the card the request touches. Matching
+            // keywords here could only ever recognise the phrasings someone thought to
+            // list, in the languages they thought to list them in.
+            setInstructionStatus('Working out what to change…');
+            const plan = await planInstruction(aiService, apiKey, instruction, {
+                word: currentText,
+                hasImage,
+                language: translateToLanguage,
+            });
+
+            for (const action of plan.actions) {
+                setInstructionStatus(ACTION_STATUS[action]);
+
+                if (action === 'audio') {
+                    await handleGenerateAudioInModal();
+                } else if (action === 'image') {
+                    await handleNewImageInModal(plan.detail);
+                } else if (action === 'examples') {
+                    await handleNewExamplesInModal(plan.detail);
+                } else if (action === 'translation') {
+                    const translation = await createTranslation(
+                        aiService,
+                        apiKey,
+                        currentText,
+                        translateToLanguage,
+                        plan.detail,
+                        sourceLanguage || undefined,
+                    );
+                    if (translation?.translated) {
+                        setLocalEditingCardData((prev) => prev ? ({ ...prev, translation: translation.translated }) : prev);
+                    }
+                } else if (action === 'grammar') {
+                    // Signature is (…, text, sourceLanguage, interfaceLanguage) — the two
+                    // languages are easy to swap by mistake.
+                    const linguisticInfo = await createLinguisticInfo(
+                        aiService,
+                        apiKey,
+                        currentText,
+                        sourceLanguage || '',
+                        translateToLanguage,
+                    );
+                    if (linguisticInfo) {
+                        setLocalEditingCardData((prev) => prev ? ({ ...prev, linguisticInfo }) : prev);
+                    }
+                } else {
+                    const result = await createCardComponentsParallel(
+                        aiService,
+                        apiKey,
+                        currentText,
+                        translateToLanguage,
+                        plan.detail,
+                        sourceLanguage || undefined,
+                        hasImage,
+                        undefined,
+                        hasImage ? 'always' : 'off',
+                        false,
+                        'off',
+                        openAiKey,
+                    );
+
+                    setLocalEditingCardData((prev) => {
+                        if (!prev) return prev;
+                        const next = { ...prev };
+                        if (result.translation?.translated) next.translation = result.translation.translated;
+                        if (result.examples) {
+                            next.examples = result.examples.map((ex) => [ex.original, ex.translated] as [string, string | null]);
+                            next.examplesAudio = new Array(result.examples.length).fill(null);
+                        }
+                        if (result.imageUrl) {
+                            next.imageUrl = result.imageUrl;
+                            next.image = result.imageUrl;
+                        }
+                        if (result.linguisticInfo) next.linguisticInfo = result.linguisticInfo;
+                        if (result.flashcard?.front) next.front = result.flashcard.front;
+                        if (result.translation?.translated && prev.mode !== Modes.LanguageLearning) {
+                            next.back = result.translation.translated;
+                        }
+                        return next;
+                    });
+                }
+            }
+
+            setInstructionText('');
+            setInstructionStatus(null);
+        } catch (error: any) {
+            console.error('Error applying instruction:', error);
+            setInstructionStatus(null);
+            showError(error?.message || 'Could not apply that change. Try rephrasing it.');
         } finally {
-            setIsProcessingCustomInstruction(false);
+            setLoadingInstruction(false);
         }
     };
 
-    const handleCustomInstructionKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleApplyCustomInstruction();
-        }
+    // The studied word maps to `text` for language cards and to `front` for general ones.
+    const handleWordUpdate = (newWord: string) => {
+        setLocalEditingCardData((prev) => {
+            if (!prev) return prev;
+            return prev.mode === Modes.LanguageLearning
+                ? { ...prev, text: newWord, front: newWord }
+                : { ...prev, front: newWord };
+        });
     };
 
     // Handle translation update from ResultDisplay
@@ -1605,18 +1413,27 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }
     };
 
+    // From the editor the change joins the debounced auto-save; from the preview there is
+    // no draft to fold it into, so it is written straight through.
+    const applyDeckChange = (patch: Partial<StoredCard>) => {
+        if (deckPickerFor === 'preview') {
+            if (!previewCard) return;
+            // Persist outside the state updater: updaters must stay pure (React can run
+            // them twice), and a doubled updateStoredCard would fire two syncs.
+            const updated = { ...previewCard, ...patch };
+            setPreviewCard(updated);
+            tabAware.updateStoredCard(updated);
+            return;
+        }
+        setLocalEditingCardData(prev => prev ? ({ ...prev, ...patch }) : prev);
+    };
+
     const handleAnkiDeckChangeInModal = (deckName: string | null) => {
-        setLocalEditingCardData(prev => prev ? ({
-            ...prev,
-            ankiDeckName: deckName
-        }) : prev);
+        applyDeckChange({ ankiDeckName: deckName });
     };
 
     const handleBackendDeckChangeInModal = (deckIdValue: string | null) => {
-        setLocalEditingCardData(prev => prev ? ({
-            ...prev,
-            deckId: deckIdValue
-        }) : prev);
+        applyDeckChange({ deckId: deckIdValue });
     };
 
     // Handle examples update from ResultDisplay
@@ -1716,525 +1533,173 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }
     };
 
-    // Render the modal for editing cards
-    const renderEditModal = () => {
-        debugLog('renderEditModal called. showEditModal:', showEditModal, 'editingCard:', editingCard);
-
-        if (!showEditModal || !editingCard) {
-            debugLog('Modal not showing because showEditModal:', showEditModal, 'editingCard:', !!editingCard);
-            return null;
-        }
-
-        // Используем локальное состояние для редактирования
-        if (!localEditingCardData) {
-            debugLog('No local editing card data available');
-            return null;
-        }
-
-        const { text, translation, examples, examplesAudio, front, back, image, imageUrl, linguisticInfo, transcription, wordAudio, ankiDeckName, deckId: backendDeckId } = localEditingCardData;
-        // Ensure studied word is visible in modal: for LanguageLearning use text as front fallback
-        const displayFront = editingCard.mode === Modes.LanguageLearning
-            ? (text || front || '')
-            : (front || '');
-        const selectedAnkiDeck = ankiDeckName ?? backendDeckId ?? '';
-
-        debugLog('Rendering edit modal with local data:', {
-            text: text?.substring(0, 20) + '...',
-            translation: translation?.substring(0, 20) + '...',
-            examplesCount: examples?.length,
-            hasImage: !!image,
-            hasImageUrl: !!imageUrl
-        });
+    // Where a card is saved, as chips — tapping anywhere on the row opens the picker, so
+    // the destination can be changed from the preview as well as from the editor.
+    const renderDestinationRow = (card: StoredCard, target: 'edit' | 'preview') => {
+        const effectiveAnkiDeck = card.ankiDeckName ?? deckId ?? null;
+        const showAnki = Boolean(useAnkiConnect && isAnkiAvailable && effectiveAnkiDeck);
 
         return (
-            <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'center',
-                zIndex: 1000,
-                backdropFilter: 'blur(2px)',
-                padding: '16px',
-                overflowY: 'auto',
-                overflowX: 'hidden'
-            }} onClick={handleCancelEdit}>
-                <div style={{
-                    backgroundColor: '#ffffff',
-                    borderRadius: '12px',
-                    maxWidth: '340px',
-                    width: '100%',
-                    maxHeight: 'calc(100% - 32px)',
-                    overflowY: 'auto',
-                    overflowX: 'hidden',
-                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                    position: 'relative',
-                    padding: '16px',
-                    boxSizing: 'border-box',
-                    margin: 'auto'
-                }} onClick={(e) => e.stopPropagation()}>
-                    <div style={{
-                        position: 'sticky',
-                        top: 0,
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        borderBottom: '1px solid #E5E7EB',
-                        paddingBottom: '12px',
-                        marginBottom: '16px',
-                        backgroundColor: '#ffffff',
-                        zIndex: 2
-                    }}>
-                        <h3 style={{
-                            margin: 0,
-                            fontSize: '16px',
-                            fontWeight: 600,
-                            color: '#111827'
-                        }}>
-                            Edit Card
-                        </h3>
-                        <button
-                            onClick={handleCancelEdit}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '8px',
-                                borderRadius: '50%',
-                                cursor: 'pointer',
-                                transition: 'background-color 0.2s'
-                            }}
-                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                            aria-label="Close"
-                        >
-                            <FaTimes size={16} color="#6B7280" />
-                        </button>
-                    </div>
+            <button
+                type="button"
+                onClick={() => setDeckPickerFor(target)}
+                aria-label="Change where this card is saved"
+                className="flex w-full items-center gap-1.5 rounded-control px-1 py-1 text-left transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                    {isLoggedIn && (
+                        <span className="flex min-w-0 max-w-[60%] items-center gap-1.5 rounded-full border border-line bg-white py-0.5 pl-2 pr-2">
+                            <FaCloud size={10} className="shrink-0 text-ok-strong" />
+                            <span className="truncate text-[12px] font-medium text-gray-700">
+                                {vaultoDeckLabel(card)}
+                            </span>
+                        </span>
+                    )}
+                    {showAnki && (
+                        <span className="flex min-w-0 items-center gap-1.5 rounded-full border border-line bg-white py-0.5 pl-2 pr-2">
+                            <FaDesktop size={10} className="shrink-0 text-gray-400" />
+                            <span className="truncate text-[12px] font-medium text-gray-700">
+                                {effectiveAnkiDeck}
+                            </span>
+                        </span>
+                    )}
+                    {!isLoggedIn && !showAnki && (
+                        <span className="truncate text-[12px] text-gray-400">Saved on this device</span>
+                    )}
+                </span>
+                <FaChevronRight size={9} className="shrink-0 text-gray-400" />
+            </button>
+        );
+    };
 
-                    {/* Custom instruction input */}
-                    <div style={{
-                        width: '100%',
-                        marginBottom: '12px'
-                    }}>
-                        <div style={{
-                            position: 'relative',
-                            width: '100%',
-                            maxWidth: '100%',
-                        }}>
-                            <input
-                                type="text"
-                                value={customInstruction}
-                                onChange={(e) => setCustomInstruction(e.target.value)}
-                                onKeyDown={handleCustomInstructionKeyDown}
-                                placeholder="Enter custom instructions for this card (e.g., 'regenerate examples', 'change image style')"
-                                style={{
-                                    width: '100%',
-                                    maxWidth: '100%',
-                                    padding: '10px 12px',
-                                    paddingRight: '44px',
-                                    borderRadius: '8px',
-                                    border: '1px solid #E5E7EB',
-                                    fontSize: '14px',
-                                    color: '#374151',
-                                    backgroundColor: isProcessingCustomInstruction ? '#F9FAFB' : '#FFFFFF',
-                                    transition: 'all 0.2s ease',
-                                    boxShadow: isProcessingCustomInstruction ? 'inset 0 1px 2px rgba(0, 0, 0, 0.05)' : 'none',
-                                    boxSizing: 'border-box'
-                                }}
-                                disabled={isProcessingCustomInstruction}
-                            />
-                            {isProcessingCustomInstruction ? (
-                                <div style={{
-                                    position: 'absolute',
-                                    right: '10px',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '6px',
-                                    borderRadius: '50%',
-                                    color: '#4F46E5'
-                                }}>
-                                    <Loader type="spinner" size="small" inline color="#4F46E5" />
-                                </div>
-                            ) : (
-                                <button
-                                    onClick={handleApplyCustomInstruction}
-                                    disabled={!customInstruction.trim() || isProcessingCustomInstruction}
-                                    style={{
-                                        position: 'absolute',
-                                        right: '8px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        background: customInstruction.trim() ? 'linear-gradient(to right, #4F46E5, #6366F1)' : 'none',
-                                        border: 'none',
-                                        color: customInstruction.trim() ? '#FFFFFF' : '#9CA3AF',
-                                        cursor: customInstruction.trim() ? 'pointer' : 'not-allowed',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        padding: '6px',
-                                        borderRadius: '50%',
-                                        width: '28px',
-                                        height: '28px',
-                                        boxShadow: customInstruction.trim() ? '0 1px 3px rgba(0, 0, 0, 0.1)' : 'none',
-                                        transition: 'all 0.2s ease'
-                                    }}
-                                    title="Apply instructions"
+    // Rather than a dead greyed-out button, say why export is unavailable and offer the fix.
+    const renderAnkiIssue = (
+        issue: { text: string; action: 'settings' | 'deck' },
+        target: 'edit' | 'preview'
+    ) => (
+        <div className="flex items-center gap-2 rounded-control border border-line bg-white px-2.5 py-1.5">
+            <FaExclamationTriangle size={10} className="shrink-0 text-warn" />
+            <span className="min-w-0 flex-1 truncate text-[11px] text-gray-500">{issue.text}</span>
+            <button
+                type="button"
+                onClick={() => (issue.action === 'settings' ? handleOpenSettings() : setDeckPickerFor(target))}
+                className="shrink-0 rounded-control px-1.5 py-0.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+                {issue.action === 'settings' ? 'Open Settings' : 'Pick deck'}
+            </button>
+        </div>
+    );
+
+    // Render the modal for editing cards
+    const renderEditModal = () => {
+        if (!showEditModal || !editingCard || !localEditingCardData) {
+            return null;
+        }
+
+        const { image, imageUrl } = localEditingCardData;
+        const hasAiKey = Boolean(apiKey || openAiKey);
+        const hasImage = Boolean(image || imageUrl);
+        const ankiIssue = getAnkiIssue(localEditingCardData);
+
+        // Audio generation lost its button when the editor moved to the study-card layout;
+        // it lives here now, offered only while something is still missing a recording.
+        const cardExamples = Array.isArray(localEditingCardData.examples) ? localEditingCardData.examples : [];
+        const cardExamplesAudio = Array.isArray(localEditingCardData.examplesAudio) ? localEditingCardData.examplesAudio : [];
+        const missingAudio = !localEditingCardData.wordAudio
+            || cardExamples.some((example, i) => (example?.[0] || '').trim() && !cardExamplesAudio[i]);
+
+        const suggestions: InstructionSuggestion[] = [
+            ...(missingAudio ? [{ label: 'Add audio', instruction: 'Add audio pronunciation' }] : []),
+            ...(hasImage ? [{ label: 'New picture', instruction: 'Draw a new picture for this word' }] : []),
+            { label: 'New examples', instruction: 'Write a fresh set of example sentences' },
+            { label: '5 examples', instruction: 'Give exactly 5 example sentences' },
+            { label: 'Simpler translation', instruction: 'Use a simpler, more common translation' },
+        ];
+
+        return (
+            <Modal
+                open
+                onClose={handleCancelEdit}
+                title="Edit card"
+                maxWidth={360}
+                footer={
+                    <div className="flex flex-col gap-3">
+                        <InstructionComposer
+                            value={instructionText}
+                            onChange={setInstructionText}
+                            onSubmit={handleApplyInstructionInModal}
+                            loading={loadingInstruction}
+                            status={instructionStatus}
+                            suggestions={suggestions}
+                            disabled={!hasAiKey}
+                            disabledHint="Add an AI API key in Settings to change cards with instructions."
+                        />
+
+                        <div className="border-t border-line pt-2.5">
+                            {renderDestinationRow(localEditingCardData, 'edit')}
+                        </div>
+
+                        {ankiIssue && renderAnkiIssue(ankiIssue, 'edit')}
+
+                        <div className="flex items-center gap-2">
+                            {!ankiIssue && (
+                                <Button
+                                    variant="secondary"
+                                    fullWidth
+                                    onClick={handleSendToAnki}
+                                    disabled={loadingSync}
                                 >
-                                    <FaMagic size={14} />
-                                </button>
+                                    {loadingSync ? (
+                                        <>
+                                            <Loader type="spinner" size="small" inline color="#6C757D" />
+                                            Sending…
+                                        </>
+                                    ) : (
+                                        'Send to Anki'
+                                    )}
+                                </Button>
                             )}
-                        </div>
-                        <div style={{
-                            fontSize: '12px',
-                            color: isProcessingCustomInstruction ? '#4F46E5' : '#6B7280',
-                            marginTop: '6px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            fontWeight: isProcessingCustomInstruction ? '500' : 'normal',
-                        }}>
-                            {isProcessingCustomInstruction && (
-                                <span style={{
-                                    display: 'inline-block',
-                                    width: '6px',
-                                    height: '6px',
-                                    borderRadius: '50%',
-                                    backgroundColor: '#4F46E5',
-                                    animation: 'pulse 1.5s infinite',
-                                }}></span>
-                            )}
-                            {isProcessingCustomInstruction ? 'Applying your instructions...' : 'Type instructions and press Enter or click the magic wand'}
+                            {/* Changes auto-save, so this is a plain, unmistakable way out. */}
+                            <Button variant="primary" fullWidth onClick={handleCancelEdit}>
+                                Done
+                            </Button>
                         </div>
                     </div>
+                }
+            >
+                <StudyCard
+                    card={localEditingCardData}
+                    editable
+                    busy={loadingInstruction}
+                    onWordChange={handleWordUpdate}
+                    onTranslationChange={editingCard.mode === Modes.LanguageLearning ? handleTranslationUpdate : handleBackUpdate}
+                    onExamplesChange={handleExamplesUpdate}
+                    onGrammarChange={handleLinguisticInfoUpdate}
+                />
+            </Modal>
+        );
+    };
 
+    // One picker for both the preview and the editor; the target decides what it writes to.
+    const renderDeckPicker = () => {
+        if (!deckPickerFor) return null;
+        const card = deckPickerFor === 'preview' ? previewCard : localEditingCardData;
+        if (!card) return null;
+
+        return (
+            <Modal open onClose={() => setDeckPickerFor(null)} title="Where this card is saved">
+                <div className="px-3 pb-3">
                     <DeckSelector
                         onBackendDeckChange={handleBackendDeckChangeInModal}
                         onAnkiDeckChange={handleAnkiDeckChangeInModal}
-                        initialBackendDeckId={backendDeckId ?? null}
-                        initialAnkiDeckName={selectedAnkiDeck || null}
+                        initialBackendDeckId={card.deckId ?? null}
+                        initialAnkiDeckName={card.ankiDeckName ?? deckId ?? null}
                     />
-
-                    {/* Use ResultDisplay component for consistent UI */}
-                    <ResultDisplay
-                        mode={editingCard.mode}
-                        front={displayFront || null}
-                        back={back || null}
-                        translation={translation || null}
-                        examples={examples || []}
-                        examplesAudio={examplesAudio || []}
-                        imageUrl={imageUrl || null}
-                        image={image || null}
-                        linguisticInfo={linguisticInfo || undefined}
-                        transcription={transcription || null}
-                        wordAudio={wordAudio || null}
-                        onNewImage={handleNewImageInModal}
-                        onNewExamples={handleNewExamplesInModal}
-                        onGenerateAudio={handleGenerateAudioInModal}
-                        onAccept={handleSaveEditFromModal}
-                        onViewSavedCards={() => { }}
-                        onCancel={handleCancelEdit}
-                        loadingNewImage={false}
-                        loadingNewExamples={loadingNewExamples}
-                        loadingAudio={loadingAudio}
-                        loadingAccept={loadingAccept}
-                        shouldGenerateImage={true}
-                        isSaved={true} // Show edit mode since we're editing
-                        isEdited={true}
-                        createdAt={editingCard.createdAt ? new Date(editingCard.createdAt) : new Date()}
-                        setTranslation={handleTranslationUpdate}
-                        setBack={handleBackUpdate}
-                        setExamples={handleExamplesUpdate}
-                        setLinguisticInfo={handleLinguisticInfoUpdate}
-                    />
-
-                    <div style={{
-                        display: 'flex',
-                        width: '100%',
-                        marginTop: '16px'
-                    }}>
-                        <button
-                            onClick={handleSyncFromModal}
-                            disabled={loadingSync}
-                            style={{
-                                width: '100%',
-                                padding: '10px 12px',
-                                backgroundColor: loadingSync ? '#9CA3AF' : '#111827',
-                                color: '#FFFFFF',
-                                border: 'none',
-                                borderRadius: '8px',
-                                cursor: loadingSync ? 'not-allowed' : 'pointer',
-                                fontSize: '13px',
-                                fontWeight: 600,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '8px',
-                                transition: 'all 0.2s ease',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                            }}
-                            onMouseOver={(e) => !loadingSync && (e.currentTarget.style.backgroundColor = '#1F2937')}
-                            onMouseOut={(e) => !loadingSync && (e.currentTarget.style.backgroundColor = '#111827')}
-                            title="Sync to Cloud and Anki"
-                        >
-                            {loadingSync ? (
-                                <>
-                                    <Loader type="spinner" size="small" inline color="#FFFFFF" />
-                                    <span style={{ marginLeft: '8px' }}>Syncing...</span>
-                                </>
-                            ) : (
-                                <>
-                                    <FaSync size={14} />
-                                    Sync Now
-                                </>
-                            )}
-                        </button>
-                    </div>
                 </div>
-            </div>
+            </Modal>
         );
     };
 
-    // Pagination controls
-    const handlePageChange = (newPage: number) => {
-        if (newPage >= 1 && newPage <= totalPages) {
-            setCurrentPage(newPage);
-        }
-    };
-
-    const handleItemsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        setItemsPerPage(Number(e.target.value));
-        setCurrentPage(1); // Reset to first page when changing items per page
-    };
-
-    const renderPagination = () => {
-        // Always show pagination controls regardless of item count
-        // if (filteredCards.length <= itemsPerPage) {
-        //     return null;
-        // }
-
-        return (
-            <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                marginTop: '16px',
-                marginBottom: '16px',
-                padding: '12px',
-                backgroundColor: '#F9FAFB',
-                borderRadius: '8px',
-                border: '1px solid #E5E7EB',
-            }}>
-                {/* Top row with cards per page and results count */}
-                <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                }}>
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                    }}>
-                        <select
-                            value={itemsPerPage}
-                            onChange={handleItemsPerPageChange}
-                            style={{
-                                padding: '6px 8px',
-                                borderRadius: '6px',
-                                border: '1px solid #D1D5DB',
-                                fontSize: '13px',
-                                backgroundColor: '#FFFFFF',
-                                color: '#111827',
-                                fontWeight: '500',
-                                cursor: 'pointer',
-                                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-                                WebkitAppearance: 'none',
-                                MozAppearance: 'none',
-                                appearance: 'none',
-                                backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23424242%22%20d%3D%22M6%2C9L1.2%2C4.2%20c-0.4-0.4-0.4-1%2C0-1.4s1-0.4%2C1.4%2C0L6%2C6.2l3.4-3.4c0.4-0.4%2C1-0.4%2C1.4%2C0s0.4%2C1%2C0%2C1.4L6%2C9z%22%2F%3E%3C%2Fsvg%3E")',
-                                backgroundRepeat: 'no-repeat',
-                                backgroundPosition: 'right 8px center',
-                                paddingRight: '28px',
-                                minWidth: '90px'
-                            }}
-                            aria-label="Cards per page"
-                        >
-                            <option value={5}>5 per page</option>
-                            <option value={10}>10 per page</option>
-                            <option value={20}>20 per page</option>
-                            <option value={50}>50 per page</option>
-                        </select>
-                    </div>
-
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        fontSize: '13px',
-                        fontWeight: '500',
-                        color: '#4B5563',
-                    }}>
-                        {filteredCards.length > 0 ?
-                            `${Math.min((currentPage - 1) * itemsPerPage + 1, filteredCards.length)}-${Math.min(currentPage * itemsPerPage, filteredCards.length)} of ${filteredCards.length} cards` :
-                            '0 cards'
-                        }
-                    </div>
-                </div>
-
-                {/* Bottom row with page navigation */}
-                <div style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                }}>
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        border: '1px solid #D1D5DB',
-                        borderRadius: '8px',
-                        overflow: 'hidden',
-                        backgroundColor: '#FFFFFF',
-                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-                    }}>
-                        <button
-                            onClick={() => handlePageChange(1)}
-                            disabled={currentPage === 1}
-                            style={{
-                                padding: '8px 10px',
-                                backgroundColor: 'transparent',
-                                border: 'none',
-                                borderRight: '1px solid #E5E7EB',
-                                cursor: currentPage === 1 ? 'default' : 'pointer',
-                                color: currentPage === 1 ? '#9CA3AF' : '#111827',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'background-color 0.2s'
-                            }}
-                            onMouseOver={(e) => {
-                                if (currentPage !== 1) e.currentTarget.style.backgroundColor = '#F9FAFB';
-                            }}
-                            onMouseOut={(e) => {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                            }}
-                            aria-label="Go to first page"
-                            title="First page"
-                        >
-                            <svg width="14" height="14" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M15.707 15.707a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 010 1.414zm-6 0a1 1 0 01-1.414 0l-5-5a1 1 0 010-1.414l5-5a1 1 0 011.414 1.414L5.414 10l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-                            </svg>
-                        </button>
-
-                        <button
-                            onClick={() => handlePageChange(currentPage - 1)}
-                            disabled={currentPage === 1}
-                            style={{
-                                padding: '8px 12px',
-                                backgroundColor: 'transparent',
-                                border: 'none',
-                                borderRight: '1px solid #E5E7EB',
-                                cursor: currentPage === 1 ? 'default' : 'pointer',
-                                color: currentPage === 1 ? '#9CA3AF' : '#111827',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'background-color 0.2s'
-                            }}
-                            onMouseOver={(e) => {
-                                if (currentPage !== 1) e.currentTarget.style.backgroundColor = '#F9FAFB';
-                            }}
-                            onMouseOut={(e) => {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                            }}
-                            aria-label="Previous page"
-                            title="Previous page"
-                        >
-                            <FaChevronLeft size={14} />
-                        </button>
-
-                        <div style={{
-                            padding: '6px 16px',
-                            fontSize: '13px',
-                            fontWeight: '500',
-                            color: '#111827',
-                            display: 'flex',
-                            alignItems: 'center',
-                            backgroundColor: 'transparent',
-                            borderRight: '1px solid #E5E7EB',
-                            minWidth: '60px',
-                            justifyContent: 'center'
-                        }}>
-                            {currentPage} / {totalPages || 1}
-                        </div>
-
-                        <button
-                            onClick={() => handlePageChange(currentPage + 1)}
-                            disabled={currentPage === totalPages || totalPages === 0}
-                            style={{
-                                padding: '8px 12px',
-                                backgroundColor: 'transparent',
-                                border: 'none',
-                                borderRight: '1px solid #E5E7EB',
-                                cursor: (currentPage === totalPages || totalPages === 0) ? 'default' : 'pointer',
-                                color: (currentPage === totalPages || totalPages === 0) ? '#9CA3AF' : '#111827',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'background-color 0.2s'
-                            }}
-                            onMouseOver={(e) => {
-                                if (currentPage !== totalPages && totalPages !== 0) e.currentTarget.style.backgroundColor = '#F9FAFB';
-                            }}
-                            onMouseOut={(e) => {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                            }}
-                            aria-label="Next page"
-                            title="Next page"
-                        >
-                            <FaChevronRight size={14} />
-                        </button>
-
-                        <button
-                            onClick={() => handlePageChange(totalPages)}
-                            disabled={currentPage === totalPages || totalPages === 0}
-                            style={{
-                                padding: '8px 10px',
-                                backgroundColor: 'transparent',
-                                border: 'none',
-                                cursor: (currentPage === totalPages || totalPages === 0) ? 'default' : 'pointer',
-                                color: (currentPage === totalPages || totalPages === 0) ? '#9CA3AF' : '#111827',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'background-color 0.2s'
-                            }}
-                            onMouseOver={(e) => {
-                                if (currentPage !== totalPages && totalPages !== 0) e.currentTarget.style.backgroundColor = '#F9FAFB';
-                            }}
-                            onMouseOut={(e) => {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                            }}
-                            aria-label="Go to last page"
-                            title="Last page"
-                        >
-                            <svg width="14" height="14" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M4.293 15.707a1 1 0 001.414 0l5-5a1 1 0 000-1.414l-5-5a1 1 0 00-1.414 1.414L8.586 10l-4.293 4.293a1 1 0 000 1.414zm6 0a1 1 0 001.414 0l5-5a1 1 0 000-1.414l-5-5a1 1 0 00-1.414 1.414L14.586 10l-4.293 4.293a1 1 0 000 1.414z" clipRule="evenodd" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
 
     const performFileExport = async () => {
         if (selectedCards.length === 0) {
@@ -2436,165 +1901,182 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
 
     return (
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-            padding: '12px',
-            paddingBottom: '20px',
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            width: '100%',
-            maxWidth: '320px',
-            margin: '0 auto',
-            position: 'relative'
-        }}>
+        <div className="relative mx-auto flex h-full w-full max-w-[360px] flex-col px-3 pb-2">
             {ankiSettingsPrompt && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    marginBottom: '12px',
-                    padding: '12px',
-                    backgroundColor: '#FFFBEB',
-                    border: '1px solid #FDE68A',
-                    borderRadius: '10px'
-                }}>
-                    <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#92400E', marginBottom: '4px' }}>
-                            {ankiSettingsPrompt === 'disabled'
-                                ? 'Anki save is not configured'
-                                : 'AnkiConnect is unavailable'}
-                        </div>
-                        <div style={{ fontSize: '12px', lineHeight: 1.5, color: '#78350F' }}>
-                            {ankiSettingsPrompt === 'disabled'
-                                ? 'Enable and configure AnkiConnect in Settings before saving cards to Anki.'
-                                : 'Check AnkiConnect settings and make sure Anki is running with the AnkiConnect add-on.'}
-                        </div>
-                    </div>
+                <div className="mb-3 flex shrink-0 items-center gap-2.5 rounded-card border border-warn-border bg-warn-subtle px-3 py-2">
+                    <span className="min-w-0 flex-1 text-xs leading-snug text-warn-strong">
+                        {ankiSettingsPrompt === 'disabled'
+                            ? 'Turn on AnkiConnect in Settings to save cards to Anki.'
+                            : 'Anki is not responding. Check that it is running with the AnkiConnect add-on.'}
+                    </span>
                     <button
+                        type="button"
                         onClick={handleOpenSettings}
-                        style={{
-                            flexShrink: 0,
-                            padding: '8px 10px',
-                            borderRadius: '8px',
-                            border: '1px solid #F59E0B',
-                            backgroundColor: '#FFFFFF',
-                            color: '#B45309',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: 'pointer'
-                        }}
+                        className="shrink-0 rounded-control px-2 py-1 text-xs font-semibold text-warn-strong transition-colors hover:bg-warn-border/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
-                        Open settings
+                        Settings
                     </button>
                 </div>
             )}
 
-            {useAnkiConnect && renderDeckSelector()}
-
-            {storedCards.length > 0 ? (
+            {storedCards.length === 0 ? (
+                <p className="px-4 py-16 text-center text-sm text-gray-500">
+                    No saved cards yet. Create one from the Create tab.
+                </p>
+            ) : (
                 <>
-                    {renderTabNavigation()}
-
-                    <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: '12px'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <input
-                                type="checkbox"
-                                id="selectAll"
-                                checked={selectedCards.length === filteredCards.length && filteredCards.length > 0}
-                                onChange={handleSelectAll}
-                                style={{ marginRight: '8px' }}
-                                disabled={editingCard !== null}
+                    <div className="mb-2 flex shrink-0 items-center gap-2">
+                        <div className="relative min-w-0 flex-1">
+                            <FaSearch
+                                size={12}
+                                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                             />
-                            <label htmlFor="selectAll" style={{
-                                fontSize: '14px',
-                                cursor: editingCard !== null ? 'default' : 'pointer',
-                                opacity: editingCard !== null ? 0.6 : 1
-                            }}>
-                                {selectedCards.length === filteredCards.length && filteredCards.length > 0
-                                    ? 'Deselect All'
-                                    : 'Select All'}
-                            </label>
+                            <input
+                                type="search"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Search cards…"
+                                aria-label="Search cards"
+                                className="h-9 w-full rounded-control border border-line bg-surface-muted pl-9 pr-3 text-sm text-gray-800 transition-colors placeholder:text-gray-400 focus:border-accent focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent/20"
+                            />
                         </div>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            <button
-                                onClick={handleSaveToAnki}
-                                disabled={isLoading || selectedCards.length === 0 || editingCard !== null}
-                                style={{
-                                    padding: '6px 10px',
-                                    borderRadius: '6px',
-                                    backgroundColor: (useAnkiConnect && isAnkiAvailable && deckId) ? '#10B981' : '#9CA3AF',
-                                    color: '#ffffff',
-                                    fontSize: '13px',
-                                    border: 'none',
-                                    cursor: (isLoading || selectedCards.length === 0 || editingCard !== null) ? 'default' : 'pointer',
-                                    opacity: (isLoading || selectedCards.length === 0 || editingCard !== null) ? 0.6 : 1
-                                }}
-                                title={
-                                    editingCard !== null ? 'Finish editing first' :
-                                        !useAnkiConnect ? 'Configure AnkiConnect in Settings' :
-                                            !isAnkiAvailable ? 'AnkiConnect is not available' :
-                                                !deckId ? 'Please select a deck first' : ''
-                                }
-                            >
-                                {isLoading ?
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <Loader type="spinner" size="small" inline color="#ffffff" text="Saving to Anki" />
-                                    </div> : 'Save to Anki'}
-                            </button>
-                            <button
-                                onClick={exportCardsAsFile}
-                                disabled={isLoading || selectedCards.length === 0 || editingCard !== null}
-                                style={{
-                                    padding: '6px 10px',
-                                    borderRadius: '6px',
-                                    backgroundColor: '#2563EB',
-                                    color: '#ffffff',
-                                    fontSize: '13px',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                    opacity: (isLoading || selectedCards.length === 0 || editingCard !== null) ? 0.6 : 1
-                                }}
-                            >
-                                <FaDownload size={12} />
-                                <span>Export</span>
-                            </button>
-
-                        </div>
+                        {renderCloudStatusIcon()}
                     </div>
 
-                    <div style={{
-                        flex: 1,
-                        overflow: 'auto',
-                        marginBottom: '16px'
-                    }}>
+                    {renderDeckFilter()}
+
+                    {/* In selection mode this becomes a real select-all checkbox, sitting in
+                        the same column as the row checkboxes. It used to be a small "All"
+                        text link inside the action bar, two steps away from the list. */}
+                    <div className="mb-2 flex shrink-0 items-center gap-2.5">
+                        {selectionMode ? (
+                            <>
+                                <input
+                                    type="checkbox"
+                                    ref={selectAllRef}
+                                    checked={allVisibleSelected}
+                                    onChange={handleSelectAll}
+                                    aria-label={allVisibleSelected ? 'Clear selection' : 'Select all cards'}
+                                    className="h-4 w-4 shrink-0 accent-accent"
+                                />
+                                <span className="min-w-0 flex-1 text-xs text-gray-500">
+                                    {selectedCards.length > 0
+                                        ? `${selectedCards.length} of ${filteredCards.length} selected`
+                                        : `Select all ${filteredCards.length}`}
+                                </span>
+                            </>
+                        ) : (
+                            <span className="min-w-0 flex-1 text-xs text-gray-500">
+                                {filteredCards.length} {filteredCards.length === 1 ? 'card' : 'cards'}
+                            </span>
+                        )}
+                        {!selectionMode && (
+                            <button
+                                type="button"
+                                onClick={() => setShowStats(true)}
+                                aria-label="Statistics"
+                                title="Statistics"
+                                className="inline-flex shrink-0 items-center rounded-control px-1.5 py-1 text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            >
+                                <FaChartBar size={12} />
+                            </button>
+                        )}
+                        {!selectionMode && filteredCards.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={startStudy}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-control bg-accent-subtle px-2 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            >
+                                <FaPlay size={9} />
+                                Study
+                                {dueCount > 0 && (
+                                    <span className="rounded-full bg-accent px-1.5 text-[10px] font-bold text-white">
+                                        {dueCount}
+                                    </span>
+                                )}
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSelectionMode(prev => !prev);
+                                setSelectedCards([]);
+                            }}
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-control px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-surface-sunken hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                            <FaCheckSquare size={11} />
+                            {selectionMode ? 'Done' : 'Select'}
+                        </button>
+                    </div>
+
+                    {/* Plain scrolling. Pagination in a side panel meant two navigation
+                        models for one list. */}
+                    <div className="min-h-0 flex-1 overflow-y-auto">
                         {renderCards()}
                     </div>
 
-                    {/* Always render pagination outside scrollable area */}
-                    {renderPagination()}
+                    {/* Bulk actions appear once something is selected, instead of two
+                        permanently greyed-out buttons greeting you on arrival. */}
+                    {selectionMode && (
+                        <div className="mt-2 flex shrink-0 flex-col gap-2 rounded-card border border-line bg-surface-muted px-2.5 py-2">
+                        {/* Anki's target deck lives in the deck slice, not in the settings
+                            deck selection the create screen uses, so it keeps its own control. */}
+                        {useAnkiConnect && (
+                            <label className="flex items-center gap-2 text-xs text-gray-500">
+                                <span className="shrink-0">Deck</span>
+                                <select
+                                    value={deckId || ''}
+                                    onChange={handleDeckChange}
+                                    className="h-8 min-w-0 flex-1 rounded-control border border-line bg-white px-2 text-xs text-gray-800 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                                >
+                                    <option value="">Select a deck…</option>
+                                    {decks.map(deck => (
+                                        <option key={deck.deckId} value={deck.deckId}>{deck.name}</option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+                        <div className="flex items-center gap-2">
+                            <Button
+                                size="sm"
+                                onClick={exportCardsAsFile}
+                                disabled={isLoading || selectedCards.length === 0}
+                                icon={<FaDownload size={11} />}
+                            >
+                                Export
+                            </Button>
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={handleSaveToAnki}
+                                disabled={isLoading || selectedCards.length === 0}
+                                title={
+                                    !useAnkiConnect ? 'Configure AnkiConnect in Settings' :
+                                        !isAnkiAvailable ? 'AnkiConnect is not available' :
+                                            !deckId ? 'Please select a deck first' : ''
+                                }
+                            >
+                                {isLoading ? 'Saving…' : 'To Anki'}
+                            </Button>
+                        </div>
+                        </div>
+                    )}
                 </>
-            ) : (
-                <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '300px',
-                    color: '#6B7280',
-                    textAlign: 'center'
-                }}>
-                    <p>No saved cards yet.</p>
+            )}
+
+            {recentlyDeleted && (
+                <div
+                    role="status"
+                    className="absolute bottom-3 left-3 right-3 z-40 flex items-center gap-3 rounded-card bg-gray-900 px-3 py-2.5 shadow-sheet"
+                >
+                    <span className="min-w-0 flex-1 truncate text-xs text-white">Card deleted</span>
+                    <button
+                        type="button"
+                        onClick={handleUndoDelete}
+                        className="shrink-0 text-xs font-semibold text-white underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    >
+                        Undo
+                    </button>
                 </div>
             )}
 
@@ -2820,8 +2302,87 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 </div>
             )}
 
+            {/* Flip study preview — tap a card to view/learn it like in the mobile app */}
+            {previewCard && (
+                <Modal
+                    open
+                    onClose={() => { setPreviewCard(null); setDeckPickerFor(prev => (prev === 'preview' ? null : prev)); }}
+                    title={(previewCard.text || previewCard.front || 'Card').trim() || 'Card'}
+                    maxWidth={360}
+                    footer={(() => {
+                        const previewAnkiIssue = getAnkiIssue(previewCard);
+                        return (
+                            <div className="flex flex-col gap-2.5">
+                                {/* Destination is editable straight from the preview: you no
+                                    longer have to enter edit mode just to change a deck. */}
+                                {renderDestinationRow(previewCard, 'preview')}
+
+                                {previewAnkiIssue && renderAnkiIssue(previewAnkiIssue, 'preview')}
+
+                                {/* Equal halves rather than two small buttons huddled in the
+                                    corner — the sheet is narrow, so they fill it. */}
+                                <div className="flex items-center gap-2">
+                                    {!previewAnkiIssue && (
+                                        <Button
+                                            variant="secondary"
+                                            fullWidth
+                                            disabled={loadingSync}
+                                            onClick={async () => {
+                                                if (await sendCardToAnki(previewCard)) {
+                                                    setPreviewCard(null);
+                                                }
+                                            }}
+                                        >
+                                            {loadingSync ? (
+                                                <>
+                                                    <Loader type="spinner" size="small" inline color="#6C757D" />
+                                                    Sending…
+                                                </>
+                                            ) : (
+                                                'Send to Anki'
+                                            )}
+                                        </Button>
+                                    )}
+                                    <Button
+                                        variant="primary"
+                                        fullWidth
+                                        onClick={() => {
+                                            const card = previewCard;
+                                            setPreviewCard(null);
+                                            handleStartEditing(card);
+                                        }}
+                                    >
+                                        Edit card
+                                    </Button>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                >
+                    <StudyCard card={previewCard} resetKey={previewCard.id} />
+                </Modal>
+            )}
+
             {/* Modal for editing cards */}
             {renderEditModal()}
+
+            {/* Study session — the same SM-2 flow as the mobile app: flip, grade, reschedule. */}
+            {studyCards && (
+                <StudySession
+                    cards={studyCards}
+                    onClose={() => setStudyCards(null)}
+                    onReview={handleReview}
+                />
+            )}
+
+            {showStats && (
+                <Modal open onClose={() => setShowStats(false)} title="Statistics" maxWidth={360}>
+                    <StatsPanel stats={stats} />
+                </Modal>
+            )}
+
+            {/* Rendered last so it stacks above whichever modal opened it. */}
+            {renderDeckPicker()}
 
             {/* Error notifications displayed as toast notifications */}
             <div style={{
