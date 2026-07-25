@@ -4936,8 +4936,8 @@ Original text: ${text}`;
             )}
             {/* Composer. The input leads, and it takes whatever height the panel gives it —
                 a fixed-height box left a dead gap above the footer on a tall panel. */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden bg-white px-3 pb-3 pt-3">
-                <div className="mx-auto flex min-h-0 w-full max-w-[340px] flex-1 flex-col gap-3">
+            <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden bg-white px-3 pb-2 pt-2">
+                <div className="mx-auto flex min-h-0 w-full max-w-[340px] flex-1 flex-col gap-2">
                     {mode === Modes.LanguageLearning && (
                         <LanguagePairBar
                             sourceCode={isAutoDetectLanguage ? null : (sourceLanguage || null)}
