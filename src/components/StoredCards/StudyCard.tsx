@@ -29,6 +29,17 @@ interface StudyCardProps {
 // never taller than the sheet can show.
 const MIN_CARD_HEIGHT = 240;
 const MAX_CARD_HEIGHT = 600;
+/**
+ * What the shell must add on top of a face's own content height.
+ *
+ * Each face is `absolute inset-0` with a 1px border, so its border-box equals the shell
+ * while its content box is 2px shorter — and the scroll area inside resolves `h-full`
+ * against that content box. Sizing the shell to the bare content therefore left the face
+ * 2px short and produced a permanent sliver of a scrollbar. The third pixel absorbs
+ * sub-pixel rounding, since `scrollHeight` is an integer approximation of a fractional
+ * layout height.
+ */
+const FACE_CHROME = 3;
 const maxCardHeight = () =>
     Math.min(MAX_CARD_HEIGHT, Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * 0.68));
 
@@ -100,9 +111,10 @@ const StudyCard: React.FC<StudyCardProps> = ({
         };
     }, [editable, card.id, imageHidden]);
 
+    const faceHeight = flipped ? faceHeights.back : faceHeights.front;
     const shellHeight = Math.max(
         MIN_CARD_HEIGHT,
-        Math.min(flipped ? faceHeights.back : faceHeights.front, maxCardHeight())
+        Math.min(faceHeight > 0 ? faceHeight + FACE_CHROME : 0, maxCardHeight())
     );
 
     useEffect(() => () => {
