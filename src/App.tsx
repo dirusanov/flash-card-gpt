@@ -15,6 +15,7 @@ import { loadVaultoDecks, syncVaultoDecksWithServer } from './store/actions/vaul
 import { setCurrentTabId } from './store/actions/tabState';
 import { TabAwareProvider, useTabAware } from './components/TabAwareProvider';
 import { subscribeToPendingSelection } from './services/pendingSelection';
+import { recordDailyActivity } from './services/usageMetrics';
 
 interface AppProps { tabId: number; }
 
@@ -140,6 +141,12 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   useEffect(() => {
     dispatch(loadStoredCards(tabId));
   }, [dispatch, tabId]);
+
+  // The panel mounting is the one event common to every way of opening it (toolbar click,
+  // context menu, Alt+C) — recordDailyActivity only fired on the context-menu path before this.
+  useEffect(() => {
+    void recordDailyActivity();
+  }, []);
 
   useEffect(() => {
     dispatch(loadVaultoDecks() as any);
