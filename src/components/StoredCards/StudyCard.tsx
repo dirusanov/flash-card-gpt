@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { FaVolumeUp, FaEyeSlash, FaRegImage, FaTimes, FaPlus, FaCopy, FaCheck, FaChevronLeft } from 'react-icons/fa';
+import { FaVolumeUp, FaEyeSlash, FaRegImage, FaTimes, FaPlus, FaCopy, FaCheck, FaUndo, FaHandPointer } from 'react-icons/fa';
 import { StoredCard } from '../../store/reducers/cards';
 import GrammarCard from '../grammar/GrammarCard';
 import AutoTextarea from '../ui/AutoTextarea';
@@ -176,10 +176,19 @@ const StudyCard: React.FC<StudyCardProps> = ({
         return Boolean(selection && selection.toString().length > 0);
     };
 
-    const flipToFront = () => {
+    // A double-click fires two separate `click` events (mousedown/up twice) before the
+    // single `dblclick` — without this, the first click flips the card and the second
+    // immediately flips it right back, which just looks like the tap did nothing.
+    // `event.detail` is the click's position in that sequence (2 on the second click),
+    // so only reacting to the first collapses a double-click into a single, clean flip.
+    const isRepeatClick = (e?: React.MouseEvent): boolean => Boolean(e && e.detail > 1);
+
+    const flipToFront = (e?: React.MouseEvent) => {
+        if (isRepeatClick(e)) return;
         if (!hasActiveSelection()) setFlipped(true);
     };
-    const flipToBack = () => {
+    const flipToBack = (e?: React.MouseEvent) => {
+        if (isRepeatClick(e)) return;
         if (!hasActiveSelection()) setFlipped(false);
     };
 
@@ -223,6 +232,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
         <button
             type="button"
             onClick={(e) => void copyText(e, field, text)}
+            onDoubleClick={(e) => e.stopPropagation()}
             aria-label={field === 'word' ? 'Copy word' : 'Copy translation'}
             title="Copy"
             className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -400,29 +410,42 @@ const StudyCard: React.FC<StudyCardProps> = ({
                                 <FaVolumeUp size={16} />
                             </span>
                         )}
-                        <span className="mt-3 text-[11px] font-medium text-gray-400">Tap to reveal answer</span>
+                        <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-muted px-3 py-1 text-[11px] font-semibold text-gray-500">
+                            <FaHandPointer size={10} className="shrink-0" />
+                            Tap to reveal answer
+                        </span>
                     </div>
                 </div>
 
-                {/* Back — the answer */}
+                {/* Back — the answer. Works like the front now: tap (almost) anywhere to
+                    flip. The translation, grammar and each example stop the click from
+                    reaching this handler at all — not just when a selection happened — so
+                    a double-click to select a single word can't get flipped away mid-gesture
+                    the way a plain "was there a selection?" check alone would still allow
+                    (the first click of a double-click has no selection yet to detect). The
+                    selection guard stays as a backstop for a drag that starts on text but
+                    ends outside it. */}
                 <div
-                    className="absolute inset-0 overflow-hidden rounded-sheet border border-ok-border bg-ok-subtle shadow-card [backface-visibility:hidden]"
+                    role="button"
+                    tabIndex={0}
+                    onClick={flipToBack}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            flipToBack();
+                        }
+                    }}
+                    aria-label="Back to question"
+                    className="absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-sheet border border-ok-border bg-ok-subtle shadow-card [backface-visibility:hidden]"
                     style={{ transform: 'rotateY(180deg)' }}
                 >
-                    {/* Only this small header flips back to the question now — the
-                        translation/grammar/examples below it are plain, inert content so
-                        selecting and copying them can never be interrupted by a flip. */}
-                    <div className="h-full overflow-y-auto">
+                    {/* Scrolls on its own so the "Tap to go back" hint below stays pinned at
+                        the card's bottom instead of drifting away under a long examples
+                        list. Still part of the same click target: nothing here stops the
+                        click, only the text blocks below do. */}
+                    <div className="min-h-0 flex-1 overflow-y-auto">
                     <div className="p-4">
-                        <button
-                            type="button"
-                            onClick={flipToBack}
-                            aria-label="Back to question"
-                            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-control py-1 text-[13px] font-semibold text-gray-500 transition-colors hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        >
-                            <FaChevronLeft size={10} className="shrink-0" />
-                            {word}
-                        </button>
+                        <div className="mb-2 text-center text-[13px] font-semibold text-gray-500">{word}</div>
 
                         {imageUrl && (
                             <div className="mb-3 flex justify-center">
@@ -451,7 +474,11 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         )}
 
                         {translation && (
-                            <div className="mb-3 flex items-center justify-center gap-1.5">
+                            <div
+                                className="mb-3 flex items-center justify-center gap-1.5"
+                                onClick={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => { e.stopPropagation(); setFlipped(false); }}
+                            >
                                 <p className="m-0 text-center text-[22px] font-semibold leading-snug text-gray-900">
                                     {translation}
                                 </p>
@@ -460,7 +487,11 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         )}
 
                         {hasGrammar && (
-                            <div className="mb-3 rounded-card border border-ok-border bg-white/70 p-3">
+                            <div
+                                className="mb-3 rounded-card border border-ok-border bg-white/70 p-3"
+                                onClick={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => { e.stopPropagation(); setFlipped(false); }}
+                            >
                                 <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ok-strong">
                                     Grammar Reference
                                 </div>
@@ -469,7 +500,10 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         )}
 
                         {examples.length > 0 && (
-                            <div>
+                            <div
+                                onClick={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => { e.stopPropagation(); setFlipped(false); }}
+                            >
                                 <div className="mb-2 text-[13px] font-semibold text-gray-500">Examples</div>
                                 <ul className="m-0 flex list-none flex-col gap-3 p-0">
                                     {examples.map(([text, tr], index) => (
@@ -478,6 +512,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                                                 <button
                                                     type="button"
                                                     onClick={(e) => play(e, card.examplesAudio?.[index])}
+                                                    onDoubleClick={(e) => e.stopPropagation()}
                                                     aria-label="Play example"
                                                     className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-subtle text-accent transition-colors hover:bg-accent-border"
                                                 >
@@ -498,31 +533,16 @@ const StudyCard: React.FC<StudyCardProps> = ({
                     </div>
                     </div>
 
-                    {/* A bigger, easier target than the small header pill alone — tapping
-                        near either edge flips back too, leaving the translation/grammar/
-                        examples in the middle free for selecting and copying. Hidden from
-                        assistive tech: they're a mouse/touch convenience duplicating the
-                        header button's own action, and having three identically-labelled
-                        "Back to question" stops would just clutter screen-reader/keyboard
-                        navigation instead of helping it. */}
-                    <button
-                        type="button"
-                        tabIndex={-1}
-                        aria-hidden="true"
-                        onClick={flipToBack}
-                        className="absolute inset-y-0 left-0 flex w-6 items-center justify-center text-gray-300 transition-colors hover:bg-black/5 hover:text-gray-500"
-                    >
-                        <FaChevronLeft size={10} />
-                    </button>
-                    <button
-                        type="button"
-                        tabIndex={-1}
-                        aria-hidden="true"
-                        onClick={flipToBack}
-                        className="absolute inset-y-0 right-0 flex w-6 items-center justify-center text-gray-300 transition-colors hover:bg-black/5 hover:text-gray-500"
-                    >
-                        <FaChevronLeft size={10} />
-                    </button>
+                    {/* Pinned outside the scroller, so it's always visible at the card's
+                        bottom regardless of how long the examples list is or how far the
+                        content has been scrolled. Still just a plain child of the click
+                        target above — nothing here stops the click. */}
+                    <div className="flex shrink-0 justify-center border-t border-ok-border/60 bg-white/50 py-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-ok-border bg-white/80 px-3 py-1 text-[11px] font-semibold text-ok-strong">
+                            <FaUndo size={9} className="shrink-0" />
+                            Tap to go back
+                        </span>
+                    </div>
                 </div>
             </div>
         </div>
