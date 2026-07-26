@@ -13,7 +13,6 @@ import brandLogo from '../../assets/img/vaulto-cards-logo.png';
 // the real picker one click away.
 const DeckDestination: React.FC = () => {
     const [open, setOpen] = useState(false);
-    const isLoggedIn = useSelector((state: RootState) => Boolean(state.auth.accessToken));
     const isAnkiAvailable = useSelector((state: RootState) => state.anki.isAnkiAvailable);
     const { useAnkiConnect, selectedAnkiDeckName, selectedBackendDeckName } = useSelector(
         (state: RootState) => state.settings
@@ -25,8 +24,9 @@ const DeckDestination: React.FC = () => {
 
     // Both destinations at a glance, because they are not alternatives: a card lives in
     // Vaulto *and* may additionally be exported to an Anki deck. The service icon carries
-    // the "which service" meaning, so the deck name never has to repeat it.
-    const vaultoDeck = isLoggedIn ? (selectedBackendDeckName || DEFAULT_DECK_NAME) : null;
+    // the "which service" meaning, so the deck name never has to repeat it. Vaulto is the
+    // card's local home either way — being signed in only adds cloud backup on top.
+    const vaultoDeck = selectedBackendDeckName || DEFAULT_DECK_NAME;
     // A deck chosen while Anki was running is not a destination once Anki is off — showing
     // it implied cards were still going there.
     const ankiDeck =

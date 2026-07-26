@@ -1,6 +1,7 @@
 import { createStore, applyMiddleware, combineReducers } from 'redux';
 import thunk from 'redux-thunk';
 import decksReducer from "./reducers/decks";
+import vaultoDecksReducer from "./reducers/vaultoDecks";
 import cardsReducer from "./reducers/cards";
 import {settingsReducer} from "./reducers/settings";
 import currentPageReducer from "./reducers/page";
@@ -13,6 +14,7 @@ import cardsSyncMiddleware from './middleware/cardsSyncMiddleware';
 
 const rootReducer = combineReducers({
     deck: decksReducer,
+    vaultoDecks: vaultoDecksReducer,
     cards: cardsReducer,
     settings: settingsReducer,
     currentPage: currentPageReducer,

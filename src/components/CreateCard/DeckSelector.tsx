@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { FaPlus, FaCheck, FaChevronRight, FaSyncAlt, FaDesktop, FaExclamationTriangle, FaTimes } from 'react-icons/fa';
 import { RootState } from '../../store';
-import { cardsSyncApi, DeckApi } from '../../services/cardsSyncApi';
 import { DEFAULT_DECK_NAME } from '../../services/cardsSyncService';
 import { fetchDecks } from '../../services/ankiService';
 import { setSelectedBackendDeckId, setSelectedAnkiDeckName } from '../../store/actions/settings';
 import { setAnkiAvailability } from '../../store/actions/anki';
-import { useAuthenticatedRequest } from '../../hooks/useAuthenticatedRequest';
+import { createVaultoDeck, syncVaultoDecksWithServer } from '../../store/actions/vaultoDecks';
 import { useTabAware } from '../TabAwareProvider';
 import brandLogo from '../../assets/img/vaulto-cards-logo.png';
 
@@ -93,18 +92,19 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
     initialBackendDeckId: propInitialBackendDeckId,
     initialAnkiDeckName: propInitialAnkiDeckName
 }) => {
-    const dispatch = useDispatch();
+    const dispatch = useDispatch<any>();
     const tabAware = useTabAware();
     const auth = useSelector((state: RootState) => state.auth);
     const settings = useSelector((state: RootState) => state.settings);
-    const { syncApiUrl, useAnkiConnect } = settings;
-    const executeRequest = useAuthenticatedRequest();
+    const { useAnkiConnect } = settings;
+    // Local-first: this list already merges local-only decks with anything synced from
+    // Vaulto Cloud (see store/actions/vaultoDecks.ts), so it works signed out too.
+    const vaultoDecks = useSelector((state: RootState) => state.vaultoDecks.decks);
 
     // Use either props or Redux state
     const currentBackendDeckId = propInitialBackendDeckId !== undefined ? propInitialBackendDeckId : settings.selectedBackendDeckId;
     const currentAnkiDeckName = propInitialAnkiDeckName !== undefined ? propInitialAnkiDeckName : settings.selectedAnkiDeckName;
 
-    const [backendDecks, setBackendDecks] = useState<DeckApi[]>([]);
     const [ankiDecks, setAnkiDecks] = useState<{ name: string }[]>([]);
     const [loadingBackend, setLoadingBackend] = useState(false);
     const [loadingAnki, setLoadingAnki] = useState(false);
@@ -121,12 +121,18 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
             ? chrome.runtime.getURL(brandLogo)
             : brandLogo;
 
+    // A selected deck that no longer exists (deleted elsewhere) must not leave the picker
+    // silently pointing at nothing.
     useEffect(() => {
-        if (auth.accessToken) {
-            loadBackendDecks();
+        if (currentBackendDeckId && !vaultoDecks.find((d) => d.id === currentBackendDeckId)) {
+            if (onBackendDeckChange) {
+                onBackendDeckChange(null);
+            } else {
+                dispatch(setSelectedBackendDeckId(null));
+            }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [auth.accessToken]);
+    }, [vaultoDecks]);
 
     useEffect(() => {
         if (useAnkiConnect) {
@@ -135,23 +141,13 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [useAnkiConnect, settings.ankiConnectUrl, settings.ankiConnectApiKey]);
 
-    const loadBackendDecks = async () => {
-        if (!auth.accessToken) return;
+    const refreshBackendDecks = async () => {
         setLoadingBackend(true);
         setBackendError(null);
         try {
-            const decks = await executeRequest((token) => cardsSyncApi.listDecks(syncApiUrl, token));
-            setBackendDecks(decks);
-            // If we have a selected ID that isn't in the list anymore (except null), reset it
-            if (currentBackendDeckId && !decks.find(d => d.id === currentBackendDeckId)) {
-                if (onBackendDeckChange) {
-                    onBackendDeckChange(null);
-                } else {
-                    dispatch(setSelectedBackendDeckId(null));
-                }
-            }
+            await dispatch(syncVaultoDecksWithServer());
         } catch (err: any) {
-            setBackendError(err.message || 'Failed to load decks');
+            setBackendError(err?.message || 'Failed to load decks');
         } finally {
             setLoadingBackend(false);
         }
@@ -190,7 +186,7 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
             onBackendDeckChange(id);
             return;
         }
-        const deck = id ? backendDecks.find((item) => item.id === id) : null;
+        const deck = id ? vaultoDecks.find((item) => item.id === id) : null;
         dispatch(setSelectedBackendDeckId(deck ? { id: deck.id, name: deck.name } : null));
     };
 
@@ -205,18 +201,19 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
         }
     };
 
+    // "Vaulto Cards" is reserved for cards without an explicit deck (see cardMatchesDeck
+    // in StoredCards.tsx, which finds "the" default deck by this exact name) — a second
+    // deck sharing it would make that lookup ambiguous.
+    const newBackendNameClashesWithDefault =
+        newBackendName.trim().toLowerCase() === DEFAULT_DECK_NAME.toLowerCase();
+
+    // Works signed out too: the deck exists locally immediately and, when signed in, is
+    // pushed to Vaulto Cloud in the background (see createVaultoDeck).
     const createBackendDeck = async () => {
-        if (!newBackendName || !auth.accessToken) return;
+        if (!newBackendName.trim() || newBackendNameClashesWithDefault) return;
         setLoadingBackend(true);
         try {
-            const newDeck = await executeRequest((token) => cardsSyncApi.createDeck(syncApiUrl, token, {
-                name: newBackendName,
-                description: 'Created from extension',
-                color: '#3B82F6'
-            }));
-            setBackendDecks(prev => [...prev, newDeck]);
-            // Select it directly: `backendDecks` in this closure predates the new deck, so
-            // routing through handleBackendSelect would fail to find it.
+            const newDeck = await dispatch(createVaultoDeck(newBackendName.trim()));
             if (onBackendDeckChange) {
                 onBackendDeckChange(newDeck.id);
             } else {
@@ -244,7 +241,7 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
 
     // The default deck is represented by the "no explicit choice" row, so listing the
     // server-side copy again would show the same deck twice.
-    const customDecks = backendDecks.filter((deck) => deck.name !== DEFAULT_DECK_NAME);
+    const customDecks = vaultoDecks.filter((deck) => deck.name !== DEFAULT_DECK_NAME);
 
     return (
         <div className="flex flex-col gap-3">
@@ -258,83 +255,91 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
                     />
                 }
                 title="Vaulto"
-                subtitle="Saved here automatically and synced to your phone."
-                action={isLoggedIn ? refreshButton(loadBackendDecks, loadingBackend, 'Refresh decks') : undefined}
+                subtitle={isLoggedIn ? "Saved here automatically and synced to your phone." : "Saved on this device. Sign in to back it up and sync to your phone."}
+                action={isLoggedIn ? refreshButton(refreshBackendDecks, loadingBackend, 'Refresh decks') : undefined}
             >
-                {!isLoggedIn ? (
-                    <button
-                        type="button"
-                        onClick={() => tabAware.setCurrentPage('auth')}
-                        className="flex w-full items-center gap-2.5 rounded-control border border-accent-border bg-accent-subtle px-3 py-2.5 text-left transition-colors hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    >
-                        <span className="min-w-0 flex-1 text-[13px] font-semibold text-gray-900">
-                            Sign in so your cards aren&apos;t lost
-                        </span>
-                        <FaChevronRight size={10} className="shrink-0 text-accent" />
-                    </button>
-                ) : (
-                    <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-0.5">
+                    <DeckRow
+                        label={DEFAULT_DECK_NAME}
+                        hint="Default"
+                        selected={!currentBackendDeckId}
+                        onSelect={() => handleBackendSelect(null)}
+                    />
+                    {customDecks.map((deck) => (
                         <DeckRow
-                            label={DEFAULT_DECK_NAME}
-                            hint="Default"
-                            selected={!currentBackendDeckId}
-                            onSelect={() => handleBackendSelect(null)}
+                            key={deck.id}
+                            label={deck.name}
+                            selected={currentBackendDeckId === deck.id}
+                            onSelect={() => handleBackendSelect(deck.id)}
                         />
-                        {customDecks.map((deck) => (
-                            <DeckRow
-                                key={deck.id}
-                                label={deck.name}
-                                selected={currentBackendDeckId === deck.id}
-                                onSelect={() => handleBackendSelect(deck.id)}
-                            />
-                        ))}
+                    ))}
 
-                        {isCreatingBackend ? (
-                            <div className="mt-1.5 flex items-center gap-1.5">
-                                <input
-                                    autoFocus
-                                    type="text"
-                                    placeholder="Deck name…"
-                                    value={newBackendName}
-                                    onChange={(e) => setNewBackendName(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') createBackendDeck();
-                                        if (e.key === 'Escape') { setIsCreatingBackend(false); setNewBackendName(''); }
-                                    }}
-                                    className="h-8 min-w-0 flex-1 rounded-control border border-accent bg-white px-2.5 text-[13px] text-gray-900 outline-none ring-2 ring-accent"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={createBackendDeck}
-                                    disabled={!newBackendName.trim() || loadingBackend}
-                                    aria-label="Create deck"
-                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-accent text-white transition-colors hover:bg-accent-hover disabled:bg-surface-sunken disabled:text-gray-400"
-                                >
-                                    <FaCheck size={11} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => { setIsCreatingBackend(false); setNewBackendName(''); }}
-                                    aria-label="Cancel"
-                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600"
-                                >
-                                    <FaTimes size={11} />
-                                </button>
-                            </div>
-                        ) : (
+                    {isCreatingBackend ? (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                            <input
+                                autoFocus
+                                type="text"
+                                placeholder="Deck name…"
+                                value={newBackendName}
+                                onChange={(e) => setNewBackendName(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') createBackendDeck();
+                                    if (e.key === 'Escape') { setIsCreatingBackend(false); setNewBackendName(''); }
+                                }}
+                                className="h-8 min-w-0 flex-1 rounded-control border border-accent bg-white px-2.5 text-[13px] text-gray-900 outline-none ring-2 ring-accent"
+                            />
                             <button
                                 type="button"
-                                onClick={() => setIsCreatingBackend(true)}
-                                className="mt-1 flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left text-[13px] font-medium text-accent transition-colors hover:bg-accent-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                onClick={createBackendDeck}
+                                disabled={!newBackendName.trim() || newBackendNameClashesWithDefault || loadingBackend}
+                                aria-label="Create deck"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-accent text-white transition-colors hover:bg-accent-hover disabled:bg-surface-sunken disabled:text-gray-400"
                             >
-                                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                                    <FaPlus size={10} />
-                                </span>
-                                New deck
+                                <FaCheck size={11} />
                             </button>
-                        )}
-                    </div>
-                )}
+                            <button
+                                type="button"
+                                onClick={() => { setIsCreatingBackend(false); setNewBackendName(''); }}
+                                aria-label="Cancel"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600"
+                            >
+                                <FaTimes size={11} />
+                            </button>
+                        </div>
+                    ) : null}
+
+                    {isCreatingBackend && newBackendNameClashesWithDefault && (
+                        <p className="m-0 mt-1 px-1 text-[11px] leading-snug text-warn-strong">
+                            “{DEFAULT_DECK_NAME}” is reserved for cards without a deck.
+                        </p>
+                    )}
+
+                    {!isCreatingBackend && (
+                        <button
+                            type="button"
+                            onClick={() => setIsCreatingBackend(true)}
+                            className="mt-1 flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left text-[13px] font-medium text-accent transition-colors hover:bg-accent-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                                <FaPlus size={10} />
+                            </span>
+                            New deck
+                        </button>
+                    )}
+
+                    {!isLoggedIn && (
+                        <button
+                            type="button"
+                            onClick={() => tabAware.setCurrentPage('auth')}
+                            className="mt-1.5 flex w-full items-center gap-2.5 rounded-control border border-accent-border bg-accent-subtle px-3 py-2 text-left transition-colors hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                            <span className="min-w-0 flex-1 text-[12px] font-semibold text-gray-900">
+                                Sign in so your cards and decks aren&apos;t lost
+                            </span>
+                            <FaChevronRight size={10} className="shrink-0 text-accent" />
+                        </button>
+                    )}
+                </div>
 
                 {backendError && (
                     <div className="mt-2 flex items-center gap-1.5 text-[11px] text-danger-strong">

@@ -81,6 +81,7 @@ export const saveCardToStorage = (card: {
   deckId?: string | null;
   syncPending?: boolean;
   ankiDeckName?: string | null;
+  ankiImportedNoteId?: number | null;
 }) => {
   const withId = {
     ...card,

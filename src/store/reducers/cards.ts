@@ -64,6 +64,10 @@ export interface StoredCard {
   ankiDeckName?: string | null;
   /** Spaced-repetition schedule, shared shape with the mobile app. */
   srsState?: CardSrsState;
+  /** Set when this card was pulled in from an existing Anki note (see
+   *  ImportFromAnkiModal.tsx / ankiService.fetchNotesInDeck), so re-running an import
+   *  doesn't create duplicates. */
+  ankiImportedNoteId?: number | null;
 }
 
 const initialState: CardState = {

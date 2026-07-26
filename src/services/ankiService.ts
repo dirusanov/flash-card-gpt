@@ -596,6 +596,106 @@ const normalizeAnkiUrl = (url: string | null | undefined) => {
     }
 };
 
+export interface AnkiImportedNote {
+    noteId: number;
+    front: string;
+    back: string;
+    tags: string[];
+}
+
+// Anki fields carry HTML (and [sound:...] refs for audio) — stripped down to plain text
+// since imported notes land as ordinary front/back Vaulto cards, not full Anki renders.
+const stripAnkiFieldHtml = (value: string): string =>
+    (value || '')
+        .replace(/\[sound:[^\]]*\]/gi, '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/?div[^>]*>/gi, '\n')
+        .replace(/<\/?[^>]+>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+// Read-only counterpart to createAnkiCards: pulls the notes already sitting in an existing
+// Anki deck so they can be imported as Vaulto cards, rather than only ever pushing cards
+// out to Anki. Most note types (Basic, Basic and reversed, Cloze's first two fields, …) put
+// the prompt in the first field and the answer in the second, which is good enough for a
+// plain front/back import — anything richer the user can still edit afterwards.
+export const fetchNotesInDeck = async (
+    ankiConnectUrl: string,
+    apiKey: string | null,
+    deckName: string
+): Promise<{ notes: AnkiImportedNote[]; error: string | null }> => {
+    const endpoint = normalizeAnkiUrl(ankiConnectUrl);
+    // A deck name can itself contain a quote or backslash (rare, but Anki allows it) —
+    // unescaped, either would break out of the quoted search term below.
+    const escapedDeckName = deckName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+    try {
+        const findResponse = await backgroundFetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'findNotes',
+                version: 6,
+                key: apiKey,
+                params: { query: `deck:"${escapedDeckName}"` },
+            }),
+        });
+        if (!findResponse.ok) {
+            throw new Error(`HTTP error! Status: ${findResponse.status}`);
+        }
+        const findData = await findResponse.json();
+        if (findData.error) {
+            return { notes: [], error: findData.error };
+        }
+
+        const noteIds: number[] = Array.isArray(findData.result) ? findData.result : [];
+        if (noteIds.length === 0) {
+            return { notes: [], error: null };
+        }
+
+        const infoResponse = await backgroundFetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'notesInfo',
+                version: 6,
+                key: apiKey,
+                params: { notes: noteIds },
+            }),
+        });
+        if (!infoResponse.ok) {
+            throw new Error(`HTTP error! Status: ${infoResponse.status}`);
+        }
+        const infoData = await infoResponse.json();
+        if (infoData.error) {
+            return { notes: [], error: infoData.error };
+        }
+
+        const rawNotes: any[] = Array.isArray(infoData.result) ? infoData.result : [];
+        const notes: AnkiImportedNote[] = rawNotes
+            .map((note): AnkiImportedNote => {
+                const fieldNames = Object.keys(note?.fields || {});
+                const frontField = fieldNames[0];
+                const backField = fieldNames[1];
+                return {
+                    noteId: note.noteId,
+                    front: stripAnkiFieldHtml(frontField ? note.fields[frontField]?.value : ''),
+                    back: stripAnkiFieldHtml(backField ? note.fields[backField]?.value : ''),
+                    tags: Array.isArray(note?.tags) ? note.tags : [],
+                };
+            })
+            .filter((note) => note.front || note.back);
+
+        return { notes, error: null };
+    } catch (error) {
+        return {
+            notes: [],
+            error: getAnkiConnectAvailabilityError(error) || 'Failed to load notes from Anki',
+        };
+    }
+};
+
 export const fetchDecks = async (ankiConnectUrl: string, apiKey: string | null): Promise<DeckResponse> => {
     try {
         const endpoint = normalizeAnkiUrl(ankiConnectUrl);

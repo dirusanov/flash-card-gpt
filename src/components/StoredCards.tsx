@@ -18,6 +18,7 @@ import InstructionComposer, { InstructionSuggestion } from './StoredCards/Instru
 import StudyCard from './StoredCards/StudyCard';
 import DeckSelector from './CreateCard/DeckSelector';
 import { setDeckId } from '../store/actions/decks';
+import { createVaultoDeck, renameVaultoDeck, deleteVaultoDeck } from '../store/actions/vaultoDecks';
 import Loader from './Loader';
 import { formatOpenAIErrorMessage, getDescriptionImage, getFallbackImageModelForError, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { getAIService, getApiKeyForProvider, createExamples, createTranslation, createCardComponentsParallel, createLinguisticInfo } from '../services/aiServiceFactory';
@@ -27,8 +28,9 @@ import { ReviewLogEntry, StudyStats, appendReviewLog, computeStats, loadReviewLo
 import { flushPendingReviews, pullSrsUpdates, pushReview } from '../services/srsSync';
 import StudySession from './StoredCards/StudySession';
 import StatsPanel from './StoredCards/StatsPanel';
-import DeckSheet from './StoredCards/DeckSheet';
-import { cardsSyncApi, cardsStatsApi } from '../services/cardsSyncApi';
+import DeckSheet, { DeckOption } from './StoredCards/DeckSheet';
+import ImportFromAnkiModal from './StoredCards/ImportFromAnkiModal';
+import { cardsStatsApi } from '../services/cardsSyncApi';
 import { DEFAULT_DECK_NAME } from '../services/cardsSyncService';
 import { useAuthenticatedRequest } from '../hooks/useAuthenticatedRequest';
 import { ModelProvider } from '../store/reducers/settings';
@@ -153,13 +155,20 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         | { kind: 'cards'; ids: string[] };
     const [deckPickerFor, setDeckPickerFor] = useState<DeckPickerTarget | null>(null);
     const [showDeckSheet, setShowDeckSheet] = useState(false);
+    // Deck being imported into from an existing Anki deck (null = the picker is closed).
+    const [importTargetDeck, setImportTargetDeck] = useState<DeckOption | null>(null);
     // The debounced auto-save skips the first change after a card is opened (that first
     // change is just seeding localEditingCardData from the card, not a real edit).
     const skipNextAutoSave = useRef(true);
     const [ankiSettingsPrompt, setAnkiSettingsPrompt] = useState<'disabled' | 'unavailable' | null>(null);
-    // id → name for Vaulto decks, so a card can say which deck it lives in rather than
-    // just "in the cloud". Cosmetic: a failure here simply falls back to the default name.
-    const [backendDeckNames, setBackendDeckNames] = useState<Record<string, string>>({});
+    // Local-first: works without signing in. id → name for every Vaulto deck (local-only
+    // or synced), so a card can say which deck it lives in rather than just "in the cloud".
+    const vaultoDecks = useSelector((state: RootState) => state.vaultoDecks.decks);
+    const backendDeckNames = useMemo(() => {
+        const names: Record<string, string> = {};
+        vaultoDecks.forEach((deck) => { names[deck.id] = deck.name; });
+        return names;
+    }, [vaultoDecks]);
 
     // States for export file modal
     const [showExportModal, setShowExportModal] = useState(false);
@@ -169,28 +178,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
 
     const { showError, renderErrorNotification } = useErrorNotification();
-
-    useEffect(() => {
-        if (!isLoggedIn) {
-            setBackendDeckNames({});
-            return undefined;
-        }
-
-        let cancelled = false;
-        (async () => {
-            try {
-                const decks = await executeRequest((token) => cardsSyncApi.listDecks(syncApiUrl, token));
-                if (cancelled) return;
-                const names: Record<string, string> = {};
-                decks.forEach((deck) => { names[deck.id] = deck.name; });
-                setBackendDeckNames(names);
-            } catch {
-                // Deck names are decoration; the default label still reads correctly.
-            }
-        })();
-
-        return () => { cancelled = true; };
-    }, [isLoggedIn, syncApiUrl, executeRequest]);
 
     useEffect(() => {
         let cancelled = false;
@@ -443,7 +430,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     // Decks with the two numbers that matter on the mobile deck list: how many cards are
     // in it, and how many of those are ready to review.
     const deckOptions = useMemo(() => {
-        const ids = Object.keys(backendDeckNames);
+        // Alphabetical, like the mobile app's deck list — insertion order (creation time)
+        // would otherwise reshuffle every time a deck syncs and gets merged in.
+        const ids = Object.keys(backendDeckNames).sort((a, b) =>
+            backendDeckNames[a].localeCompare(backendDeckNames[b], undefined, { sensitivity: 'base' })
+        );
         if (ids.length === 0) return [];
 
         const options = [{
@@ -468,53 +459,71 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const activeDeckName = activeDeckId ? backendDeckNames[activeDeckId] : null;
     const [deckActionBusy, setDeckActionBusy] = useState(false);
 
-    const reloadDeckNames = useCallback(async () => {
-        const decks = await executeRequest((token) => cardsSyncApi.listDecks(syncApiUrl, token));
-        const names: Record<string, string> = {};
-        decks.forEach((deck) => { names[deck.id] = deck.name; });
-        setBackendDeckNames(names);
-        return names;
-    }, [executeRequest, syncApiUrl]);
-
+    // Local-first: works signed out. renameVaultoDeck/deleteVaultoDeck update the local
+    // registry (and reassign affected cards) immediately, and push to Vaulto Cloud in the
+    // background when signed in — see store/actions/vaultoDecks.ts.
     const handleRenameDeck = useCallback(async (deckId: string, name: string) => {
         setDeckActionBusy(true);
         try {
-            await executeRequest((token) => cardsSyncApi.updateDeck(syncApiUrl, token, deckId, { name }));
-            await reloadDeckNames();
+            await dispatch(renameVaultoDeck(deckId, name) as any);
         } catch (error: any) {
             showError(error?.message || 'Could not rename the deck.');
         } finally {
             setDeckActionBusy(false);
         }
-    }, [executeRequest, syncApiUrl, reloadDeckNames, showError]);
+    }, [dispatch, showError]);
 
-    // Cards are moved to the default deck rather than deleted with the deck — the server
-    // does both in one transaction, so they can never be left pointing at a deck that is
-    // gone.
     const handleDeleteDeck = useCallback(async (deckId: string) => {
-        // Without a target the server soft-deletes the cards along with the deck. Refuse
-        // rather than silently destroy them; the default deck appears on the first sync.
-        if (!defaultDeckId) {
-            showError('Cannot delete this deck yet — its cards have nowhere to move to.');
-            return;
-        }
-
         setDeckActionBusy(true);
         try {
-            await executeRequest((token) => cardsSyncApi.deleteDeck(syncApiUrl, token, deckId, defaultDeckId));
-
-            // Reflect the move locally so the list does not wait for the next sync.
-            storedCards
-                .filter((card) => card.deckId === deckId)
-                .forEach((card) => tabAware.updateStoredCard({ ...card, deckId: defaultDeckId }));
+            await dispatch(deleteVaultoDeck(deckId, defaultDeckId) as any);
             if (activeDeckId === deckId) setActiveDeckId(null);
-            await reloadDeckNames();
         } catch (error: any) {
             showError(error?.message || 'Could not delete the deck.');
         } finally {
             setDeckActionBusy(false);
         }
-    }, [executeRequest, syncApiUrl, defaultDeckId, storedCards, tabAware, activeDeckId, reloadDeckNames, showError]);
+    }, [dispatch, defaultDeckId, activeDeckId, showError]);
+
+    const handleCreateDeck = useCallback(async (name: string) => {
+        setDeckActionBusy(true);
+        try {
+            await dispatch(createVaultoDeck(name) as any);
+        } catch (error: any) {
+            showError(error?.message || 'Could not create the deck.');
+        } finally {
+            setDeckActionBusy(false);
+        }
+    }, [dispatch, showError]);
+
+    // Notes already pulled in from Anki, so re-running an import doesn't duplicate them.
+    const importedAnkiNoteIds = useMemo(
+        () => new Set(storedCards.map((card) => card.ankiImportedNoteId).filter((id): id is number => typeof id === 'number')),
+        [storedCards]
+    );
+
+    const handleImportedFromAnki = useCallback((notes: Array<{ noteId: number; front: string; back: string }>) => {
+        const targetDeckId = importTargetDeck?.id ?? null;
+        notes.forEach((note, index) => {
+            tabAware.saveCardToStorage({
+                // saveCardToStorage falls back to Date.now().toString() for a missing id,
+                // which collides across a tight bulk-import loop like this one (multiple
+                // notes landing in the same millisecond silently overwrite each other in
+                // the reducer). An explicit, distinct id per note avoids that.
+                id: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+                    ? crypto.randomUUID()
+                    : `anki-import-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
+                mode: Modes.GeneralTopic,
+                front: note.front,
+                back: note.back,
+                text: note.front,
+                createdAt: new Date(),
+                deckId: targetDeckId,
+                ankiImportedNoteId: note.noteId,
+                syncPending: true,
+            });
+        });
+    }, [importTargetDeck, tabAware]);
 
     // A deck that disappears (renamed or deleted elsewhere) must not leave the list stuck
     // showing nothing with no obvious way back.
@@ -890,7 +899,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     // One control instead of a scrolling chip row: it names the deck in view and opens
     // the full list, where each deck shows its due count and can be studied directly.
     const renderDeckButton = () => {
-        if (!isLoggedIn || deckOptions.length <= 1) return null;
+        if (deckOptions.length <= 1) return null;
 
         return (
             <button
@@ -985,7 +994,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                     label={`Actions for ${front}`}
                                     items={[
                                         { value: 'edit', label: 'Edit card' },
-                                        ...(isLoggedIn ? [{ value: 'move', label: 'Move to deck' }] : []),
+                                        { value: 'move', label: 'Move to deck' },
                                         { value: 'delete', label: 'Delete card' },
                                     ]}
                                     value={''}
@@ -1721,14 +1730,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 className="flex w-full items-center gap-1.5 rounded-control px-1 py-1 text-left transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
                 <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                    {isLoggedIn && (
-                        <span className="flex min-w-0 max-w-[60%] items-center gap-1.5 rounded-full border border-line bg-white py-0.5 pl-2 pr-2">
-                            <FaCloud size={10} className="shrink-0 text-ok-strong" />
-                            <span className="truncate text-[12px] font-medium text-gray-700">
-                                {vaultoDeckLabel(card)}
-                            </span>
+                    {/* The Vaulto deck is always the card's home, on this device or not —
+                        only the icon's color changes to say whether it's backed up. */}
+                    <span className="flex min-w-0 max-w-[60%] items-center gap-1.5 rounded-full border border-line bg-white py-0.5 pl-2 pr-2">
+                        <FaCloud size={10} className={`shrink-0 ${isLoggedIn ? 'text-ok-strong' : 'text-gray-400'}`} />
+                        <span className="truncate text-[12px] font-medium text-gray-700">
+                            {vaultoDeckLabel(card)}
                         </span>
-                    )}
+                    </span>
                     {showAnki && (
                         <span className="flex min-w-0 items-center gap-1.5 rounded-full border border-line bg-white py-0.5 pl-2 pr-2">
                             <FaDesktop size={10} className="shrink-0 text-gray-400" />
@@ -1736,9 +1745,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 {effectiveAnkiDeck}
                             </span>
                         </span>
-                    )}
-                    {!isLoggedIn && !showAnki && (
-                        <span className="truncate text-[12px] text-gray-400">Saved on this device</span>
                     )}
                 </span>
                 <FaChevronRight size={9} className="shrink-0 text-gray-400" />
@@ -2220,16 +2226,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                             </label>
                         )}
                         <div className="flex items-center gap-2">
-                            {isLoggedIn && (
-                                <Button
-                                    size="sm"
-                                    onClick={() => setDeckPickerFor({ kind: 'cards', ids: selectedCards })}
-                                    disabled={selectedCards.length === 0}
-                                    icon={<FaLayerGroup size={11} />}
-                                >
-                                    Move
-                                </Button>
-                            )}
+                            <Button
+                                size="sm"
+                                onClick={() => setDeckPickerFor({ kind: 'cards', ids: selectedCards })}
+                                disabled={selectedCards.length === 0}
+                                icon={<FaLayerGroup size={11} />}
+                            >
+                                Move
+                            </Button>
                             <Button
                                 size="sm"
                                 onClick={exportCardsAsFile}
@@ -2582,6 +2586,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                     busy={deckActionBusy}
                     onRename={handleRenameDeck}
                     onDelete={handleDeleteDeck}
+                    onCreate={handleCreateDeck}
+                    onImportFromAnki={setImportTargetDeck}
                     onSelect={setActiveDeckId}
                     onStudy={(deckId) => {
                         setActiveDeckId(deckId);
@@ -2590,6 +2596,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         setStudyCards(due.length > 0 ? due : inDeck);
                     }}
                     onClose={() => setShowDeckSheet(false)}
+                />
+            )}
+
+            {importTargetDeck && (
+                <ImportFromAnkiModal
+                    open
+                    onClose={() => setImportTargetDeck(null)}
+                    targetDeckName={importTargetDeck.name}
+                    alreadyImportedNoteIds={importedAnkiNoteIds}
+                    onImport={handleImportedFromAnki}
                 />
             )}
 

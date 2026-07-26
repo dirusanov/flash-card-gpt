@@ -11,6 +11,7 @@ import { setAnkiAvailability } from './store/actions/anki';
 import GlobalNotifications from './components/GlobalNotifications';
 import { FaList, FaCog, FaPlus, FaUser } from 'react-icons/fa';
 import { loadStoredCards } from './store/actions/cards';
+import { loadVaultoDecks, syncVaultoDecksWithServer } from './store/actions/vaultoDecks';
 import { setCurrentTabId } from './store/actions/tabState';
 import { TabAwareProvider, useTabAware } from './components/TabAwareProvider';
 import { subscribeToPendingSelection } from './services/pendingSelection';
@@ -80,6 +81,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const dispatch = useDispatch();
   const auth = useSelector((s: RootState) => s.auth);
+  const isLoggedIn = Boolean(auth.accessToken);
   const ankiConnectApiKey = useSelector((s: RootState) => s.settings.ankiConnectApiKey);
   const ankiConnectUrl = useSelector((s: RootState) => s.settings.ankiConnectUrl);
 
@@ -138,6 +140,19 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   useEffect(() => {
     dispatch(loadStoredCards(tabId));
   }, [dispatch, tabId]);
+
+  useEffect(() => {
+    dispatch(loadVaultoDecks() as any);
+  }, [dispatch]);
+
+  // Local decks work fully offline; when signed in, this additionally pulls decks known
+  // to the server and pushes anything created here while offline — see vaultoDecks.ts.
+  // Keyed on isLoggedIn rather than the raw token so a silent token refresh (a new string,
+  // same session) doesn't re-trigger this — only an actual sign-in/out transition does.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    dispatch(syncVaultoDecksWithServer() as any);
+  }, [dispatch, isLoggedIn]);
 
   const handlePageChange = useCallback((page: string) => setCurrentPage(page), [setCurrentPage]);
 
