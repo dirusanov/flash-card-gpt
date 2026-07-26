@@ -630,10 +630,12 @@ export const createCardComponentsParallel = async (
     );
   }
 
-  // 4. Лингвистическая информация (параллельно, быстрая версия)
+  // 4. Лингвистическая информация (параллельно, с валидацией режима разбора
+  // слово/предложение — эта развилка новая и ещё не проверена статистически, в отличие
+  // от старого 1-запросного варианта без проверки).
   if (sourceLanguage) {
     promises.push(
-      timed('linguisticInfo', createFastLinguisticInfo(service, apiKey, text, sourceLanguage, translateToLanguage))
+      timed('linguisticInfo', createOptimizedLinguisticInfo(service, apiKey, text, sourceLanguage, translateToLanguage))
         .then(result => ({ type: 'linguisticInfo', result: result.linguisticInfo }))
         .catch(error => {
           const message = stringifyUnknownError(error);
@@ -879,32 +881,54 @@ export function createQualityLinguisticPrompt(
   text: string,
   outputLanguage: string,
 ): string {
-  return `TASK: Produce a VERY SHORT grammar brief for the expression "${text}".
+  return `TASK: Produce a VERY SHORT grammar brief for "${text}".
 The brief MUST be written entirely in: ${outputLanguage}.
 
-CONSTRAINTS:
+FIRST, decide what "${text}" is — do not mix the two modes below:
+- WORD MODE: a single word, or a short fixed phrase/idiom with no finite verb of its
+  own (no subject+predicate expressing a complete thought) → describe its MORPHOLOGY.
+- SENTENCE MODE: a full clause or sentence (has a subject and a finite verb, expresses
+  a complete thought) → describe the KEY GRAMMATICAL CONSTRUCTION it demonstrates
+  (e.g. how a tense/aspect is formed, a notable connector's role, a word-order pattern).
+  Do NOT just describe the morphology of one arbitrary word picked out of the sentence.
+
+CONSTRAINTS (both modes):
 - 1–3 lines only (3 max).
 - Each line: one emoji + a short label + a concise value (a tag, not a sentence).
 - Include ONLY essential information that clearly applies to "${text}".
 
-MANDATORY:
+WORD MODE — MANDATORY:
 1) The FIRST line is ALWAYS part of speech, prefixed with 📚.
 2) Add extra lines ONLY when they genuinely apply (skip anything uncertain).
-
 CHOOSE EMOJIS FROM (one per line, never repeat):
 📚 part of speech | ⚥ gender | 📋 number | 🎯 case | ⏰ tense | 🔀 aspect | 🔤 form
+
+SENTENCE MODE — MANDATORY:
+1) The FIRST line is ALWAYS the grammatical construction, prefixed with 🧩.
+2) Add extra lines ONLY for other genuinely notable structural points.
+CHOOSE EMOJIS FROM (one per line, never repeat):
+🧩 construction | 🔗 connector | 📐 word order | ⏰ tense marker
 
 OUTPUT FORMAT (plain text — NO HTML, NO markdown, NO bullets):
 <emoji> <label>: <value>
 
-Example shape (translate labels/values into ${outputLanguage}):
+Example (WORD MODE, translate labels/values into ${outputLanguage}):
 📚 Part of speech: noun
 ⚥ Gender: feminine
 
+Example (SENTENCE MODE, translate labels/values into ${outputLanguage}):
+🧩 Construction: estar + gerund — present continuous
+⏰ Marker: "desde hace" — duration up to now
+
 RULES:
 - All labels and values must be written in ${outputLanguage} (not transliterated, not in another language).
-- Keep each value to 1–3 words.
+- The English words in the emoji lists above (part of speech, gender, construction,
+  connector, word order, tense marker...) are category names for you to pick from —
+  never output them as-is. The <label> you write must always be its ${outputLanguage}
+  translation, exactly like the two Examples above.
+- Keep each value to 1–4 words.
 - One fact per line. No text before or after the lines.
+- Pick exactly one mode — never blend word-morphology lines with construction lines.
 
 Create the brief for "${text}":`;
 }
@@ -918,8 +942,18 @@ ${originalReference}
 
 ПРОВЕРЬ ТОЛЬКО:
 1. Есть ли повторяющиеся эмоджи? (📚 📚 - плохо)
-2. На правильном ли языке термины? (должен быть ${userLanguage})
+2. На правильном ли языке метки И значения? Внимательно проверь КАЖДУЮ метку (слово
+   перед двоеточием) — она должна быть на ${userLanguage}, а не английским названием
+   категории вроде "Part of speech", "Construction", "Tense marker", "Connector",
+   "Word order" (это частая ошибка — модель иногда копирует английское название
+   категории вместо перевода).
 3. Есть ли лишняя информация? (убери lemma, degree, notes, examples)
+4. Подходящий ли режим разбора для "${word}":
+   - Если "${word}" — одно слово или короткая устойчивая фраза (нет своего подлежащего
+     и сказуемого) → первая строка должна быть 📚 (часть речи, морфология).
+   - Если "${word}" — целое предложение/клауза (есть подлежащее и сказуемое, законченная
+     мысль) → первая строка должна быть 🧩 (грамматическая конструкция всего предложения),
+     а НЕ разбор части речи одного случайного слова внутри него.
 
 Если справка в целом корректна → ответь "СПРАВКА КОРРЕКТНА"
 Если есть существенные ошибки → создай исправленную версию
@@ -1566,42 +1600,6 @@ export async function runMultipleValidation(
     finalCorrections,
     attempts: 1
   };
-}
-
-// СУПЕР-БЫСТРАЯ ФУНКЦИЯ: только 1 запрос, без валидации
-export async function createFastLinguisticInfo(
-  aiService: AIService,
-  apiKey: string,
-  text: string,
-  sourceLanguage: string,
-  userLanguage: string = 'ru'
-): Promise<{ linguisticInfo: string | null; wasValidated: boolean; attempts: number }> {
-  try {
-    console.log(`Creating fast linguistic info for "${text}" (1 request only)`);
-
-    // Создаем улучшенный промпт, который сразу выдает качественную справку
-    const prompt = createQualityLinguisticPrompt(text, userLanguage);
-
-    const completion = await aiService.createChatCompletion(apiKey, [
-      {
-        role: "user",
-        content: prompt
-      }
-    ]);
-
-    if (!completion || !completion.content) {
-      console.log('Failed to generate linguistic info');
-      return { linguisticInfo: null, wasValidated: false, attempts: 1 };
-    }
-
-    const linguisticInfo = completion.content.trim();
-    console.log('Fast linguistic info created successfully');
-
-    return { linguisticInfo, wasValidated: false, attempts: 1 };
-  } catch (error) {
-    console.error('Error creating fast linguistic info:', error);
-    return { linguisticInfo: null, wasValidated: false, attempts: 1 };
-  }
 }
 
 // ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: максимум 2 запроса, менее строгий валидатор
