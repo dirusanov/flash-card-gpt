@@ -176,6 +176,13 @@ const StudyCard: React.FC<StudyCardProps> = ({
         return Boolean(selection && selection.toString().length > 0);
     };
 
+    const flipToFront = () => {
+        if (!hasActiveSelection()) setFlipped(true);
+    };
+    const flipToBack = () => {
+        if (!hasActiveSelection()) setFlipped(false);
+    };
+
     // A tap-to-flip surface can't rely on native drag-select alone (see above), so word
     // and translation each get an explicit, guaranteed one-tap way to grab their text.
     const copyText = async (e: React.MouseEvent, field: 'word' | 'translation', text: string) => {
@@ -358,7 +365,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                 <div
                     role="button"
                     tabIndex={0}
-                    onClick={() => { if (!hasActiveSelection()) setFlipped(true); }}
+                    onClick={flipToFront}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
@@ -409,7 +416,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                     <div className="p-4">
                         <button
                             type="button"
-                            onClick={() => { if (!hasActiveSelection()) setFlipped(false); }}
+                            onClick={flipToBack}
                             aria-label="Back to question"
                             className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-control py-1 text-[13px] font-semibold text-gray-500 transition-colors hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
@@ -490,6 +497,32 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         )}
                     </div>
                     </div>
+
+                    {/* A bigger, easier target than the small header pill alone — tapping
+                        near either edge flips back too, leaving the translation/grammar/
+                        examples in the middle free for selecting and copying. Hidden from
+                        assistive tech: they're a mouse/touch convenience duplicating the
+                        header button's own action, and having three identically-labelled
+                        "Back to question" stops would just clutter screen-reader/keyboard
+                        navigation instead of helping it. */}
+                    <button
+                        type="button"
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        onClick={flipToBack}
+                        className="absolute inset-y-0 left-0 flex w-6 items-center justify-center text-gray-300 transition-colors hover:bg-black/5 hover:text-gray-500"
+                    >
+                        <FaChevronLeft size={10} />
+                    </button>
+                    <button
+                        type="button"
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        onClick={flipToBack}
+                        className="absolute inset-y-0 right-0 flex w-6 items-center justify-center text-gray-300 transition-colors hover:bg-black/5 hover:text-gray-500"
+                    >
+                        <FaChevronLeft size={10} />
+                    </button>
                 </div>
             </div>
         </div>
