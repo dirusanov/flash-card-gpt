@@ -95,30 +95,10 @@ const DeckSheet: React.FC<DeckSheetProps> = ({
         setRenamingId(null);
     };
 
-    // The aggregate view mobile's Today tab covers on its own: everything due, across
-    // every deck, is exactly the "All cards" row's due count — surfaced here as a banner
-    // so it reads as a proper entry point rather than something to notice in the list.
-    const totalDue = decks.find((deck) => deck.id === null)?.due ?? 0;
-
     return (
         <>
             <Modal open onClose={onClose} title="Decks" maxWidth={360}>
                 <div className={`flex flex-col gap-1 px-3 pb-3 pt-1 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-                    {totalDue > 0 && (
-                        <button
-                            type="button"
-                            onClick={() => { onStudy(null); onClose(); }}
-                            className="mb-1 flex items-center gap-2.5 rounded-card border border-accent-border bg-accent-subtle px-3 py-2.5 text-left transition-colors hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        >
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-card bg-accent text-white">
-                                <FaPlay size={11} />
-                            </span>
-                            <span className="min-w-0 flex-1 text-[13px] font-semibold text-gray-900">
-                                {totalDue} {totalDue === 1 ? 'card' : 'cards'} due across all decks
-                            </span>
-                        </button>
-                    )}
-
                     {decks.map((deck) => {
                         const active = deck.id === activeDeckId;
                         const isAll = deck.id === null;

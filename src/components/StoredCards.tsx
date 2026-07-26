@@ -905,10 +905,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             <button
                 type="button"
                 onClick={() => setShowDeckSheet(true)}
-                className="flex h-9 shrink-0 items-center gap-1.5 rounded-control border border-line bg-surface-muted px-2.5 text-xs font-medium text-gray-600 transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-control border border-line bg-surface-muted px-2.5 text-left text-xs font-medium text-gray-600 transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
                 <FaLayerGroup size={11} className="shrink-0 text-gray-400" />
-                <span className="max-w-[110px] truncate">{activeDeckName || 'All cards'}</span>
+                <span className="min-w-0 flex-1 truncate">{activeDeckName || 'All cards'}</span>
                 <FaChevronDown size={9} className="shrink-0 text-gray-400" />
             </button>
         );
@@ -2115,6 +2115,16 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 </p>
             ) : (
                 <>
+                    {/* The deck picker gets its own row once there's more than one deck to
+                        choose from — cramming it next to search left the input too narrow
+                        to type into. With no decks yet, the layout is unchanged from before:
+                        just search and the cloud status share the one row. */}
+                    {deckOptions.length > 1 && (
+                        <div className="mb-2 flex shrink-0 items-center gap-2">
+                            {renderDeckButton()}
+                            {renderCloudStatusIcon()}
+                        </div>
+                    )}
                     <div className="mb-2 flex shrink-0 items-center gap-2">
                         <div className="relative min-w-0 flex-1">
                             <FaSearch
@@ -2130,8 +2140,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 className="h-9 w-full rounded-control border border-line bg-surface-muted pl-9 pr-3 text-sm text-gray-800 transition-colors placeholder:text-gray-400 focus:border-accent focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent/20"
                             />
                         </div>
-                        {renderDeckButton()}
-                        {renderCloudStatusIcon()}
+                        {deckOptions.length <= 1 && renderCloudStatusIcon()}
                     </div>
 
                     {/* In selection mode this becomes a real select-all checkbox, sitting in
