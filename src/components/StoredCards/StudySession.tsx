@@ -9,6 +9,10 @@ import RatingButtons from './RatingButtons';
 
 interface StudySessionProps {
     cards: StoredCard[];
+    /** Which deck this queue came from — "All cards" when studying across every deck.
+     *  The session has no other way to say this: the queue itself is just a flat list of
+     *  cards with no deck id/name carried along. */
+    deckName: string;
     onClose: () => void;
     /** Persists the new schedule and the review log entry. */
     onReview: (card: StoredCard, grade: SrsGrade, responseTimeMs: number) => void;
@@ -17,7 +21,7 @@ interface StudySessionProps {
 // The panel's counterpart to the mobile StudyScreen: flip the card, grade how well you
 // remembered, and the SM-2 engine schedules the next showing. "Again" re-queues the card
 // at the end of the session, exactly as on the phone.
-const StudySession: React.FC<StudySessionProps> = ({ cards, onClose, onReview }) => {
+const StudySession: React.FC<StudySessionProps> = ({ cards, deckName, onClose, onReview }) => {
     const queueRef = useRef<StoredCard[]>([...cards]);
     const [index, setIndex] = useState(0);
     const [flipped, setFlipped] = useState(false);
@@ -72,6 +76,7 @@ const StudySession: React.FC<StudySessionProps> = ({ cards, onClose, onReview })
                 open
                 onClose={onClose}
                 title="Session complete"
+                subtitle={deckName}
                 maxWidth={360}
                 footer={<Button variant="primary" fullWidth onClick={onClose}>Back to cards</Button>}
             >
@@ -110,6 +115,7 @@ const StudySession: React.FC<StudySessionProps> = ({ cards, onClose, onReview })
             open
             onClose={onClose}
             title={`${index + 1} / ${queue.length}`}
+            subtitle={deckName}
             maxWidth={360}
             footer={
                 <div className="flex flex-col gap-2.5">

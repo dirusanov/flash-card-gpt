@@ -435,8 +435,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         const ids = Object.keys(backendDeckNames).sort((a, b) =>
             backendDeckNames[a].localeCompare(backendDeckNames[b], undefined, { sensitivity: 'base' })
         );
-        if (ids.length === 0) return [];
 
+        // "All cards" is a real, always-available option even with zero named decks yet —
+        // otherwise a user with no decks (not signed in, or decks not synced/created here
+        // yet) never sees the deck picker at all, which is exactly where "create a deck"
+        // and "study a deck" both live.
         const options = [{
             id: null as string | null,
             name: 'All cards',
@@ -899,8 +902,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     // One control instead of a scrolling chip row: it names the deck in view and opens
     // the full list, where each deck shows its due count and can be studied directly.
     const renderDeckButton = () => {
-        if (deckOptions.length <= 1) return null;
-
         return (
             <button
                 type="button"
@@ -2115,16 +2116,15 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 </p>
             ) : (
                 <>
-                    {/* The deck picker gets its own row once there's more than one deck to
-                        choose from — cramming it next to search left the input too narrow
-                        to type into. With no decks yet, the layout is unchanged from before:
-                        just search and the cloud status share the one row. */}
-                    {deckOptions.length > 1 && (
-                        <div className="mb-2 flex shrink-0 items-center gap-2">
-                            {renderDeckButton()}
-                            {renderCloudStatusIcon()}
-                        </div>
-                    )}
+                    {/* The deck picker gets its own row, always — it's also the only way to
+                        discover "create a deck" and "study a deck" when there are no named
+                        decks yet (not signed in, or none created/synced on this device).
+                        Cramming it next to search below left the input too narrow to type
+                        into. */}
+                    <div className="mb-2 flex shrink-0 items-center gap-2">
+                        {renderDeckButton()}
+                        {renderCloudStatusIcon()}
+                    </div>
                     <div className="mb-2 flex shrink-0 items-center gap-2">
                         <div className="relative min-w-0 flex-1">
                             <FaSearch
@@ -2140,7 +2140,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 className="h-9 w-full rounded-control border border-line bg-surface-muted pl-9 pr-3 text-sm text-gray-800 transition-colors placeholder:text-gray-400 focus:border-accent focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent/20"
                             />
                         </div>
-                        {deckOptions.length <= 1 && renderCloudStatusIcon()}
                     </div>
 
                     {/* In selection mode this becomes a real select-all checkbox, sitting in
@@ -2576,6 +2575,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             {studyCards && (
                 <StudySession
                     cards={studyCards}
+                    deckName={activeDeckName || 'All cards'}
                     onClose={() => setStudyCards(null)}
                     onReview={handleReview}
                 />

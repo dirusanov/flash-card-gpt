@@ -42,7 +42,12 @@ const Heatmap: React.FC<{ heatmap: StudyStats['heatmap'] }> = ({ heatmap }) => {
     return (
         <Card title="Activity (last 91 days)">
             <div className="overflow-x-auto">
-                <div className="grid grid-flow-col grid-rows-7 gap-[3px]" style={{ width: 'max-content' }}>
+                {/* `grid-rows-7` isn't a real Tailwind utility (the default scale stops at
+                    6), so it silently emitted no `grid-template-rows` at all — with
+                    `grid-flow-col` and no row template, the grid never wrapped and instead
+                    stacked all 91 cells into one very tall column. The arbitrary-value
+                    syntax below sets the row template explicitly to match the 9px cells. */}
+                <div className="grid grid-flow-col grid-rows-[repeat(7,9px)] gap-[3px]" style={{ width: 'max-content' }}>
                     {days.map((day) => {
                         const count = heatmap[day]?.count || 0;
                         let background = '#E9ECEF';
