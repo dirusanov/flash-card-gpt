@@ -872,6 +872,44 @@ export async function createLinguisticInfo(
   }
 }
 
+// Deterministic safety net for createQualityLinguisticPrompt's output. Even with an
+// explicit instruction and a validator pass, testing showed the model still
+// occasionally (a) prepends a stray header line like "СПРАВКА:" instead of just the
+// emoji-tagged lines, or (b) leaves a category name from the prompt's own emoji
+// legend ("Construction", "Tense marker"...) untranslated as the label. Prompting
+// harder didn't get this to zero, so this strips both deterministically: any line not
+// starting with one of the known emoji is dropped, and any line whose label exactly
+// matches one of the English category names is dropped too (better one fewer fact than
+// a mixed-language card) — unless outputLanguage is itself English, where that would be
+// the correct output rather than a leak.
+const LINGUISTIC_INFO_EMOJI_PREFIXES = ['📚', '⚥', '📋', '🎯', '⏰', '🔀', '🔤', '🧩', '🔗', '📐'];
+const LINGUISTIC_INFO_ENGLISH_CATEGORY_LABELS = [
+  'part of speech', 'gender', 'number', 'case', 'tense', 'aspect', 'form',
+  'construction', 'connector', 'connector role', 'word order', 'tense marker',
+];
+
+function sanitizeLinguisticInfo(raw: string | null, outputLanguage: string): string | null {
+  if (!raw) return raw;
+
+  const outputIsEnglish = outputLanguage.trim().toLowerCase().startsWith('en');
+
+  const cleanedLines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+      if (!LINGUISTIC_INFO_EMOJI_PREFIXES.some((emoji) => line.startsWith(emoji))) return false;
+      if (outputIsEnglish) return true;
+
+      const colonIndex = line.indexOf(':');
+      if (colonIndex === -1) return true;
+      const label = line.slice(0, colonIndex).replace(/^[^\p{L}]*/u, '').trim().toLowerCase();
+      return !LINGUISTIC_INFO_ENGLISH_CATEGORY_LABELS.includes(label);
+    });
+
+  return cleanedLines.length > 0 ? cleanedLines.join('\n') : null;
+}
+
 /**
  * Create a compact grammar brief prompt for any language.
  * The resulting brief (the model's answer) MUST be written in outputLanguage —
@@ -900,6 +938,12 @@ CONSTRAINTS (both modes):
 WORD MODE — MANDATORY:
 1) The FIRST line is ALWAYS part of speech, prefixed with 📚.
 2) Add extra lines ONLY when they genuinely apply (skip anything uncertain).
+3) If "${text}" pairs a main content word with a minor grammatical marker attached to
+   it (an article like "el"/"la"/"the", a classifier, a preposition showing case) rather
+   than being an idiom in its own right, the part-of-speech line describes the MAIN
+   content word (usually a noun or verb) — never the marker. Example: for "el gato"
+   the part of speech is "noun" (gato), not "article"; the article's own gender is
+   already covered by the ⚥ gender line, so it doesn't need its own part-of-speech line.
 CHOOSE EMOJIS FROM (one per line, never repeat):
 📚 part of speech | ⚥ gender | 📋 number | 🎯 case | ⏰ tense | 🔀 aspect | 🔤 form
 
@@ -912,13 +956,15 @@ CHOOSE EMOJIS FROM (one per line, never repeat):
 OUTPUT FORMAT (plain text — NO HTML, NO markdown, NO bullets):
 <emoji> <label>: <value>
 
-Example (WORD MODE, translate labels/values into ${outputLanguage}):
-📚 Part of speech: noun
-⚥ Gender: feminine
+Example (WORD MODE — shown in Russian; produce your own labels/values in ${outputLanguage}
+instead, following the exact same pattern — a real translation, never the English category
+names from the lists above):
+📚 Часть речи: существительное
+⚥ Род: женский
 
-Example (SENTENCE MODE, translate labels/values into ${outputLanguage}):
-🧩 Construction: estar + gerund — present continuous
-⏰ Marker: "desde hace" — duration up to now
+Example (SENTENCE MODE — same idea, shown in Russian, produce ${outputLanguage} instead):
+🧩 Конструкция: estar + gerundio — настоящее длительное время
+⏰ Маркер: «desde hace» — длительность до настоящего момента
 
 RULES:
 - All labels and values must be written in ${outputLanguage} (not transliterated, not in another language).
@@ -954,6 +1000,11 @@ ${originalReference}
    - Если "${word}" — целое предложение/клауза (есть подлежащее и сказуемое, законченная
      мысль) → первая строка должна быть 🧩 (грамматическая конструкция всего предложения),
      а НЕ разбор части речи одного случайного слова внутри него.
+5. Если "${word}" — это главное слово с прилепленным к нему второстепенным маркером
+   (артикль вроде "el"/"la", классификатор, предлог падежа), а не идиома сама по себе —
+   часть речи должна описывать ГЛАВНОЕ слово (обычно существительное/глагол), а НЕ сам
+   артикль/классификатор. Пример ошибки: "el gato" → "Часть речи: артикль" — неверно,
+   должно быть "Часть речи: существительное" (род "el" уже отражён в строке ⚥ Род).
 
 Если справка в целом корректна → ответь "СПРАВКА КОРРЕКТНА"
 Если есть существенные ошибки → создай исправленную версию
@@ -1044,7 +1095,7 @@ export async function createValidatedLinguisticInfo(
     );
 
     console.log(`Final linguistic info for "${text}" created`);
-    return validatedReference;
+    return sanitizeLinguisticInfo(validatedReference, userLanguage);
 
   } catch (error) {
     console.error('Error creating validated linguistic info:', error);
@@ -1653,7 +1704,7 @@ export async function createOptimizedLinguisticInfo(
 
     if (!validatorCompletion || !validatorCompletion.content) {
       console.log('Validator failed, returning initial reference');
-      return { linguisticInfo: initialReference, wasValidated: false, attempts: 2 };
+      return { linguisticInfo: sanitizeLinguisticInfo(initialReference, userLanguage), wasValidated: false, attempts: 2 };
     }
 
     const validatorResponse = validatorCompletion.content.trim();
@@ -1661,12 +1712,12 @@ export async function createOptimizedLinguisticInfo(
     // Если валидатор говорит что справка корректна - возвращаем исходную
     if (validatorResponse.includes('СПРАВКА КОРРЕКТНА') || validatorResponse.includes('КОРРЕКТНА')) {
       console.log('Reference validated as correct');
-      return { linguisticInfo: initialReference, wasValidated: true, attempts: 2 };
+      return { linguisticInfo: sanitizeLinguisticInfo(initialReference, userLanguage), wasValidated: true, attempts: 2 };
     }
 
     // Если есть исправления - возвращаем исправленную версию
     console.log('Reference was corrected by validator');
-    return { linguisticInfo: validatorResponse, wasValidated: true, attempts: 2 };
+    return { linguisticInfo: sanitizeLinguisticInfo(validatorResponse, userLanguage), wasValidated: true, attempts: 2 };
 
   } catch (error) {
     console.error('Error in optimized linguistic info creation:', error);
