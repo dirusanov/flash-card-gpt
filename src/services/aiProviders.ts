@@ -101,10 +101,11 @@ export interface AIProviderInterface {
     messages: Array<{role: string, content: string}>,
     trackingInfo?: {
       title?: string;
-      subtitle?: string; 
+      subtitle?: string;
       icon?: string;
       color?: string;
-    }
+    },
+    model?: string
   ) => Promise<{content: string} | null>;
 
   // Method to create transcription in user language and IPA
@@ -1127,14 +1128,15 @@ export class OpenAIProvider extends BaseAIProvider {
   
   // Added createChatCompletion implementation
   public async createChatCompletion(
-    apiKey: string, 
+    apiKey: string,
     messages: Array<{role: string, content: string}>,
     trackingInfo?: {
       title?: string;
-      subtitle?: string; 
+      subtitle?: string;
       icon?: string;
       color?: string;
-    }
+    },
+    model?: string
   ): Promise<{content: string} | null> {
     // Track API request with custom or default tracking info
     const tracker = getGlobalApiTracker();
@@ -1164,7 +1166,7 @@ export class OpenAIProvider extends BaseAIProvider {
             Authorization: `Bearer ${this.apiKey}`,
           },
           body: JSON.stringify({
-            model: this.modelName,
+            model: model || this.modelName,
             messages: formattedMessages,
           }),
         }
@@ -1191,7 +1193,7 @@ export class OpenAIProvider extends BaseAIProvider {
         tracker.errorRequest(requestId);
         return null;
       }
-      
+
       tracker.completeRequest(requestId);
       return { content };
     } catch (error) {

@@ -1,5 +1,6 @@
 import { ModelProvider } from '../store/reducers/settings';
 import { AIProviderInterface, createAIProvider } from './aiProviders';
+import { OPENAI_TEXT_MODEL_ACCURATE } from '../constants';
 
 class ApiKeyAuthorizationError extends Error {
   constructor(message: string) {
@@ -218,7 +219,8 @@ export interface AIService {
       subtitle?: string;
       icon?: string;
       color?: string;
-    }
+    },
+    model?: string
   ) => Promise<{ content: string } | null>;
 
   createTranscription: (
@@ -332,11 +334,12 @@ const createAIServiceAdapter = (provider: ModelProvider): AIService => {
         subtitle?: string;
         icon?: string;
         color?: string;
-      }
+      },
+      model?: string
     ): Promise<{ content: string } | null> => {
       const aiProvider = createAIProvider(provider, apiKey);
       if (aiProvider.createChatCompletion) {
-        return aiProvider.createChatCompletion(apiKey, messages, trackingInfo);
+        return aiProvider.createChatCompletion(apiKey, messages, trackingInfo, model);
       }
       console.error("createChatCompletion not implemented in the provider");
       return null;
@@ -1046,7 +1049,7 @@ async function validateAndCorrectLinguisticInfo(
         role: "user",
         content: validatorPrompt
       }
-    ]);
+    ], undefined, OPENAI_TEXT_MODEL_ACCURATE);
 
     if (!completion || !completion.content) {
       console.log('Validator failed, returning original reference');
@@ -1090,7 +1093,7 @@ export async function createValidatedLinguisticInfo(
         role: "user",
         content: prompt
       }
-    ]);
+    ], undefined, OPENAI_TEXT_MODEL_ACCURATE);
 
     if (!completion || !completion.content) {
       return null;
@@ -1690,7 +1693,7 @@ export async function createOptimizedLinguisticInfo(
       subtitle: 'Generating detailed grammar and linguistic information',
       icon: '📚',
       color: '#9C27B0'
-    });
+    }, OPENAI_TEXT_MODEL_ACCURATE);
 
     if (!completion || !completion.content) {
       console.log('Failed to generate initial linguistic info');
@@ -1713,7 +1716,7 @@ export async function createOptimizedLinguisticInfo(
       subtitle: 'Checking and improving linguistic information',
       icon: '🔍',
       color: '#9C27B0'
-    });
+    }, OPENAI_TEXT_MODEL_ACCURATE);
 
     if (!validatorCompletion || !validatorCompletion.content) {
       console.log('Validator failed, returning initial reference');
