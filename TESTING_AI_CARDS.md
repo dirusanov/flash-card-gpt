@@ -35,6 +35,12 @@ Results land in `utils/test-ai-cards/.results/<lang>_<kind>.json` (gitignored), 
 generated image saved alongside as a real `.png`/`.jpg` instead of a giant inline base64
 string.
 
+If you only need to check the grammar-note (`linguisticInfo`) generation specifically —
+e.g. after touching `createQualityLinguisticPrompt` or its validator — use
+`node utils/test-ai-cards/test-linguistic-modes.js /path/to/key.txt` instead. It calls
+`createOptimizedLinguisticInfo` directly, skipping translation/examples/image/
+transcription, so it's much cheaper for iterating on just that prompt.
+
 ## Test matrix
 
 Cover each source language at 4 selection shapes, since they exercise different code
