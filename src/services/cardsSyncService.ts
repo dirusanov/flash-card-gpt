@@ -11,8 +11,13 @@ import { normalizeCardImageFields } from './cardImagePersistence';
 import { normalizeSrsState } from './srs';
 
 // Exported so the deck picker can name the deck cards actually land in when the user
-// has not chosen one — it used to offer a misleading "(None) — Local Storage Only".
-export const DEFAULT_DECK_NAME = 'Vaulto Cards';
+// has not chosen one — it used to offer a misleading "(None) — Local Storage Only", then
+// briefly "Vaulto Cards", which read as the app's own name rather than "a deck for
+// unsorted cards". This is purely an extension-side convenience (quick capture without
+// picking a deck first) — the mobile app has no equivalent concept at all; every card
+// there requires an explicit deckId (DecksContext.addCard), so there is nothing on that
+// side for this name to stay in sync with.
+export const DEFAULT_DECK_NAME = 'Unsorted Deck';
 const DEFAULT_DECK_COLOR = '#4f46e5';
 const DEFAULT_DECK_DESCRIPTION =
   'Cards created from the Vaulto Cards browser extension';
