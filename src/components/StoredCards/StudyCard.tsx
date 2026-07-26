@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { FaVolumeUp, FaEyeSlash, FaRegImage, FaTimes, FaPlus } from 'react-icons/fa';
+import { FaVolumeUp, FaEyeSlash, FaRegImage, FaTimes, FaPlus, FaCopy, FaCheck, FaChevronLeft } from 'react-icons/fa';
 import { StoredCard } from '../../store/reducers/cards';
 import GrammarCard from '../grammar/GrammarCard';
 import AutoTextarea from '../ui/AutoTextarea';
@@ -95,7 +95,9 @@ const StudyCard: React.FC<StudyCardProps> = ({
     const [internalFlipped, setInternalFlipped] = useState(false);
     const [imageHidden, setImageHidden] = useState(false);
     const [playing, setPlaying] = useState<string | null>(null);
+    const [copiedField, setCopiedField] = useState<'word' | 'translation' | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const copyTimerRef = useRef<number | null>(null);
 
     const isControlled = flippedProp !== undefined;
     const flipped = isControlled ? flippedProp : internalFlipped;
@@ -147,6 +149,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
     useEffect(() => () => {
         audioRef.current?.pause();
         audioRef.current = null;
+        if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
     }, []);
 
     const play = (e: React.MouseEvent, url?: string | null) => {
@@ -163,6 +166,63 @@ const StudyCard: React.FC<StudyCardProps> = ({
         audio.onended = () => setPlaying(null);
         audio.play().catch(() => setPlaying(null));
     };
+
+    // A drag that ends on the card face still fires a click on mouseup — without this,
+    // finishing a text selection (to copy it) immediately flips the card and the
+    // selection goes with it. Guarding both flip directions on "was something just
+    // selected" lets a select-and-copy gesture land without being swallowed.
+    const hasActiveSelection = (): boolean => {
+        const selection = typeof window !== 'undefined' ? window.getSelection() : null;
+        return Boolean(selection && selection.toString().length > 0);
+    };
+
+    // A tap-to-flip surface can't rely on native drag-select alone (see above), so word
+    // and translation each get an explicit, guaranteed one-tap way to grab their text.
+    const copyText = async (e: React.MouseEvent, field: 'word' | 'translation', text: string) => {
+        e.stopPropagation();
+        if (!text) return;
+
+        let succeeded = false;
+        try {
+            if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+            await navigator.clipboard.writeText(text);
+            succeeded = true;
+        } catch {
+            // Fallback for contexts where the async Clipboard API is blocked/unavailable.
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                succeeded = document.execCommand('copy');
+            } catch {
+                succeeded = false;
+            }
+            document.body.removeChild(textarea);
+        }
+
+        // Both paths failing (clipboard permission denied, execCommand unsupported) should
+        // not still claim success — the checkmark is a promise the text is on the clipboard.
+        if (!succeeded) return;
+
+        setCopiedField(field);
+        if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = window.setTimeout(() => setCopiedField(null), 1500);
+    };
+
+    const renderCopyButton = (field: 'word' | 'translation', text: string) => (
+        <button
+            type="button"
+            onClick={(e) => void copyText(e, field, text)}
+            aria-label={field === 'word' ? 'Copy word' : 'Copy translation'}
+            title="Copy"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+            {copiedField === field ? <FaCheck size={11} className="text-ok-strong" /> : <FaCopy size={11} />}
+        </button>
+    );
 
     const word = (card.text || card.front || '').trim();
     const translation = card.translation ?? card.back ?? '';
@@ -292,19 +352,31 @@ const StudyCard: React.FC<StudyCardProps> = ({
                     transform: flipped ? 'rotateY(180deg)' : 'none',
                 }}
             >
-                {/* Front — the question */}
-                <button
-                    type="button"
-                    onClick={() => setFlipped(true)}
+                {/* Front — the question. A plain div rather than a <button>: browsers
+                    routinely block text selection inside button elements, which is
+                    exactly what made the word uncopyable here before. */}
+                <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => { if (!hasActiveSelection()) setFlipped(true); }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setFlipped(true);
+                        }
+                    }}
                     aria-label="Reveal answer"
-                    className="absolute inset-0 flex overflow-y-auto rounded-sheet border border-line bg-white text-center shadow-card [backface-visibility:hidden] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="absolute inset-0 flex cursor-pointer overflow-y-auto rounded-sheet border border-line bg-white text-center shadow-card [backface-visibility:hidden] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                     {/* `m-auto` centres the face while there is room and simply stops when
                         there is not — unlike justify-center, which clips overflow. */}
                     <div className="m-auto flex w-full flex-col items-center gap-2 p-5">
-                        <span className="text-[32px] font-bold leading-tight tracking-tight text-gray-900">
-                            {word || 'Untitled card'}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-[32px] font-bold leading-tight tracking-tight text-gray-900">
+                                {word || 'Untitled card'}
+                            </span>
+                            {word && renderCopyButton('word', word)}
+                        </div>
                         {card.transcription && (
                             <span
                                 className="font-mono text-sm text-gray-500"
@@ -323,21 +395,27 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         )}
                         <span className="mt-3 text-[11px] font-medium text-gray-400">Tap to reveal answer</span>
                     </div>
-                </button>
+                </div>
 
                 {/* Back — the answer */}
                 <div
                     className="absolute inset-0 overflow-hidden rounded-sheet border border-ok-border bg-ok-subtle shadow-card [backface-visibility:hidden]"
                     style={{ transform: 'rotateY(180deg)' }}
                 >
-                    <div
-                        className="h-full overflow-y-auto"
-                        onClick={() => setFlipped(false)}
-                        role="button"
-                        aria-label="Back to question"
-                    >
+                    {/* Only this small header flips back to the question now — the
+                        translation/grammar/examples below it are plain, inert content so
+                        selecting and copying them can never be interrupted by a flip. */}
+                    <div className="h-full overflow-y-auto">
                     <div className="p-4">
-                        <div className="mb-2 text-center text-[13px] font-semibold text-gray-500">{word}</div>
+                        <button
+                            type="button"
+                            onClick={() => { if (!hasActiveSelection()) setFlipped(false); }}
+                            aria-label="Back to question"
+                            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-control py-1 text-[13px] font-semibold text-gray-500 transition-colors hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                            <FaChevronLeft size={10} className="shrink-0" />
+                            {word}
+                        </button>
 
                         {imageUrl && (
                             <div className="mb-3 flex justify-center">
@@ -366,9 +444,12 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         )}
 
                         {translation && (
-                            <p className="m-0 mb-3 text-center text-[22px] font-semibold leading-snug text-gray-900">
-                                {translation}
-                            </p>
+                            <div className="mb-3 flex items-center justify-center gap-1.5">
+                                <p className="m-0 text-center text-[22px] font-semibold leading-snug text-gray-900">
+                                    {translation}
+                                </p>
+                                {renderCopyButton('translation', translation)}
+                            </div>
                         )}
 
                         {hasGrammar && (
