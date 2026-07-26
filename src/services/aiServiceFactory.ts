@@ -875,13 +875,15 @@ export async function createLinguisticInfo(
 // Deterministic safety net for createQualityLinguisticPrompt's output. Even with an
 // explicit instruction and a validator pass, testing showed the model still
 // occasionally (a) prepends a stray header line like "СПРАВКА:" instead of just the
-// emoji-tagged lines, or (b) leaves a category name from the prompt's own emoji
-// legend ("Construction", "Tense marker"...) untranslated as the label. Prompting
-// harder didn't get this to zero, so this strips both deterministically: any line not
-// starting with one of the known emoji is dropped, and any line whose label exactly
-// matches one of the English category names is dropped too (better one fewer fact than
-// a mixed-language card) — unless outputLanguage is itself English, where that would be
-// the correct output rather than a leak.
+// emoji-tagged lines, (b) leaves a category name from the prompt's own emoji legend
+// ("Construction", "Tense marker"...) untranslated as the label, or (c) repeats the
+// same emoji twice with two different values (sometimes the whole answer duplicated
+// outright) despite the prompt saying "never repeat". Prompting harder didn't get any
+// of this to zero, so all three are stripped deterministically: any line not starting
+// with one of the known emoji is dropped, any line whose label exactly matches one of
+// the English category names is dropped (better one fewer fact than a mixed-language
+// card) unless outputLanguage is itself English, and only the first line seen for each
+// emoji is kept.
 const LINGUISTIC_INFO_EMOJI_PREFIXES = ['📚', '⚥', '📋', '🎯', '⏰', '🔀', '🔤', '🧩', '🔗', '📐'];
 const LINGUISTIC_INFO_ENGLISH_CATEGORY_LABELS = [
   'part of speech', 'gender', 'number', 'case', 'tense', 'aspect', 'form',
@@ -893,18 +895,29 @@ function sanitizeLinguisticInfo(raw: string | null, outputLanguage: string): str
 
   const outputIsEnglish = outputLanguage.trim().toLowerCase().startsWith('en');
 
+  const seenEmoji = new Set<string>();
+
   const cleanedLines = raw
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => {
       if (!line) return false;
-      if (!LINGUISTIC_INFO_EMOJI_PREFIXES.some((emoji) => line.startsWith(emoji))) return false;
-      if (outputIsEnglish) return true;
-
-      const colonIndex = line.indexOf(':');
-      if (colonIndex === -1) return true;
-      const label = line.slice(0, colonIndex).replace(/^[^\p{L}]*/u, '').trim().toLowerCase();
-      return !LINGUISTIC_INFO_ENGLISH_CATEGORY_LABELS.includes(label);
+      const emoji = LINGUISTIC_INFO_EMOJI_PREFIXES.find((e) => line.startsWith(e));
+      if (!emoji) return false;
+      if (!outputIsEnglish) {
+        const colonIndex = line.indexOf(':');
+        if (colonIndex !== -1) {
+          const label = line.slice(0, colonIndex).replace(/^[^\p{L}]*/u, '').trim().toLowerCase();
+          if (LINGUISTIC_INFO_ENGLISH_CATEGORY_LABELS.includes(label)) return false;
+        }
+      }
+      // Testing surfaced the validator occasionally repeating the whole answer twice, or
+      // reusing the same emoji with two different values — despite the prompt saying
+      // "never repeat". Keep only the first line for each emoji, same as a human skimming
+      // would.
+      if (seenEmoji.has(emoji)) return false;
+      seenEmoji.add(emoji);
+      return true;
     });
 
   return cleanedLines.length > 0 ? cleanedLines.join('\n') : null;
