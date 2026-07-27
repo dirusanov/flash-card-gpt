@@ -1,6 +1,7 @@
 import {
     SET_CURRENT_TAB_ID,
     SET_TAB_CARD_FIELD,
+    SET_TAB_CARD_FIELDS,
     CLEAR_TAB_CARD_DATA,
     SAVE_TAB_CARD,
     DELETE_TAB_CARD,
@@ -167,6 +168,57 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                 };
             }
             break;
+
+        case SET_TAB_CARD_FIELDS: {
+            const { tabId: fieldsTabId, updates } = action.payload as {
+                tabId: number;
+                updates: Partial<TabCardData>;
+            };
+            if (fieldsTabId && newState.tabStates[fieldsTabId] && updates) {
+                const currentCardData = newState.tabStates[fieldsTabId].cardData;
+                const hasOwn = (fieldName: keyof TabCardData) =>
+                    Object.prototype.hasOwnProperty.call(updates, fieldName);
+                const examplesChanged = hasOwn('examples') && Array.isArray(updates.examples);
+                const nextExamples = examplesChanged
+                    ? updates.examples as Array<[string, string | null]>
+                    : currentCardData.examples;
+                const nextExamplesAudio = hasOwn('examplesAudio')
+                    ? (Array.isArray(updates.examplesAudio) ? updates.examplesAudio : [])
+                    : examplesChanged
+                        ? nextExamples.map((_item, index) =>
+                            currentCardData.examplesAudio[index] ?? null
+                        )
+                        : currentCardData.examplesAudio;
+                const nextExampleTranscriptions = hasOwn('exampleTranscriptions')
+                    ? (
+                        Array.isArray(updates.exampleTranscriptions)
+                            ? updates.exampleTranscriptions
+                            : []
+                    )
+                    : examplesChanged
+                        ? nextExamples.map((item, index) =>
+                            currentCardData.examples[index]?.[0] === item?.[0]
+                                ? currentCardData.exampleTranscriptions[index] ?? null
+                                : null
+                        )
+                        : currentCardData.exampleTranscriptions;
+
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [fieldsTabId]: {
+                        ...newState.tabStates[fieldsTabId],
+                        cardData: {
+                            ...currentCardData,
+                            ...updates,
+                            examples: nextExamples,
+                            examplesAudio: nextExamplesAudio,
+                            exampleTranscriptions: nextExampleTranscriptions,
+                        },
+                    },
+                };
+            }
+            break;
+        }
 
         case CLEAR_TAB_CARD_DATA:
             const { tabId: clearTabId } = action.payload;

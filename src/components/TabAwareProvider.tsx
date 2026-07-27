@@ -17,6 +17,7 @@ import {
     setTabIsGeneratingCard, 
     setTabCurrentCardId,
     setTabCurrentPage,
+    setTabCardFields,
 } from '../store/actions/tabState';
 import { 
     setText, 
@@ -345,6 +346,14 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 isGeneratingCard: boolean;
                 currentCardId: string | null;
             }>) => {
+                const definedUpdates = Object.fromEntries(
+                    Object.entries(updates).filter(([, value]) => value !== undefined)
+                );
+                if (tabState) {
+                    dispatch(setTabCardFields(tabId, definedUpdates));
+                    return;
+                }
+
                 // Batch updates to avoid many intermediate renders on restore/open flows.
                 batch(() => {
                     Object.keys(updates).forEach(key => {

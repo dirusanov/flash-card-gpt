@@ -28,7 +28,9 @@
     "../../src/services/errorFormatting.ts",
     "../../src/services/settingsPersistence.ts",
     "../../src/store/reducers/settings.ts",
+    "../../src/store/reducers/tabState.ts",
     "../../src/store/actions/settings.ts",
+    "../../src/store/actions/tabState.ts",
     "../../src/constants.ts"
   ]
 }

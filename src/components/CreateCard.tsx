@@ -1070,15 +1070,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const formattedExamples = newExamplesResult.map(example =>
                     [example.original, example.translated] as [string, string | null]
                 );
-                tabAware.setExamples(formattedExamples);
-                tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
-                tabAware.setExampleTranscriptions(
+                const generatedExampleTranscriptions =
                     await generateExampleTranscriptionsFor(
                         formattedExamples,
                         textLanguage,
                         abortControllerRef.current?.signal,
-                    )
-                );
+                    );
+                tabAware.updateCard({
+                    examples: formattedExamples,
+                    examplesAudio: new Array(formattedExamples.length).fill(null),
+                    exampleTranscriptions: generatedExampleTranscriptions,
+                });
             }
         } catch (error) {
             // Check if this is a quota error and show appropriate message
@@ -1149,15 +1151,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     );
                     const newExamples = newExamplesResult.map(ex => [ex.original, ex.translated] as [string, string | null]);
                     debugLog('📚 Examples generation completed');
-                    tabAware.setExamples(newExamples);
-                    tabAware.setExamplesAudio(new Array(newExamples.length).fill(null));
-                    tabAware.setExampleTranscriptions(
+                    const generatedExampleTranscriptions =
                         await generateExampleTranscriptionsFor(
                             newExamples,
                             detectedOrManual,
                             abortControllerRef.current?.signal,
-                        )
-                    );
+                        );
+                    tabAware.updateCard({
+                        examples: newExamples,
+                        examplesAudio: new Array(newExamples.length).fill(null),
+                        exampleTranscriptions: generatedExampleTranscriptions,
+                    });
                 }
 
                 if (wants('translation')) {
@@ -1239,15 +1243,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 let formattedExamples: Array<[string, string | null]> = [];
                 if (result.examples) {
                     formattedExamples = result.examples.map(ex => [ex.original, ex.translated] as [string, string | null]);
-                    tabAware.setExamples(formattedExamples);
-                    tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
-                    tabAware.setExampleTranscriptions(
+                    const generatedExampleTranscriptions =
                         await generateExampleTranscriptionsFor(
                             formattedExamples,
                             detectedOrManual,
                             abortControllerRef.current?.signal,
-                        )
-                    );
+                        );
+                    tabAware.updateCard({
+                        examples: formattedExamples,
+                        examplesAudio: new Array(formattedExamples.length).fill(null),
+                        exampleTranscriptions: generatedExampleTranscriptions,
+                    });
                 }
 
                 if (result.imageUrl) {
@@ -2227,15 +2233,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 formattedExamples = result.examples.map(example =>
                     [example.original, example.translated] as [string, string | null]
                 );
-                tabAware.setExamples(formattedExamples);
-                tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
-                tabAware.setExampleTranscriptions(
+                const generatedExampleTranscriptions =
                     await generateExampleTranscriptionsFor(
                         formattedExamples,
                         sourceLanguageForSubmit,
                         abortSignal,
-                    )
-                );
+                    );
+                tabAware.updateCard({
+                    examples: formattedExamples,
+                    examplesAudio: new Array(formattedExamples.length).fill(null),
+                    exampleTranscriptions: generatedExampleTranscriptions,
+                });
                 completedOperations.examples = true;
             }
 

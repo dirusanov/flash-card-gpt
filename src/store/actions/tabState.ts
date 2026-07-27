@@ -3,6 +3,7 @@ import { Modes } from '../../constants';
 
 export const SET_CURRENT_TAB_ID = 'SET_CURRENT_TAB_ID';
 export const SET_TAB_CARD_FIELD = 'SET_TAB_CARD_FIELD';
+export const SET_TAB_CARD_FIELDS = 'SET_TAB_CARD_FIELDS';
 export const CLEAR_TAB_CARD_DATA = 'CLEAR_TAB_CARD_DATA';
 export const SAVE_TAB_CARD = 'SAVE_TAB_CARD';
 export const DELETE_TAB_CARD = 'DELETE_TAB_CARD';
@@ -21,6 +22,16 @@ export const setCurrentTabId = (tabId: number | null) => ({
 export const setTabCardField = (tabId: number, field: string, value: any) => ({
     type: SET_TAB_CARD_FIELD,
     payload: { tabId, field, value },
+});
+
+// Commit related card fields together so subscribers never observe examples without
+// their matching audio/pronunciation arrays.
+export const setTabCardFields = (
+    tabId: number,
+    updates: Record<string, unknown>
+) => ({
+    type: SET_TAB_CARD_FIELDS,
+    payload: { tabId, updates },
 });
 
 // Действие для очистки данных карточки в конкретной вкладке

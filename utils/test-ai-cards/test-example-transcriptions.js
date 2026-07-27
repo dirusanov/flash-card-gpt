@@ -19,6 +19,12 @@ const {
   getDeterministicExampleTranscriptionIssues,
   parseExampleTranscriptionsResponse,
 } = require(path.join(COMPILED, 'services/exampleTranscriptions.js'));
+const tabStateReducer =
+  require(path.join(COMPILED, 'store/reducers/tabState.js')).default;
+const {
+  setCurrentTabId,
+  setTabCardFields,
+} = require(path.join(COMPILED, 'store/actions/tabState.js'));
 
 const sentences = [
   '他把钱放进了钱包。',
@@ -235,6 +241,31 @@ const createService = (responses) => {
     independentFallback.prompts.length,
     1,
     'A successful independent fallback must not repeat the failed indexed protocol.',
+  );
+
+  let tabState = tabStateReducer(undefined, setCurrentTabId(17));
+  const atomicExamples = [
+    ['我想喝水。', 'Я хочу пить воду.'],
+    ['桌上有一杯水。', 'На столе стоит стакан воды.'],
+    ['水在一百度时会沸腾。', 'Вода закипает при 100 °C.'],
+  ];
+  const atomicTranscriptions = [
+    'wǒ xiǎng hē shuǐ.',
+    'zhuō shàng yǒu yì bēi shuǐ.',
+    'shuǐ zài yì bǎi dù shí huì fèi téng.',
+  ];
+  tabState = tabStateReducer(
+    tabState,
+    setTabCardFields(17, {
+      examples: atomicExamples,
+      examplesAudio: [null, null, null],
+      exampleTranscriptions: atomicTranscriptions,
+    }),
+  );
+  assert.deepStrictEqual(
+    tabState.tabStates[17].cardData.exampleTranscriptions,
+    atomicTranscriptions,
+    'Examples and their pronunciations must enter tab state in one atomic update.',
   );
 
   console.log('Example transcription tests passed.');
