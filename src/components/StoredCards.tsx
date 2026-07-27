@@ -2173,9 +2173,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 onClick={() => setShowStats(true)}
                                 aria-label="Statistics"
                                 title="Statistics"
-                                className="inline-flex shrink-0 items-center rounded-control px-1.5 py-1 text-gray-400 transition-colors hover:bg-surface-sunken hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-control px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-surface-sunken hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                             >
-                                <FaChartBar size={12} />
+                                <FaChartBar size={11} />
+                                Stats
                             </button>
                         )}
                         {!selectionMode && filteredCards.length > 0 && (
