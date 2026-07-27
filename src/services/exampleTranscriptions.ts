@@ -18,6 +18,15 @@ interface ExampleTranscriptionService {
     },
     model?: string,
   ) => Promise<{ content: string } | null>;
+  createTranscription?: (
+    apiKey: string,
+    text: string,
+    sourceLanguage: string,
+    guideLanguage: string,
+  ) => Promise<{
+    userLanguageTranscription: string | null;
+    ipaTranscription: string | null;
+  } | null>;
 }
 
 interface TranscriptionIssue {
@@ -490,10 +499,9 @@ const generateAndValidateExampleTranscriptionBatch = async (
 
 /**
  * Generate the compact batch first. If any lines are still missing after generation,
- * validation, and revision, retry those sentences independently. A provider can
- * occasionally truncate or misformat a multi-line protocol even though it can produce
- * each pronunciation correctly; previously that one response silently removed every
- * guide from the card.
+ * validation, and revision, use the provider's independently validated transcription
+ * pipeline for those sentences. Only if that separate mechanism is unavailable do we
+ * retry the indexed protocol one sentence at a time.
  */
 export async function generateAndValidateExampleTranscriptions(
   service: ExampleTranscriptionService,
@@ -527,15 +535,62 @@ export async function generateAndValidateExampleTranscriptions(
   );
   for (const index of missingIndexes) {
     throwIfAborted(signal);
-    const [recovered] = await generateAndValidateExampleTranscriptionBatch(
-      service,
-      apiKey,
-      [cleanSentences[index]],
-      sourceLanguage,
-      guideLanguage,
-      signal,
-    );
+    let recovered: string | null = null;
+
+    if (service.createTranscription) {
+      try {
+        const independent = await service.createTranscription(
+          apiKey,
+          cleanSentences[index],
+          sourceLanguage,
+          guideLanguage,
+        );
+        throwIfAborted(signal);
+        const independentGuide = normalizeTranscriptionValue(
+          independent?.userLanguageTranscription,
+        );
+        const deterministicIssues = getDeterministicExampleTranscriptionIssues(
+          [cleanSentences[index]],
+          [independentGuide],
+          guideLanguage,
+        );
+        if (independentGuide && deterministicIssues.length === 0) {
+          recovered = independentGuide;
+        } else {
+          console.debug(
+            `Independent example pronunciation ${index + 1} was structurally invalid: `
+            + deterministicIssues.map((issue) => issue.message).join(' | '),
+          );
+        }
+      } catch (error) {
+        if ((error as Error)?.name === 'AbortError') throw error;
+        console.debug(
+          `Independent example pronunciation ${index + 1} unavailable:`,
+          error,
+        );
+      }
+    }
+
+    if (!recovered) {
+      [recovered] = await generateAndValidateExampleTranscriptionBatch(
+        service,
+        apiKey,
+        [cleanSentences[index]],
+        sourceLanguage,
+        guideLanguage,
+        signal,
+      );
+    }
+
     result[index] = recovered ?? null;
+  }
+
+  const stillMissing = result.filter((value) => !value).length;
+  if (stillMissing > 0) {
+    console.warn(
+      `${stillMissing} example pronunciation(s) remained unavailable after all `
+      + 'validated generation paths',
+    );
   }
 
   return result;

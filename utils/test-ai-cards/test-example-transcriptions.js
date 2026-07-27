@@ -192,6 +192,51 @@ const createService = (responses) => {
     'Fallback should make one failed batch request and one generation/audit pair per line.',
   );
 
+  const independentCalls = [];
+  const independentFallback = createService([
+    new Error('batch request failed'),
+  ]);
+  independentFallback.service.createTranscription = async (
+    _apiKey,
+    text,
+    sourceLanguage,
+    guideLanguage,
+  ) => {
+    independentCalls.push({ text, sourceLanguage, guideLanguage });
+    return {
+      userLanguageTranscription: text === '你好' ? 'nǐ hǎo' : 'zài jiàn',
+      ipaTranscription: null,
+    };
+  };
+  assert.deepStrictEqual(
+    await generateAndValidateExampleTranscriptions(
+      independentFallback.service,
+      'test-key',
+      ['你好', '再见'],
+      'zh',
+      'en',
+    ),
+    ['nǐ hǎo', 'zài jiàn'],
+    'Missing lines should use the independent validated transcription pipeline.',
+  );
+  assert.deepStrictEqual(independentCalls, [
+    {
+      text: '你好',
+      sourceLanguage: 'zh',
+      guideLanguage: 'en',
+    },
+    {
+      text: '再见',
+      sourceLanguage: 'zh',
+      guideLanguage: 'en',
+    },
+  ]);
+  assert.strictEqual(
+    independentFallback.prompts.length,
+    1,
+    'A successful independent fallback must not repeat the failed indexed protocol.',
+  );
+
   console.log('Example transcription tests passed.');
 })().catch((error) => {
   console.error(error);
