@@ -4,6 +4,18 @@ import { dropScope } from '../../services/cardImageStore';
 import { setPendingSelection } from '../../services/pendingSelection';
 import { GET_PAGE_SELECTION } from '../../services/pageContextBridge';
 
+// Mirrors TAB_STORAGE_KEY_PREFIX/LOCAL_STORAGE_KEY/BACKGROUND_MERGE_STORED_CARDS_ACTION in
+// the cards storage middleware — these were dropped by a past refactor that removed the
+// floating-window view-prefs block above them without noticing the rest of the file (tab
+// cleanup, the cross-context card merge, proxied fetch/retry) still needed them.
+const TAB_CARDS_KEY_PREFIX = 'anki_tab_cards';
+const STORED_CARDS_KEY = 'anki_stored_cards';
+const MERGE_STORED_CARDS_ACTION = 'mergeStoredCards';
+const activeFetchControllers = new Map();
+const CONTENT_SCRIPT_RETRY_DELAY_MS = 120;
+const CONTENT_SCRIPT_MAX_ATTEMPTS = 12;
+let storedCardsMergeQueue = Promise.resolve();
+
 function parseStoredCards(value) {
   if (typeof value !== 'string') {
     return [];
@@ -171,6 +183,25 @@ function createCardFromSelection(tabId, selectionText) {
     })
     .catch((error) => console.error('Failed to hand the selection to the panel:', error));
 }
+
+// The only two callers of createCardFromSelection — also dropped by the same past refactor,
+// leaving the context menu item and the Alt+C shortcut both registered (they still show up
+// in the UI) but wired to nothing.
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== CREATE_CARD_MENU_ID || !tab || tab.id == null) return;
+  createCardFromSelection(tab.id, info.selectionText);
+});
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== 'create-card-from-selection') return;
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs && tabs[0];
+    if (!tab || tab.id == null) return;
+    const url = tab.url || '';
+    if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+    createCardFromSelection(tab.id, '');
+  });
+});
 
 // Everything keyed by tab id is dead once the tab is gone, and nothing else ever removes it:
 // Chrome also reuses tab ids, so leftovers can surface as another tab's draft.
