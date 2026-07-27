@@ -355,18 +355,18 @@ const requestCandidate = async (
 };
 
 /**
- * Generates all sentence guides in one batch, audits index-to-sentence correspondence,
- * and revises only rejected indexes. On the final failed attempt, known-bad lines become
- * null so the UI never presents a confidently wrong pronunciation as fact.
+ * Generates one indexed batch, audits index-to-sentence correspondence, and revises only
+ * rejected indexes. On the final failed attempt, known-bad lines become null so the UI
+ * never presents a confidently wrong pronunciation as fact.
  */
-export async function generateAndValidateExampleTranscriptions(
+const generateAndValidateExampleTranscriptionBatch = async (
   service: ExampleTranscriptionService,
   apiKey: string,
   sentences: string[],
   sourceLanguage: string,
   guideLanguage: string,
   signal?: AbortSignal,
-): Promise<Array<string | null>> {
+): Promise<Array<string | null>> => {
   const cleanSentences = sentences.map((sentence) => sentence.trim()).filter(Boolean);
   if (!cleanSentences.length) return [];
 
@@ -486,4 +486,57 @@ export async function generateAndValidateExampleTranscriptions(
   }
 
   return candidate;
+};
+
+/**
+ * Generate the compact batch first. If any lines are still missing after generation,
+ * validation, and revision, retry those sentences independently. A provider can
+ * occasionally truncate or misformat a multi-line protocol even though it can produce
+ * each pronunciation correctly; previously that one response silently removed every
+ * guide from the card.
+ */
+export async function generateAndValidateExampleTranscriptions(
+  service: ExampleTranscriptionService,
+  apiKey: string,
+  sentences: string[],
+  sourceLanguage: string,
+  guideLanguage: string,
+  signal?: AbortSignal,
+): Promise<Array<string | null>> {
+  const cleanSentences = sentences.map((sentence) => sentence.trim()).filter(Boolean);
+  if (!cleanSentences.length) return [];
+
+  const result = await generateAndValidateExampleTranscriptionBatch(
+    service,
+    apiKey,
+    cleanSentences,
+    sourceLanguage,
+    guideLanguage,
+    signal,
+  );
+  const missingIndexes = result
+    .map((value, index) => value ? -1 : index)
+    .filter((index) => index >= 0);
+
+  if (!missingIndexes.length || cleanSentences.length === 1) {
+    return result;
+  }
+
+  console.debug(
+    `Retrying ${missingIndexes.length} missing example pronunciation(s) individually`,
+  );
+  for (const index of missingIndexes) {
+    throwIfAborted(signal);
+    const [recovered] = await generateAndValidateExampleTranscriptionBatch(
+      service,
+      apiKey,
+      [cleanSentences[index]],
+      sourceLanguage,
+      guideLanguage,
+      signal,
+    );
+    result[index] = recovered ?? null;
+  }
+
+  return result;
 }

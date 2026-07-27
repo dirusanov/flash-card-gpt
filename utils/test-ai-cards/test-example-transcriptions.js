@@ -168,6 +168,30 @@ const createService = (responses) => {
     'A line explicitly rejected at the retry limit must be hidden.',
   );
 
+  const individualFallback = createService([
+    new Error('batch request failed'),
+    { content: '1 || nǐ hǎo' },
+    validAudit,
+    { content: '1 || zài jiàn' },
+    validAudit,
+  ]);
+  assert.deepStrictEqual(
+    await generateAndValidateExampleTranscriptions(
+      individualFallback.service,
+      'test-key',
+      ['你好', '再见'],
+      'zh',
+      'en',
+    ),
+    ['nǐ hǎo', 'zài jiàn'],
+    'A failed batch must retry each missing sentence independently.',
+  );
+  assert.strictEqual(
+    individualFallback.prompts.length,
+    5,
+    'Fallback should make one failed batch request and one generation/audit pair per line.',
+  );
+
   console.log('Example transcription tests passed.');
 })().catch((error) => {
   console.error(error);

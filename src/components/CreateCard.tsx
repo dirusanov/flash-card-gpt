@@ -345,6 +345,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
     const [loadingWordAudio, setLoadingWordAudio] = useState(false);
     const [loadingAccept, setLoadingAccept] = useState(false);
+    // Selection messages arrive from another extension document and may race React state
+    // updates. The ref is raised synchronously when generation starts, so even a mouseup
+    // delivered before the next render cannot replace the study target under the loader.
+    const selectionCaptureBlockedRef = useRef(false);
     const [currentLoadingMessage, setCurrentLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
     const [currentProgress, setCurrentProgress] = useState({ completed: 0, total: 0 });
     const [isEdited, setIsEdited] = useState(false);
@@ -373,6 +377,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             tabAware.setIsGeneratingCard(loadingGetResult);
         }
     }, [loadingGetResult, isGeneratingCard, tabAware]);
+
+    useEffect(() => {
+        selectionCaptureBlockedRef.current =
+            loadingGetResult || isGeneratingCard;
+    }, [loadingGetResult, isGeneratingCard]);
 
     const IMAGE_MODE_STORAGE_KEY = `anki_image_generation_mode_${tabId}`;
     const LEGACY_IMAGE_MODE_STORAGE_KEY = 'anki_image_generation_mode';
@@ -1794,11 +1803,23 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // Используем useCallback для стабильной ссылки на функцию обработки выделения
     const handleTextSelection = useCallback((selectedText: string) => {
-        if (!selectedText || selectedText === text) {
+        const normalizedSelection = selectedText.trim();
+        if (!normalizedSelection) {
             return;
         }
 
-        debugLog('Text selection handled for tab-specific state:', selectedText);
+        // Ignore rather than queue: a selection made while reading during generation must
+        // not replace this card now or unexpectedly become the next card afterwards.
+        if (selectionCaptureBlockedRef.current) {
+            debugLog('Text selection ignored while card generation is active');
+            return;
+        }
+
+        if (normalizedSelection === text) {
+            return;
+        }
+
+        debugLog('Text selection handled for tab-specific state:', normalizedSelection);
 
         // Принудительно закрываем модальное окно перед анализом нового текста
         setShowTextOptionsModal(false);
@@ -1808,11 +1829,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setSelectedTextOptions([]);
 
         // Устанавливаем выделенный текст через tabAware (tab-specific)
-        tabAware.setText(selectedText);
+        tabAware.setText(normalizedSelection);
         setCameFromSelection(true);
 
         // Логируем для отладки
-        debugLog('Text set via tabAware.setText:', selectedText);
+        debugLog('Text set via tabAware.setText:', normalizedSelection);
     }, [tabAware, text]);
 
     // The panel has no access to the page, so the content script reports selections and the
@@ -2032,6 +2053,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         tabAware.setWordAudio(null);
 
         setForceHideLoader(false);
+        selectionCaptureBlockedRef.current = true;
         setLoadingGetResult(true);
         setCurrentLoadingMessage(null);
 
@@ -2752,6 +2774,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         setShowTextOptionsModal(false);
         setForceHideLoader(false);
+        selectionCaptureBlockedRef.current = true;
         setLoadingGetResult(true);
 
         // Set card generation state to true to disable navigation buttons
@@ -4664,6 +4687,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         const myGenerationId = generationIdRef.current;
 
         setForceHideLoader(false);
+        selectionCaptureBlockedRef.current = true;
         setLoadingGetResult(true);
 
         try {
