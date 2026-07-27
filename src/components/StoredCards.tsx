@@ -37,6 +37,11 @@ import { ModelProvider } from '../store/reducers/settings';
 import { backgroundFetch } from "../services/backgroundFetch";
 import { buildSafeImagePrompt, extractOpenAIImagePayload } from '../services/imagePromptSafety';
 import {
+    formatTranscriptionHtml,
+    shouldGenerateTranscription,
+} from '../services/transcription';
+import { generateAndValidateExampleTranscriptions } from '../services/exampleTranscriptions';
+import {
     OPENAI_IMAGE_BACKGROUND,
     OPENAI_IMAGE_MODEL,
     OPENAI_IMAGE_QUALITY,
@@ -95,12 +100,75 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const sourceLanguage = useSelector((state: RootState) => state.settings.sourceLanguage);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
+    const transcriptionMode = useSelector((state: RootState) => state.settings.transcriptionMode);
+    const transcriptionLanguage = useSelector(
+        (state: RootState) => state.settings.transcriptionLanguage
+    );
+    const transcriptionExtraLanguages = useSelector(
+        (state: RootState) => state.settings.transcriptionExtraLanguages
+    );
+    const exampleTranscriptionsEnabled = useSelector(
+        (state: RootState) => state.settings.exampleTranscriptionsEnabled
+    ) !== false;
     const modelProvider = useSelector((state: RootState) => state.settings.modelProvider);
     const auth = useSelector((state: RootState) => state.auth);
     // Same generation context CreateCard uses, so instruction-driven regeneration of a
     // stored card runs through the exact same services.
     const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
     const apiKey = useMemo(() => getApiKeyForProvider(modelProvider as ModelProvider, openAiKey), [modelProvider, openAiKey]);
+    const generateExampleTranscriptionsFor = useCallback(async (
+        examplesToTranscribe: Array<[string, string | null]>
+    ): Promise<Array<string | null>> => {
+        const result = new Array(examplesToTranscribe.length).fill(null);
+        if (
+            !exampleTranscriptionsEnabled
+            || transcriptionMode === 'off'
+            || !apiKey
+            || examplesToTranscribe.length === 0
+        ) {
+            return result;
+        }
+
+        const eligibleIndexes = examplesToTranscribe
+            .map(([sentence], index) =>
+                shouldGenerateTranscription(
+                    sentence,
+                    transcriptionMode,
+                    sourceLanguage,
+                    transcriptionExtraLanguages,
+                )
+                    ? index
+                    : -1
+            )
+            .filter((index) => index >= 0);
+
+        if (!eligibleIndexes.length) return result;
+
+        try {
+            const generated = await generateAndValidateExampleTranscriptions(
+                aiService,
+                apiKey,
+                eligibleIndexes.map((index) => examplesToTranscribe[index][0]),
+                sourceLanguage || 'unknown (infer only from the exact source examples)',
+                transcriptionLanguage || 'en',
+            );
+            eligibleIndexes.forEach((originalIndex, generatedIndex) => {
+                result[originalIndex] = generated[generatedIndex] ?? null;
+            });
+        } catch (error) {
+            console.debug('Stored-card example pronunciations unavailable:', error);
+        }
+
+        return result;
+    }, [
+        aiService,
+        apiKey,
+        exampleTranscriptionsEnabled,
+        sourceLanguage,
+        transcriptionExtraLanguages,
+        transcriptionLanguage,
+        transcriptionMode,
+    ]);
     const syncApiUrl = useSelector((state: RootState) => state.settings.syncApiUrl);
     const executeRequest = useAuthenticatedRequest();
     const isLoggedIn = Boolean(auth.accessToken);
@@ -670,7 +738,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         linguisticInfo: card.linguisticInfo,
                         transcription: card.transcription || '',
                         word_audio_base64: card.wordAudio || null,
-                        examples_audio_base64: Array.isArray(card.examplesAudio) ? card.examplesAudio : []
+                        examples_audio_base64: Array.isArray(card.examplesAudio) ? card.examplesAudio : [],
+                        example_transcriptions: Array.isArray(card.exampleTranscriptions)
+                            ? card.exampleTranscriptions
+                            : [],
                     };
 
                     debugLog(`Adding language learning card to Anki export (Deck: ${targetDeckName}):`, {
@@ -1091,6 +1162,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             examplesAudio: Array.isArray(localEditingCardData.examplesAudio)
                 ? localEditingCardData.examplesAudio
                 : (Array.isArray(editingCard.examplesAudio) ? editingCard.examplesAudio : []),
+            exampleTranscriptions: Array.isArray(localEditingCardData.exampleTranscriptions)
+                ? localEditingCardData.exampleTranscriptions
+                : (
+                    Array.isArray(editingCard.exampleTranscriptions)
+                        ? editingCard.exampleTranscriptions
+                        : []
+                ),
             ankiDeckName: localEditingCardData.ankiDeckName ?? editingCard.ankiDeckName ?? null,
             deckId: localEditingCardData.deckId ?? editingCard.deckId ?? null,
         };
@@ -1187,6 +1265,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 transcription: card.transcription || '',
                 word_audio_base64: card.wordAudio || null,
                 examples_audio_base64: Array.isArray(card.examplesAudio) ? card.examplesAudio : [],
+                example_transcriptions: Array.isArray(card.exampleTranscriptions)
+                    ? card.exampleTranscriptions
+                    : [],
             };
 
             return { mode: Modes.LanguageLearning, cards: [ankiCard] };
@@ -1441,10 +1522,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 sourceLanguage || undefined,
             );
             const newExamples = result.map((ex) => [ex.original, ex.translated] as [string, string | null]);
+            const newExampleTranscriptions =
+                await generateExampleTranscriptionsFor(newExamples);
             setLocalEditingCardData((prev) => prev ? ({
                 ...prev,
                 examples: newExamples,
                 examplesAudio: new Array(newExamples.length).fill(null),
+                exampleTranscriptions: newExampleTranscriptions,
             }) : prev);
         } catch (error: any) {
             console.error('Error generating examples:', error);
@@ -1531,21 +1615,45 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         false,
                         'off',
                         openAiKey,
+                        undefined,
+                        {
+                            mode: transcriptionMode,
+                            language: transcriptionLanguage,
+                            extraLanguages: transcriptionExtraLanguages,
+                        },
                     );
+
+                    const rebuiltExamples = result.examples
+                        ? result.examples.map(
+                            (ex) => [ex.original, ex.translated] as [string, string | null]
+                        )
+                        : null;
+                    const rebuiltExampleTranscriptions = rebuiltExamples
+                        ? await generateExampleTranscriptionsFor(rebuiltExamples)
+                        : null;
 
                     setLocalEditingCardData((prev) => {
                         if (!prev) return prev;
                         const next = { ...prev };
                         if (result.translation?.translated) next.translation = result.translation.translated;
-                        if (result.examples) {
-                            next.examples = result.examples.map((ex) => [ex.original, ex.translated] as [string, string | null]);
-                            next.examplesAudio = new Array(result.examples.length).fill(null);
+                        if (rebuiltExamples) {
+                            next.examples = rebuiltExamples;
+                            next.examplesAudio = new Array(rebuiltExamples.length).fill(null);
+                            next.exampleTranscriptions =
+                                rebuiltExampleTranscriptions || [];
                         }
                         if (result.imageUrl) {
                             next.imageUrl = result.imageUrl;
                             next.image = result.imageUrl;
                         }
                         if (result.linguisticInfo) next.linguisticInfo = result.linguisticInfo;
+                        if (result.transcription) {
+                            const transcriptionHtml = formatTranscriptionHtml(
+                                result.transcription,
+                                transcriptionLanguage,
+                            );
+                            if (transcriptionHtml) next.transcription = transcriptionHtml;
+                        }
                         if (result.flashcard?.front) next.front = result.flashcard.front;
                         if (result.translation?.translated && prev.mode !== Modes.LanguageLearning) {
                             next.back = result.translation.translated;
@@ -1626,6 +1734,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         if (localEditingCardData) {
             const prevExamples = Array.isArray(localEditingCardData.examples) ? localEditingCardData.examples : [];
             const prevExamplesAudio = Array.isArray(localEditingCardData.examplesAudio) ? localEditingCardData.examplesAudio : [];
+            const prevExampleTranscriptions =
+                Array.isArray(localEditingCardData.exampleTranscriptions)
+                    ? localEditingCardData.exampleTranscriptions
+                    : [];
             const nextExamplesAudio = newExamples.map((examplePair, index) => {
                 const prevPair = prevExamples[index];
                 if (!prevPair || prevPair[0] !== examplePair[0]) {
@@ -1633,10 +1745,18 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 }
                 return prevExamplesAudio[index] ?? null;
             });
+            const nextExampleTranscriptions = newExamples.map((examplePair, index) => {
+                const prevPair = prevExamples[index];
+                if (!prevPair || prevPair[0] !== examplePair[0]) {
+                    return null;
+                }
+                return prevExampleTranscriptions[index] ?? null;
+            });
             setLocalEditingCardData({
                 ...localEditingCardData,
                 examples: newExamples,
-                examplesAudio: nextExamplesAudio
+                examplesAudio: nextExamplesAudio,
+                exampleTranscriptions: nextExampleTranscriptions,
             });
         }
     };
@@ -1931,6 +2051,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         image_base64: card.image || card.imageUrl, // Handle both
                         word_audio_base64: card.wordAudio,
                         examples_audio_base64: card.examplesAudio,
+                        example_transcriptions: card.exampleTranscriptions,
                         // For file export, we want to embed the audio directly as data URIs
                         ankiAudioTag: card.wordAudio ?
                             (card.wordAudio.startsWith('data:') ? card.wordAudio : `data:audio/mpeg;base64,${card.wordAudio}`) :

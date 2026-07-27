@@ -2,6 +2,7 @@ import type { Store } from 'redux';
 import type { RootState } from '../store';
 import { hydrateSettings } from '../store/actions/settings';
 import { ModelProvider } from '../store/reducers/settings';
+import { findLanguage } from '../data/languages';
 
 const STORAGE_KEY = 'vaulto_extension_settings_v1';
 
@@ -19,6 +20,10 @@ type PersistedSettings = Partial<Pick<
   | 'imageInstructions'
   | 'modelProvider'
   | 'sourceLanguage'
+  | 'transcriptionMode'
+  | 'transcriptionLanguage'
+  | 'transcriptionExtraLanguages'
+  | 'exampleTranscriptionsEnabled'
   | 'authApiUrl'
   | 'syncApiUrl'
   | 'autoSaveToServer'
@@ -28,6 +33,7 @@ type PersistedSettings = Partial<Pick<
 >>;
 
 const IMAGE_MODES = new Set(['off', 'smart', 'always']);
+const TRANSCRIPTION_MODES = new Set(['auto', 'always', 'off']);
 
 const getChromeStorage = () => {
   try {
@@ -40,7 +46,10 @@ const getChromeStorage = () => {
   return null;
 };
 
-const normalizeSettings = (raw: unknown): PersistedSettings => {
+// Exported as a small pure seam for migration tests. Extension updates can load older
+// snapshots that do not contain newly introduced settings, so normalization must never
+// inject undefined values over reducer defaults.
+export const normalizePersistedSettings = (raw: unknown): PersistedSettings => {
   if (!raw || typeof raw !== 'object') {
     return {};
   }
@@ -62,6 +71,26 @@ const normalizeSettings = (raw: unknown): PersistedSettings => {
   if (typeof record.imageInstructions === 'string') result.imageInstructions = record.imageInstructions;
   if (record.modelProvider === ModelProvider.OpenAI) result.modelProvider = ModelProvider.OpenAI;
   if (typeof record.sourceLanguage === 'string') result.sourceLanguage = record.sourceLanguage;
+  if (typeof record.transcriptionMode === 'string' && TRANSCRIPTION_MODES.has(record.transcriptionMode)) {
+    result.transcriptionMode = record.transcriptionMode as RootState['settings']['transcriptionMode'];
+  }
+  if (
+    typeof record.transcriptionLanguage === 'string'
+    && findLanguage(record.transcriptionLanguage)
+  ) {
+    result.transcriptionLanguage = record.transcriptionLanguage;
+  }
+  if (Array.isArray(record.transcriptionExtraLanguages)) {
+    result.transcriptionExtraLanguages = Array.from(new Set(
+      record.transcriptionExtraLanguages.filter(
+        (language): language is string =>
+          typeof language === 'string' && Boolean(findLanguage(language)),
+      ),
+    ));
+  }
+  if (typeof record.exampleTranscriptionsEnabled === 'boolean') {
+    result.exampleTranscriptionsEnabled = record.exampleTranscriptionsEnabled;
+  }
   if (typeof record.authApiUrl === 'string') result.authApiUrl = record.authApiUrl;
   if (typeof record.syncApiUrl === 'string') result.syncApiUrl = record.syncApiUrl;
   if (typeof record.autoSaveToServer === 'boolean') result.autoSaveToServer = record.autoSaveToServer;
@@ -83,7 +112,7 @@ const readFallback = (): PersistedSettings => {
     if (typeof window !== 'undefined' && window.localStorage) {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        return normalizeSettings(JSON.parse(raw));
+        return normalizePersistedSettings(JSON.parse(raw));
       }
     }
   } catch (error) {
@@ -115,6 +144,10 @@ const snapshotSettings = (state: RootState): PersistedSettings => ({
   imageInstructions: state.settings.imageInstructions,
   modelProvider: state.settings.modelProvider,
   sourceLanguage: state.settings.sourceLanguage,
+  transcriptionMode: state.settings.transcriptionMode,
+  transcriptionLanguage: state.settings.transcriptionLanguage,
+  transcriptionExtraLanguages: state.settings.transcriptionExtraLanguages,
+  exampleTranscriptionsEnabled: state.settings.exampleTranscriptionsEnabled,
   authApiUrl: state.settings.authApiUrl,
   syncApiUrl: state.settings.syncApiUrl,
   autoSaveToServer: state.settings.autoSaveToServer,
@@ -141,7 +174,7 @@ const loadSettings = async (): Promise<PersistedSettings> => {
           resolve(readFallback());
           return;
         }
-        resolve(normalizeSettings(items?.[STORAGE_KEY]));
+        resolve(normalizePersistedSettings(items?.[STORAGE_KEY]));
       });
     } catch (error) {
       console.error('Failed to access chrome storage for settings:', error);

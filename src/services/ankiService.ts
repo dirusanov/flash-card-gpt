@@ -55,7 +55,8 @@ export function format_example(
     word: string,
     translation: string | null = null,
     font_size: string = "0.8em",
-    audioSource: string = ''
+    audioSource: string = '',
+    pronunciation: string | null = null
 ): string {
     const formatted_example = example.replace(word, `<b>${word}</b>`);
 
@@ -74,13 +75,16 @@ export function format_example(
              <audio controls src="${audioSrc}" style="width: 100%; height: 32px;"></audio>
            </div>`
         : '';
+    const pronunciationRow = pronunciation?.trim()
+        ? `<br><span style="font-family: monospace; font-size: 0.78em; color: #7C3AED;">${pronunciation.trim()}</span>`
+        : '';
     if (translation) {
         const translatedSentence = normalizeExampleTranslation(translation);
         return translatedSentence
-            ? `${audioPrefix}${formatted_example}<br><span style='font-size: ${font_size};'><i>${translatedSentence}</i></span>`
-            : `${audioPrefix}${formatted_example}`;
+            ? `${audioPrefix}${formatted_example}${pronunciationRow}<br><span style='font-size: ${font_size};'><i>${translatedSentence}</i></span>`
+            : `${audioPrefix}${formatted_example}${pronunciationRow}`;
     } else {
-        return `${audioPrefix}${formatted_example}`;
+        return `${audioPrefix}${formatted_example}${pronunciationRow}`;
     }
 }
 
@@ -93,6 +97,7 @@ export interface CardLangLearning {
     transcription?: string; // HTML with user-language + IPA
     word_audio_base64?: string | null; // base64 audio or data URL
     examples_audio_base64?: Array<string | null>;
+    example_transcriptions?: Array<string | null>;
     ankiAudioTag?: string;
     exampleAudioTags?: Array<string | null>;
 }
@@ -212,7 +217,17 @@ export function format_back_lang_learning(card: any): string {
         .map((ex: any, index: number) => {
             const audioSource = card.exampleAudioTags?.[index] ||
                 (card.examplesAudio ? card.examplesAudio[index] : '') || '';
-            return format_example(ex[0], card.text, ex[1], "0.8em", audioSource);
+            const pronunciation = card.example_transcriptions?.[index]
+                || card.exampleTranscriptions?.[index]
+                || null;
+            return format_example(
+                ex[0],
+                card.text,
+                ex[1],
+                "0.8em",
+                audioSource,
+                pronunciation,
+            );
         })
         .join('<br><br>');
 

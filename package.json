@@ -22,7 +22,12 @@
     "watch:storybook": "start-storybook -p 6006",
     "storybook": "concurrently \"npm:watch:storybook\" \"npm:dev:css\"",
     "build-storybook": "build-storybook",
-    "test:ai-cards": "node utils/test-ai-cards/run.js"
+    "test:ai-cards": "node utils/test-ai-cards/run.js",
+    "test:linguistic-validator": "node utils/test-ai-cards/test-linguistic-validator.js",
+    "test:translation-quality": "node utils/test-ai-cards/test-translation-quality.js",
+    "test:example-quality": "node utils/test-ai-cards/test-example-quality.js",
+    "test:transcription-policy": "node utils/test-ai-cards/test-transcription-policy.js",
+    "test:example-transcriptions": "node utils/test-ai-cards/test-example-transcriptions.js"
   },
   "dependencies": {
     "@types/katex": "^0.16.7",

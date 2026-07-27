@@ -13,6 +13,10 @@ export const SET_AI_INSTRUCTIONS = 'SET_AI_INSTRUCTIONS';
 export const SET_IMAGE_INSTRUCTIONS = 'SET_IMAGE_INSTRUCTIONS';
 export const SET_MODEL_PROVIDER = 'SET_MODEL_PROVIDER';
 export const SET_SOURCE_LANGUAGE = 'SET_SOURCE_LANGUAGE';
+export const SET_TRANSCRIPTION_MODE = 'SET_TRANSCRIPTION_MODE';
+export const SET_TRANSCRIPTION_LANGUAGE = 'SET_TRANSCRIPTION_LANGUAGE';
+export const SET_TRANSCRIPTION_EXTRA_LANGUAGES = 'SET_TRANSCRIPTION_EXTRA_LANGUAGES';
+export const SET_EXAMPLE_TRANSCRIPTIONS_ENABLED = 'SET_EXAMPLE_TRANSCRIPTIONS_ENABLED';
 export const SET_AUTH_API_URL = 'SET_AUTH_API_URL';
 export const SET_SYNC_API_URL = 'SET_SYNC_API_URL';
 export const SET_AUTO_SAVE_TO_SERVER = 'SET_AUTO_SAVE_TO_SERVER';
@@ -93,6 +97,26 @@ export const setModelProvider = (provider: string) => ({
 export const setSourceLanguage = (language: string) => ({
     type: SET_SOURCE_LANGUAGE,
     payload: language,
+});
+
+export const setTranscriptionMode = (mode: 'auto' | 'always' | 'off') => ({
+    type: SET_TRANSCRIPTION_MODE,
+    payload: mode,
+});
+
+export const setTranscriptionLanguage = (language: string) => ({
+    type: SET_TRANSCRIPTION_LANGUAGE,
+    payload: language,
+});
+
+export const setTranscriptionExtraLanguages = (languages: string[]) => ({
+    type: SET_TRANSCRIPTION_EXTRA_LANGUAGES,
+    payload: languages,
+});
+
+export const setExampleTranscriptionsEnabled = (enabled: boolean) => ({
+    type: SET_EXAMPLE_TRANSCRIPTIONS_ENABLED,
+    payload: enabled,
 });
 
 export const setAuthApiUrl = (url: string) => ({

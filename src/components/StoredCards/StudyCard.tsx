@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FaVolumeUp, FaEyeSlash, FaRegImage, FaTimes, FaPlus, FaCopy, FaCheck, FaUndo, FaHandPointer } from 'react-icons/fa';
 import { StoredCard } from '../../store/reducers/cards';
+import { removeDecorativeTranslationQuotes } from '../../services/aiProviders';
 import GrammarCard from '../grammar/GrammarCard';
 import AutoTextarea from '../ui/AutoTextarea';
 
@@ -242,7 +243,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
     );
 
     const word = (card.text || card.front || '').trim();
-    const translation = card.translation ?? card.back ?? '';
+    const translation = removeDecorativeTranslationQuotes(card.translation ?? card.back ?? '');
     const imageUrl = card.image || card.imageUrl || '';
     const rawExamples: ExampleTuple[] = Array.isArray(card.examples) ? card.examples : [];
     const examples = rawExamples.filter((ex) => (ex?.[0] || '').trim().length > 0);
@@ -300,18 +301,6 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         className="mb-3 w-full rounded-control bg-transparent px-2 py-1.5 text-center text-[22px] font-semibold leading-snug text-gray-900 outline-none transition-colors hover:bg-white/60 focus:bg-white focus-visible:ring-2 focus-visible:ring-accent"
                     />
 
-                    {/* Grammar — same mint box as read mode, fields become inputs */}
-                    <div className="mb-3 rounded-card border border-ok-border bg-white/70 p-3">
-                        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ok-strong">
-                            Grammar Reference
-                        </div>
-                        <GrammarCard
-                            content={card.linguisticInfo || ''}
-                            isEditable
-                            onChange={(serialized) => onGrammarChange?.(serialized)}
-                        />
-                    </div>
-
                     {/* Examples — green bullet like read mode, text auto-grows so nothing clips */}
                     <div>
                         <div className="mb-2 text-[13px] font-semibold text-gray-500">Examples</div>
@@ -352,6 +341,19 @@ const StudyCard: React.FC<StudyCardProps> = ({
                             <FaPlus size={11} />
                             Add example
                         </button>
+                    </div>
+
+                    {/* Grammar comes last: long facts stay inside the card's own scroller
+                        instead of splitting the answer from its examples. */}
+                    <div className="mt-3 min-w-0 overflow-hidden rounded-card border border-ok-border bg-white/70 p-3">
+                        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ok-strong">
+                            Grammar Reference
+                        </div>
+                        <GrammarCard
+                            content={card.linguisticInfo || ''}
+                            isEditable
+                            onChange={(serialized) => onGrammarChange?.(serialized)}
+                        />
                     </div>
                 </div>
             </div>
@@ -395,7 +397,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                             {word && renderCopyButton('word', word)}
                         </div>
                         {card.transcription && (
-                            <span
+                            <div
                                 className="font-mono text-sm text-gray-500"
                                 dangerouslySetInnerHTML={{ __html: card.transcription }}
                             />
@@ -445,7 +447,19 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         click, only the text blocks below do. */}
                     <div className="min-h-0 flex-1 overflow-y-auto">
                     <div className="p-4">
-                        <div className="mb-2 text-center text-[13px] font-semibold text-gray-500">{word}</div>
+                        <div className="mb-1 text-center text-[13px] font-semibold text-gray-500">{word}</div>
+
+                        {/* Pronunciation belongs to the studied expression, so keep it
+                            visible on the answer side too. Previously it existed only on
+                            the front and looked as if it had disappeared after the flip. */}
+                        {card.transcription && (
+                            <div
+                                className="mb-3 text-center font-mono text-sm text-gray-500"
+                                onClick={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => { e.stopPropagation(); setFlipped(false); }}
+                                dangerouslySetInnerHTML={{ __html: card.transcription }}
+                            />
+                        )}
 
                         {imageUrl && (
                             <div className="mb-3 flex justify-center">
@@ -486,19 +500,6 @@ const StudyCard: React.FC<StudyCardProps> = ({
                             </div>
                         )}
 
-                        {hasGrammar && (
-                            <div
-                                className="mb-3 rounded-card border border-ok-border bg-white/70 p-3"
-                                onClick={(e) => e.stopPropagation()}
-                                onDoubleClick={(e) => { e.stopPropagation(); setFlipped(false); }}
-                            >
-                                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ok-strong">
-                                    Grammar Reference
-                                </div>
-                                <GrammarCard content={card.linguisticInfo || ''} />
-                            </div>
-                        )}
-
                         {examples.length > 0 && (
                             <div
                                 onClick={(e) => e.stopPropagation()}
@@ -523,11 +524,29 @@ const StudyCard: React.FC<StudyCardProps> = ({
                                             )}
                                             <div className="min-w-0 flex-1">
                                                 <div className="break-words text-[14px] leading-6 text-gray-900">{highlight(text)}</div>
+                                                {card.exampleTranscriptions?.[index] && (
+                                                    <div className="mt-0.5 break-words font-mono text-[12px] leading-5 text-accent">
+                                                        {card.exampleTranscriptions[index]}
+                                                    </div>
+                                                )}
                                                 {tr && <div className="mt-0.5 break-words text-[13px] leading-5 text-gray-500">{tr}</div>}
                                             </div>
                                         </li>
                                     ))}
                                 </ul>
+                            </div>
+                        )}
+
+                        {hasGrammar && (
+                            <div
+                                className="mt-3 min-w-0 overflow-hidden rounded-card border border-ok-border bg-white/70 p-3"
+                                onClick={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => { e.stopPropagation(); setFlipped(false); }}
+                            >
+                                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ok-strong">
+                                    Grammar Reference
+                                </div>
+                                <GrammarCard content={card.linguisticInfo || ''} />
                             </div>
                         )}
                     </div>

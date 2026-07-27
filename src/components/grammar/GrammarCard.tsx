@@ -51,25 +51,30 @@ const GrammarCard: React.FC<GrammarCardProps> = ({ content, isEditable = false, 
     if (!isEditable) {
         if (facts.length === 0) return null;
         return (
-            <div className="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <div className="min-w-0 flex flex-col gap-1.5 overflow-hidden" onClick={(e) => e.stopPropagation()}>
                 {facts.map((fact, index) => (
-                    <div key={index} className="flex items-center gap-2 text-[13px] leading-5">
+                    <div key={index} className="grid min-w-0 grid-cols-[20px,minmax(0,1fr)] items-start gap-2 text-[13px] leading-5">
                         {fact.emoji && (
                             <span className="w-5 shrink-0 text-center text-[15px]" aria-hidden>
                                 {fact.emoji}
                             </span>
                         )}
-                        {fact.label ? (
-                            <>
-                                <span className="shrink-0 text-gray-500">{fact.label}:</span>
-                                {fact.value && (
-                                    <span className="min-w-0 font-semibold text-gray-900">{fact.value}</span>
-                                )}
-                            </>
-                        ) : (
-                            // A label-less note reads as prose, not a tag.
-                            <span className="min-w-0 text-gray-600">{fact.value}</span>
-                        )}
+                        <div
+                            className={fact.emoji ? 'col-start-2 min-w-0' : 'col-span-2 min-w-0'}
+                            style={{ overflowWrap: 'anywhere' }}
+                        >
+                            {fact.label ? (
+                                <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
+                                    <span className="min-w-0 text-gray-500">{fact.label}:</span>
+                                    {fact.value && (
+                                        <span className="min-w-0 font-semibold text-gray-900">{fact.value}</span>
+                                    )}
+                                </div>
+                            ) : (
+                                // A label-less note reads as prose, not a tag.
+                                <span className="min-w-0 text-gray-600">{fact.value}</span>
+                            )}
+                        </div>
                     </div>
                 ))}
             </div>

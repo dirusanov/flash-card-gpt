@@ -1,6 +1,18 @@
 import { ModelProvider } from '../store/reducers/settings';
-import { AIProviderInterface, createAIProvider } from './aiProviders';
+import {
+  AIProviderInterface,
+  createAIProvider,
+  createTranslationPrompt,
+  normalizeTranslationResponse,
+} from './aiProviders';
+import { validateAndReviseExamples } from './exampleQuality';
 import { OPENAI_TEXT_MODEL_ACCURATE } from '../constants';
+import {
+  DEFAULT_TRANSCRIPTION_LANGUAGE,
+  DEFAULT_TRANSCRIPTION_MODE,
+  resolveTranscriptionRequest,
+  TranscriptionMode,
+} from './transcription';
 
 class ApiKeyAuthorizationError extends Error {
   constructor(message: string) {
@@ -133,8 +145,14 @@ export interface LinguisticInfo {
 
 // Определяем интерфейс для транскрипции
 export interface TranscriptionResult {
-  userLanguageTranscription: string | null; // Транскрипция на языке пользователя
+  userLanguageTranscription: string | null; // Фонетическая подсказка на выбранном языке
   ipaTranscription: string | null; // Транскрипция в IPA
+}
+
+export interface TranscriptionGenerationOptions {
+  mode?: TranscriptionMode;
+  language?: string;
+  extraLanguages?: string[];
 }
 
 // Определяем интерфейс для результата валидации
@@ -373,6 +391,334 @@ export const getApiKeyForProvider = (
 // Универсальные функции-обертки для создания карточек
 // Они обеспечивают единый формат данных независимо от провайдера
 
+interface TranslationAuditResult {
+  status: 'valid' | 'invalid' | 'unavailable';
+  issues: string[];
+}
+
+const MAX_TRANSLATION_GENERATION_ATTEMPTS = 3;
+
+function createTranslationAuditPrompt(
+  studyTarget: string,
+  candidateTranslation: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+  customInstruction: string,
+): string {
+  const extraRequirement = customInstruction.trim()
+    ? `\nAdditional user requirement that must also be respected:\n${customInstruction.trim()}\n`
+    : '';
+
+  return `You are an independent translation validator for a language-learning flashcard.
+
+<study_target language="${sourceLanguage}">${studyTarget}</study_target>
+<candidate_translation language="${targetLanguage}">${candidateTranslation}</candidate_translation>
+${extraRequirement}
+Independently analyze the exact visible <study_target>, then validate the candidate.
+Apply the same method to EVERY language and writing system.
+
+Validation rules:
+1. Analyze only <study_target>, in ${sourceLanguage}. Never validate a neighboring word,
+   a dictionary lemma with a different form, an example sentence, or a guessed context.
+2. If the target is an isolated lexical item, preserve all important common grammatical
+   readings of its visible form when ${targetLanguage} distinguishes them. A translation
+   of only one reading is incomplete.
+3. Several synonyms or paraphrases for the same reading cannot replace an omitted reading.
+   Prefer distinct meanings/forms over near-duplicates.
+4. Do not demand distinctions that ${targetLanguage} cannot express naturally, and do not
+   demand exhaustive gender/person variants when the source itself leaves them unspecified.
+5. A required adposition, complement marker, particle, classifier, or other small word may
+   be included when the translated lexical item would otherwise be unusable or incomplete.
+6. For a complete clause/sentence, require one coherent translation, not a comma-joined
+   collection of alternative sentences.
+7. Reject incorrect meaning, wrong source language, unnatural morphology, copied source
+   capitalization, redundant alternatives that crowd out an important reading, labels,
+   explanations, or decorative quotation marks.
+8. The candidate may contain at most four compact best-first alternatives.
+9. An alternative must represent a distinct common meaning or grammatical reading of the
+   exact source form. Reject diminutives, augmentatives, slang, archaic or expressive
+   variants when that marked register is not encoded by the source. Do not pad a
+   single-sense item with stylistic variants; one precise equivalent is better.
+
+WORKED VALIDATION EXAMPLE — method only, not a language-specific branch:
+For English "compared" translated to Russian, the candidate
+"по сравнению с, в сравнении с, сравненный" is INVALID: the first two items duplicate
+the same comparative/participial use, while the ordinary finite Past Simple reading is
+missing. A revision must add a natural finite-past rendering and retain the important
+participle/comparative readings. Apply this coverage principle analogously in all languages.
+
+OUTPUT PROTOCOL:
+If fully correct:
+VERDICT: VALID
+ISSUES: NONE
+
+If revision is required:
+VERDICT: INVALID
+ISSUES:
+- <specific actionable problem>
+- <another problem if needed>
+
+Do not rewrite the translation yourself. Return only VERDICT and ISSUES.`;
+}
+
+function createTranslationLexicalAuditPrompt(
+  studyTarget: string,
+  candidateTranslation: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+): string {
+  return `You are the independent lexicographic quality gate for a language-learning card.
+
+<study_target language="${sourceLanguage}">${studyTarget}</study_target>
+<candidate_translation language="${targetLanguage}">${candidateTranslation}</candidate_translation>
+
+Independently determine the ordinary dictionary meaning(s) and grammatical readings of
+the exact visible study target. Then inspect every comma-separated candidate alternative.
+
+Reject the set if any item is:
+- merely a stylistic, diminutive, augmentative, slang, archaic, or expressive version of
+  another item without corresponding marking in the source;
+- a context-only paraphrase, broad hypernym, explanation, or near-duplicate rather than
+  an independently usable translation of the isolated target;
+- an invented form, unnatural collocation, wrong grammatical reading, or wrong register;
+- included only to fill a list when the target has one ordinary meaning.
+
+Do not invent distinctions based on number, gender, tense, or politeness unless the exact
+source form encodes them. Apply the same evidence-based method to every language and
+writing system. A concise single translation is fully valid when it covers the target.
+
+OUTPUT PROTOCOL:
+If the complete candidate is accurate, compact, and lexicographically useful:
+VERDICT: VALID
+ISSUES: NONE
+
+If revision is required:
+VERDICT: INVALID
+ISSUES:
+- <specific actionable problem>
+
+Do not rewrite the translation. Return only VERDICT and ISSUES.`;
+}
+
+function parseTranslationAuditResponse(response: string): TranslationAuditResult {
+  const verdictMatch = response.match(/^VERDICT:\s*(VALID|INVALID)\s*$/im);
+  if (!verdictMatch) {
+    return { status: 'unavailable', issues: [] };
+  }
+
+  if (verdictMatch[1].toUpperCase() === 'VALID') {
+    return { status: 'valid', issues: [] };
+  }
+
+  const issuesSection = response.match(/^ISSUES:\s*([\s\S]*)$/im)?.[1] || '';
+  const issues = issuesSection
+    .split('\n')
+    .map(line => line.replace(/^[\s•*-]+/, '').trim())
+    .filter(line => line && line.toUpperCase() !== 'NONE');
+
+  return {
+    status: 'invalid',
+    issues: issues.length > 0
+      ? issues
+      : ['Cover every important common reading of the exact visible study target.'],
+  };
+}
+
+async function auditTranslation(
+  service: AIService,
+  apiKey: string,
+  studyTarget: string,
+  candidateTranslation: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+  customInstruction: string,
+  attempt: number,
+): Promise<TranslationAuditResult> {
+  try {
+    const completion = await service.createChatCompletion(apiKey, [{
+      role: 'user',
+      content: createTranslationAuditPrompt(
+        studyTarget,
+        candidateTranslation,
+        sourceLanguage,
+        targetLanguage,
+        customInstruction,
+      ),
+    }], {
+      title: 'Validating translation',
+      subtitle: `Checking translation version ${attempt}`,
+      icon: '🔎',
+      color: '#3B82F6',
+    }, OPENAI_TEXT_MODEL_ACCURATE);
+
+    if (!completion?.content) {
+      return { status: 'unavailable', issues: [] };
+    }
+
+    const semanticAudit = parseTranslationAuditResponse(completion.content.trim());
+    if (semanticAudit.status !== 'valid') {
+      return semanticAudit;
+    }
+
+    try {
+      const lexicalCompletion = await service.createChatCompletion(apiKey, [{
+        role: 'user',
+        content: createTranslationLexicalAuditPrompt(
+          studyTarget,
+          candidateTranslation,
+          sourceLanguage,
+          targetLanguage,
+        ),
+      }], {
+        title: 'Validating translation',
+        subtitle: `Checking lexical quality ${attempt}`,
+        icon: '📖',
+        color: '#3B82F6',
+      }, OPENAI_TEXT_MODEL_ACCURATE);
+
+      const lexicalAudit = parseTranslationAuditResponse(
+        lexicalCompletion?.content?.trim() || '',
+      );
+      return lexicalAudit.status === 'unavailable' ? semanticAudit : lexicalAudit;
+    } catch (error) {
+      console.debug('Translation lexical validator unavailable:', error);
+      return semanticAudit;
+    }
+  } catch (error) {
+    // Validation is an optional quality gate. A provider/network failure is handled by
+    // keeping the last usable translation, so it must not surface as an extension error.
+    console.debug('Translation validator unavailable:', error);
+    return { status: 'unavailable', issues: [] };
+  }
+}
+
+function createTranslationRevisionPrompt(
+  studyTarget: string,
+  candidateTranslation: string,
+  issues: string[],
+  sourceLanguage: string,
+  targetLanguage: string,
+  customInstruction: string,
+): string {
+  const feedback = issues.map(issue => `- ${issue}`).join('\n');
+  const extraRequirement = customInstruction.trim()
+    ? `\nAdditional user requirement:\n${customInstruction.trim()}\n`
+    : '';
+
+  return `Revise a rejected flashcard translation.
+
+Source language: ${sourceLanguage}
+Exact study target: <study_target>${studyTarget}</study_target>
+Current translation: ${candidateTranslation}
+
+Independent validator feedback:
+${feedback}
+${extraRequirement}
+Fix every issue. Do not defend or repeat the rejected version. Then follow the complete
+translation task below and return only the new translation:
+
+${createTranslationPrompt(studyTarget, targetLanguage)}`;
+}
+
+async function reviseTranslation(
+  service: AIService,
+  apiKey: string,
+  studyTarget: string,
+  candidateTranslation: string,
+  issues: string[],
+  sourceLanguage: string,
+  targetLanguage: string,
+  customInstruction: string,
+  nextAttempt: number,
+): Promise<string | null> {
+  try {
+    const completion = await service.createChatCompletion(apiKey, [{
+      role: 'user',
+      content: createTranslationRevisionPrompt(
+        studyTarget,
+        candidateTranslation,
+        issues,
+        sourceLanguage,
+        targetLanguage,
+        customInstruction,
+      ),
+    }], {
+      title: 'Revising translation',
+      subtitle: `Applying validator feedback (version ${nextAttempt})`,
+      icon: '🛠️',
+      color: '#3B82F6',
+    }, OPENAI_TEXT_MODEL_ACCURATE);
+    const revised = normalizeTranslationResponse(completion?.content || '');
+    return revised || null;
+  } catch (error) {
+    console.debug('Translation revision unavailable:', error);
+    return null;
+  }
+}
+
+async function validateAndReviseTranslation(
+  service: AIService,
+  apiKey: string,
+  initialTranslation: string,
+  studyTarget: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+  customInstruction: string,
+): Promise<string> {
+  let candidate = normalizeTranslationResponse(initialTranslation);
+  let attempts = 1;
+
+  while (candidate && attempts <= MAX_TRANSLATION_GENERATION_ATTEMPTS) {
+    const audit = await auditTranslation(
+      service,
+      apiKey,
+      studyTarget,
+      candidate,
+      sourceLanguage,
+      targetLanguage,
+      customInstruction,
+      attempts,
+    );
+
+    if (audit.status === 'valid') {
+      return candidate;
+    }
+
+    if (audit.status === 'unavailable') {
+      console.debug('Translation validator unavailable; kept the latest non-empty version');
+      return candidate;
+    }
+
+    if (attempts >= MAX_TRANSLATION_GENERATION_ATTEMPTS) {
+      console.debug('Translation revision limit reached; kept the latest non-empty version');
+      return candidate;
+    }
+
+    console.debug(`Translation version ${attempts} rejected: ${audit.issues.join(' | ')}`);
+    const revised = await reviseTranslation(
+      service,
+      apiKey,
+      studyTarget,
+      candidate,
+      audit.issues,
+      sourceLanguage,
+      targetLanguage,
+      customInstruction,
+      attempts + 1,
+    );
+
+    if (!revised) {
+      console.debug('Translation revision returned no usable content; kept the previous version');
+      return candidate;
+    }
+
+    candidate = revised;
+    attempts += 1;
+  }
+
+  return candidate;
+}
+
 /**
  * Функция для перевода текста, которая работает одинаково для всех провайдеров
  */
@@ -390,23 +736,38 @@ export const createTranslation = async (
       throw new Error("API key is missing. Please check your settings.");
     }
 
-    // If we know source language, append a minimal, token-cheap hint to the prompt
-    // to improve directionality for non-English texts.
+    // An explicit source-language hint prevents a same-spelling word from being
+    // interpreted according to another language.
     const languageHint = textLanguage
-      ? ` Source text language (ISO 639-1): ${textLanguage}. Translate strictly from ${textLanguage} to ${translateToLanguage}.`
+      ? `Source language identifier: ${textLanguage}. Interpret <study_target> strictly as ${textLanguage}, then translate it to ${translateToLanguage}.`
       : '';
+    const translationInstructions = [customPrompt?.trim(), languageHint]
+      .filter(Boolean)
+      .join('\n');
 
     const translatedText = await service.translateText(
       apiKey,
       text,
       translateToLanguage,
-      (customPrompt || '') + languageHint,
+      translationInstructions,
       abortSignal
     );
+    const normalizedInitialTranslation = normalizeTranslationResponse(translatedText || '');
+    const validatedTranslation = normalizedInitialTranslation
+      ? await validateAndReviseTranslation(
+          service,
+          apiKey,
+          normalizedInitialTranslation,
+          text,
+          textLanguage?.trim() || 'unknown (infer only from the study target)',
+          translateToLanguage,
+          customPrompt || '',
+        )
+      : '';
 
     return {
       original: text,
-      translated: translatedText
+      translated: validatedTranslation || null
     };
   } catch (error) {
     console.error('Error in unified translation:', error);
@@ -445,10 +806,24 @@ export const createExamples = async (
       abortSignal
     );
 
-    return examples.map(([original, translated]) => ({
+    const normalizedExamples = examples.map(([original, translated]) => ({
       original,
       translated
     }));
+
+    if (!translate) {
+      return normalizedExamples;
+    }
+
+    return validateAndReviseExamples(
+      service,
+      apiKey,
+      normalizedExamples,
+      word,
+      sourceLanguage?.trim() || 'unknown (infer only from the study target)',
+      translateToLanguage,
+      customPrompt || '',
+    );
   } catch (error) {
     if (!isAbortLikeError(error)) {
       console.error('Error in unified examples generation:', error);
@@ -545,7 +920,8 @@ export const createCardComponentsParallel = async (
   shouldGenerateAudio: boolean = false,
   audioGenerationMode?: 'off' | 'smart' | 'always',
   openAiKey?: string,
-  generateAudioData?: (word: string, abortSignal?: AbortSignal) => Promise<string | null>
+  generateAudioData?: (word: string, abortSignal?: AbortSignal) => Promise<string | null>,
+  transcriptionOptions?: TranscriptionGenerationOptions,
 ): Promise<{
   translation?: TranslationResult;
   examples?: ExampleItem[];
@@ -618,10 +994,32 @@ export const createCardComponentsParallel = async (
       })
   );
 
-  // 4. Транскрипция (параллельно, если известен язык источника)
-  if (sourceLanguage) {
+  const transcriptionMode =
+    transcriptionOptions?.mode || DEFAULT_TRANSCRIPTION_MODE;
+  const transcriptionLanguage =
+    transcriptionOptions?.language || DEFAULT_TRANSCRIPTION_LANGUAGE;
+  const transcriptionRequest = resolveTranscriptionRequest(
+    text,
+    sourceLanguage,
+    transcriptionMode,
+    transcriptionLanguage,
+    transcriptionOptions?.extraLanguages || [],
+  );
+
+  // 4. Pronunciation guide. In automatic mode it is generated only when the actual
+  // study text contains letters outside Latin and Cyrillic; "always" and "off" are
+  // explicit user overrides.
+  if (transcriptionRequest) {
     promises.push(
-      timed('transcription', service.createTranscription(apiKey, text, sourceLanguage, translateToLanguage))
+      timed(
+        'transcription',
+        service.createTranscription(
+          apiKey,
+          text,
+          transcriptionRequest.sourceLanguage,
+          transcriptionRequest.transcriptionLanguage,
+        ),
+      )
         .then(result => ({ type: 'transcription', result }))
         .catch(error => {
           const message = stringifyUnknownError(error);
@@ -887,11 +1285,43 @@ export async function createLinguisticInfo(
 // the English category names is dropped (better one fewer fact than a mixed-language
 // card) unless outputLanguage is itself English, and only the first line seen for each
 // emoji is kept.
-const LINGUISTIC_INFO_EMOJI_PREFIXES = ['📚', '⚥', '📋', '🎯', '⏰', '🔀', '🔤', '🧩', '🔗', '📐'];
+const LINGUISTIC_INFO_EMOJI_PREFIXES = [
+  '📚', '⚥', '📋', '🎯', '⏰', '🔀', '🔤',
+  '🏷️', '🏷', '🧱', '💬',
+  '🧩', '🔗', '📐',
+];
 const LINGUISTIC_INFO_ENGLISH_CATEGORY_LABELS = [
   'part of speech', 'gender', 'number', 'case', 'tense', 'aspect', 'form',
+  'type', 'expression type', 'function', 'structure', 'usage', 'register',
   'construction', 'connector', 'connector role', 'word order', 'tense marker',
 ];
+
+const isTrivialFormPlaceholder = (line: string): boolean => {
+  if (!line.startsWith('🔤')) return false;
+  const colonIndex = line.indexOf(':');
+  if (colonIndex === -1) return false;
+
+  let remainder = line.slice(colonIndex + 1).toLocaleLowerCase();
+  const genericFormTerms = [
+    /\b(?:base|basic|dictionary|initial)\s+form\b/giu,
+    /\b(?:single|isolated|standalone|individual)\s+word\b/giu,
+    /\bword\s+in\s+isolation\b/giu,
+    /базов\p{L}*\s+форм\p{L}*/giu,
+    /начальн\p{L}*\s+форм\p{L}*/giu,
+    /словарн\p{L}*\s+форм\p{L}*/giu,
+    /(?:единичн|отдельн|изолированн)\p{L}*\s+слов\p{L}*/giu,
+    /одно\s+слов\p{L}*/giu,
+  ];
+
+  genericFormTerms.forEach((pattern) => {
+    remainder = remainder.replace(pattern, '');
+  });
+
+  // Drop the line only when it contains nothing except these recurring placeholders.
+  // A real form combined with an unfortunate extra phrase is left for the AI validator
+  // so the useful fact is not discarded deterministically.
+  return remainder.replace(/[\s/|,;:.()[\]{}–—-]+/gu, '') === '';
+};
 
 function sanitizeLinguisticInfo(raw: string | null, outputLanguage: string): string | null {
   if (!raw) return raw;
@@ -907,6 +1337,7 @@ function sanitizeLinguisticInfo(raw: string | null, outputLanguage: string): str
       if (!line) return false;
       const emoji = LINGUISTIC_INFO_EMOJI_PREFIXES.find((e) => line.startsWith(e));
       if (!emoji) return false;
+      if (isTrivialFormPlaceholder(line)) return false;
       if (!outputIsEnglish) {
         const colonIndex = line.indexOf(':');
         if (colonIndex !== -1) {
@@ -918,8 +1349,9 @@ function sanitizeLinguisticInfo(raw: string | null, outputLanguage: string): str
       // reusing the same emoji with two different values — despite the prompt saying
       // "never repeat". Keep only the first line for each emoji, same as a human skimming
       // would.
-      if (seenEmoji.has(emoji)) return false;
-      seenEmoji.add(emoji);
+      const normalizedEmoji = emoji.replace(/\uFE0F/gu, '');
+      if (seenEmoji.has(normalizedEmoji)) return false;
+      seenEmoji.add(normalizedEmoji);
       return true;
     });
 
@@ -934,27 +1366,79 @@ function sanitizeLinguisticInfo(raw: string | null, outputLanguage: string): str
 export function createQualityLinguisticPrompt(
   text: string,
   outputLanguage: string,
+  sourceLanguage: string = '',
 ): string {
-  return `TASK: Produce a VERY SHORT grammar brief for "${text}".
+  const targetLanguage = sourceLanguage.trim() || 'unknown (infer it only from the target text)';
+
+  return `TASK: Produce a VERY SHORT grammar brief for the exact STUDY TARGET below.
+
+<study_target language="${targetLanguage}">${text}</study_target>
+
 The brief MUST be written entirely in: ${outputLanguage}.
 
-FIRST, decide what "${text}" is — do not mix the two modes below:
-- WORD MODE: a single word, or a short fixed phrase/idiom with no finite verb of its
-  own (no subject+predicate expressing a complete thought) → describe its MORPHOLOGY.
-- SENTENCE MODE: a full clause or sentence (has a subject and a finite verb, expresses
-  a complete thought) → describe the KEY GRAMMATICAL CONSTRUCTION it demonstrates
-  (e.g. how a tense/aspect is formed, a notable connector's role, a word-order pattern).
-  Do NOT just describe the morphology of one arbitrary word picked out of the sentence.
+TARGET BOUNDARY — CRITICAL:
+- Analyze ONLY the exact text inside <study_target>. Its language is ${targetLanguage}.
+- Do NOT analyze its translation, a word from the instructions/examples, a neighboring
+  word that is not inside <study_target>, or a different word with a similar spelling.
+- Every output fact must be true of the study target itself. For an inflected word,
+  describe the visible surface form; do not silently replace it with its lemma.
+- Orthographic spacing is NOT a universal guide to grammatical units. A target written
+  without spaces may still contain several morphemes/words and function as an expression.
+- For a multi-part fixed expression, greeting formula, idiom, discourse marker, or
+  conventional phrase, classify the WHOLE expression by its function. Do not force the
+  entire expression into a single-word part of speech or call its pragmatic type a
+  morphological "form". A genuinely single lexical interjection remains a lexical word.
+- For a content word accompanied only by a minor grammatical marker, classify its semantic
+  head and make every extra feature agree with that head. Never classify an article or
+  classifier merely because it comes first.
+- If a fact cannot be tied confidently to the exact study target, omit it.
+- Never use 🔤 merely to say "base/dictionary/initial form", "single/isolated word",
+  or a translation of those phrases. Those describe how the input was presented, not
+  a grammatical property. If no pedagogically meaningful morphological form is visible,
+  omit the form line entirely.
+- Treat the target as isolated unless the text inside <study_target> itself contains
+  context. Never invent a surrounding sentence.
+- If one visible form has multiple common grammatical readings and the target does not
+  disambiguate them, keep all essential readings on one line, separated by " / ".
+- Distinguish a real PART-OF-SPEECH ambiguity from multiple FORMS of the same lexeme.
+  Different finite/non-finite forms of one verb belong together on 🔤; they must not
+  become alternatives such as "participle / verb" on 📚. Use 📚 alternatives only
+  when the target genuinely belongs to different word classes under different parses.
+- Apply the grammar of ${targetLanguage}; do not transfer categories or rules from
+  English, Russian, or any other language. Different languages encode tense, aspect,
+  voice, gender, case, and non-finite forms differently.
+- Report a context-dependent category only when it is encoded by the visible form or
+  proven by context inside <study_target>. A traditional form name containing a word
+  such as "past" or "passive" is not by itself proof of finite tense or syntactic voice.
 
-CONSTRAINTS (both modes):
+FIRST, decide what the study target is — do not mix the three modes below:
+- LEXICAL WORD MODE: one lexical word, including an inflected form or a genuinely
+  single-word interjection; a content word plus only a minor marker such as an article
+  also stays here → describe its MORPHOLOGY.
+- FIXED EXPRESSION MODE: a multi-part greeting/formula, idiom, conventional phrase,
+  discourse marker, or other expression whose whole has a communicative/grammatical
+  function, but which is not a complete clause → describe the WHOLE expression's
+  type/function. This mode also applies when a language does not mark the component
+  boundaries with spaces.
+- SENTENCE MODE: a full clause or sentence (has its own predication and expresses a
+  complete thought) → describe the KEY GRAMMATICAL CONSTRUCTION it demonstrates.
+  Do NOT analyze one arbitrary word instead of the whole clause.
+
+CONSTRAINTS (all modes):
 - 1–3 lines only (3 max).
 - Each line: one emoji + a short label + a concise value (a tag, not a sentence).
-- Include ONLY essential information that clearly applies to "${text}".
+- Include ONLY essential information that clearly applies to the exact study target.
 
-WORD MODE — MANDATORY:
+LEXICAL WORD MODE — MANDATORY:
 1) The FIRST line is ALWAYS part of speech, prefixed with 📚.
 2) Add extra lines ONLY when they genuinely apply (skip anything uncertain).
-3) If "${text}" pairs a main content word with a minor grammatical marker attached to
+3) Distinguish part of speech from an inflectional/non-finite form according to the
+   grammatical tradition appropriate for ${targetLanguage}. If analyses differ,
+   choose the least misleading broad class and put form details on 🔤.
+4) A form line must name a real morphological, inflectional, non-finite, or otherwise
+   established grammatical form. "Base form", "dictionary form", "single word", and
+   "isolated word" are not useful answers here and must be omitted.
+5) If "${text}" pairs a main content word with a minor grammatical marker attached to
    it (an article like "el"/"la"/"the", a classifier, a preposition showing case) rather
    than being an idiom in its own right, the part-of-speech line describes the MAIN
    content word (usually a noun or verb) — never the marker. Example: for "el gato"
@@ -962,6 +1446,17 @@ WORD MODE — MANDATORY:
    already covered by the ⚥ gender line, so it doesn't need its own part-of-speech line.
 CHOOSE EMOJIS FROM (one per line, never repeat):
 📚 part of speech | ⚥ gender | 📋 number | 🎯 case | ⏰ tense | 🔀 aspect | 🔤 form
+
+FIXED EXPRESSION MODE — MANDATORY:
+1) The FIRST line is ALWAYS the whole expression's type/function, prefixed with 🏷️.
+2) Do NOT add 📚 merely to assign one part of speech to a multi-part formula.
+3) 🧱 may compactly show internal composition only when pedagogically useful.
+4) 💬 may show register or usage only when conventional and context-independent.
+5) 🔤 is reserved for a true morphological/inflectional form. A value such as
+   "greeting formula", "idiom", "polite request", or "discourse marker" is a TYPE or
+   FUNCTION and belongs on 🏷️, never on 🔤.
+CHOOSE EMOJIS FROM (one per line, never repeat):
+🏷️ type/function | 🧱 structure | 💬 usage/register
 
 SENTENCE MODE — MANDATORY:
 1) The FIRST line is ALWAYS the grammatical construction, prefixed with 🧩.
@@ -978,100 +1473,451 @@ names from the lists above):
 📚 Часть речи: существительное
 ⚥ Род: женский
 
+Example (FIXED EXPRESSION MODE — Russian rendering of Chinese 你好; use this as a
+classification method, not as a language-specific answer to copy):
+🏷️ Тип: приветственная формула
+🧱 Структура: 你 (ты) + 好 (хорошо)
+💬 Употребление: нейтральное приветствие
+
 Example (SENTENCE MODE — same idea, shown in Russian, produce ${outputLanguage} instead):
 🧩 Конструкция: estar + gerundio — настоящее длительное время
 ⏰ Маркер: «desde hace» — длительность до настоящего момента
 
 RULES:
-- All labels and values must be written in ${outputLanguage} (not transliterated, not in another language).
-- The English words in the emoji lists above (part of speech, gender, construction,
-  connector, word order, tense marker...) are category names for you to pick from —
+- All labels and ordinary explanations must be written in ${outputLanguage}.
+- Keep established pedagogical names of grammatical forms in their conventional
+  notation when translating them would be awkward or less recognizable (for example,
+  English "Past Simple / Past Participle"). You may add a short ${outputLanguage}
+  clarification in parentheses when useful, but do not replace a familiar standard
+  term with a misleading literal translation.
+- The English words in the emoji lists above (part of speech, type/function, structure,
+  usage/register, construction, connector, word order, tense marker...) are category
+  names for you to pick from —
   never output them as-is. The <label> you write must always be its ${outputLanguage}
   translation, exactly like the two Examples above.
-- Keep each value to 1–4 words.
+- Keep each value to 1–10 words (compact alternatives separated by " / " are allowed).
 - One fact per line. No text before or after the lines.
-- Pick exactly one mode — never blend word-morphology lines with construction lines.
+- Pick exactly one mode. Never label a fixed expression's communicative type as a
+  morphological form, and never blend word morphology into a sentence construction brief.
+- Before answering, silently verify for every line: "Which exact part of the study
+  target proves this fact?" Remove the line if there is no direct answer.
 
-Create the brief for "${text}":`;
+UNIVERSAL AMBIGUITY EXAMPLES (illustrate the method; do not copy their language):
+- Isolated English "compared" can be Past Simple / Past Participle. Without a sentence,
+  both are forms of the SAME verb: 📚 must not say "participle / verb"; put both
+  conventional form names together on 🔤. Do not infer a definite tense or inherent passive.
+- Isolated Russian "стали" can be a verb form / noun form. Without context, do not
+  silently choose one part of speech.
+- Chinese "你好" functions as a greeting formula built from 你 + 好. It belongs in
+  FIXED EXPRESSION MODE: "greeting formula" is not a value for 🔤 form.
+- Apply the same context test to EVERY language and writing system, including languages
+  whose ambiguity is not marked by spaces or suffixes.
+
+Create the brief for the exact text inside <study_target>:`;
 }
 
-// Упрощенный валидатор (менее строгий, только по существу)
-function createSimpleValidatorPrompt(originalReference: string, word: string, userLanguage: string): string {
-  return `Проверь справку для "${word}" и исправь только существенные ошибки:
+// Валидатор сначала независимо разбирает точный изучаемый текст, а уже затем сверяет
+// с ним каждую строку. Это не даёт принять морфологию перевода, соседнего слова или
+// первого попавшегося слова внутри предложения.
+function createTargetAwareValidatorPrompt(
+  originalReference: string,
+  studyTarget: string,
+  sourceLanguage: string,
+  userLanguage: string,
+): string {
+  const targetLanguage = sourceLanguage.trim() || 'неизвестен — определи только по изучаемому тексту';
+
+  return `Ты независимый эксперт-лингвист. Проверь грамматическую справку для ТОЧНОГО изучаемого текста.
+
+<study_target language="${targetLanguage}">${studyTarget}</study_target>
 
 СПРАВКА:
 ${originalReference}
 
-ПРОВЕРЬ ТОЛЬКО:
-1. Есть ли повторяющиеся эмоджи? (📚 📚 - плохо)
-2. На правильном ли языке метки И значения? Внимательно проверь КАЖДУЮ метку (слово
-   перед двоеточием) — она должна быть на ${userLanguage}, а не английским названием
-   категории вроде "Part of speech", "Construction", "Tense marker", "Connector",
-   "Word order" (это частая ошибка — модель иногда копирует английское название
-   категории вместо перевода).
-3. Есть ли лишняя информация? (убери lemma, degree, notes, examples)
-4. Подходящий ли режим разбора для "${word}":
-   - Если "${word}" — одно слово или короткая устойчивая фраза (нет своего подлежащего
-     и сказуемого) → первая строка должна быть 📚 (часть речи, морфология).
-   - Если "${word}" — целое предложение/клауза (есть подлежащее и сказуемое, законченная
-     мысль) → первая строка должна быть 🧩 (грамматическая конструкция всего предложения),
-     а НЕ разбор части речи одного случайного слова внутри него.
-5. Если "${word}" — это главное слово с прилепленным к нему второстепенным маркером
+ОБЯЗАТЕЛЬНЫЙ ПОРЯДОК ПРОВЕРКИ:
+1. Сначала независимо определи грамматику точного текста внутри <study_target> на языке
+   ${targetLanguage}. Не опирайся на справку на этом шаге.
+2. Затем для КАЖДОЙ строки справки найди конкретное слово/часть внутри <study_target>,
+   к которой относится факт. Если такой части нет, справка не проходит проверку.
+3. Факт НЕ ОТНОСИТСЯ к изучаемому тексту и должен быть исправлен, если он описывает:
+   - перевод изучаемого текста или слово из инструкций;
+   - соседнее, подразумеваемое или похожее по написанию слово;
+   - лемму, когда характеристика неверна для видимой словоформы;
+   - артикль/классификатор вместо смыслового главного слова;
+   - случайное отдельное слово внутри предложения вместо конструкции всего предложения.
+4. Проверь фактическую правильность части речи и всех признаков именно для
+   <study_target>. Нельзя считать справку корректной только потому, что формат выглядит
+   правдоподобно.
+5. Считай текст изолированным: никакого контекста вне <study_target> нет. Если одна
+   видимая форма имеет несколько обычных грамматических разборов, справка обязана
+   сохранить их через " / ", а не угадывать один.
+6. Отличай настоящую неоднозначность ЧАСТИ РЕЧИ от нескольких ФОРМ одной лексемы.
+   Личные/неличные формы одного глагола перечисляй на 🔤 и не превращай их в варианты
+   вроде "причастие / глагол" на 📚. Варианты на 📚 допустимы только при реальной
+   омографии разных частей речи.
+7. Применяй правила именно языка ${targetLanguage}. Не переноси систему частей речи,
+   времён, видов, залогов, рода или падежей из другого языка. Отклоняй любую
+   характеристику, которая не закодирована в видимой форме и требует отсутствующего
+   контекста. Название формы со словами вроде "прошедшее" или "пассивное" само по себе
+   не доказывает личное время или синтаксический залог.
+8. Проверь режим разбора:
+   - Если это одно ЛЕКСИЧЕСКОЕ СЛОВО (в том числе словоформа или настоящее однословное
+     междометие), первая строка должна быть 📚, а остальные строки могут описывать
+     только его реальную морфологию.
+   - Если это СОСТАВНОЕ приветствие, формула, идиома, конвенциональная фраза,
+     дискурсивный маркер или другое многокомпонентное выражение без полной предикации,
+     первая строка должна быть 🏷️ и классифицировать функцию ВСЕГО выражения.
+     Отсутствие пробелов не доказывает, что перед нами одно морфологическое слово.
+   - Если <study_target> — целое предложение/клауза, первая строка должна быть 🧩
+     (конструкция всего предложения), а не разбор случайного слова внутри него.
+9. Проверь соответствие КАТЕГОРИИ и ЗНАЧЕНИЯ, а не только правдивость самого значения:
+   - 📚 — только часть речи лексического слова;
+   - 🔤 — только реальная морфологическая/инфлекционная форма;
+   - 🏷️ — тип или функция целого устойчивого выражения;
+   - 🧱 — внутренняя структура выражения;
+   - 💬 — регистр или конвенциональное употребление;
+   - 🧩 — конструкция целой клаузы/предложения.
+   Значения вроде «приветственная формула», «идиома», «вежливая просьба» или
+   «дискурсивный маркер» НЕ являются морфологической формой и недопустимы на 🔤.
+   Также отклоняй 🔤, если её значение лишь говорит «базовая/словарная/начальная форма»,
+   «отдельное/единичное/изолированное слово» или то же самое на ${userLanguage}. Это
+   описание подачи текста, а не грамматика. Если реальной формы нет, строку надо убрать.
+10. Есть ли повторяющиеся эмоджи? (📚 📚 — ошибка.)
+11. Соблюдена ли языковая политика? КАЖДАЯ метка перед двоеточием и обычные пояснения
+    должны быть на ${userLanguage}, а не английским названием категории вроде
+    "Part of speech", "Type", "Structure", "Usage", "Construction", "Tense marker",
+    "Connector" или "Word order".
+    При этом общепринятые учебные названия грамматических форм можно оставить в их
+    стандартной записи, если перевод хуже узнаётся: например, для английского
+    "Past Simple / Past Participle". При необходимости после термина можно дать короткое
+    пояснение на ${userLanguage} в скобках.
+12. Есть ли лишняя информация? Убери lemma, degree, notes, определения и примеры.
+13. Если <study_target> — это главное слово с прилепленным к нему второстепенным маркером
    (артикль вроде "el"/"la", классификатор, предлог падежа), а не идиома сама по себе —
    часть речи должна описывать ГЛАВНОЕ слово (обычно существительное/глагол), а НЕ сам
    артикль/классификатор. Пример ошибки: "el gato" → "Часть речи: артикль" — неверно,
    должно быть "Часть речи: существительное" (род "el" уже отражён в строке ⚥ Род).
 
-Если справка в целом корректна → ответь "СПРАВКА КОРРЕКТНА"
-Если есть существенные ошибки → создай исправленную версию
+ПРИМЕРЫ МЕТОДА, А НЕ ЯЗЫКОВЫЕ ХАРДКОДЫ:
+- English "compared" без предложения: Past Simple / Past Participle; нельзя выбрать
+  один вариант, приписать определённое время и объявить форму обязательно пассивной.
+  Это две формы одного глагола, а не части речи "причастие / глагол". При интерфейсе
+  ru итог должен иметь смысл:
+  📚 Часть речи: глагол
+  🔤 Формы: Past Simple / Past Participle
+- Русское "стали" без предложения: форма глагола / форма существительного; нельзя
+  молча выбрать только одну часть речи.
+- Chinese "你好": это целая приветственная формула из 你 + 好. Корректный режим —
+  FIXED EXPRESSION; «приветственная формула» должна быть типом на 🏷️, а не формой
+  на 🔤. По-русски допустима компактная справка:
+  🏷️ Тип: приветственная формула
+  🧱 Структура: 你 (ты) + 好 (хорошо)
+  💬 Употребление: нейтральное приветствие
+- Chinese "咖啡" как отдельное существительное не получает фиктивную строку
+  "базовая форма / единичное слово": если у видимого слова нет полезной маркированной
+  формы, справка содержит только действительно применимые признаки.
+- Аналогично ищи омографию, синкретизм и контекстную неоднозначность в ЛЮБОМ языке,
+  включая языки без пробелов и без флективных окончаний.
 
-ФОРМАТ исправленной версии (обычный текст, БЕЗ HTML и markdown, по одному факту на строку):
-<эмодзи> <метка>: <значение>
+ФОРМАТ ОТВЕТА ВАЛИДАТОРА:
+Если справка полностью правильная:
+VERDICT: VALID
+ISSUES: NONE
 
-ИСПРАВЬ если нужно:`;
+Если нужна доработка:
+VERDICT: INVALID
+ISSUES:
+- <конкретное замечание для генератора>
+- <ещё одно замечание, если нужно>
+
+При INVALID не переписывай справку сам. Дай короткие, конкретные замечания: какой факт
+ошибочен, почему он не доказан точным <study_target> и каким должен быть принцип
+исправления. Не добавляй текст вне VERDICT и ISSUES.`;
 }
 
-// Агент-валидатор грамматической справки
-async function validateAndCorrectLinguisticInfo(
+function createMorphologyEvidenceValidatorPrompt(
+  reference: string,
+  studyTarget: string,
+  sourceLanguage: string,
+  userLanguage: string,
+): string {
+  const targetLanguage = sourceLanguage.trim() || 'unknown';
+
+  return `You are the second, independent morphology-evidence auditor for a compact
+language-learning grammar reference.
+
+<study_target language="${targetLanguage}">${studyTarget}</study_target>
+<candidate_reference output_language="${userLanguage}">
+${reference}
+</candidate_reference>
+
+Audit every displayed field from scratch under the grammar of ${targetLanguage}.
+The first validator already checked formatting and broad classification; focus only on
+whether the EXACT VISIBLE FORM proves each grammatical feature.
+
+Evidence rules for every language:
+- Meaning compatibility is not morphological evidence. A noun that can refer to one or
+  many objects does not thereby encode both singular and plural.
+- In isolating or analytic languages, omit number, tense, gender, case, voice, aspect, or
+  similar fields when they are not overtly marked in the isolated target.
+- A slash-separated pair of mutually exclusive feature values is valid only for genuine
+  formal ambiguity or syncretism of this exact surface form. It is invalid when it merely
+  lists possible interpretations supplied by absent context.
+- Do not transfer categories from the output language or from a familiar European
+  grammar. Do not describe a translation.
+- Keep a feature only when a knowledgeable teacher can point to concrete morphology,
+  syntax inside the target, or a conventional whole-expression function that proves it.
+- Part of speech or whole-expression type still must describe the exact target and may
+  remain as the only line when no additional feature is encoded.
+
+OUTPUT PROTOCOL:
+If every retained field is demonstrably correct:
+VERDICT: VALID
+ISSUES: NONE
+
+If any field is unsupported or wrong:
+VERDICT: INVALID
+ISSUES:
+- <identify the exact field and the evidence problem, then state whether to correct or omit it>
+
+Do not rewrite the reference. Return only VERDICT and ISSUES.`;
+}
+
+interface LinguisticAuditResult {
+  status: 'valid' | 'invalid' | 'unavailable';
+  issues: string[];
+}
+
+interface LinguisticRevisionResult {
+  linguisticInfo: string | null;
+  wasValidated: boolean;
+  attempts: number;
+}
+
+const MAX_LINGUISTIC_GENERATION_ATTEMPTS = 3;
+
+function parseLinguisticAuditResponse(response: string): LinguisticAuditResult {
+  const verdictMatch = response.match(/^VERDICT:\s*(VALID|INVALID)\s*$/im);
+  if (!verdictMatch) {
+    return { status: 'unavailable', issues: [] };
+  }
+
+  if (verdictMatch[1].toUpperCase() === 'VALID') {
+    return { status: 'valid', issues: [] };
+  }
+
+  const issuesSection = response.match(/^ISSUES:\s*([\s\S]*)$/im)?.[1] || '';
+  const issues = issuesSection
+    .split('\n')
+    .map((line) => line.replace(/^[\s•*-]+/, '').trim())
+    .filter((line) => line && line.toUpperCase() !== 'NONE');
+
+  return {
+    status: 'invalid',
+    issues: issues.length > 0
+      ? issues
+      : ['Исправь все фактические и контекстные ошибки, найденные валидатором.'],
+  };
+}
+
+function createLinguisticRevisionPrompt(
+  currentReference: string,
+  issues: string[],
+  studyTarget: string,
+  sourceLanguage: string,
+  userLanguage: string,
+): string {
+  const feedback = issues.map((issue) => `- ${issue}`).join('\n');
+
+  return `ДОРАБОТКА ГРАММАТИЧЕСКОЙ СПРАВКИ
+
+Текущая версия:
+${currentReference}
+
+Замечания независимого валидатора:
+${feedback}
+
+Исправь ВСЕ замечания. Не защищай текущую версию и не повторяй ошибочный разбор.
+Верни только новую справку в требуемом формате.
+
+${createQualityLinguisticPrompt(studyTarget, userLanguage, sourceLanguage)}`;
+}
+
+async function auditLinguisticInfo(
   aiService: AIService,
   apiKey: string,
-  originalReference: string,
-  word: string,
-  userLanguage: string = 'ru'
-): Promise<string> {
+  reference: string,
+  studyTarget: string,
+  sourceLanguage: string,
+  userLanguage: string,
+  showTracking: boolean,
+  generationAttempt: number,
+): Promise<LinguisticAuditResult> {
   try {
-    console.log(`Validating linguistic reference for "${word}"`);
-
-    const validatorPrompt = createSimpleValidatorPrompt(originalReference, word, userLanguage);
+    const validatorPrompt = createTargetAwareValidatorPrompt(
+      reference,
+      studyTarget,
+      sourceLanguage,
+      userLanguage,
+    );
 
     const completion = await aiService.createChatCompletion(apiKey, [
       {
         role: "user",
         content: validatorPrompt
       }
-    ], undefined, OPENAI_TEXT_MODEL_ACCURATE);
+    ], showTracking ? {
+      title: 'Validating grammar reference',
+      subtitle: `Checking grammar version ${generationAttempt}`,
+      icon: '🔍',
+      color: '#9C27B0'
+    } : undefined, OPENAI_TEXT_MODEL_ACCURATE);
 
     if (!completion || !completion.content) {
-      console.log('Validator failed, returning original reference');
-      return originalReference;
+      return { status: 'unavailable', issues: [] };
     }
 
-    const response = completion.content.trim();
-
-    // Если агент сказал что справка корректна, возвращаем оригинал
-    if (response.includes('СПРАВКА КОРРЕКТНА') || response.includes('КОРРЕКТНА')) {
-      console.log('Reference validated as correct');
-      return originalReference;
+    const targetAudit = parseLinguisticAuditResponse(completion.content.trim());
+    if (targetAudit.status !== 'valid') {
+      return targetAudit;
     }
 
-    // Если агент предложил исправления, возвращаем их
-    console.log('Reference corrected by validator');
-    return response;
+    try {
+      const evidenceCompletion = await aiService.createChatCompletion(apiKey, [{
+        role: 'user',
+        content: createMorphologyEvidenceValidatorPrompt(
+          reference,
+          studyTarget,
+          sourceLanguage,
+          userLanguage,
+        ),
+      }], showTracking ? {
+        title: 'Validating grammar reference',
+        subtitle: `Checking feature evidence ${generationAttempt}`,
+        icon: '🧬',
+        color: '#9C27B0',
+      } : undefined, OPENAI_TEXT_MODEL_ACCURATE);
 
+      const evidenceAudit = parseLinguisticAuditResponse(
+        evidenceCompletion?.content?.trim() || '',
+      );
+      return evidenceAudit.status === 'unavailable' ? targetAudit : evidenceAudit;
+    } catch (error) {
+      console.debug('Grammar evidence validator unavailable:', error);
+      return targetAudit;
+    }
   } catch (error) {
-    console.error('Error in validator:', error);
-    return originalReference; // В случае ошибки возвращаем оригинал
+    // The fallback is deliberate: keep the last non-empty grammar reference. Logging at
+    // error/warn level makes Chrome list this handled condition as an extension failure.
+    console.debug('Grammar validator unavailable:', error);
+    return { status: 'unavailable', issues: [] };
   }
+}
+
+async function reviseLinguisticInfo(
+  aiService: AIService,
+  apiKey: string,
+  currentReference: string,
+  issues: string[],
+  studyTarget: string,
+  sourceLanguage: string,
+  userLanguage: string,
+  showTracking: boolean,
+  nextAttempt: number,
+): Promise<string | null> {
+  try {
+    const revisionPrompt = createLinguisticRevisionPrompt(
+      currentReference,
+      issues,
+      studyTarget,
+      sourceLanguage,
+      userLanguage,
+    );
+
+    const completion = await aiService.createChatCompletion(apiKey, [
+      { role: 'user', content: revisionPrompt }
+    ], showTracking ? {
+      title: 'Revising grammar reference',
+      subtitle: `Applying validator feedback (version ${nextAttempt})`,
+      icon: '🛠️',
+      color: '#9C27B0'
+    } : undefined, OPENAI_TEXT_MODEL_ACCURATE);
+
+    return sanitizeLinguisticInfo(completion?.content?.trim() || null, userLanguage);
+  } catch (error) {
+    console.debug('Grammar revision unavailable:', error);
+    return null;
+  }
+}
+
+async function validateAndReviseLinguisticInfo(
+  aiService: AIService,
+  apiKey: string,
+  initialReference: string,
+  studyTarget: string,
+  sourceLanguage: string,
+  userLanguage: string,
+  showTracking: boolean,
+): Promise<LinguisticRevisionResult> {
+  const sanitizedInitialReference = sanitizeLinguisticInfo(initialReference, userLanguage);
+  let attempts = 1;
+
+  if (!sanitizedInitialReference) {
+    return { linguisticInfo: null, wasValidated: false, attempts };
+  }
+
+  let candidate: string = sanitizedInitialReference;
+
+  while (attempts <= MAX_LINGUISTIC_GENERATION_ATTEMPTS) {
+    console.log(`Validating grammar version ${attempts} for "${studyTarget}"`);
+    const audit = await auditLinguisticInfo(
+      aiService,
+      apiKey,
+      candidate,
+      studyTarget,
+      sourceLanguage,
+      userLanguage,
+      showTracking,
+      attempts,
+    );
+
+    if (audit.status === 'valid') {
+      return { linguisticInfo: candidate, wasValidated: true, attempts };
+    }
+
+    if (audit.status === 'unavailable') {
+      console.debug('Grammar validator unavailable; kept the latest non-empty version');
+      return { linguisticInfo: candidate, wasValidated: false, attempts };
+    }
+
+    if (attempts >= MAX_LINGUISTIC_GENERATION_ATTEMPTS) {
+      console.debug('Grammar revision limit reached; kept the latest non-empty version');
+      return { linguisticInfo: candidate, wasValidated: false, attempts };
+    }
+
+    console.debug(`Grammar version ${attempts} rejected: ${audit.issues.join(' | ')}`);
+    const revisedReference: string | null = await reviseLinguisticInfo(
+      aiService,
+      apiKey,
+      candidate,
+      audit.issues,
+      studyTarget,
+      sourceLanguage,
+      userLanguage,
+      showTracking,
+      attempts + 1,
+    );
+
+    if (!revisedReference) {
+      console.debug('Grammar revision returned no usable content; kept the previous version');
+      return { linguisticInfo: candidate, wasValidated: false, attempts };
+    }
+
+    candidate = revisedReference;
+    attempts += 1;
+  }
+
+  return { linguisticInfo: candidate, wasValidated: false, attempts };
 }
 
 // Обновленная функция создания справки с валидацией
@@ -1086,7 +1932,7 @@ export async function createValidatedLinguisticInfo(
     console.log(`Creating validated linguistic info for "${text}"`);
 
     // 1. Создаем первоначальную справку
-    const prompt = createQualityLinguisticPrompt(text, userLanguage);
+    const prompt = createQualityLinguisticPrompt(text, userLanguage, sourceLanguage);
 
     const completion = await aiService.createChatCompletion(apiKey, [
       {
@@ -1101,17 +1947,19 @@ export async function createValidatedLinguisticInfo(
 
     const originalReference = completion.content.trim();
 
-    // 2. Проверяем и исправляем справку через валидатора
-    const validatedReference = await validateAndCorrectLinguisticInfo(
+    // 2. Проверяем, дорабатываем по замечаниям и повторно валидируем
+    const validationResult = await validateAndReviseLinguisticInfo(
       aiService,
       apiKey,
       originalReference,
       text,
-      userLanguage
+      sourceLanguage,
+      userLanguage,
+      false,
     );
 
     console.log(`Final linguistic info for "${text}" created`);
-    return sanitizeLinguisticInfo(validatedReference, userLanguage);
+    return validationResult.linguisticInfo;
 
   } catch (error) {
     console.error('Error creating validated linguistic info:', error);
@@ -1669,7 +2517,7 @@ export async function runMultipleValidation(
   };
 }
 
-// ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: максимум 2 запроса, менее строгий валидатор
+// Генерация с циклом: валидация → замечания → доработка → повторная валидация.
 export async function createOptimizedLinguisticInfo(
   aiService: AIService,
   apiKey: string,
@@ -1677,11 +2525,16 @@ export async function createOptimizedLinguisticInfo(
   sourceLanguage: string,
   userLanguage: string = 'ru'
 ): Promise<{ linguisticInfo: string | null; wasValidated: boolean; attempts: number }> {
+  let initialReference: string | null = null;
+
   try {
-    console.log(`Creating optimized linguistic info for "${text}" (max 2 requests)`);
+    console.log(
+      `Creating linguistic info for "${text}" `
+      + `(up to ${MAX_LINGUISTIC_GENERATION_ATTEMPTS} generated versions)`
+    );
 
     // ШАГ 1: Создаем первоначальную справку
-    const prompt = createQualityLinguisticPrompt(text, userLanguage);
+    const prompt = createQualityLinguisticPrompt(text, userLanguage, sourceLanguage);
 
     const completion = await aiService.createChatCompletion(apiKey, [
       {
@@ -1700,43 +2553,28 @@ export async function createOptimizedLinguisticInfo(
       return { linguisticInfo: null, wasValidated: false, attempts: 1 };
     }
 
-    const initialReference = completion.content.trim();
+    initialReference = completion.content.trim();
     console.log('Initial reference created');
 
-    // ШАГ 2: Быстрая проверка и исправление (только если есть явные ошибки)
-    const validatorPrompt = createSimpleValidatorPrompt(initialReference, text, userLanguage);
+    // ШАГ 2: Проверка и до двух доработок по конкретным замечаниям валидатора.
+    const revisionResult = await validateAndReviseLinguisticInfo(
+      aiService,
+      apiKey,
+      initialReference,
+      text,
+      sourceLanguage,
+      userLanguage,
+      true,
+    );
 
-    const validatorCompletion = await aiService.createChatCompletion(apiKey, [
-      {
-        role: "user",
-        content: validatorPrompt
-      }
-    ], {
-      title: 'Validating grammar reference',
-      subtitle: 'Checking and improving linguistic information',
-      icon: '🔍',
-      color: '#9C27B0'
-    }, OPENAI_TEXT_MODEL_ACCURATE);
-
-    if (!validatorCompletion || !validatorCompletion.content) {
-      console.log('Validator failed, returning initial reference');
-      return { linguisticInfo: sanitizeLinguisticInfo(initialReference, userLanguage), wasValidated: false, attempts: 2 };
-    }
-
-    const validatorResponse = validatorCompletion.content.trim();
-
-    // Если валидатор говорит что справка корректна - возвращаем исходную
-    if (validatorResponse.includes('СПРАВКА КОРРЕКТНА') || validatorResponse.includes('КОРРЕКТНА')) {
-      console.log('Reference validated as correct');
-      return { linguisticInfo: sanitizeLinguisticInfo(initialReference, userLanguage), wasValidated: true, attempts: 2 };
-    }
-
-    // Если есть исправления - возвращаем исправленную версию
-    console.log('Reference was corrected by validator');
-    return { linguisticInfo: sanitizeLinguisticInfo(validatorResponse, userLanguage), wasValidated: true, attempts: 2 };
+    return revisionResult;
 
   } catch (error) {
     console.error('Error in optimized linguistic info creation:', error);
-    return { linguisticInfo: null, wasValidated: false, attempts: 1 };
+    return {
+      linguisticInfo: sanitizeLinguisticInfo(initialReference, userLanguage),
+      wasValidated: false,
+      attempts: 1,
+    };
   }
 } 

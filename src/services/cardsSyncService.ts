@@ -48,6 +48,7 @@ const buildFieldsJson = (card: StoredCard): Record<string, any> => {
     transcription: card.transcription ?? '',
     wordAudio: card.wordAudio ?? null,
     examplesAudio: card.examplesAudio ?? [],
+    exampleTranscriptions: card.exampleTranscriptions ?? [],
     // Study progress rides along with the note so a reinstall does not reset every
     // card's schedule back to "new".
     srsState: card.srsState ?? null,
@@ -111,6 +112,9 @@ const normalizeFieldsJson = (
   wordAudio: fields?.wordAudio ?? null,
   examplesAudio: Array.isArray(fields?.examplesAudio)
     ? fields?.examplesAudio
+    : [],
+  exampleTranscriptions: Array.isArray(fields?.exampleTranscriptions)
+    ? fields?.exampleTranscriptions
     : [],
 });
 
@@ -229,6 +233,9 @@ const noteToStoredCard = (note: NoteApi): StoredCard | null => {
     wordAudio: fields.wordAudio ?? null,
     examplesAudio: Array.isArray(fields?.examplesAudio)
       ? fields.examplesAudio
+      : [],
+    exampleTranscriptions: Array.isArray(fields?.exampleTranscriptions)
+      ? fields.exampleTranscriptions
       : [],
     syncId: note.id ?? null,
     syncVersion: typeof note.version === 'number' ? note.version : null,

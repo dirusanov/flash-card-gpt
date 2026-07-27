@@ -24,7 +24,9 @@
     "../../src/services/languageNames.ts",
     "../../src/services/promptCache.ts",
     "../../src/services/imagePromptSafety.ts",
+    "../../src/services/exampleTranscriptions.ts",
     "../../src/services/errorFormatting.ts",
+    "../../src/services/settingsPersistence.ts",
     "../../src/store/reducers/settings.ts",
     "../../src/store/actions/settings.ts",
     "../../src/constants.ts"

@@ -868,7 +868,8 @@ export const saveCardsToStorage = async (cards: StoredCard[]): Promise<void> => 
                         linguisticInfo: card.linguisticInfo,
                         transcription: card.transcription,
                         wordAudio: card.wordAudio,
-                        examplesAudio: card.examplesAudio
+                        examplesAudio: card.examplesAudio,
+                        exampleTranscriptions: card.exampleTranscriptions
                     }));
                     
                     console.warn(`Attempting to save cards with compressed images instead of removing them.`);

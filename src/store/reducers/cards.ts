@@ -18,6 +18,7 @@ import {
   SET_TRANSCRIPTION,
   SET_WORD_AUDIO,
   SET_EXAMPLES_AUDIO,
+  SET_EXAMPLE_TRANSCRIPTIONS,
   SET_IS_GENERATING_CARD,
   UPDATE_CARD_SYNC_META,
 } from '../actions/cards';
@@ -55,6 +56,7 @@ export interface StoredCard {
   transcription?: string;
   wordAudio?: string | null;
   examplesAudio?: Array<string | null>;
+  exampleTranscriptions?: Array<string | null>;
   syncId?: string | null;
   syncVersion?: number | null;
   syncSource?: string | null;
@@ -87,6 +89,7 @@ const initialState: CardState = {
     transcription: '',
     wordAudio: null,
     examplesAudio: [],
+    exampleTranscriptions: [],
     isGeneratingCard: false,
   },
 };
@@ -107,6 +110,7 @@ export interface CardState {
   transcription: string;
   wordAudio: string | null;
   examplesAudio: Array<string | null>;
+  exampleTranscriptions: Array<string | null>;
   isGeneratingCard: boolean;
 }
 
@@ -163,6 +167,9 @@ const cardsReducer = (state = initialState, action: any): CardState => {
         wordAudio: action.payload.wordAudio ?? null,
         examplesAudio: Array.isArray(action.payload.examplesAudio)
           ? action.payload.examplesAudio
+          : [],
+        exampleTranscriptions: Array.isArray(action.payload.exampleTranscriptions)
+          ? action.payload.exampleTranscriptions
           : [],
         syncId: action.payload.syncId ?? null,
         syncVersion:
@@ -283,6 +290,11 @@ const cardsReducer = (state = initialState, action: any): CardState => {
                   : Array.isArray(card.examplesAudio)
                   ? card.examplesAudio
                   : [],
+                exampleTranscriptions: Array.isArray(action.payload.exampleTranscriptions)
+                  ? action.payload.exampleTranscriptions
+                  : Array.isArray(card.exampleTranscriptions)
+                  ? card.exampleTranscriptions
+                  : [],
                 syncId: action.payload.syncId ?? card.syncId ?? null,
                 syncVersion:
                   typeof action.payload.syncVersion === 'number'
@@ -323,6 +335,9 @@ const cardsReducer = (state = initialState, action: any): CardState => {
           wordAudio: action.payload.wordAudio ?? null,
           examplesAudio: Array.isArray(action.payload.examplesAudio)
             ? action.payload.examplesAudio
+            : [],
+          exampleTranscriptions: Array.isArray(action.payload.exampleTranscriptions)
+            ? action.payload.exampleTranscriptions
             : [],
           syncId: action.payload.syncId ?? null,
           syncVersion:
@@ -378,6 +393,9 @@ const cardsReducer = (state = initialState, action: any): CardState => {
           examplesAudio: Array.isArray(card.examplesAudio)
             ? card.examplesAudio
             : [],
+          exampleTranscriptions: Array.isArray(card.exampleTranscriptions)
+            ? card.exampleTranscriptions
+            : [],
           syncId: card.syncId ?? null,
           syncVersion:
             typeof card.syncVersion === 'number' ? card.syncVersion : null,
@@ -405,6 +423,7 @@ const cardsReducer = (state = initialState, action: any): CardState => {
         newState.imageUrl = null;
         newState.wordAudio = null;
         newState.examplesAudio = [];
+        newState.exampleTranscriptions = [];
       }
       // Otherwise, preserve images for text changes (editing existing cards)
       break;
@@ -412,9 +431,16 @@ const cardsReducer = (state = initialState, action: any): CardState => {
       newState.translation = action.payload;
       break;
     case SET_EXAMPLES:
+      const previousExamples = state.examples;
       newState.examples = action.payload;
       newState.examplesAudio = (action.payload || []).map(
         (_item: unknown, index: number) => newState.examplesAudio[index] ?? null
+      );
+      newState.exampleTranscriptions = (action.payload || []).map(
+        (item: [string, string | null], index: number) =>
+          previousExamples[index]?.[0] === item?.[0]
+            ? (newState.exampleTranscriptions || [])[index] ?? null
+            : null
       );
       break;
     case SET_IMAGE:
@@ -450,6 +476,13 @@ const cardsReducer = (state = initialState, action: any): CardState => {
       return {
         ...state,
         examplesAudio: Array.isArray(action.payload) ? action.payload : [],
+      };
+    case SET_EXAMPLE_TRANSCRIPTIONS:
+      return {
+        ...state,
+        exampleTranscriptions: Array.isArray(action.payload)
+          ? action.payload
+          : [],
       };
     case SET_IS_GENERATING_CARD:
       return { ...state, isGeneratingCard: action.payload };

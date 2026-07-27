@@ -5,7 +5,7 @@ import { useTabAware } from './TabAwareProvider';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
-import { setBack, setExamples, setExamplesAudio, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio, saveAnkiCards } from "../store/actions/cards";
+import { setBack, setExamples, setExamplesAudio, setExampleTranscriptions, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio, saveAnkiCards } from "../store/actions/cards";
 import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { setMode, setTranslateToLanguage } from "../store/actions/settings";
 import { Modes, OPENAI_TEXT_MODEL } from "../constants";
@@ -20,6 +20,7 @@ import CardFrontInput from "./CreateCard/CardFrontInput";
 import Button from "./ui/Button";
 import Textarea from "./ui/Textarea";
 import Modal from "./ui/Modal";
+import CardGenerationLoader from "./CreateCard/CardGenerationLoader";
 import { ALL_LANGUAGES } from "../data/languages";
 import { getPreferredAudioOnMode, getPreferredImageOnMode, setPreferredAudioOnMode, setPreferredImageOnMode } from "../services/generationPreferences";
 import { type DetailedLoadingMessage } from '../services/loadingMessages';
@@ -39,6 +40,11 @@ import { requestPageContext, getActiveTabId } from '../services/pageContextBridg
 import { buildSafeImagePrompt } from '../services/imagePromptSafety';
 import { consumePendingSelection, subscribeToPendingSelection } from '../services/pendingSelection';
 import { SELECTION_CHANGED } from '../services/pageContextBridge';
+import {
+    formatTranscriptionHtml,
+    shouldGenerateTranscription,
+} from '../services/transcription';
+import { generateAndValidateExampleTranscriptions } from '../services/exampleTranscriptions';
 
 interface GeneralCardTemplate {
     id: string;
@@ -56,32 +62,6 @@ const debugLog = (...args: unknown[]) => {
 };
 const TEXT_SYNC_DEBOUNCE_MS = 120;
 const PROGRESS_UPDATE_INTERVAL_MS = 120;
-
-const normalizeTranscriptionValue = (value: string | null | undefined, isIpa: boolean = false): string | null => {
-    if (!value) {
-        return null;
-    }
-
-    let cleaned = value
-        .trim()
-        .replace(/^IPA:\s*/i, '')
-        .replace(/^[A-Za-z\u0410-\u042F\u0430-\u044F\u0401\u0451\s-]{2,40}:\s*/, '')
-        .trim();
-
-    if (!cleaned) {
-        return null;
-    }
-
-    if (isIpa) {
-        cleaned = cleaned.replace(/^\[|\]$/g, '').replace(/^\/|\/$/g, '').trim();
-        if (!cleaned) {
-            return null;
-        }
-        return `[${cleaned}]`;
-    }
-
-    return cleaned;
-};
 
 interface CreateCardProps {
     // Пустой интерфейс, так как больше не нужен onSettingsClick
@@ -178,7 +158,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
 
-    const { text, translation, examples, examplesAudio, image, imageUrl, wordAudio, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
+    const { text, translation, examples, examplesAudio, exampleTranscriptions, image, imageUrl, wordAudio, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
     const [textInputValue, setTextInputValue] = useState(text);
     const textInputValueRef = useRef(text);
     const textSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -252,6 +232,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     }, []);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
+    const transcriptionMode = useSelector((state: RootState) => state.settings.transcriptionMode);
+    const transcriptionLanguage = useSelector(
+        (state: RootState) => state.settings.transcriptionLanguage
+    );
+    const transcriptionExtraLanguages = useSelector(
+        (state: RootState) => state.settings.transcriptionExtraLanguages
+    );
+    const exampleTranscriptionsEnabled = useSelector(
+        (state: RootState) => state.settings.exampleTranscriptionsEnabled
+    ) !== false;
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const mode = useSelector((state: RootState) => state.settings.mode);
@@ -284,6 +274,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setTranslation(null));
         dispatch(setExamples([]));
         dispatch(setExamplesAudio([]));
+        dispatch(setExampleTranscriptions([]));
         dispatch(setImage(null));
         dispatch(setImageUrl(null));
         dispatch(setLinguisticInfo(''));
@@ -566,6 +557,68 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         [modelProvider, openAiKey]
     );
 
+    const generateExampleTranscriptionsFor = useCallback(async (
+        examplesToTranscribe: Array<[string, string | null]>,
+        sourceLanguageCode: string | null | undefined,
+        abortSignal?: AbortSignal
+    ): Promise<Array<string | null>> => {
+        const emptyResult = new Array(examplesToTranscribe.length).fill(null);
+        if (
+            !exampleTranscriptionsEnabled
+            || transcriptionMode === 'off'
+            || !apiKey
+            || examplesToTranscribe.length === 0
+        ) {
+            return emptyResult;
+        }
+
+        const eligibleIndexes = examplesToTranscribe
+            .map(([sentence], index) => (
+                shouldGenerateTranscription(
+                    sentence,
+                    transcriptionMode,
+                    sourceLanguageCode,
+                    transcriptionExtraLanguages,
+                )
+                    ? index
+                    : -1
+            ))
+            .filter((index) => index >= 0);
+
+        if (eligibleIndexes.length === 0) {
+            return emptyResult;
+        }
+
+        try {
+            const generated = await generateAndValidateExampleTranscriptions(
+                aiService,
+                apiKey,
+                eligibleIndexes.map((index) => examplesToTranscribe[index][0]),
+                sourceLanguageCode
+                    || 'unknown (infer only from the exact source examples)',
+                transcriptionLanguage || 'en',
+                abortSignal,
+            );
+
+            const result = [...emptyResult];
+            eligibleIndexes.forEach((originalIndex, generatedIndex) => {
+                result[originalIndex] = generated[generatedIndex] ?? null;
+            });
+            return result;
+        } catch (error) {
+            if ((error as Error)?.name === 'AbortError') throw error;
+            console.debug('Example pronunciations unavailable:', error);
+            return emptyResult;
+        }
+    }, [
+        aiService,
+        apiKey,
+        exampleTranscriptionsEnabled,
+        transcriptionExtraLanguages,
+        transcriptionLanguage,
+        transcriptionMode,
+    ]);
+
     const providerDisplayName = 'OpenAI';
     const shortcutHint =
         typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -792,8 +845,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Handler for examples update
     const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
         const nextExamplesAudio = normalizeExamplesAudioFor(newExamples, examples, examplesAudio || []);
+        const nextExampleTranscriptions = newExamples.map((example, index) =>
+            examples[index]?.[0] === example[0]
+                ? exampleTranscriptions?.[index] ?? null
+                : null
+        );
         tabAware.setExamples(newExamples);
         tabAware.setExamplesAudio(nextExamplesAudio);
+        tabAware.setExampleTranscriptions(nextExampleTranscriptions);
         if (isSaved) {
             setIsEdited(true);
         }
@@ -1004,6 +1063,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 );
                 tabAware.setExamples(formattedExamples);
                 tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
+                tabAware.setExampleTranscriptions(
+                    await generateExampleTranscriptionsFor(
+                        formattedExamples,
+                        textLanguage,
+                        abortControllerRef.current?.signal,
+                    )
+                );
             }
         } catch (error) {
             // Check if this is a quota error and show appropriate message
@@ -1076,6 +1142,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     debugLog('📚 Examples generation completed');
                     tabAware.setExamples(newExamples);
                     tabAware.setExamplesAudio(new Array(newExamples.length).fill(null));
+                    tabAware.setExampleTranscriptions(
+                        await generateExampleTranscriptionsFor(
+                            newExamples,
+                            detectedOrManual,
+                            abortControllerRef.current?.signal,
+                        )
+                    );
                 }
 
                 if (wants('translation')) {
@@ -1142,7 +1215,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     needsAudio,
                     audioGenerationMode,
                     openAiKey,
-                    generateWordAudioData
+                    generateWordAudioData,
+                    {
+                        mode: transcriptionMode,
+                        language: transcriptionLanguage,
+                        extraLanguages: transcriptionExtraLanguages,
+                    }
                 );
 
                 if (result.translation?.translated) {
@@ -1154,6 +1232,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     formattedExamples = result.examples.map(ex => [ex.original, ex.translated] as [string, string | null]);
                     tabAware.setExamples(formattedExamples);
                     tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
+                    tabAware.setExampleTranscriptions(
+                        await generateExampleTranscriptionsFor(
+                            formattedExamples,
+                            detectedOrManual,
+                            abortControllerRef.current?.signal,
+                        )
+                    );
                 }
 
                 if (result.imageUrl) {
@@ -1188,22 +1273,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
 
                 if (result.transcription) {
-                    const languageName = await getLanguageName(translateToLanguage);
-                    const userLang = normalizeTranscriptionValue(result.transcription.userLanguageTranscription);
-                    const ipa = normalizeTranscriptionValue(result.transcription.ipaTranscription, true);
-
-                    const transcriptionHtml = [
-                        userLang &&
-                        `<div class="transcription-item user-lang">
-                                <span class="transcription-label">${languageName}:</span>
-                                <span class="transcription-text">${userLang}</span>
-                            </div>`,
-                        ipa &&
-                        `<div class="transcription-item ipa">
-                                <span class="transcription-label">IPA:</span>
-                                <span class="transcription-text">${ipa}</span>
-                            </div>`
-                    ].filter(Boolean).join('\n');
+                    const transcriptionHtml = formatTranscriptionHtml(
+                        result.transcription,
+                        transcriptionLanguage,
+                    );
 
                     if (transcriptionHtml) {
                         tabAware.setTranscription(transcriptionHtml);
@@ -1283,6 +1356,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     transcription: transcription || '',
                     wordAudio: wordAudio || null,
                     examplesAudio: examplesAudio || [],
+                    exampleTranscriptions: exampleTranscriptions || [],
                     deckId: selectedBackendDeckId,
                     ankiDeckName: selectedAnkiDeckName
                 };
@@ -1524,6 +1598,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     transcription: transcription || '',
                     wordAudio: wordAudio || null,
                     examplesAudio: examplesAudio || [],
+                    exampleTranscriptions: exampleTranscriptions || [],
                     // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
                     image: normalizedImage, // base64 данные (постоянные, приоритет)
                     imageUrl: normalizedImageUrl, // URL как резерв
@@ -1573,7 +1648,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             linguisticInfo: cardToSave.linguisticInfo,
                             transcription: cardToSave.transcription,
                             word_audio_base64: cardToSave.wordAudio,
-                            examples_audio_base64: cardToSave.examplesAudio
+                            examples_audio_base64: cardToSave.examplesAudio,
+                            example_transcriptions: cardToSave.exampleTranscriptions,
                         };
 
                         await dispatch(saveAnkiCards(
@@ -1627,6 +1703,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     transcription: transcription || '',
                     wordAudio: wordAudio || null,
                     examplesAudio: examplesAudio || [],
+                    exampleTranscriptions: exampleTranscriptions || [],
                     // Сохраняем оба типа изображений для надежности
                     image: normalizedImage,
                     imageUrl: normalizedImageUrl,
@@ -1819,6 +1896,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (savedCard.translation) tabAware.setTranslation(savedCard.translation);
             if (savedCard.examples) tabAware.setExamples(savedCard.examples);
             tabAware.setExamplesAudio(savedCard.examplesAudio ?? []);
+            tabAware.setExampleTranscriptions(savedCard.exampleTranscriptions ?? []);
             if (savedCard.image) tabAware.setImage(savedCard.image);
             if (savedCard.imageUrl) tabAware.setImageUrl(savedCard.imageUrl);
             if (savedCard.front) tabAware.setFront(savedCard.front);
@@ -1835,6 +1913,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             tabAware.setCurrentCardId(null);
             tabAware.setWordAudio(null);
             tabAware.setExamplesAudio([]);
+            tabAware.setExampleTranscriptions([]);
             setIsNewSubmission(true);
             setExplicitlySaved(false);
         }
@@ -2087,7 +2166,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 audioGenerationMode !== 'off',
                 audioGenerationMode,
                 openAiKey,
-                generateWordAudioData
+                generateWordAudioData,
+                {
+                    mode: transcriptionMode,
+                    language: transcriptionLanguage,
+                    extraLanguages: transcriptionExtraLanguages,
+                }
             );
 
             const duration = Date.now() - startTime;
@@ -2123,6 +2207,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 );
                 tabAware.setExamples(formattedExamples);
                 tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
+                tabAware.setExampleTranscriptions(
+                    await generateExampleTranscriptionsFor(
+                        formattedExamples,
+                        sourceLanguageForSubmit,
+                        abortSignal,
+                    )
+                );
                 completedOperations.examples = true;
             }
 
@@ -2148,23 +2239,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             // Устанавливаем транскрипцию, если доступна
             if (result.transcription) {
                 try {
-                    const languageName = await getLanguageName(translateToLanguage);
-                    const userLang = normalizeTranscriptionValue(result.transcription.userLanguageTranscription);
-                    const ipa = normalizeTranscriptionValue(result.transcription.ipaTranscription, true);
-                    const transcriptionHtml = [
-                        userLang && `
-                            <div class="transcription-item user-lang">
-                                <span class="transcription-label">${languageName}:</span>
-                                <span class="transcription-text">${userLang}</span>
-                            </div>
-                        `,
-                        ipa && `
-                            <div class="transcription-item ipa">
-                                <span class="transcription-label">IPA:</span>
-                                <span class="transcription-text">${ipa}</span>
-                            </div>
-                        `
-                    ].filter(Boolean).join('\n');
+                    const transcriptionHtml = formatTranscriptionHtml(
+                        result.transcription,
+                        transcriptionLanguage,
+                    );
 
                     if (transcriptionHtml) {
                         tabAware.setTranscription(transcriptionHtml);
@@ -2267,6 +2345,59 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
             }
 
+            // If the parallel pronunciation pass returned no validated fields, retry while
+            // the card loader is still visible. Previously this retry ran in the background
+            // after the modal opened, so a perfectly valid late result looked like a missing
+            // feature (and could be missed entirely if the user saved the card immediately).
+            const studiedWordForTranscription =
+                (result.flashcard?.front && result.flashcard.front.trim())
+                    ? result.flashcard.front.trim()
+                    : currentText;
+            if (
+                !completedOperations.transcription
+                && shouldGenerateTranscription(
+                    studiedWordForTranscription,
+                    transcriptionMode,
+                    sourceLanguageForSubmit,
+                    transcriptionExtraLanguages,
+                )
+            ) {
+                try {
+                    const sourceLangForPron =
+                        sourceLanguageForSubmit
+                        || 'unknown (infer only from the exact study target)';
+                    if (studiedWordForTranscription && transcriptionLanguage) {
+                        const aiAgentService = createAIAgentService(aiService, apiKey);
+                        debugLog(`🔤 Pronunciation Agent (recovery): generating for "${studiedWordForTranscription}" (${sourceLangForPron} -> ${transcriptionLanguage})`);
+                        const pronunciationHtml = await aiAgentService.generatePronunciationHtml(
+                            studiedWordForTranscription,
+                            sourceLangForPron,
+                            transcriptionLanguage,
+                        );
+
+                        if (
+                            abortSignal.aborted
+                            || generationIdRef.current !== myGenerationId
+                        ) {
+                            debugLog('🔤 Pronunciation Agent (recovery): stale result ignored');
+                            return;
+                        }
+
+                        if (pronunciationHtml) {
+                            tabAware.setTranscription(pronunciationHtml);
+                            completedOperations.transcription = true;
+                            debugLog('🔤 Pronunciation Agent (recovery): transcription set');
+                        } else {
+                            console.debug('Pronunciation Agent recovery returned no validated fields');
+                        }
+                    }
+                } catch (error) {
+                    if (!abortSignal.aborted) {
+                        console.debug('Pronunciation Agent recovery unavailable:', error);
+                    }
+                }
+            }
+
             debugLog('Parallel card creation completed with:', completedOperations);
 
             // Clear saved flags BEFORE showing result to prevent UI flicker
@@ -2300,26 +2431,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     setCurrentProgress({ completed: 0, total: 0 });
                 }, 500); // Short delay to ensure UI updates
 
-                // Fallback: если параллельная транскрипция не сработала — запускаем агента в фоне
-                if (!completedOperations.transcription) {
-                    try {
-                        const studiedWord = (result.flashcard?.front && result.flashcard.front.trim()) ? result.flashcard.front.trim() : text;
-                        const sourceLangForPron = sourceLanguageForSubmit;
-                        if (studiedWord && sourceLangForPron && translateToLanguage) {
-                            const aiAgentService = createAIAgentService(aiService, apiKey);
-                            (async () => {
-                                debugLog(`🔤 Pronunciation Agent (fallback): generating for "${studiedWord}" (${sourceLangForPron} -> ${translateToLanguage})`);
-                                const pronunciationHtml = await aiAgentService.generatePronunciationHtml(studiedWord, sourceLangForPron, translateToLanguage);
-                                if (pronunciationHtml) {
-                                    tabAware.setTranscription(pronunciationHtml);
-                                    debugLog('🔤 Pronunciation Agent (fallback): transcription set');
-                                }
-                            })().catch(err => console.warn('Pronunciation Agent fallback async error:', err));
-                        }
-                    } catch (e) {
-                        console.warn('Pronunciation Agent fallback failed to start:', e);
-                    }
-                }
             } else {
                 throw new Error("Failed to create card: No data was successfully generated. Please check your API key and try again.");
             }
@@ -2421,7 +2532,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             linguisticInfo: '',
             transcription: '',
             wordAudio: null,
-            examplesAudio: []
+            examplesAudio: [],
+            exampleTranscriptions: []
         });
 
         setOriginalSelectedText('');
@@ -2462,7 +2574,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 linguisticInfo: '',
                 transcription: '',
                 wordAudio: null,
-                examplesAudio: []
+                examplesAudio: [],
+                exampleTranscriptions: []
             });
         }
     };
@@ -2572,6 +2685,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             translation,
                             examples,
                             examplesAudio,
+                            exampleTranscriptions,
                             image,
                             imageUrl,
                             linguisticInfo,
@@ -2684,7 +2798,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             audioGenerationMode !== 'off',
                             audioGenerationMode,
                             openAiKey,
-                            generateWordAudioData
+                            generateWordAudioData,
+                            {
+                                mode: transcriptionMode,
+                                language: transcriptionLanguage,
+                                extraLanguages: transcriptionExtraLanguages,
+                            }
                         );
 
                         // Check if cancelled after parallel calls
@@ -2695,22 +2814,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         // Process transcription HTML
                         let transcriptionHtml = "";
                         if (result.transcription) {
-                            const languageName = await getLanguageName(translateToLanguage);
-                            const userLang = normalizeTranscriptionValue(result.transcription.userLanguageTranscription);
-                            const ipa = normalizeTranscriptionValue(result.transcription.ipaTranscription, true);
-
-                            transcriptionHtml = [
-                                userLang &&
-                                `<div class="transcription-item user-lang">
-                                        <span class="transcription-label">${languageName}:</span>
-                                        <span class="transcription-text">${userLang}</span>
-                                    </div>`,
-                                ipa &&
-                                `<div class="transcription-item ipa">
-                                        <span class="transcription-label">IPA:</span>
-                                        <span class="transcription-text">${ipa}</span>
-                                    </div>`
-                            ].filter(Boolean).join('\n');
+                            transcriptionHtml = formatTranscriptionHtml(
+                                result.transcription,
+                                transcriptionLanguage,
+                            );
                         }
 
                         // Create card object
@@ -2718,6 +2825,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                         const cardExamples = (result.examples || []).map(example => [example.original, example.translated]) as [string, string | null][];
                         let cardExamplesAudio = new Array(cardExamples.length).fill(null) as Array<string | null>;
+                        const cardExampleTranscriptions =
+                            await generateExampleTranscriptionsFor(
+                                cardExamples,
+                                sourceLangForParallel,
+                                abortSignal,
+                            );
                         const studiedWordForAudio = (result.flashcard?.front || option || '').trim();
                         if (openAiKey && shouldAutoGenerateExamplesAudioForMode(audioGenerationMode, studiedWordForAudio) && cardExamples.length > 0) {
                             cardExamplesAudio = await generateExamplesAudioBatch(cardExamples, cardExamplesAudio, abortSignal);
@@ -2730,6 +2843,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             translation: result.translation?.translated || '',
                             examples: cardExamples,
                             examplesAudio: cardExamplesAudio,
+                            exampleTranscriptions: cardExampleTranscriptions,
                             linguisticInfo: result.linguisticInfo || "",
                             transcription: transcriptionHtml,
                             wordAudio: result.wordAudio || null,
@@ -2797,6 +2911,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // Examples всегда должен быть массивом
                     dispatch(setExamples(Array.isArray(currentCard.examples) ? currentCard.examples : []));
                     dispatch(setExamplesAudio(Array.isArray(currentCard.examplesAudio) ? currentCard.examplesAudio : []));
+                    dispatch(setExampleTranscriptions(
+                        Array.isArray(currentCard.exampleTranscriptions)
+                            ? currentCard.exampleTranscriptions
+                            : []
+                    ));
 
                     // Image может быть null, но не undefined
                     dispatch(setImage(currentCard.image === undefined ? null : currentCard.image));
@@ -2989,7 +3108,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             linguisticInfo: linguisticInfo || '',
             transcription: transcription || '',
             wordAudio: wordAudio || null,
-            examplesAudio: examplesAudio || []
+            examplesAudio: examplesAudio || [],
+            exampleTranscriptions: exampleTranscriptions || []
         };
 
         // Обновляем массив карточек, заменяя текущую карточку на обновленную
@@ -3024,6 +3144,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setTranscription(''));
         dispatch(setWordAudio(null));
         dispatch(setExamplesAudio([]));
+        dispatch(setExampleTranscriptions([]));
 
         // Затем загружаем данные из карточки
 
@@ -3038,6 +3159,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Examples всегда должен быть массивом
         dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
         dispatch(setExamplesAudio(Array.isArray(card.examplesAudio) ? card.examplesAudio : []));
+        dispatch(setExampleTranscriptions(
+            Array.isArray(card.exampleTranscriptions)
+                ? card.exampleTranscriptions
+                : []
+        ));
 
         // Image может быть null, но не undefined
         dispatch(setImage(card.image === undefined ? null : card.image));
@@ -4795,7 +4921,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         linguisticInfo: (cardToSave as any).linguisticInfo,
                         transcription: (cardToSave as any).transcription,
                         word_audio_base64: (cardToSave as any).wordAudio,
-                        examples_audio_base64: (cardToSave as any).examplesAudio
+                        examples_audio_base64: (cardToSave as any).examplesAudio,
+                        example_transcriptions: (cardToSave as any).exampleTranscriptions,
                     } : {
                         text: cardToSave.text,
                         front: (cardToSave as any).front,
@@ -4923,11 +5050,9 @@ Original text: ${text}`;
 
     return (
         <div className="relative flex h-full w-full flex-1 flex-col">
-            {/* Progress used to be a full-screen blurred overlay with a shimmer bar, an emoji,
-                a monospace timer and a Cancel button — for an operation that takes seconds and
-                blocked reading the page behind it. A strip and the button state carry the same
-                information without taking the panel away. */}
-            {loadingGetResult && !forceHideLoader && (
+            {/* General mode has no visual study-card front, so it keeps the compact strip.
+                Language cards render progress inside the card itself below. */}
+            {loadingGetResult && !forceHideLoader && mode !== Modes.LanguageLearning && (
                 <div className="shrink-0 border-b border-line bg-surface-muted" role="status" aria-live="polite">
                     <div className="h-0.5 w-full overflow-hidden bg-line">
                         <div
@@ -5034,7 +5159,21 @@ Original text: ${text}`;
                         centred font would be unreadable — it keeps the plain composer.
                         The card input labels itself, so the sr-only label belongs to the
                         textarea branch rather than dangling over both. */}
-                    {mode === Modes.LanguageLearning ? (
+                    {mode === Modes.LanguageLearning && loadingGetResult && !forceHideLoader ? (
+                        <CardGenerationLoader
+                            target={textInputValue}
+                            title={currentLoadingMessage?.currentStepTitle ||
+                                currentLoadingMessage?.title ||
+                                'Starting card creation…'}
+                            subtitle={currentLoadingMessage?.currentStepSubtitle ||
+                                currentLoadingMessage?.subtitle ||
+                                'Preparing the answer, examples, and grammar reference'}
+                            completed={currentProgress.completed}
+                            total={currentProgress.total}
+                            elapsed={formatElapsedTime(elapsedTime)}
+                            onCancel={handleCancel}
+                        />
+                    ) : mode === Modes.LanguageLearning ? (
                         <CardFrontInput
                             autoFocus
                             value={textInputValue}
@@ -5061,14 +5200,14 @@ Original text: ${text}`;
                         </>
                     )}
 
-                    {cameFromSelection && textInputValue.trim() !== '' && (
+                    {!loadingGetResult && cameFromSelection && textInputValue.trim() !== '' && (
                         <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-accent-subtle px-2.5 py-1 text-[11px] font-medium text-accent">
                             <FaMagic size={9} />
                             From your selection on the page
                         </span>
                     )}
 
-                    {mode === Modes.LanguageLearning && (
+                    {mode === Modes.LanguageLearning && !loadingGetResult && (
                         <div className="shrink-0">
                             <GenerationChips
                                 imageMode={imageGenerationMode}
@@ -5097,8 +5236,7 @@ Original text: ${text}`;
                     >
                         {loadingGetResult ? (
                             <>
-                                <Loader type="spinner" size="small" inline color="#ffffff" />
-                                Creating… {formatElapsedTime(elapsedTime)}
+                                Creating card… {formatElapsedTime(elapsedTime)}
                             </>
                         ) : (
                             <>

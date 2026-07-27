@@ -28,6 +28,7 @@ export const SET_LINGUISTIC_INFO = 'SET_LINGUISTIC_INFO';
 export const SET_TRANSCRIPTION = 'SET_TRANSCRIPTION';
 export const SET_WORD_AUDIO = 'SET_WORD_AUDIO';
 export const SET_EXAMPLES_AUDIO = 'SET_EXAMPLES_AUDIO';
+export const SET_EXAMPLE_TRANSCRIPTIONS = 'SET_EXAMPLE_TRANSCRIPTIONS';
 
 // Add new actions for card generation state
 export const SET_IS_GENERATING_CARD = 'SET_IS_GENERATING_CARD';
@@ -73,6 +74,7 @@ export const saveCardToStorage = (card: {
   imageUrl?: string | null;
   wordAudio?: string | null;
   examplesAudio?: Array<string | null>;
+  exampleTranscriptions?: Array<string | null>;
   createdAt: Date;
   syncTags?: string[] | null;
   syncId?: string | null;
@@ -208,6 +210,13 @@ export const setExamplesAudio = (examplesAudio: Array<string | null>) => {
     payload: examplesAudio,
   };
 };
+
+export const setExampleTranscriptions = (
+  exampleTranscriptions: Array<string | null>
+) => ({
+  type: SET_EXAMPLE_TRANSCRIPTIONS,
+  payload: exampleTranscriptions,
+});
 
 // Add action creator for card generation state
 export const setIsGeneratingCard = (isGenerating: boolean) => {

@@ -13,7 +13,7 @@ interface SettingsProps {
   popup: boolean;
 }
 
-// Three groups, five rows, everything else behind a row. The page opens as a list you can
+// Three compact groups, with details kept behind expandable rows. The page opens as a list you can
 // read in one glance instead of four expanded panels.
 const Settings: React.FC<SettingsProps> = ({ popup = false }) => {
   const dispatch = useDispatch();

@@ -9,6 +9,7 @@ interface PreviewCardInput {
     translation: string | null;
     examples: Array<[string, string | null]>;
     examplesAudio?: Array<string | null>;
+    exampleTranscriptions?: Array<string | null>;
     image?: string | null;
     imageUrl?: string | null;
     linguisticInfo?: string | null;
@@ -36,6 +37,9 @@ export const buildPreviewCard = (input: PreviewCardInput): StoredCard => ({
     translation: input.translation ?? null,
     examples: Array.isArray(input.examples) ? input.examples : [],
     examplesAudio: Array.isArray(input.examplesAudio) ? input.examplesAudio : [],
+    exampleTranscriptions: Array.isArray(input.exampleTranscriptions)
+        ? input.exampleTranscriptions
+        : [],
     image: input.image ?? null,
     imageUrl: input.imageUrl ?? null,
     linguisticInfo: input.linguisticInfo ?? '',

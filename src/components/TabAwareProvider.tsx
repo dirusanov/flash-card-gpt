@@ -9,6 +9,7 @@ import {
     setTabImageUrl, 
     setTabWordAudio,
     setTabExamplesAudio,
+    setTabExampleTranscriptions,
     setTabFront, 
     setTabBack, 
     setTabLinguisticInfo, 
@@ -25,6 +26,7 @@ import {
     setImageUrl, 
     setWordAudio,
     setExamplesAudio,
+    setExampleTranscriptions,
     setFront, 
     setBack, 
     setLinguisticInfo, 
@@ -50,6 +52,7 @@ interface TabAwareContextType {
     imageUrl: string | null;
     wordAudio: string | null;
     examplesAudio: Array<string | null>;
+    exampleTranscriptions: Array<string | null>;
     front: string;
     back: string | null;
     linguisticInfo: string;
@@ -68,6 +71,7 @@ interface TabAwareContextType {
     setImageUrl: (imageUrl: string | null) => void;
     setWordAudio: (wordAudio: string | null) => void;
     setExamplesAudio: (examplesAudio: Array<string | null>) => void;
+    setExampleTranscriptions: (exampleTranscriptions: Array<string | null>) => void;
     setFront: (front: string) => void;
     setBack: (back: string | null) => void;
     setLinguisticInfo: (linguisticInfo: string) => void;
@@ -89,6 +93,7 @@ interface TabAwareContextType {
         imageUrl: string | null;
         wordAudio: string | null;
         examplesAudio: Array<string | null>;
+        exampleTranscriptions: Array<string | null>;
         front: string;
         back: string | null;
         linguisticInfo: string;
@@ -124,6 +129,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
             imageUrl: state.cards.imageUrl,
             wordAudio: state.cards.wordAudio,
             examplesAudio: state.cards.examplesAudio,
+            exampleTranscriptions: state.cards.exampleTranscriptions,
             front: state.cards.front,
             back: state.cards.back,
             linguisticInfo: state.cards.linguisticInfo,
@@ -150,6 +156,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
             imageUrl: globalCardData.imageUrl,
             wordAudio: globalCardData.wordAudio,
             examplesAudio: globalCardData.examplesAudio,
+            exampleTranscriptions: globalCardData.exampleTranscriptions,
             front: globalCardData.front,
             back: globalCardData.back,
             linguisticInfo: globalCardData.linguisticInfo,
@@ -177,6 +184,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
             imageUrl: cardData.imageUrl,
             wordAudio: cardData.wordAudio,
             examplesAudio: cardData.examplesAudio,
+            exampleTranscriptions: cardData.exampleTranscriptions || [],
             front: cardData.front,
             back: cardData.back,
             linguisticInfo: cardData.linguisticInfo,
@@ -242,6 +250,14 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                     dispatch(setTabExamplesAudio(tabId, examplesAudio));
                 } else {
                     dispatch(setExamplesAudio(examplesAudio));
+                }
+            },
+            setExampleTranscriptions: (exampleTranscriptions: Array<string | null>) => {
+                if (isSameValue('exampleTranscriptions', exampleTranscriptions)) return;
+                if (tabState) {
+                    dispatch(setTabExampleTranscriptions(tabId, exampleTranscriptions));
+                } else {
+                    dispatch(setExampleTranscriptions(exampleTranscriptions));
                 }
             },
             setFront: (front: string) => {
@@ -321,6 +337,7 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 imageUrl: string | null;
                 wordAudio: string | null;
                 examplesAudio: Array<string | null>;
+                exampleTranscriptions: Array<string | null>;
                 front: string;
                 back: string | null;
                 linguisticInfo: string;
@@ -368,6 +385,19 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                                     if (isSameValue('examplesAudio', value)) break;
                                     if (tabState) dispatch(setTabExamplesAudio(tabId, value as Array<string | null>));
                                     else dispatch(setExamplesAudio(value as Array<string | null>));
+                                    break;
+                                case 'exampleTranscriptions':
+                                    if (isSameValue('exampleTranscriptions', value)) break;
+                                    if (tabState) {
+                                        dispatch(setTabExampleTranscriptions(
+                                            tabId,
+                                            value as Array<string | null>
+                                        ));
+                                    } else {
+                                        dispatch(setExampleTranscriptions(
+                                            value as Array<string | null>
+                                        ));
+                                    }
                                     break;
                                 case 'front':
                                     if (isSameValue('front', value)) break;
