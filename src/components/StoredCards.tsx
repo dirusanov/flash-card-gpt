@@ -905,8 +905,10 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     };
 
     const exportCardsAsFile = () => {
-        if (selectedCards.length === 0) {
-            showError('Please select at least one card to export');
+        const targetCount = selectedCards.length > 0 ? selectedCards.length : filteredCards.length;
+        
+        if (targetCount === 0) {
+            showError(selectionMode ? 'Please select at least one card to export' : 'No cards available to export');
             return;
         }
 
@@ -2013,15 +2015,18 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
 
     const performFileExport = async () => {
-        if (selectedCards.length === 0) {
-            showError('Please select at least one card to export');
+        const targetCount = selectedCards.length > 0 ? selectedCards.length : filteredCards.length;
+        if (targetCount === 0) {
+            showError('No cards available to export');
             return;
         }
 
         try {
             setIsExporting(true);
 
-            const selectedCardsData = storedCards.filter(card => selectedCardIds.has(card.id));
+            const selectedCardsData = selectedCards.length > 0 
+                ? storedCards.filter(card => selectedCardIds.has(card.id))
+                : filteredCards;
 
             // Create a simpler format without embedded images, following the exact example format
             let exportContent = "#separator:tab\n#html:true\n";
@@ -2266,10 +2271,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                     {/* In selection mode this becomes a real select-all checkbox, sitting in
                         the same column as the row checkboxes. It used to be a small "All"
                         text link inside the action bar, two steps away from the list. */}
-                    <div className="mb-2 flex shrink-0 items-center gap-2.5">
-                        {selectionMode ? (
-                            <>
-                                <input
+                    <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-y-2 gap-x-1.5">
+                        <div className="flex flex-1 items-center gap-2.5 min-w-[100px]">
+                            {selectionMode ? (
+                                <>
+                                    <input
                                     type="checkbox"
                                     ref={selectAllRef}
                                     checked={allVisibleSelected}
@@ -2284,21 +2290,36 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 </span>
                             </>
                         ) : (
-                            <span className="min-w-0 flex-1 text-xs text-gray-500">
+                            <span className="truncate text-xs text-gray-500">
                                 {filteredCards.length} {filteredCards.length === 1 ? 'card' : 'cards'}
                             </span>
                         )}
-                        {!selectionMode && (
-                            <button
-                                type="button"
-                                onClick={() => setShowStats(true)}
-                                aria-label="Statistics"
-                                title="Statistics"
-                                className="inline-flex shrink-0 items-center gap-1.5 rounded-control px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-surface-sunken hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                            >
-                                <FaChartBar size={11} />
-                                Stats
-                            </button>
+                        </div>
+                        
+                        <div className="flex items-center gap-1.5">
+                            {!selectionMode && (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={exportCardsAsFile}
+                                    aria-label="Export to File"
+                                    title="Export to File"
+                                    className="inline-flex shrink-0 items-center gap-1.5 rounded-control px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-surface-sunken hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                >
+                                    <FaDownload size={11} />
+                                    Export
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowStats(true)}
+                                    aria-label="Statistics"
+                                    title="Statistics"
+                                    className="inline-flex shrink-0 items-center gap-1.5 rounded-control px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-surface-sunken hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                >
+                                    <FaChartBar size={11} />
+                                    Stats
+                                </button>
+                            </>
                         )}
                         {!selectionMode && filteredCards.length > 0 && (
                             <button
@@ -2326,6 +2347,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                             <FaCheckSquare size={11} />
                             {selectionMode ? 'Done' : 'Select'}
                         </button>
+                        </div>
                     </div>
 
                     {/* Plain scrolling. Pagination in a side panel meant two navigation
@@ -2475,7 +2497,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 color: '#6B7280',
                                 lineHeight: '1.5'
                             }}>
-                                Export {selectedCards.length} selected cards to a file. Choose a filename or use the default.
+                                Export {selectedCards.length > 0 ? selectedCards.length : filteredCards.length} {selectedCards.length > 0 ? 'selected' : 'visible'} cards to a file. Choose a filename or use the default.
                             </p>
 
                             <label style={{
