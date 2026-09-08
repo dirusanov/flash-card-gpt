@@ -26,7 +26,7 @@ const Settings: React.FC<SettingsProps> = ({ popup = false }) => {
       style={{ maxWidth: popup ? '100%' : 600 }}
     >
       <div className="flex flex-col gap-4">
-        <SettingsGroup caption="Account">
+        <SettingsGroup caption="Advanced · your own AI key">
           <OpenAIKeyRow />
         </SettingsGroup>
 

@@ -50,34 +50,38 @@ const GrammarCard: React.FC<GrammarCardProps> = ({ content, isEditable = false, 
 
     if (!isEditable) {
         if (facts.length === 0) return null;
+        // A quiet definition list: small grey labels in a fixed column, values in plain
+        // weight beside them, one hairline between rows. Nothing bold, nothing boxed —
+        // the facts are reference material, and the eye should find a label and stop.
         return (
-            <div className="min-w-0 flex flex-col gap-1.5 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <dl className="m-0 min-w-0 divide-y divide-line/60" onClick={(e) => e.stopPropagation()}>
                 {facts.map((fact, index) => (
-                    <div key={index} className="grid min-w-0 grid-cols-[20px,minmax(0,1fr)] items-start gap-2 text-[13px] leading-5">
-                        {fact.emoji && (
-                            <span className="w-5 shrink-0 text-center text-[15px]" aria-hidden>
-                                {fact.emoji}
-                            </span>
+                    <div
+                        key={index}
+                        className={fact.label
+                            ? 'grid min-w-0 grid-cols-[minmax(84px,30%),minmax(0,1fr)] items-baseline gap-x-3 px-3 py-2'
+                            : 'px-3 py-2'}
+                    >
+                        {fact.label ? (
+                            <>
+                                <dt className="min-w-0 text-[11px] font-medium uppercase leading-4 tracking-[0.06em] text-gray-400" style={{ overflowWrap: 'anywhere' }}>
+                                    {fact.emoji && <span className="mr-1" aria-hidden>{fact.emoji}</span>}
+                                    {fact.label}
+                                </dt>
+                                <dd className="m-0 min-w-0 text-[13px] leading-5 text-gray-900" style={{ overflowWrap: 'anywhere' }}>
+                                    {fact.value}
+                                </dd>
+                            </>
+                        ) : (
+                            // A label-less note reads as prose, not a tag.
+                            <dd className="m-0 min-w-0 text-[13px] leading-5 text-gray-600" style={{ overflowWrap: 'anywhere' }}>
+                                {fact.emoji && <span className="mr-1" aria-hidden>{fact.emoji}</span>}
+                                {fact.value}
+                            </dd>
                         )}
-                        <div
-                            className={fact.emoji ? 'col-start-2 min-w-0' : 'col-span-2 min-w-0'}
-                            style={{ overflowWrap: 'anywhere' }}
-                        >
-                            {fact.label ? (
-                                <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
-                                    <span className="min-w-0 text-gray-500">{fact.label}:</span>
-                                    {fact.value && (
-                                        <span className="min-w-0 font-semibold text-gray-900">{fact.value}</span>
-                                    )}
-                                </div>
-                            ) : (
-                                // A label-less note reads as prose, not a tag.
-                                <span className="min-w-0 text-gray-600">{fact.value}</span>
-                            )}
-                        </div>
                     </div>
                 ))}
-            </div>
+            </dl>
         );
     }
 

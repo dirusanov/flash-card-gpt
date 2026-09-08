@@ -53,13 +53,79 @@ const readSelectionElement = () => {
 const extractPageContext = async (selectedText) =>
   PageContentExtractor.extractPageContentAsync(selectedText, readSelectionElement());
 
+// The page's declared language. Read here, in the page, because the panel's own document
+// is an extension page and its <html lang> says nothing about the site.
+const readPageLanguage = () => {
+  try {
+    const raw =
+      document.documentElement.getAttribute('lang') ||
+      document.querySelector('meta[http-equiv="Content-Language" i]')?.content ||
+      document.querySelector('meta[property="og:locale" i]')?.content ||
+      '';
+    const code = raw.trim().toLowerCase().split(/[-_]/)[0];
+    return /^[a-z]{2,3}$/.test(code) ? code : '';
+  } catch {
+    return '';
+  }
+};
+
+const SENTENCE_MAX = 300;
+
+// The sentence the selection sits in: the surrounding block's text, cut at the nearest
+// sentence boundaries around the selection. A single word without its sentence is often
+// ambiguous ("ging", "dormir"); with the sentence it is not.
+const readSelectionSentence = (selected) => {
+  try {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || !selected) {
+      return '';
+    }
+    let node = selection.getRangeAt(0).commonAncestorContainer;
+    if (node.nodeType !== Node.ELEMENT_NODE) node = node.parentElement;
+    while (node && node !== document.body) {
+      const display = getComputedStyle(node).display;
+      if (display === 'block' || display === 'list-item' || display === 'table-cell' || /^(P|LI|TD|DIV|ARTICLE|SECTION|H[1-6]|BLOCKQUOTE|DD|DT)$/.test(node.tagName)) {
+        break;
+      }
+      node = node.parentElement;
+    }
+    const block = (node?.textContent || '').replace(/\s+/g, ' ').trim();
+    const at = block.indexOf(selected);
+    if (at === -1 || block.length <= selected.length) {
+      return '';
+    }
+    const boundary = /[.!?。！？]\s/g;
+    let start = 0;
+    let end = block.length;
+    let match;
+    while ((match = boundary.exec(block)) !== null) {
+      const cut = match.index + match[0].length;
+      if (cut <= at) start = cut;
+      else if (match.index >= at + selected.length) { end = match.index + 1; break; }
+    }
+    let sentence = block.slice(start, end).trim();
+    if (sentence.length > SENTENCE_MAX) {
+      const from = Math.max(0, at - start - Math.floor(SENTENCE_MAX / 2));
+      sentence = sentence.slice(from, from + SENTENCE_MAX).trim();
+    }
+    return sentence === selected ? '' : sentence;
+  } catch {
+    return '';
+  }
+};
+
+const readSelectionDetails = () => {
+  const text = readSelection();
+  return { text, sentence: readSelectionSentence(text), pageLanguage: readPageLanguage() };
+};
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.action) {
     return undefined;
   }
 
   if (message.action === GET_PAGE_SELECTION) {
-    sendResponse({ ok: true, text: readSelection() });
+    sendResponse({ ok: true, ...readSelectionDetails() });
     return true;
   }
 
@@ -83,14 +149,15 @@ let selectionTimer = null;
 let lastSentSelection = '';
 
 const notifySelection = () => {
-  const text = readSelection();
+  const details = readSelectionDetails();
+  const { text } = details;
   if (!text || text === lastSentSelection) {
     return;
   }
 
   lastSentSelection = text;
   try {
-    chrome.runtime.sendMessage({ action: SELECTION_CHANGED, text }, () => {
+    chrome.runtime.sendMessage({ action: SELECTION_CHANGED, ...details }, () => {
       // The panel is usually closed; swallowing the "no receiver" error is the normal path.
       void chrome.runtime.lastError;
     });

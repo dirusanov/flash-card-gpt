@@ -234,10 +234,9 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
   registerContextMenu();
   chrome.tabs.query({ currentWindow: true, active: true }, (tabs) => tabs[0] && configureActionForTab(tabs[0]));
 
-  // A fresh install cannot create a single card until an API key is entered, and nothing in
-  // the panel says so until a generation has already failed. Updates stay silent.
+  // Open the usable first-card flow, not the API configuration. Updates stay silent.
   if (reason === 'install') {
-    chrome.runtime.openOptionsPage();
+    chrome.tabs.create({ url: chrome.runtime.getURL('options.html#welcome') });
   }
 });
 

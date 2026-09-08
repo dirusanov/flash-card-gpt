@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from './store';
 import CreateCard from './components/CreateCard';
+import QuickStart from './components/QuickStart';
 import Settings from './components/Settings';
 import AuthScreen from './components/AuthScreen';
 import StoredCards from './components/StoredCards';
@@ -83,6 +84,8 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const dispatch = useDispatch();
   const auth = useSelector((s: RootState) => s.auth);
   const isLoggedIn = Boolean(auth.accessToken);
+  const hasOwnKey = useSelector((s: RootState) => Boolean(s.settings.openAiKey.trim()));
+  const useAnkiConnect = useSelector((s: RootState) => s.settings.useAnkiConnect);
   const ankiConnectApiKey = useSelector((s: RootState) => s.settings.ankiConnectApiKey);
   const ankiConnectUrl = useSelector((s: RootState) => s.settings.ankiConnectUrl);
 
@@ -118,6 +121,10 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
 
   useEffect(() => {
     const init = async () => {
+      if (!useAnkiConnect) {
+        setIsInitialLoad(false);
+        return;
+      }
       try {
         try {
           const decks = await fetchDecks(ankiConnectUrl, ankiConnectApiKey);
@@ -136,7 +143,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       }
     };
     if (isInitialLoad) init();
-  }, [dispatch, ankiConnectUrl, ankiConnectApiKey, isInitialLoad]);
+  }, [dispatch, ankiConnectUrl, ankiConnectApiKey, isInitialLoad, useAnkiConnect]);
 
   useEffect(() => {
     dispatch(loadStoredCards(tabId));
@@ -202,7 +209,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
         return (
           <div style={cardContentStyle}>
             <CreateCardErrorBoundary>
-              <CreateCard />
+              {hasOwnKey ? <CreateCard /> : <QuickStart />}
             </CreateCardErrorBoundary>
           </div>
         );

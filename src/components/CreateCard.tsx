@@ -31,6 +31,7 @@ import useErrorNotification from './useErrorHandler';
 import { FaLightbulb, FaMagic, FaTimes, FaList, FaFont, FaCheck, FaRobot, FaSave, FaEdit, FaKey, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
+import { detectLanguageOffline as detectLanguageOfflineService } from '../services/languageDetection';
 import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createOptimizedLinguisticInfo, createTranscription, createCardComponentsParallel, createLinguisticInfo } from '../services/aiServiceFactory';
 import { planInstruction, CardAction } from '../services/instructionRouter';
 import { ModelProvider } from '../store/reducers/settings';
@@ -3951,34 +3952,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, []);
 
     // Офлайн определение языка по паттернам (с учетом языка страницы для коротких строк)
-    const detectLanguageOffline = useCallback((text: string, pageHint?: string | null): string | null => {
-        const cleanText = text.trim().toLowerCase();
-
-        // Скрипты
-        if (/[а-яё]/i.test(cleanText)) return 'ru';
-        if (/[\u4e00-\u9fff]/.test(cleanText)) return 'zh';
-        if (/[\u3040-\u309f\u30a0-\u30ff]/.test(cleanText)) return 'ja';
-        if (/[\uac00-\ud7af]/.test(cleanText)) return 'ko';
-        if (/[\u0600-\u06ff]/.test(cleanText)) return 'ar';
-
-        // Латиница с диакритиками
-        if (/[ñáéíóúü]/i.test(cleanText)) return 'es';
-        if (/[àâäéèêëïîôöùûüÿç]/i.test(cleanText)) return 'fr';
-        if (/[äöüß]/i.test(cleanText)) return 'de';
-        if (/[àèéìíîòóù]/i.test(cleanText)) return 'it';
-
-        // Чистая латиница без диакритики
-        if (/^[a-z\s\.,!?\-'"]+$/i.test(cleanText)) {
-            const englishWords = ['the', 'and', 'is', 'in', 'to', 'of', 'a', 'for', 'with', 'on', 'at', 'by', 'from', 'this', 'that', 'it', 'he', 'she', 'they', 'we', 'you', 'was', 'were', 'are', 'have', 'has', 'had', 'can', 'will', 'would', 'could', 'should'];
-            const words = cleanText.split(/\s+/);
-            const englishMatches = words.filter(word => englishWords.includes(word.replace(/[^\w]/g, ''))).length;
-            if (englishMatches > 0) return 'en';
-            // Для однословных латинских слов доверимся языку страницы
-            if (words.length === 1 && pageHint && pageHint.length === 2) return pageHint;
-        }
-
-        return null;
-    }, []);
+    const detectLanguageOffline = useCallback(
+        (text: string, pageHint?: string | null) => detectLanguageOfflineService(text, pageHint),
+        [],
+    );
 
     // Умное кэширование с паттернами
     const getSmartCacheKey = useCallback((text: string): string => {

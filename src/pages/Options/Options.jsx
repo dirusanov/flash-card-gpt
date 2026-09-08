@@ -1,27 +1,34 @@
 import React from 'react';
 import Settings from '../../components/Settings';
+import App from '../../App';
 import brandLogo from '../../assets/img/vaulto-cards-logo.png';
 import './Options.css';
 
-// Doubles as the welcome screen: background opens this page on install, because a fresh
-// install cannot create anything until an API key is entered, and nothing in the panel says so.
-const Options = () => (
+// The welcome URL runs the same real flow as the panel; no separate throwaway demo.
+const Options = () => window.location.hash === '#welcome' ? (
+  <div style={{ height: '100vh', maxWidth: 480, margin: '0 auto' }}>
+    <App tabId={-1} />
+  </div>
+) : (
   <div className="options-root">
     <header className="options-header">
       <div className="options-brand">
         <img className="options-brand-mark" src={brandLogo} alt="" />
         <span className="options-brand-name">Vaulto Cards</span>
       </div>
-      <h1 className="options-title">Set up your card maker</h1>
+      <h1 className="options-title">Vaulto Cards settings</h1>
       <p className="options-subtitle">
-        Cards are generated with your own OpenAI key, so nothing works until you add one below.
-        It is stored in the extension&apos;s storage and never sent anywhere except to OpenAI.
+        Your first few cards are built by Vaulto, no key needed. Add your own OpenAI key or
+        connect Anki here to keep going.
+        {' '}<a href="options.html#welcome" className="text-accent underline" onClick={() => { window.location.hash = 'welcome'; window.location.reload(); }}>
+          Try a card
+        </a>
       </p>
     </header>
 
     <ol className="options-steps">
       <li className="options-step">
-        <strong>Add your OpenAI key</strong> in the settings below, then press Test Connection to
+        <strong>Optional: add your OpenAI key</strong> in the settings below, then press Test Connection to
         confirm it works.
       </li>
       <li className="options-step">

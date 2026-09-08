@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useId } from 'react';
 import { FaVolumeUp, FaEyeSlash, FaRegImage, FaTimes, FaPlus, FaCopy, FaCheck, FaUndo, FaHandPointer } from 'react-icons/fa';
 import { StoredCard } from '../../store/reducers/cards';
 import { removeDecorativeTranslationQuotes } from '../../services/aiProviders';
@@ -23,12 +23,15 @@ interface StudyCardProps {
     onTranslationChange?: (value: string) => void;
     onExamplesChange?: (examples: ExampleTuple[]) => void;
     onGrammarChange?: (serialized: string) => void;
+    /** When given, an example without audio shows a speaker that asks for it on demand. */
+    onRequestExampleAudio?: (index: number) => Promise<void>;
 }
 
 // A card simply takes the room it is given. Sizing it to its content meant measuring both
 // faces, reconciling them so the flip did not jump, and animating between sizes — a lot of
 // machinery whose best case still looked like the card growing at you. One size, decided
 // once, is steadier to read and to reason about.
+const DETAILS_KEY = 'vaulto:study-card:details-expanded';
 const MAX_CARD_HEIGHT = 600;
 /** `pt-2` + `pb-4` on the card's own wrapper, which eats into the room it is given. */
 const ROOT_VERTICAL_PADDING = 24;
@@ -92,8 +95,19 @@ const StudyCard: React.FC<StudyCardProps> = ({
     onTranslationChange,
     onExamplesChange,
     onGrammarChange,
+    onRequestExampleAudio,
 }) => {
     const [internalFlipped, setInternalFlipped] = useState(false);
+    const detailsId = useId();
+    const [detailsExpanded, setDetailsExpanded] = useState(() => {
+        try { return localStorage.getItem(DETAILS_KEY) === 'true'; } catch { return false; }
+    });
+    const toggleDetails = () => {
+        const next = !detailsExpanded;
+        setDetailsExpanded(next);
+        try { localStorage.setItem(DETAILS_KEY, String(next)); } catch { /* Session preference still works. */ }
+    };
+    const [voicing, setVoicing] = useState<number | null>(null);
     const [imageHidden, setImageHidden] = useState(false);
     const [playing, setPlaying] = useState<string | null>(null);
     const [copiedField, setCopiedField] = useState<'word' | 'translation' | null>(null);
@@ -246,7 +260,8 @@ const StudyCard: React.FC<StudyCardProps> = ({
     const translation = removeDecorativeTranslationQuotes(card.translation ?? card.back ?? '');
     const imageUrl = card.image || card.imageUrl || '';
     const rawExamples: ExampleTuple[] = Array.isArray(card.examples) ? card.examples : [];
-    const examples = rawExamples.filter((ex) => (ex?.[0] || '').trim().length > 0);
+    const examples = rawExamples.map((example, index) => ({ example, index }))
+        .filter(({ example }) => (example?.[0] || '').trim().length > 0);
     const hasGrammar = Boolean((card.linguisticInfo || '').trim());
 
     const highlight = (text: string): React.ReactNode => {
@@ -258,6 +273,51 @@ const StudyCard: React.FC<StudyCardProps> = ({
                 : <React.Fragment key={i}>{part}</React.Fragment>
         );
     };
+
+    const renderExample = ({ example: [text, tr], index }: { example: ExampleTuple; index: number }) => (
+        <li key={index} className="flex items-start gap-2.5">
+            {card.examplesAudio?.[index] ? (
+                <button
+                    type="button"
+                    onClick={(e) => play(e, card.examplesAudio?.[index])}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    aria-label="Play example"
+                    className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-subtle text-accent transition-colors hover:bg-accent-border"
+                >
+                    <FaVolumeUp size={10} />
+                </button>
+            ) : onRequestExampleAudio ? (
+                // Quiet until asked: a grey speaker that becomes the blue one above
+                // once the voice has been made, so speech is only paid for when played.
+                <button
+                    type="button"
+                    disabled={voicing !== null}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setVoicing(index);
+                        onRequestExampleAudio(index).finally(() => setVoicing(null));
+                    }}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    aria-label="Voice this example"
+                    title="Voice this example"
+                    className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line text-gray-400 transition-colors hover:border-accent-border hover:bg-accent-subtle hover:text-accent disabled:cursor-wait disabled:opacity-60"
+                >
+                    <FaVolumeUp size={10} className={voicing === index ? 'animate-pulse' : ''} />
+                </button>
+            ) : (
+                <span className="mt-0.5 shrink-0 text-[15px] leading-5 text-ok-strong" aria-hidden>•</span>
+            )}
+            <div className="min-w-0 flex-1">
+                <div className="break-words text-[14px] leading-6 text-gray-900">{highlight(text)}</div>
+                {card.exampleTranscriptions?.[index] && (
+                    <div className="mt-0.5 break-words font-mono text-[12px] leading-5 text-accent">
+                        {card.exampleTranscriptions[index]}
+                    </div>
+                )}
+                {tr && <div className="mt-0.5 break-words text-[13px] leading-5 text-gray-500">{tr}</div>}
+            </div>
+        </li>
+    );
 
     // ─── Edit mode: the same card, fields become inputs ────────────────────────
     if (editable) {
@@ -345,9 +405,9 @@ const StudyCard: React.FC<StudyCardProps> = ({
 
                     {/* Grammar comes last: long facts stay inside the card's own scroller
                         instead of splitting the answer from its examples. */}
-                    <div className="mt-3 min-w-0 overflow-hidden rounded-card border border-ok-border bg-white/70 p-3">
-                        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ok-strong">
-                            Grammar Reference
+                    <div className="mt-3 min-w-0 overflow-hidden rounded-card border border-line/70 bg-white p-3">
+                        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-400">
+                            Grammar
                         </div>
                         <GrammarCard
                             content={card.linguisticInfo || ''}
@@ -379,6 +439,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                     tabIndex={0}
                     onClick={flipToFront}
                     onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
                         if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
                             setFlipped(true);
@@ -432,6 +493,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                     tabIndex={0}
                     onClick={flipToBack}
                     onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
                         if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
                             flipToBack();
@@ -507,46 +569,45 @@ const StudyCard: React.FC<StudyCardProps> = ({
                             >
                                 <div className="mb-2 text-[13px] font-semibold text-gray-500">Examples</div>
                                 <ul className="m-0 flex list-none flex-col gap-3 p-0">
-                                    {examples.map(([text, tr], index) => (
-                                        <li key={index} className="flex items-start gap-2.5">
-                                            {card.examplesAudio?.[index] ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => play(e, card.examplesAudio?.[index])}
-                                                    onDoubleClick={(e) => e.stopPropagation()}
-                                                    aria-label="Play example"
-                                                    className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-subtle text-accent transition-colors hover:bg-accent-border"
-                                                >
-                                                    <FaVolumeUp size={10} />
-                                                </button>
-                                            ) : (
-                                                <span className="mt-0.5 shrink-0 text-[15px] leading-5 text-ok-strong" aria-hidden>•</span>
-                                            )}
-                                            <div className="min-w-0 flex-1">
-                                                <div className="break-words text-[14px] leading-6 text-gray-900">{highlight(text)}</div>
-                                                {card.exampleTranscriptions?.[index] && (
-                                                    <div className="mt-0.5 break-words font-mono text-[12px] leading-5 text-accent">
-                                                        {card.exampleTranscriptions[index]}
-                                                    </div>
-                                                )}
-                                                {tr && <div className="mt-0.5 break-words text-[13px] leading-5 text-gray-500">{tr}</div>}
-                                            </div>
-                                        </li>
-                                    ))}
+                                    {examples.slice(0, 1).map(renderExample)}
                                 </ul>
                             </div>
                         )}
 
-                        {hasGrammar && (
-                            <div
-                                className="mt-3 min-w-0 overflow-hidden rounded-card border border-ok-border bg-white/70 p-3"
-                                onClick={(e) => e.stopPropagation()}
-                                onDoubleClick={(e) => { e.stopPropagation(); setFlipped(false); }}
-                            >
-                                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ok-strong">
-                                    Grammar Reference
+                        {(examples.length > 1 || hasGrammar) && (
+                            <div className="mt-3" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                                <button
+                                    type="button"
+                                    aria-expanded={detailsExpanded}
+                                    aria-controls={detailsId}
+                                    onClick={toggleDetails}
+                                    className="flex w-full items-center justify-between gap-2 rounded-control px-2 py-2 text-left text-[13px] font-medium text-gray-500 transition-colors hover:bg-white/60 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                >
+                                    <span>{[
+                                        examples.length > 1 ? `${examples.length - 1} more ${examples.length === 2 ? 'example' : 'examples'}` : '',
+                                        hasGrammar ? 'Grammar' : '',
+                                    ].filter(Boolean).join(' · ')}</span>
+                                    <span aria-hidden="true">{detailsExpanded ? '−' : '+'}</span>
+                                </button>
+                                <div id={detailsId} hidden={!detailsExpanded}>
+                                    {examples.length > 1 && (
+                                        <ul className="m-0 mt-2 flex list-none flex-col gap-3 p-0">
+                                            {examples.slice(1).map(renderExample)}
+                                        </ul>
+                                    )}
+                                    {hasGrammar && (
+                                        <div
+                                            className="mt-3 min-w-0 overflow-hidden rounded-card border border-line/70 bg-white"
+                                            onClick={(e) => e.stopPropagation()}
+                                            onDoubleClick={(e) => { e.stopPropagation(); setFlipped(false); }}
+                                        >
+                                            <div className="border-b border-line/60 bg-surface-muted/60 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-400">
+                                                Grammar
+                                            </div>
+                                            <GrammarCard content={card.linguisticInfo || ''} />
+                                        </div>
+                                    )}
                                 </div>
-                                <GrammarCard content={card.linguisticInfo || ''} />
                             </div>
                         )}
                     </div>
