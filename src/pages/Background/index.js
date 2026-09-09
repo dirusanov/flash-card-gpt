@@ -80,13 +80,10 @@ function configureActionForTab(tab) {
   const isHttp = url.startsWith('http://') || url.startsWith('https://');
   if (isHttp) {
     chrome.action.setPopup({ tabId: tab.id, popup: '' });
-    chrome.action.setTitle({ tabId: tab.id, title: 'Vaulto Cards' });
+    chrome.action.setTitle({ tabId: tab.id, title: chrome.i18n.getMessage('actionTitle') });
   } else {
     chrome.action.setPopup({ tabId: tab.id, popup: 'popup.html' });
-    chrome.action.setTitle({
-      tabId: tab.id,
-      title: 'Расширение недоступно на этой странице',
-    });
+    chrome.action.setTitle({ tabId: tab.id, title: chrome.i18n.getMessage('actionUnavailable') });
   }
 }
 
@@ -144,7 +141,7 @@ function registerContextMenu() {
     chrome.contextMenus.removeAll(() => {
       chrome.contextMenus.create({
         id: CREATE_CARD_MENU_ID,
-        title: 'Create card from "%s"',
+        title: chrome.i18n.getMessage('contextMenuCreate'),
         contexts: ['selection'],
         documentUrlPatterns: HTTP_URL_PATTERNS,
       });

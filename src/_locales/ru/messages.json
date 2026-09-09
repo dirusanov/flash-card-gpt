@@ -1,0 +1,7 @@
+{
+  "appName": { "message": "AI-карточки для Anki — Vaulto" },
+  "appDesc": { "message": "Слова с любой страницы в карточки для Anki: перевод, примеры, грамматика, озвучка. 100 карточек бесплатно, без API-ключа." },
+  "actionTitle": { "message": "AI-карточки для Anki — Vaulto" },
+  "actionUnavailable": { "message": "Расширение недоступно на этой странице" },
+  "contextMenuCreate": { "message": "Создать карточку из «%s»" }
+}

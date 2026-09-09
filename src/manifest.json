@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApo20H7hsquuPJBGcQw1kagkUH0ZCybrdm22+npbRYC9tLcYHsKdyltxnGpRJfltmUOnQqSzdZ1SSIrV1fYULz3X4/NNLdVlreI5kkUog2axAU2s/BAeucO9UTiAsCbWZltgPvKaFojASOlZXeXQWb25W0GvUgoaWaNrcX0y3SRBRs+ykz6YS3Z8rOTV5yKH2J6KJoSXI19mwZu2q2SXh+wHhK2hE7jAjOxABUIkQb0aX4N64ONRtLKcIDw1x8Mr9iU1zw90ZBpOJiBOQ24O0ywhp1w1w/5qZzoiO0AvdN/UFVkZoJXRU+GSlAmedlHJ37hmp2kuo2J4dlzc4G/P9UwIDAQAB",
-  "name": "AI Flashcards for Anki — Vaulto",
+  "name": "__MSG_appName__",
+  "default_locale": "en",
   "version": "5.2.0",
-  "description": "Turn selected page text into study cards with AI, optional Anki export, and Vaulto sync",
+  "description": "__MSG_appDesc__",
   "options_page": "options.html",
   "background": {
     "service_worker": "background.bundle.js"
   },
   "action": {
-    "default_title": "AI Flashcards for Anki — Vaulto"
+    "default_title": "__MSG_actionTitle__"
   },
   "side_panel": {
     "default_path": "sidepanel.html"

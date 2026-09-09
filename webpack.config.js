@@ -154,6 +154,13 @@ var options = {
     new CopyWebpackPlugin({
       patterns: [
         {
+          // Store name and description per language; the manifest points at them
+          // with __MSG_*__ placeholders.
+          from: 'src/_locales',
+          to: path.join(__dirname, 'build', '_locales'),
+          force: true,
+        },
+        {
           from: 'src/assets/img/logo-16.png',
           to: path.join(__dirname, 'build'),
           force: true,
