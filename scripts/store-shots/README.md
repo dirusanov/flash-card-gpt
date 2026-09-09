@@ -136,8 +136,17 @@ and a shape. The caption carries those frames; frame 02 is where the card is leg
 
 ## Choosing the word
 
-Three constraints learned the hard way, worth keeping in mind before editing
-`CONTENT.word` or `SECOND_PAGE.word`:
+The word on the card is the argument for the product. It has to be one a learner would
+actually stop and look up: "sobrina" came back as "niece", which anybody installing a
+Spanish extension already knows, and a frame built on it demonstrates nothing. It also has
+to be one the reader can see is worth a card — "charlas de sobremesa" works because English
+has no word for it.
+
+That is awkward on the Don Quijote page, which is 17th-century Spanish: its distinctive
+vocabulary is archaic (adarga, rocín, podadera) and its everyday vocabulary is too easy.
+"madrugador" is one of the few that is both current and worth learning.
+
+Three more constraints, learned the hard way:
 
 - It must not sit inside a link. Double-clicking a wikilink follows it.
 - Its translation must not be the same word. "hidalgo" is a loanword in English, so the

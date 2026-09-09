@@ -646,7 +646,7 @@ async function captureReview(article, panel, worker) {
 }
 
 /** Words a Spanish learner would actually have in a deck, cards built by the real service. */
-const LIBRARY_WORDS = ['madrugar', 'aprovechar', 'echar de menos'];
+const LIBRARY_WORDS = ['estrenar', 'aprovechar', 'echar de menos'];
 
 /**
  * The library cards are given a schedule that puts them a few days out, the way cards that

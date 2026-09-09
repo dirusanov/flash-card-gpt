@@ -57,11 +57,18 @@ const CONTENT = {
  */
 const SECOND_PAGE = {
   url: 'https://www.gutenberg.org/cache/epub/2000/pg2000-images.html',
-  // Not "hidalgo" (English borrowed it, so the card translated it to itself) and not
-  // "galgo" (the image-prompt guard in imagePromptSafety.ts refused it, leaving the card
-  // with no illustration). A plain concrete noun clears both.
-  word: 'sobrina',
-  sentenceFragment: 'una sobrina que no llegaba a los veinte',
+  /**
+   * Don Quijote is 17th-century Spanish, which makes picking a word here awkward: its
+   * distinctive vocabulary is archaic (adarga, rocín, podadera) and its everyday vocabulary
+   * is too easy to be worth a card — "sobrina" came out as "niece", a word anybody
+   * installing a Spanish extension already knows, so the frame demonstrated nothing.
+   * "madrugador" is both current and worth looking up, and it pictures well.
+   *
+   * Also ruled out: "hidalgo" (English borrowed it, so the card translated it to itself)
+   * and "galgo" (imagePromptSafety.ts refused the image prompt, leaving no illustration).
+   */
+  word: 'madrugador',
+  sentenceFragment: 'gran madrugador y amigo de la caza',
 };
 
 /**
