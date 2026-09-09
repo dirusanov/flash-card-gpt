@@ -98,21 +98,31 @@ const STAGE = {
  * (ui/Modal.tsx), so extra width gives that sheet air instead of pressing it to the edges.
  */
 const WINDOW = {
-  height: 760,
+  // Measured, not guessed: the card sheet grows with the panel until the panel is about
+  // 960px tall, where StudyCard's own 600px cap takes over and it stops. Past that point a
+  // taller window only scales the card down without showing any more of it.
+  height: 840,
   panelWidth: 460,
+  /**
+   * How wide the window is drawn in the frame. Less than the full stage on purpose: a shell
+   * stretched across all 1200px is 2.1:1, a letterbox no browser is ever shaped like, and it
+   * reads as a short window however tall the viewport behind it is. At 1060 it is 1.74:1 —
+   * a window — and the ground either side frames it.
+   */
+  shellWidth: 1060,
 };
 
 const shellContentHeight = STAGE.height - SHELL_BAR;
 const windowScale = shellContentHeight / WINDOW.height;
 const placedPanelWidth = Math.round(WINDOW.panelWidth * windowScale);
-const pageWidth = Math.round(STAGE.width / windowScale - WINDOW.panelWidth);
+const pageWidth = Math.round(WINDOW.shellWidth / windowScale - WINDOW.panelWidth);
 
 const CAPTURE = {
   // Two device pixels per placed pixel is all the 2x render in compose.js can use.
   deviceScaleFactor: 2,
   page: {
     css: { width: pageWidth, height: WINDOW.height },
-    placed: { width: STAGE.width - placedPanelWidth, height: shellContentHeight },
+    placed: { width: WINDOW.shellWidth - placedPanelWidth, height: shellContentHeight },
   },
   panel: {
     css: { width: WINDOW.panelWidth, height: WINDOW.height },
@@ -128,8 +138,11 @@ function assertGeometry() {
     }
   }
   const shell = CAPTURE.page.placed.width + CAPTURE.panel.placed.width;
-  if (shell !== STAGE.width) {
-    throw new Error(`page + panel = ${shell}px, the stage is ${STAGE.width}px wide`);
+  if (shell !== WINDOW.shellWidth) {
+    throw new Error(`page + panel = ${shell}px, the window is ${WINDOW.shellWidth}px wide`);
+  }
+  if (WINDOW.shellWidth > STAGE.width) {
+    throw new Error(`the window is ${WINDOW.shellWidth}px wide, wider than the ${STAGE.width}px stage`);
   }
 }
 

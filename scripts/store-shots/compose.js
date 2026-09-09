@@ -132,7 +132,8 @@ const document_ = (frame, caption, captionSize, meta) => `<!doctype html>
 
   /* --- browser window around a real page capture --- */
   .shell {
-    width: ${INNER.width}px; height: ${INNER.height}px;
+    width: ${CAPTURE.page.placed.width + CAPTURE.panel.placed.width}px;
+    height: ${INNER.height}px;
     background: #fff;
     border: 1px solid ${LINE};
     border-radius: 12px;

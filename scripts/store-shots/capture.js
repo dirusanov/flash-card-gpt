@@ -298,11 +298,13 @@ async function generateCard(panel) {
 const CARD = '[role="dialog"] div[style*="perspective"]';
 
 /**
- * Frame 02's strips are taken in the same window as every other frame, so the card in the
- * close-up is the card in the panel — same size, same layout. A taller window would only
- * make each strip taller, and a taller strip has to be drawn smaller to fit the stage.
+ * Frame 02's strips are taken in a shorter panel than the other frames use, and that is
+ * deliberate. A taller panel makes each strip taller, and a taller strip has to be drawn
+ * smaller to fit the stage: at 880px the card needs two strips and they fill two thirds of
+ * the frame at 1.07x, at 760px it needs three and they fill it at about 1.2x. The card is
+ * identical either way — only how much of it one strip holds changes.
  */
-const CARD_SHOT_VIEWPORT = { width: WINDOW.panelWidth, height: WINDOW.height };
+const CARD_SHOT_VIEWPORT = { width: WINDOW.panelWidth, height: 760 };
 
 async function flipCard(panel, wantBack) {
   const isBack = async () => panel.evaluate((sel) => {

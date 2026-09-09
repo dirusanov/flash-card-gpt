@@ -44,6 +44,14 @@ the text biggest once placed; the frames came out cramped, and the card was cut 
 The whole window is now photographed at a size somebody actually works in and scaled down
 together, which is what a screenshot of a real screen looks like.
 
+Two numbers control how tall that window reads, and they do different things.
+`WINDOW.height` is the viewport behind the capture: raising it shows more page and more
+card, and shrinks everything, until the panel passes about 960px and StudyCard's 600px cap
+stops the card growing at all. `WINDOW.shellWidth` is how wide the window is *drawn*:
+stretched across the whole 1200px stage it is 2.1:1, a letterbox no browser is shaped
+like, and it reads as short no matter what the viewport behind it is. Narrowing it to 1060
+makes the same capture read as a window.
+
 Generation is not deterministic. A run can come back with no examples, with the Spanish
 word repeated where the translation belongs, or — for some words — with the image prompt
 refused. `generateGoodCard` checks the card and presses Create again, up to three times,
