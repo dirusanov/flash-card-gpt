@@ -15,6 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { chromium } = require('playwright');
 
 const {
@@ -196,17 +197,87 @@ async function fitCaptionSize(page, captions) {
   });
 }
 
+/* ------------------------------------------------------------ png encoding ---- */
+
+const CRC_TABLE = (() => {
+  const table = new Int32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c;
+  }
+  return table;
+})();
+
+const crc32 = (buffer) => {
+  let c = 0xffffffff;
+  for (let i = 0; i < buffer.length; i += 1) c = CRC_TABLE[(c ^ buffer[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+};
+
+const chunk = (type, data) => {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write(type, 4, 'ascii');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+  return Buffer.concat([head, data, crc]);
+};
+
+/**
+ * Encodes raw RGBA pixels as a truecolour PNG with no alpha channel.
+ *
+ * The Chrome Web Store asks for 24-bit PNG without alpha, and a canvas always hands back
+ * RGBA — `toDataURL` has no way to drop the channel. Rather than take on an image library
+ * for one job, the pixels come back from the canvas raw and are encoded here: colour type
+ * 2, filter 0 on every scanline, zlib for the data.
+ */
+function encodeRgbPng(rgba, width, height) {
+  const stride = width * 3;
+  const rows = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * (stride + 1);
+    rows[rowStart] = 0; // filter: none
+    for (let x = 0; x < width; x += 1) {
+      const from = (y * width + x) * 4;
+      const to = rowStart + 1 + x * 3;
+      rows[to] = rgba[from];
+      rows[to + 1] = rgba[from + 1];
+      rows[to + 2] = rgba[from + 2];
+    }
+  }
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;   // bit depth
+  ihdr[9] = 2;   // colour type: truecolour, no alpha
+  ihdr[10] = 0;  // deflate
+  ihdr[11] = 0;  // adaptive filtering
+  ihdr[12] = 0;  // no interlace
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(rows, { level: 9 })),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+/* ---------------------------------------------------------------- rendering ---- */
+
 /**
  * Renders at 2x and hands the 2560x1600 bitmap back to a blank page, which draws it once
  * into a 1280x800 canvas. An exact 2:1 reduction, done by the same renderer that drew the
- * type — no external image tool, no resampling surprises.
+ * type — no external image tool, no resampling surprises. The canvas then gives up its raw
+ * pixels, which encodeRgbPng writes out without the alpha channel the store rejects.
  */
 async function renderFrame(page, downscaler, frame, caption, captionSize, outFile) {
   await page.setContent(document_(frame, caption, captionSize), { waitUntil: 'load' });
   await page.evaluate(() => document.fonts.ready);
   const big = await page.screenshot({ scale: 'device' });
 
-  const shrunk = await downscaler.evaluate(async ({ b64, width, height }) => {
+  const pixels = await downscaler.evaluate(async ({ b64, width, height }) => {
     const image = new Image();
     image.src = `data:image/png;base64,${b64}`;
     await image.decode();
@@ -217,11 +288,17 @@ async function renderFrame(page, downscaler, frame, caption, captionSize, outFil
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(image, 0, 0, width, height);
-    const url = canvas.toDataURL('image/png');
-    return url.slice(url.indexOf(',') + 1);
+    const { data } = ctx.getImageData(0, 0, width, height);
+    let binary = '';
+    const step = 0x8000;
+    for (let i = 0; i < data.length; i += step) {
+      binary += String.fromCharCode.apply(null, data.subarray(i, i + step));
+    }
+    return btoa(binary);
   }, { b64: big.toString('base64'), width: FRAME.width, height: FRAME.height });
 
-  fs.writeFileSync(outFile, Buffer.from(shrunk, 'base64'));
+  const rgba = Buffer.from(pixels, 'base64');
+  fs.writeFileSync(outFile, encodeRgbPng(rgba, FRAME.width, FRAME.height));
 }
 
 /**
