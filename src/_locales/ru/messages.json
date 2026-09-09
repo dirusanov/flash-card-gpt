@@ -1,7 +1,17 @@
 {
-  "appName": { "message": "AI-карточки для Anki — Vaulto" },
-  "appDesc": { "message": "Слова с любой страницы в карточки для Anki: перевод, примеры, грамматика, озвучка. 100 карточек бесплатно, без API-ключа." },
-  "actionTitle": { "message": "AI-карточки для Anki — Vaulto" },
-  "actionUnavailable": { "message": "Расширение недоступно на этой странице" },
-  "contextMenuCreate": { "message": "Создать карточку из «%s»" }
+  "appName": {
+    "message": "AI-карточки для Anki — Vaulto"
+  },
+  "appDesc": {
+    "message": "Выделите текст на странице и превратите его в карточку Anki одним кликом. AI добавит перевод, пример и картинку."
+  },
+  "actionTitle": {
+    "message": "AI-карточки для Anki — Vaulto"
+  },
+  "actionUnavailable": {
+    "message": "Расширение недоступно на этой странице"
+  },
+  "contextMenuCreate": {
+    "message": "Создать карточку из «%s»"
+  }
 }

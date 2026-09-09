@@ -1,7 +1,7 @@
 {
   "name": "vaulto-cards-extension",
   "version": "5.2.0",
-  "description": "Turn words from any page into Anki-ready flashcards: translation, examples, grammar, audio. 100 free cards, no API key.",
+  "description": "Highlight any text on a page and turn it into an Anki flashcard in one click. AI adds the translation, an example and an image.",
   "license": "MIT",
   "repository": {
     "type": "git",

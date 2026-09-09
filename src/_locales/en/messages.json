@@ -1,7 +1,22 @@
 {
-  "appName": { "message": "AI Flashcards for Anki — Vaulto", "description": "Extension name in the Chrome Web Store and chrome://extensions" },
-  "appDesc": { "message": "Turn words from any page into Anki-ready flashcards: translation, examples, grammar, audio. 100 free cards, no API key.", "description": "Short description in the store, 132 characters max" },
-  "actionTitle": { "message": "AI Flashcards for Anki — Vaulto", "description": "Tooltip on the toolbar icon" },
-  "actionUnavailable": { "message": "Not available on this page", "description": "Toolbar tooltip on chrome:// and other non-web pages" },
-  "contextMenuCreate": { "message": "Create card from \"%s\"", "description": "Right-click menu entry; %s is the selected text" }
+  "appName": {
+    "message": "AI Flashcards for Anki — Vaulto",
+    "description": "Extension name in the Chrome Web Store and chrome://extensions"
+  },
+  "appDesc": {
+    "message": "Highlight any text on a page and turn it into an Anki flashcard in one click. AI adds the translation, an example and an image.",
+    "description": "Short description in the store, 132 characters max"
+  },
+  "actionTitle": {
+    "message": "AI Flashcards for Anki — Vaulto",
+    "description": "Tooltip on the toolbar icon"
+  },
+  "actionUnavailable": {
+    "message": "Not available on this page",
+    "description": "Toolbar tooltip on chrome:// and other non-web pages"
+  },
+  "contextMenuCreate": {
+    "message": "Create card from \"%s\"",
+    "description": "Right-click menu entry; %s is the selected text"
+  }
 }
