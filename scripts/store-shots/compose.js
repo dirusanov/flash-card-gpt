@@ -19,7 +19,7 @@ const zlib = require('zlib');
 const { chromium } = require('playwright');
 
 const {
-  BRAND, GROUND, LINE, TEXT_MUTED, paths, FRAME, FRAMES, CAPTURE,
+  BRAND, GROUND, LINE, TEXT_MUTED, paths, FRAME, FRAMES, CAPTURE, STAGE, SHELL_BAR,
 } = require('./config');
 
 const log = (...args) => console.log('[compose]', ...args);
@@ -37,16 +37,20 @@ const dataUri = (file) => {
   return `data:image/png;base64,${buffer.toString('base64')}`;
 };
 
+/** Reads a PNG's pixel size straight out of its IHDR, so no decoder is needed. */
+const pngSize = (file) => {
+  const head = Buffer.alloc(24);
+  const fd = fs.openSync(path.join(paths.raw, file), 'r');
+  fs.readSync(fd, head, 0, 24, 0);
+  fs.closeSync(fd);
+  return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
+};
+
 /** The extension's own font stack, so the caption is set in the product's type. */
 const FONT = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, "
   + "Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif";
 
-const INNER = {
-  width: FRAME.width - FRAME.inset * 2,
-  height: FRAME.height - FRAME.bandHeight - FRAME.inset,
-};
-
-const SHELL_BAR = 44;
+const INNER = STAGE;
 
 /* ------------------------------------------------------------------- markup ---- */
 
@@ -62,18 +66,44 @@ const browserShell = (frame) => `
     </div>
   </div>`;
 
-const cardPair = (frame) => `
-  <div class="pair">
-    <img class="card" src="${dataUri(frame.raw[0])}" alt="">
-    <img class="card" src="${dataUri(frame.raw[1])}" alt="">
-  </div>`;
+/**
+ * The card is a narrow column that scrolls inside a 600px box, so no single screenshot has
+ * all of it. capture.js walks it and writes one strip per scroll position; they are stood
+ * side by side here, sized so the row fills the stage — which is what lets the card be
+ * drawn larger than life instead of shrunk to fit its own height.
+ */
+const cardStrips = (frame) => {
+  const files = strips();
+  const gap = 36;
+  const { width, height } = pngSize(files[0]);
+
+  const scale = Math.min(
+    INNER.height / height,
+    (INNER.width - gap * (files.length - 1)) / (width * files.length),
+  );
+  const shown = { width: width * scale, height: height * scale };
+
+  const column = (file) => `<img class="strip" src="${dataUri(file)}"
+      style="width:${shown.width}px;height:${shown.height}px">`;
+
+  return `<div class="strips" style="gap:${gap}px">${files.map(column).join('')}</div>`;
+};
+
+/** card-1.png, card-2.png, … in order; how many there are depends on what the card holds. */
+const strips = () => {
+  const found = fs.readdirSync(paths.raw)
+    .filter((name) => /^card-\d+\.png$/.test(name))
+    .sort((a, b) => parseInt(a.match(/\d+/)[0], 10) - parseInt(b.match(/\d+/)[0], 10));
+  if (!found.length) throw new Error('no card-N.png strips in store-assets/raw');
+  return found;
+};
 
 const single = (frame) => `
   <div class="single"><img src="${dataUri(frame.raw[0])}" alt=""></div>`;
 
-const LAYOUTS = { browser: browserShell, cardPair, single };
+const LAYOUTS = { browser: browserShell, cardStrips, single };
 
-const document_ = (frame, caption, captionSize) => `<!doctype html>
+const document_ = (frame, caption, captionSize, meta) => `<!doctype html>
 <html><head><meta charset="utf-8"><style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: ${FRAME.width}px; height: ${FRAME.height}px; }
@@ -139,14 +169,11 @@ const document_ = (frame, caption, captionSize) => `<!doctype html>
     display: block; border-left: 1px solid ${LINE};
   }
 
-  /* --- two faces of one card ---
-     The card is a portrait column and the stage is landscape, so height is what limits
-     how large it can be drawn. Both faces are set to the full stage height and centred;
-     the margins either side are the shape of the card, not wasted space. */
-  .pair { display: flex; gap: 56px; align-items: center; justify-content: center; }
-  .pair .card {
-    height: ${INNER.height - 24}px; width: auto; display: block;
-    border-radius: 18px;
+  /* --- one card, read down the first strip and on down the next --- */
+  .strips { display: flex; align-items: center; justify-content: center; }
+  .strip {
+    display: block;
+    border-radius: 16px;
     box-shadow: 0 20px 44px -20px rgba(16, 24, 40, .32);
   }
 
@@ -161,7 +188,7 @@ const document_ = (frame, caption, captionSize) => `<!doctype html>
 </style></head>
 <body>
   <div class="band"><h1>${caption}</h1></div>
-  <div class="stage">${LAYOUTS[frame.layout](frame)}</div>
+  <div class="stage">${LAYOUTS[frame.layout](frame, meta)}</div>
 </body></html>`;
 
 /* ---------------------------------------------------------------- rendering ---- */
@@ -272,8 +299,8 @@ function encodeRgbPng(rgba, width, height) {
  * type — no external image tool, no resampling surprises. The canvas then gives up its raw
  * pixels, which encodeRgbPng writes out without the alpha channel the store rejects.
  */
-async function renderFrame(page, downscaler, frame, caption, captionSize, outFile) {
-  await page.setContent(document_(frame, caption, captionSize), { waitUntil: 'load' });
+async function renderFrame(page, downscaler, frame, caption, captionSize, meta, outFile) {
+  await page.setContent(document_(frame, caption, captionSize, meta), { waitUntil: 'load' });
   await page.evaluate(() => document.fonts.ready);
   const big = await page.screenshot({ scale: 'device' });
 
@@ -318,7 +345,7 @@ const ANKI_INSTRUCTIONS = `
       2. In the extension's side panel: Settings -> turn on "Use AnkiConnect",
          leave the URL at http://127.0.0.1:8765, and pick or create the deck
          you want the frame to show (a deck named "Espanol" reads well).
-      3. Side panel -> Cards -> open the "comensales" card -> Export to Anki.
+      3. Side panel -> Cards -> open the "sobremesa" card -> Export to Anki.
          The card is also written to store-assets/raw/card.json if you would
          rather add it by hand.
       4. In Anki press "b" to open Browse. Click that deck in the left sidebar,
@@ -378,7 +405,7 @@ const ANKI_INSTRUCTIONS = `
 
   for (const frame of ready) {
     const out = path.join(paths.screenshots, `${frame.id}.png`);
-    await renderFrame(page, downscaler, frame, captionFor(frame), captionSize, out);
+    await renderFrame(page, downscaler, frame, captionFor(frame), captionSize, meta, out);
     log('wrote', path.relative(paths.root, out));
   }
 

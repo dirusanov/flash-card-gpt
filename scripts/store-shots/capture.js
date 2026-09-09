@@ -20,7 +20,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const {
-  CONTENT, SECOND_PAGE, paths, CAPTURE,
+  CONTENT, SECOND_PAGE, paths, CAPTURE, WINDOW,
 } = require('./config');
 
 const PANEL_VIEWPORT = CAPTURE.panel.css;
@@ -136,7 +136,11 @@ async function tidyWikipedia(page) {
       .vector-page-toolbar, #vector-page-titlebar-toc, .vector-dropdown, .mw-editsection,
       .vector-column-start, .vector-column-end, #footer, .navbox, .vector-body-before-content,
       .cdx-button, .vector-sticky-header { display: none !important; }
-      .mw-page-container, .mw-content-container, .vector-body { margin: 0 auto !important; }
+      /* The hidden sidebar leaves its space behind in the flex row, which pushes the
+         article off-centre and leaves a dead gutter down the left of the frame. */
+      .mw-page-container-inner { display: block !important; }
+      .mw-content-container { max-width: 900px !important; margin: 0 auto !important; }
+      .mw-page-container, .vector-body { margin: 0 auto !important; }
       body { padding-top: 8px !important; }
     `,
   });
@@ -294,12 +298,11 @@ async function generateCard(panel) {
 const CARD = '[role="dialog"] div[style*="perspective"]';
 
 /**
- * Panel size used only for the two close-ups of the card in frame 02. Tall enough that the
- * answer side lays out every field without scrolling, short enough that the card box is not
- * mostly empty below them — the card is drawn as large as a landscape frame allows, so any
- * dead space inside it costs legibility.
+ * Frame 02's strips are taken in the same window as every other frame, so the card in the
+ * close-up is the card in the panel — same size, same layout. A taller window would only
+ * make each strip taller, and a taller strip has to be drawn smaller to fit the stage.
  */
-const CARD_SHOT_VIEWPORT = { width: 560, height: 900 };
+const CARD_SHOT_VIEWPORT = { width: WINDOW.panelWidth, height: WINDOW.height };
 
 async function flipCard(panel, wantBack) {
   const isBack = async () => panel.evaluate((sel) => {
@@ -333,10 +336,10 @@ async function captureMain(ctx, worker, extensionId) {
 
   await waitForHandoff(panel, CONTENT.word);
   await panel.bringToFront();
-  await generateCard(panel);
+  await generateGoodCard(panel, CONTENT.word);
 
-  // Frame 02: the two faces of the same card, cropped tight.
-  await captureCardFaces(panel);
+  // Frame 02: the whole answer side, walked from top to bottom.
+  const cardStrips = await captureCardStrips(panel);
 
   // Frame 01 shows the answer side: "the card is done" has to be visible as a finished
   // card, not as the question you have yet to answer.
@@ -344,36 +347,166 @@ async function captureMain(ctx, worker, extensionId) {
   await panel.screenshot({ path: raw('panel-card.png') });
   log('wrote panel-card.png');
 
-  const hasImage = await panel.evaluate((sel) => {
-    const img = document.querySelector(`${sel} img`);
-    return Boolean(img && img.getAttribute('src'));
-  }, CARD);
-  log('illustration on the card:', hasImage ? 'yes' : 'no');
+  const hasImage = (await inspectCard(panel)).image;
 
-  return { article, panel, hasImage };
+  return { article, panel, hasImage, cardStrips };
 }
 
 /**
- * Frame 02 wants one card with its fields legible, and at panel width the answer side is a
- * tall column that scrolls. Chrome's side panel is resizable, so the card is photographed
- * in a wider, taller panel: the same component, the same card, given room to lay all of
- * its fields out at once instead of hiding them behind a scrollbar.
+ * Frame 02 has to show the card as it actually is — every field the generator filled, not
+ * the slice that happens to fit a side panel.
+ *
+ * The card cannot simply be photographed taller: StudyCard caps it at MAX_CARD_HEIGHT
+ * (600px) and scrolls its content inside that box, so there is no window size at which the
+ * whole answer side is on screen at once. It is walked instead — the card's own disclosure
+ * opened, then one screenshot per scroll position, each landing on a boundary between the
+ * card's blocks so no strip cuts through a line. compose.js stands the strips side by side,
+ * which is what lets a tall card be drawn larger than life in a landscape frame instead of
+ * shrunk into a corner of it.
+ *
+ * Returns how many strips were written.
  */
-async function captureCardFaces(panel) {
+async function captureCardStrips(panel) {
   const normal = panel.viewportSize();
   await panel.setViewportSize(CARD_SHOT_VIEWPORT);
-  await panel.waitForTimeout(1200);
-
-  await flipCard(panel, false);
-  await panel.locator(CARD).screenshot({ path: raw('card-front.png') });
+  await panel.waitForTimeout(1000);
 
   await flipCard(panel, true);
+  await expandCardDetails(panel);
   await scrollCardToTop(panel);
-  await panel.locator(CARD).screenshot({ path: raw('card-back.png') });
-  log('wrote card-front.png / card-back.png');
+
+  const plan = await panel.evaluate((sel) => {
+    const card = document.querySelector(sel);
+    const scroller = Array.from(card.querySelectorAll('*'))
+      .find((el) => el.scrollHeight > el.clientHeight + 4);
+    if (!scroller) return { stops: [0], visible: card.getBoundingClientRect().height };
+
+    const view = scroller.clientHeight;
+    const total = scroller.scrollHeight;
+    const top = scroller.getBoundingClientRect().top - scroller.scrollTop;
+
+    // Where the card's own blocks begin: the strips are cut on these lines.
+    const boundaries = [0];
+    scroller.querySelectorAll('*').forEach((el) => {
+      if (!(el.textContent || '').trim() && el.tagName !== 'IMG') return;
+      const y = el.getBoundingClientRect().top - top;
+      if (y > 8 && y < total - 8) boundaries.push(y);
+    });
+    boundaries.sort((a, b) => a - b);
+
+    // Evenly spaced scroll positions rather than greedy ones: with a greedy walk the last
+    // strip gets clamped to the bottom of the content and repeats most of the strip before
+    // it, which reads as a mistake. Spread the unavoidable overlap across every seam
+    // instead, then nudge each stop onto a block boundary so no strip starts mid-sentence.
+    const count = Math.max(1, Math.min(4, Math.ceil(total / view)));
+    const stops = [];
+    for (let i = 0; i < count; i += 1) {
+      const even = count === 1 ? 0 : (i * (total - view)) / (count - 1);
+      const near = boundaries
+        .filter((y) => Math.abs(y - even) <= view * 0.12)
+        .sort((a, b) => Math.abs(a - even) - Math.abs(b - even))[0];
+      stops.push(Math.round(Math.max(0, Math.min(total - view, near ?? even))));
+    }
+
+    return { stops, view, total };
+  }, CARD);
+
+  log(`card content is ${Math.round(plan.total || 0)}px in a ${Math.round(plan.view || 0)}px box`
+    + ` → ${plan.stops.length} strip(s)`);
+
+  for (let i = 0; i < plan.stops.length; i += 1) {
+    await panel.evaluate(({ sel, offset }) => {
+      const card = document.querySelector(sel);
+      const scroller = Array.from(card.querySelectorAll('*'))
+        .find((el) => el.scrollHeight > el.clientHeight + 4);
+      if (scroller) scroller.scrollTop = offset;
+    }, { sel: CARD, offset: plan.stops[i] });
+    await panel.waitForTimeout(400);
+    await panel.locator(CARD).screenshot({ path: raw(`card-${i + 1}.png`) });
+  }
+  log(`wrote card-1..${plan.stops.length}.png`);
 
   await panel.setViewportSize(normal);
   await panel.waitForTimeout(1000);
+  await flipCard(panel, true);
+  return plan.stops.length;
+}
+
+/**
+ * What the answer side actually ended up holding.
+ *
+ * Both faces stay in the DOM and the question side sets the word in larger type than the
+ * answer side sets the translation, so everything here is read inside the answer side's
+ * own scroller rather than across the whole card.
+ */
+async function inspectCard(panel) {
+  return panel.evaluate((sel) => {
+    const card = document.querySelector(sel);
+    if (!card) return { examples: 0, translation: '', image: false };
+    const scope = Array.from(card.querySelectorAll('*'))
+      .find((el) => el.scrollHeight > el.clientHeight + 4) || card;
+
+    const biggest = Array.from(scope.querySelectorAll('div, span, p'))
+      .filter((el) => (el.textContent || '').trim() && el.clientHeight)
+      .reduce((best, el) => {
+        const size = parseFloat(getComputedStyle(el).fontSize) || 0;
+        return size > (best.size || 0) ? { el, size } : best;
+      }, {}).el;
+
+    // The card hides the extra examples behind a disclosure, and says how many in its
+    // label — cheaper and steadier than opening it just to count them.
+    const text = scope.innerText || '';
+    const more = text.match(/(\d+)\s+more examples?/);
+    const shown = scope.querySelectorAll('li').length;
+    return {
+      examples: shown + (more ? Number(more[1]) : 0),
+      translation: biggest ? biggest.textContent.trim() : '',
+      image: Boolean(scope.querySelector('img[src]')),
+    };
+  }, CARD);
+}
+
+/**
+ * Generation is not deterministic: a run can come back with no examples at all, or with the
+ * Spanish word repeated where the translation belongs. Both are correct-ish cards and both
+ * look broken in a store listing, so a card that falls short is thrown away and made again
+ * through the same Create button a user would press.
+ */
+async function generateGoodCard(panel, word, attempts = 3) {
+  let card;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (attempt > 1) {
+      await panel.locator('[role="dialog"] button[aria-label="Close"]').click().catch(() => {});
+      await panel.waitForTimeout(800);
+    }
+    await generateCard(panel);
+    await flipCard(panel, true);
+    card = await inspectCard(panel);
+
+    const faults = [];
+    if (!card.translation) faults.push('no translation');
+    if (card.translation.toLowerCase() === word.toLowerCase()) faults.push('translated to itself');
+    if (card.examples < 2) faults.push(`${card.examples} example(s)`);
+    if (OPENAI_KEY && !card.image) faults.push('no illustration');
+
+    if (!faults.length) {
+      log(`card: ${word} → ${card.translation} (${card.examples} examples`
+        + `${card.image ? ', illustration' : ''})`);
+      return card;
+    }
+    log(`attempt ${attempt}: ${faults.join(', ')}${attempt < attempts ? ' — making it again' : ''}`);
+  }
+  log(`WARNING: shipping an incomplete card for "${word}" after ${attempts} attempts`);
+  return card;
+}
+
+/** Opens the card's own "N more examples · Grammar" disclosure, when it has one. */
+async function expandCardDetails(panel) {
+  const toggle = panel.locator(`${CARD} button[aria-expanded="false"]`).first();
+  if (await toggle.count()) {
+    await toggle.click();
+    await panel.waitForTimeout(600);
+  }
 }
 
 /**
@@ -428,7 +561,7 @@ async function scrollCardToTop(panel) {
 }
 
 /** What the compositor needs to know about the card it is framing. */
-async function writeMeta(worker, hasImage) {
+async function writeMeta(worker, hasImage, cardStrips) {
   const cards = await worker.evaluate(async () => {
     const items = await chrome.storage.local.get(['anki_stored_cards']);
     try { return JSON.parse(items.anki_stored_cards || '[]'); } catch { return []; }
@@ -439,6 +572,7 @@ async function writeMeta(worker, hasImage) {
   fs.writeFileSync(raw('card.json'), JSON.stringify(card, null, 2));
   fs.writeFileSync(raw('meta.json'), JSON.stringify({
     hasImage,
+    cardStrips,
     source: OPENAI_KEY ? 'openai' : 'trial',
     word: card && card.text,
     translation: card && card.translation,
@@ -584,8 +718,7 @@ async function captureSecondPage(ctx, worker, extensionId) {
 
   await waitForHandoff(panel, SECOND_PAGE.word);
   await panel.bringToFront();
-  await generateCard(panel);
-  await flipCard(panel, true);
+  await generateGoodCard(panel, SECOND_PAGE.word);
   await focusCardOnAnswer(panel);
   await panel.screenshot({ path: raw('panel-page2.png') });
   log('wrote panel-page2.png');
@@ -596,15 +729,15 @@ async function captureSecondPage(ctx, worker, extensionId) {
 (async () => {
   const { ctx, worker, extensionId, userDataDir } = await launch();
   try {
-    let article; let panel; let hasImage = false;
+    let article; let panel; let hasImage = false; let cardStrips = 0;
     if (only.includes('main')) {
-      ({ article, panel, hasImage } = await captureMain(ctx, worker, extensionId));
+      ({ article, panel, hasImage, cardStrips } = await captureMain(ctx, worker, extensionId));
     }
     if (only.includes('review') && panel) {
       await captureReview(article, panel, worker);
     }
     if (only.includes('main')) {
-      await writeMeta(worker, hasImage);
+      await writeMeta(worker, hasImage, cardStrips);
     }
     if (only.includes('page2')) {
       await captureSecondPage(ctx, worker, extensionId);

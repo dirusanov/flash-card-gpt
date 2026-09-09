@@ -32,11 +32,22 @@ what the article says.
 throwaway profile — no bookmarks bar, no other extensions, no history, nothing personal.
 It reads the extension id from the service worker URL. The side panel cannot be driven
 through Chrome's own UI from Playwright, so it is opened directly as a page at
-`chrome-extension://<id>/sidepanel.html`, at a panel-sized viewport; that is the same
-document Chrome renders in the panel.
+`chrome-extension://<id>/sidepanel.html`; that is the same document Chrome renders in the
+panel.
 
 Then, per frame: open the page, select the word with the mouse, wait for the panel to
 receive it, press Create card, wait for the card to finish filling in, screenshot.
+
+Page and panel are captured at one window height (`WINDOW` in `config.js`), because in
+Chrome they share one. An earlier version captured each at whatever small viewport made
+the text biggest once placed; the frames came out cramped, and the card was cut in half.
+The whole window is now photographed at a size somebody actually works in and scaled down
+together, which is what a screenshot of a real screen looks like.
+
+Generation is not deterministic. A run can come back with no examples, with the Spanish
+word repeated where the translation belongs, or — for some words — with the image prompt
+refused. `generateGoodCard` checks the card and presses Create again, up to three times,
+so a thin card is never what gets photographed.
 
 **`compose.js`** lays each capture out at 1280×800, renders at `deviceScaleFactor: 2`, and
 downscales the 2560×1600 result to exactly 1280×800 in a canvas — so the type stays crisp.
@@ -44,6 +55,22 @@ downscales the 2560×1600 result to exactly 1280×800 in a canvas — so the typ
 **`config.js`** holds everything worth changing: the article, the word, the captions, the
 geometry. The brand colour is *read from `tailwind.config.js`* rather than typed in again,
 so the band cannot drift away from the product's own `accent` token (`#0066FF` today).
+
+## Frame 02: why the card is in strips
+
+`StudyCard` caps the card at `MAX_CARD_HEIGHT = 600` and scrolls its content inside that
+box, so there is no window size at which the whole answer side is on screen — the card is
+simply taller than it is allowed to be drawn. Fitting that column to the height of a
+landscape frame shrinks it to a thumbnail, which is how half the generated content went
+missing from this frame in earlier versions.
+
+So the card is walked instead: the disclosure opened, then one screenshot per scroll
+position, each landing on a boundary between the card's own blocks. `compose.js` stands the
+strips side by side and sizes the row to the stage, which lets the card be drawn about 1.2x
+life size with every field — illustration, translation, all three examples, grammar note —
+visible at once. The overlap between strips is spread evenly across the seams; a greedy
+walk clamps the last strip to the bottom of the content and repeats most of the one before
+it, which reads as a mistake.
 
 ## Illustrations need an OpenAI key
 
@@ -79,12 +106,13 @@ Run `node scripts/store-shots --compose` to see them.
 
 ## Choosing the word
 
-Two constraints learned the hard way, both worth keeping in mind before editing
+Three constraints learned the hard way, worth keeping in mind before editing
 `CONTENT.word` or `SECOND_PAGE.word`:
 
 - It must not sit inside a link. Double-clicking a wikilink follows it.
 - Its translation must not be the same word. "hidalgo" is a loanword in English, so the
-  card's answer side read "hidalgo" and looked broken.
-
-A word whose translation is one or two words also keeps the answer side compact enough to
-show the illustration, the translation and an example at once.
+  card's answer side read "hidalgo"; "comensales" came back as itself on one run in three.
+  The quality gate catches this now, but a word that cannot fail is better than a retry.
+- The image-prompt guard in `imagePromptSafety.ts` refuses some words — "galgo" produced
+  "Failed to generate an image prompt without mentioning the source word", leaving the card
+  with no illustration.
