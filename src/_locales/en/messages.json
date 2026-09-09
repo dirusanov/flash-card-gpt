@@ -4,7 +4,7 @@
     "description": "Extension name in the Chrome Web Store and chrome://extensions"
   },
   "appDesc": {
-    "message": "Highlight any text on a page and turn it into an Anki flashcard in one click. AI adds the translation, an example and an image.",
+    "message": "Turn any highlighted text into a finished Anki flashcard — AI adds translation, example and image. Syncs via AnkiConnect.",
     "description": "Short description in the store, 132 characters max"
   },
   "actionTitle": {
