@@ -1,6 +1,6 @@
 {
   "name": "vaulto-cards-extension",
-  "version": "5.2.0",
+  "version": "5.2.1",
   "description": "Highlight any text on a page and turn it into an Anki flashcard in one click. AI adds the translation, an example and an image.",
   "license": "MIT",
   "repository": {
