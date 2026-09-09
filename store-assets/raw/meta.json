@@ -2,8 +2,8 @@
   "hasImage": true,
   "cardStrips": 3,
   "source": "openai",
-  "word": "sobremesa",
-  "translation": "after-dinner sociability, time spent at the table after a meal",
+  "word": "charlas de sobremesa",
+  "translation": "after-dinner talk, table talk",
   "article": "https://es.wikipedia.org/wiki/Sobremesa",
-  "capturedAt": "2026-09-09T11:07:00.475Z"
+  "capturedAt": "2026-09-09T13:22:34.395Z"
 }

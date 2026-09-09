@@ -31,13 +31,16 @@ const TEXT_MUTED = colors.gray[500];
 const CONTENT = {
   articleUrl: 'https://es.wikipedia.org/wiki/Sobremesa',
   /**
-   * The word to select and turn into a card. English has no single word for this one, so
-   * the answer side always says something — unlike "comensales", which came back as
-   * "comensales" on one run in three, or "hidalgo", which English simply borrowed.
+   * What to select on the page and turn into a card — a phrase rather than a single word,
+   * because frame 01's whole job is to show what highlighting does and one highlighted word
+   * is about 12px in a carousel thumbnail. This is a real collocation from the article, and
+   * English has no single word for it, so the answer side always says something — unlike
+   * "comensales", which came back as "comensales" on one run in three, or "hidalgo", which
+   * English simply borrowed.
    */
-  word: 'sobremesa',
+  word: 'charlas de sobremesa',
   /** Must appear verbatim in the article; the capture fails loudly if it does not. */
-  sentenceFragment: 'La sobremesa es un periodo de descanso',
+  sentenceFragment: 'abarcando diversos temas',
   targetLanguage: 'en',
   /** Anki deck the card is exported into for frame 03. */
   ankiDeck: 'Español',
@@ -60,6 +63,13 @@ const SECOND_PAGE = {
   word: 'sobrina',
   sentenceFragment: 'una sobrina que no llegaba a los veinte',
 };
+
+/**
+ * Frame 05's page. A different article from frame 01's on purpose: with the same one behind
+ * both, the two frames were all but identical in a carousel and the second taught a reader
+ * nothing. Reviewing is not tied to the page you are on, so any real page is honest here.
+ */
+const REVIEW_PAGE = { url: 'https://es.wikipedia.org/wiki/Siesta' };
 
 const paths = {
   root: ROOT,
@@ -103,32 +113,45 @@ const WINDOW = {
   // taller window only scales the card down without showing any more of it.
   height: 840,
   panelWidth: 460,
+  pageWidth: 900,
   /**
-   * How wide the window is drawn in the frame. Less than the full stage on purpose: a shell
-   * stretched across all 1200px is 2.1:1, a letterbox no browser is ever shaped like, and it
-   * reads as a short window however tall the viewport behind it is. At 1060 it is 1.74:1 —
-   * a window — and the ground either side frames it.
+   * Chrome's page zoom, which applies to the page and not to the side panel — so this is
+   * the one lever that makes the article's type, and the selection highlight on it, bigger
+   * without shrinking the card. At 100% the highlighted word was about 12px in a carousel
+   * thumbnail: invisible, on the frame whose whole job is to show what highlighting does.
    */
-  shellWidth: 1060,
+  pageZoom: 1.25,
 };
 
 const shellContentHeight = STAGE.height - SHELL_BAR;
+
+// One window, drawn at one scale: page and panel are placed from the same physical sizes,
+// so the shell is a faithful reduction of a real WINDOW.pageWidth+panelWidth x height
+// window. The page's own zoom then changes only how much of the page fits inside its half.
 const windowScale = shellContentHeight / WINDOW.height;
-const placedPanelWidth = Math.round(WINDOW.panelWidth * windowScale);
-const pageWidth = Math.round(WINDOW.shellWidth / windowScale - WINDOW.panelWidth);
+const zoomed = (physical) => Math.round(physical / WINDOW.pageZoom);
 
 const CAPTURE = {
   // Two device pixels per placed pixel is all the 2x render in compose.js can use.
   deviceScaleFactor: 2,
   page: {
-    css: { width: pageWidth, height: WINDOW.height },
-    placed: { width: WINDOW.shellWidth - placedPanelWidth, height: shellContentHeight },
+    css: { width: zoomed(WINDOW.pageWidth), height: zoomed(WINDOW.height) },
+    placed: {
+      width: Math.round(WINDOW.pageWidth * windowScale),
+      height: shellContentHeight,
+    },
   },
   panel: {
     css: { width: WINDOW.panelWidth, height: WINDOW.height },
-    placed: { width: placedPanelWidth, height: shellContentHeight },
+    placed: {
+      width: Math.round(WINDOW.panelWidth * windowScale),
+      height: shellContentHeight,
+    },
   },
 };
+
+/** How wide the window ends up being drawn — page and panel side by side. */
+const SHELL_WIDTH = CAPTURE.page.placed.width + CAPTURE.panel.placed.width;
 
 function assertGeometry() {
   for (const [name, spec] of Object.entries({ page: CAPTURE.page, panel: CAPTURE.panel })) {
@@ -137,12 +160,8 @@ function assertGeometry() {
       throw new Error(`${name} capture is ${device}px wide, the 2x render needs ${spec.placed.width * 2}px`);
     }
   }
-  const shell = CAPTURE.page.placed.width + CAPTURE.panel.placed.width;
-  if (shell !== WINDOW.shellWidth) {
-    throw new Error(`page + panel = ${shell}px, the window is ${WINDOW.shellWidth}px wide`);
-  }
-  if (WINDOW.shellWidth > STAGE.width) {
-    throw new Error(`the window is ${WINDOW.shellWidth}px wide, wider than the ${STAGE.width}px stage`);
+  if (SHELL_WIDTH > STAGE.width) {
+    throw new Error(`the window is ${SHELL_WIDTH}px wide, wider than the ${STAGE.width}px stage`);
   }
 }
 
@@ -190,14 +209,14 @@ const FRAMES = [
     caption: 'Or review right in the browser, synced across devices',
     layout: 'browser',
     raw: ['review-page.png', 'panel-review.png'],
-    url: CONTENT.articleUrl,
+    url: REVIEW_PAGE.url,
   },
 ];
 
 module.exports = {
   BRAND, GROUND, LINE, TEXT, TEXT_MUTED,
-  CONTENT, SECOND_PAGE,
-  paths, CAPTURE, WINDOW, FRAME, STAGE, SHELL_BAR, FRAMES, assertGeometry,
+  CONTENT, SECOND_PAGE, REVIEW_PAGE,
+  paths, CAPTURE, WINDOW, FRAME, STAGE, SHELL_BAR, SHELL_WIDTH, FRAMES, assertGeometry,
 };
 
 assertGeometry();

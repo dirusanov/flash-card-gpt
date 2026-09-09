@@ -20,7 +20,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const {
-  CONTENT, SECOND_PAGE, paths, CAPTURE, WINDOW,
+  CONTENT, SECOND_PAGE, REVIEW_PAGE, paths, CAPTURE, WINDOW,
 } = require('./config');
 
 const PANEL_VIEWPORT = CAPTURE.panel.css;
@@ -147,64 +147,80 @@ async function tidyWikipedia(page) {
 }
 
 /**
- * Selects a real word on the page the way a reader does, which is what makes the
- * extension's content script fire its selection message. Returns the text the page reports
- * as selected, so the caller can assert it is the word we meant rather than discovering
- * later that the card was built from something else.
+ * Selects real text on the page the way a reader does, which is what makes the extension's
+ * content script fire its selection message. Returns what the page reports as selected, so
+ * the caller can assert it is what we meant rather than discovering later that the card was
+ * built from something else.
+ *
+ * One word is picked with a double-click, the gesture a reader actually uses and the
+ * steadier one to automate. A phrase has to be dragged, so it is measured, dragged and
+ * verified in a loop: a drag can end a character short if the page reflows in between.
  */
-async function selectWordOnPage(page, word, sentenceFragment) {
-  const box = await page.evaluate(({ word: w, fragment }) => {
-    // A sentence is split across several text nodes (bold lead terms, links) and, in a
-    // plain HTML book, across source line breaks — so it is matched on a block element
-    // with whitespace collapsed, and the word is then found inside that block's text
-    // nodes, where it is never itself broken up.
-    const flatten = (value) => (value || '').replace(/\s+/g, ' ').trim();
-    const wanted = flatten(fragment);
-    const blocks = Array.from(document.querySelectorAll('.mw-parser-output p, p, li, div'));
-    const block = blocks
-      .filter((el) => !el.querySelector('p, li'))
-      .find((el) => flatten(el.textContent).includes(wanted));
-    if (!block) return null;
+async function selectOnPage(page, wanted, sentenceFragment) {
+  const isPhrase = /\s/.test(wanted);
 
-    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-    let node;
-    while ((node = walker.nextNode())) {
-      // Double-clicking a word inside a link follows the link, which is what a reader
-      // would get too — so the word has to be plain text, not a wikilink.
-      if (node.parentElement.closest('a')) continue;
-      const at = (node.textContent || '').indexOf(w);
-      if (at === -1) continue;
-      const range = document.createRange();
-      range.setStart(node, at);
-      range.setEnd(node, at + w.length);
-      if (!range.getBoundingClientRect().width) continue;
-      block.scrollIntoView({ block: 'center' });
-      const rect = range.getBoundingClientRect();
-      return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
-    }
-    return null;
-  }, { word, fragment: sentenceFragment });
-
-  if (!box) {
-    throw new Error(`"${word}" was not found inside "${sentenceFragment}" on ${page.url()}`);
-  }
-
-  // A double-click is both what a reader actually does to pick one word and the steadier
-  // gesture to automate: a drag across the glyphs can end a character short if the page
-  // reflows between measuring the range and moving the mouse.
-  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  let selected = '';
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await page.mouse.dblclick(centre.x, centre.y);
-    await page.waitForTimeout(250);
-    selected = await page.evaluate(() => (window.getSelection() || '').toString().trim());
-    if (selected === word) break;
+    const box = await page.evaluate(({ text, fragment }) => {
+      // A sentence is split across several text nodes (bold lead terms, links) and, in a
+      // plain HTML book, across source line breaks — so it is matched on a block element
+      // with whitespace collapsed, and the text is then found inside that block's nodes.
+      const flatten = (value) => (value || '').replace(/\s+/g, ' ').trim();
+      const blocks = Array.from(document.querySelectorAll('.mw-parser-output p, p, li, div'));
+      const block = blocks
+        .filter((el) => !el.querySelector('p, li'))
+        .find((el) => flatten(el.textContent).includes(flatten(fragment)));
+      if (!block) return null;
+
+      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        // Double-clicking or dragging inside a link follows it, as it would for a reader.
+        if (node.parentElement.closest('a')) continue;
+        const at = (node.textContent || '').indexOf(text);
+        if (at === -1) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + text.length);
+        const rects = Array.from(range.getClientRects()).filter((r) => r.width);
+        if (!rects.length) continue;
+        block.scrollIntoView({ block: 'center' });
+
+        const after = Array.from(range.getClientRects()).filter((r) => r.width);
+        const first = after[0];
+        const last = after[after.length - 1];
+        return {
+          start: { x: first.left + 1, y: first.top + first.height / 2 },
+          end: { x: last.right - 1, y: last.top + last.height / 2 },
+          middle: { x: first.left + first.width / 2, y: first.top + first.height / 2 },
+        };
+      }
+      return null;
+    }, { text: wanted, fragment: sentenceFragment });
+
+    if (!box) {
+      throw new Error(`"${wanted}" was not found inside "${sentenceFragment}" on ${page.url()}`);
+    }
+
+    if (isPhrase) {
+      await page.mouse.move(box.start.x, box.start.y);
+      await page.mouse.down();
+      await page.mouse.move(box.end.x, box.end.y, { steps: 20 });
+      await page.mouse.up();
+    } else {
+      await page.mouse.dblclick(box.middle.x, box.middle.y);
+    }
+    await page.waitForTimeout(300);
+
+    const selected = await page.evaluate(() => (window.getSelection() || '').toString().trim());
+    if (selected === wanted) {
+      log('selected on page:', selected);
+      return selected;
+    }
+    if (attempt === 2) {
+      throw new Error(`selection came back as "${selected}", expected "${wanted}"`);
+    }
   }
-  if (selected !== word) {
-    throw new Error(`selection came back as "${selected}", expected "${word}"`);
-  }
-  log('selected on page:', selected);
-  return selected;
+  return null;
 }
 
 /* -------------------------------------------------------------------- panel ---- */
@@ -332,7 +348,7 @@ async function captureMain(ctx, worker, extensionId) {
   const panel = await openPanel(ctx, extensionId);
 
   await article.bringToFront();
-  await selectWordOnPage(article, CONTENT.word, CONTENT.sentenceFragment);
+  await selectOnPage(article, CONTENT.word, CONTENT.sentenceFragment);
   await article.screenshot({ path: raw('article.png') });
   log('wrote article.png');
 
@@ -617,10 +633,15 @@ async function captureReview(article, panel, worker) {
   await panel.screenshot({ path: raw('panel-review.png') });
   log('wrote panel-review.png');
 
-  // The page behind a review is just the page you were reading; keeping the same article
-  // makes 05 read as a continuation of 01 rather than a different product.
-  await article.evaluate(() => window.getSelection().removeAllRanges());
-  await article.screenshot({ path: raw('review-page.png') });
+  // A different article from frame 01's: with the same page behind both, the two frames
+  // were all but identical in a carousel. Reviewing is not tied to the page you are on.
+  const reading = await article.context().newPage();
+  await reading.setViewportSize(PAGE_VIEWPORT);
+  await reading.goto(REVIEW_PAGE.url, { waitUntil: 'domcontentloaded' });
+  await tidyWikipedia(reading);
+  await reading.waitForTimeout(1200);
+  await reading.screenshot({ path: raw('review-page.png') });
+  await reading.close();
   log('wrote review-page.png');
 }
 
@@ -714,7 +735,7 @@ async function captureSecondPage(ctx, worker, extensionId) {
   const panel = await openPanel(ctx, extensionId);
   await page.bringToFront();
 
-  await selectWordOnPage(page, SECOND_PAGE.word, SECOND_PAGE.sentenceFragment);
+  await selectOnPage(page, SECOND_PAGE.word, SECOND_PAGE.sentenceFragment);
   await page.screenshot({ path: raw('page2.png') });
   log('wrote page2.png');
 

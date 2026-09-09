@@ -44,13 +44,17 @@ the text biggest once placed; the frames came out cramped, and the card was cut 
 The whole window is now photographed at a size somebody actually works in and scaled down
 together, which is what a screenshot of a real screen looks like.
 
+`WINDOW.pageZoom` is Chrome's page zoom, which applies to the page and not to the side
+panel — the one lever that enlarges the article's type, and the selection highlight on it,
+without shrinking the card.
+
 Two numbers control how tall that window reads, and they do different things.
 `WINDOW.height` is the viewport behind the capture: raising it shows more page and more
 card, and shrinks everything, until the panel passes about 960px and StudyCard's 600px cap
-stops the card growing at all. `WINDOW.shellWidth` is how wide the window is *drawn*:
-stretched across the whole 1200px stage it is 2.1:1, a letterbox no browser is shaped
-like, and it reads as short no matter what the viewport behind it is. Narrowing it to 1060
-makes the same capture read as a window.
+stops the card growing at all. How wide the window is *drawn* follows from `pageWidth` and `panelWidth` at that scale:
+stretched across the whole 1200px stage it would be 2.1:1, a letterbox no browser is
+shaped like, and it reads as short no matter what the viewport behind it is. At 900+460 it
+comes out 1.5:1 — a window — with the ground framing it either side.
 
 Generation is not deterministic. A run can come back with no examples, with the Spanish
 word repeated where the translation belongs, or — for some words — with the image prompt
@@ -111,6 +115,24 @@ Run `node scripts/store-shots --compose` to see them.
   book (Project Gutenberg's Spanish *Don Quijote*) instead, which does work.
 - **Driving the side panel through Chrome's UI.** Not reachable from Playwright; hence
   opening `sidepanel.html` as a page.
+
+## What the frames have to do in two seconds
+
+A store visitor gives a carousel about two seconds a frame, at roughly 320px wide. Three
+things were fixed after checking the set at that size rather than at full size:
+
+- **The highlight was invisible.** One highlighted word is about 12px in a thumbnail, on
+  the frame whose entire job is to show what highlighting does. It is now a phrase, and the
+  page carries 125% zoom, which makes the blue block findable at a glance — and the same
+  words appear on the card beside it, which is what ties cause to effect.
+- **Frames 01 and 05 were near-identical.** Same article, same layout; the only difference
+  was the small grading buttons. 05 now sits on a different article.
+- **Frame 04 was a wall of type.** At 100% the Gutenberg page was a grey rectangle; the
+  zoom brings up the chapter heading, which is what makes it read as a book.
+
+What still does not survive a thumbnail, and cannot: the card's own text in frames 01, 04
+and 05. A side panel is a quarter of a browser window, so at 320px the card is a picture
+and a shape. The caption carries those frames; frame 02 is where the card is legible.
 
 ## Choosing the word
 
