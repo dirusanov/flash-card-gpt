@@ -71,6 +71,30 @@ const readPageLanguage = () => {
 
 const SENTENCE_MAX = 300;
 
+// Where the selection actually starts inside the block's normalised text. indexOf() would
+// find the *first* copy of the word, so a paragraph mentioning "bank" twice — once
+// financial, once riverside — always handed over the first sentence no matter which one
+// the user highlighted. Walking the range gives the real offset; indexOf stays as the
+// fallback for the cases a range cannot answer.
+const locateSelection = (block, range, blockText, needle) => {
+  try {
+    const prefix = document.createRange();
+    prefix.selectNodeContents(block);
+    prefix.setEnd(range.startContainer, range.startOffset);
+    const at = prefix.toString().replace(/\s+/g, ' ').replace(/^ /, '').length;
+    // The range may open on whitespace that the trimmed selection dropped; allow a
+    // character or two of slack before giving up on it.
+    for (let delta = 0; delta <= 2; delta += 1) {
+      if (blockText.slice(at + delta, at + delta + needle.length) === needle) {
+        return at + delta;
+      }
+    }
+  } catch {
+    // Detached node, cross-root range: fall through to the scan.
+  }
+  return blockText.indexOf(needle);
+};
+
 // The sentence the selection sits in: the surrounding block's text, cut at the nearest
 // sentence boundaries around the selection. A single word without its sentence is often
 // ambiguous ("ging", "dormir"); with the sentence it is not.
@@ -80,7 +104,8 @@ const readSelectionSentence = (selected) => {
     if (!selection || selection.rangeCount === 0 || !selected) {
       return '';
     }
-    let node = selection.getRangeAt(0).commonAncestorContainer;
+    const range = selection.getRangeAt(0);
+    let node = range.commonAncestorContainer;
     if (node.nodeType !== Node.ELEMENT_NODE) node = node.parentElement;
     while (node && node !== document.body) {
       const display = getComputedStyle(node).display;
@@ -89,26 +114,35 @@ const readSelectionSentence = (selected) => {
       }
       node = node.parentElement;
     }
-    const block = (node?.textContent || '').replace(/\s+/g, ' ').trim();
-    const at = block.indexOf(selected);
-    if (at === -1 || block.length <= selected.length) {
+    if (!node) {
       return '';
     }
-    const boundary = /[.!?。！？]\s/g;
+    const block = (node.textContent || '').replace(/\s+/g, ' ').trim();
+    // The block collapsed its whitespace; a selection spanning a line break has to be
+    // collapsed the same way or it will not match.
+    const needle = selected.replace(/\s+/g, ' ');
+    const at = locateSelection(node, range, block, needle);
+    if (at === -1 || block.length <= needle.length) {
+      return '';
+    }
+    // A trailing space is what keeps "3.14" and "e.g." from reading as sentence ends, but
+    // Chinese and Japanese put no space after 。！？ — demanding one there matched nothing
+    // and handed over the whole paragraph. Full-width stops are unambiguous on their own.
+    const boundary = /[.!?]\s|[。！？]/g;
     let start = 0;
     let end = block.length;
     let match;
     while ((match = boundary.exec(block)) !== null) {
       const cut = match.index + match[0].length;
       if (cut <= at) start = cut;
-      else if (match.index >= at + selected.length) { end = match.index + 1; break; }
+      else if (match.index >= at + needle.length) { end = match.index + 1; break; }
     }
     let sentence = block.slice(start, end).trim();
     if (sentence.length > SENTENCE_MAX) {
       const from = Math.max(0, at - start - Math.floor(SENTENCE_MAX / 2));
       sentence = sentence.slice(from, from + SENTENCE_MAX).trim();
     }
-    return sentence === selected ? '' : sentence;
+    return sentence === needle ? '' : sentence;
   } catch {
     return '';
   }
@@ -148,14 +182,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 let selectionTimer = null;
 let lastSentSelection = '';
 
+// Keyed on what we would actually send, not on the word alone. Selecting "bank" in a
+// sentence about money and then "bank" in one about a river is two different cards, and
+// comparing the text by itself swallowed the second one — the panel kept the first
+// sentence and the server, which reads meaning from that sentence, never saw the change.
+const selectionKey = ({ text, sentence }) => `${text}\u0000${sentence}`;
+
 const notifySelection = () => {
   const details = readSelectionDetails();
   const { text } = details;
-  if (!text || text === lastSentSelection) {
+  if (!text || selectionKey(details) === lastSentSelection) {
     return;
   }
 
-  lastSentSelection = text;
+  lastSentSelection = selectionKey(details);
   try {
     chrome.runtime.sendMessage({ action: SELECTION_CHANGED, ...details }, () => {
       // The panel is usually closed; swallowing the "no receiver" error is the normal path.

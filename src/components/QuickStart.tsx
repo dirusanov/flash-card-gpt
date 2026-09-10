@@ -99,7 +99,12 @@ const QuickStart: React.FC = () => {
         const accept = (raw: string, sentence = '', pageLanguage = '') => {
             const text = raw.trim().slice(0, MAX_TEXT);
             const current = stateRef.current;
-            if (busyRef.current || !text || text === current.text) return;
+            if (busyRef.current || !text) return;
+            // The same word in a different sentence is a different card, so re-selecting
+            // "bank" from a riverbank paragraph has to get through. A repeat that carries
+            // no sentence of its own — the context menu handing over bare text — must not,
+            // or it would wipe the sentence the page already gave us.
+            if (text === current.text && (!sentence || sentence === current.sentence)) return;
             const patch = { text, sentence, pageLanguage, detected: null, step: 'compose' as const };
             if (current.step === 'compose' || current.step === 'result') {
                 update(patch);
