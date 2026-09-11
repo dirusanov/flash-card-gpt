@@ -554,6 +554,41 @@ export const buildClozeText = (sentence: string | null | undefined, word: string
     return `${escapeHtml(clean.slice(0, hit.start))}{{c1::${escapeHtml(gap)}}}${escapeHtml(clean.slice(hit.end))}`;
 };
 
+// Anki's own duplicate check is per note type, so a word exported as stock "Basic" by an
+// earlier version would sail into "Vaulto Basic" as a second copy. Ask for every note
+// whose first field is one of these words, whatever its type, and answer with the words
+// found — normalised the way they are compared. Any failure means "none found": a lookup
+// that cannot run must not block an export.
+const escapeAnkiSearchTerm = (text: string): string =>
+    text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\*/g, '\\*').replace(/_/g, '\\_');
+
+const normalizeFront = (text: string): string => stripAnkiFieldHtml(text).replace(/\s+/g, ' ').trim().toLowerCase();
+
+const findExistingFronts = async (
+    ankiConnectUrl: string,
+    ankiConnectApiKey: string | null,
+    fronts: string[],
+): Promise<Set<string>> => {
+    const wanted = Array.from(new Set(fronts.map(normalizeFront).filter(Boolean)));
+    if (wanted.length === 0) return new Set();
+    try {
+        const query = wanted.map((front) => `"Front:${escapeAnkiSearchTerm(front)}"`).join(' OR ');
+        const ids: number[] = await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'findNotes', { query });
+        if (!Array.isArray(ids) || ids.length === 0) return new Set();
+        const info: any[] = await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'notesInfo', { notes: ids });
+        const found = new Set<string>();
+        for (const note of Array.isArray(info) ? info : []) {
+            const first = Object.keys(note?.fields || {})[0];
+            const value = first ? normalizeFront(note.fields[first]?.value || '') : '';
+            if (value && wanted.includes(value)) found.add(value);
+        }
+        return found;
+    } catch (error) {
+        console.warn('Could not check Anki for existing notes:', error);
+        return new Set();
+    }
+};
+
 export interface AnkiExportOptions {
     /** Also add a cloze note from each card's source sentence, when it has one. */
     clozeFromSentence?: boolean;
@@ -599,6 +634,11 @@ export const createAnkiCards = async (
         const useVaultoModel = isLanguage
             && await ensureNoteType(ankiConnectUrl, ankiConnectApiKey, BASIC_MODEL);
         const langModelName = useVaultoModel ? VAULTO_NOTE_TYPE : modelName;
+        // Only the new note type can slip past Anki's own per-type duplicate check.
+        const alreadyInAnki = useVaultoModel
+            ? await findExistingFronts(ankiConnectUrl, ankiConnectApiKey, (cards as CardLangLearning[]).map((card) => card.text))
+            : new Set<string>();
+        const skipped = new Set<number>();
         const clozeNotes: Array<Record<string, unknown>> = [];
         const wantCloze = isLanguage && Boolean(options.clozeFromSentence)
             && cards.some((card) => 'sentence' in card && Boolean(card.sentence))
@@ -609,6 +649,12 @@ export const createAnkiCards = async (
             let noteModelName = modelName;
             if (mode === Modes.LanguageLearning && 'translation' in card && 'examples' in card && 'image_base64' in card) {
                 const langCard = card as CardLangLearning;
+                if (alreadyInAnki.has(normalizeFront(langCard.text))) {
+                    // Reported exactly as Anki itself reports a duplicate: a null in this
+                    // note's slot. No media is uploaded for a note that will not be added.
+                    skipped.add(index);
+                    return null;
+                }
                 const rawAudioBase64 = extractRawBase64(langCard.word_audio_base64);
                 let audioTag = '';
                 if (rawAudioBase64) {
@@ -675,11 +721,12 @@ export const createAnkiCards = async (
             };
         }));
 
+        const notesToAdd = notes.filter((note) => note !== null);
         const addNotesPayload = JSON.stringify({
             action: 'addNotes',
             version: 6,
             key: ankiConnectApiKey,
-            params: { notes },
+            params: { notes: notesToAdd },
         });
 
         const response = await backgroundFetch(ankiConnectUrl, {
@@ -702,7 +749,11 @@ export const createAnkiCards = async (
         // send allowDuplicate: false). A null here does NOT populate `result.error` above,
         // so callers that only checked for a thrown error would otherwise treat this as a
         // full success even though nothing was actually saved to Anki for that note.
-        const noteResults: Array<number | null> = Array.isArray(result.result) ? result.result : [];
+        // Back to one slot per input card, the skipped ones null like any other duplicate.
+        const added: Array<number | null> = Array.isArray(result.result) ? result.result : [];
+        let next = 0;
+        const noteResults: Array<number | null> = cards.map((_, index) =>
+            skipped.has(index) ? null : (added[next++] ?? null));
         if (noteResults.length > 0 && noteResults.every((id) => id === null)) {
             throw new Error('cannot create note because it is a duplicate');
         }

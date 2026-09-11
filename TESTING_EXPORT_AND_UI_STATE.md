@@ -56,11 +56,20 @@ sending `'Basic'` was always a gamble.
   earlier) is just already there. `buildClozeText` returns `null` — no cloze — when the
   word cannot be found in its sentence or the sentence *is* the word.
 - General-topic cards keep the stock model and `Front`/`Back` only.
+- **Anki's duplicate check is per note type.** A word exported as stock `Basic` by an
+  older version would be added again under `Vaulto Basic` on re-export. So when the
+  Vaulto type is in use, `findExistingFronts` first runs one `findNotes` query
+  (`"Front:word" OR "Front:word2" …`, search-escaped) plus `notesInfo`, and any card
+  whose first field is already in the collection — whatever its note type — gets a
+  `null` in its result slot exactly as Anki reports its own duplicates, with no media
+  uploaded and no cloze. If the lookup itself fails the export goes ahead; a lookup
+  must never block it.
 
 The whole flow is exercised against a fake AnkiConnect (a `backgroundFetch` stub that
 records every action and answers per-action) — fresh collection, existing model, model
 missing a field, `createModel` refused, card without a sentence, cloze batch all
-duplicates, general-topic passthrough. Reproduce by compiling `ankiService.ts` with
+duplicates, a word already in Anki as stock `Basic`, a mixed batch, a failing lookup,
+search-term escaping, general-topic passthrough. Reproduce by compiling `ankiService.ts` with
 `tsc` (as `utils/test-ai-cards/run.js` does) and replacing `backgroundFetch` in
 `require.cache` before requiring the compiled module.
 
