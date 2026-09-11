@@ -57,6 +57,12 @@ export interface StoredCard {
   wordAudio?: string | null;
   examplesAudio?: Array<string | null>;
   exampleTranscriptions?: Array<string | null>;
+  /** The sentence the word was selected from, and the page it was on. The sentence is
+   *  what pins down which meaning of the word this card is about; the page lets the user
+   *  go back to where they met it. Both are empty for cards typed in by hand. */
+  sentence?: string | null;
+  sourceUrl?: string | null;
+  sourceTitle?: string | null;
   syncId?: string | null;
   syncVersion?: number | null;
   syncSource?: string | null;
@@ -171,6 +177,9 @@ const cardsReducer = (state = initialState, action: any): CardState => {
         exampleTranscriptions: Array.isArray(action.payload.exampleTranscriptions)
           ? action.payload.exampleTranscriptions
           : [],
+        sentence: action.payload.sentence || null,
+        sourceUrl: action.payload.sourceUrl || null,
+        sourceTitle: action.payload.sourceTitle || null,
         syncId: action.payload.syncId ?? null,
         syncVersion:
           typeof action.payload.syncVersion === 'number'

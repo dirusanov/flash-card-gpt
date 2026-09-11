@@ -148,9 +148,26 @@ const readSelectionSentence = (selected) => {
   }
 };
 
+// Where the word was met. Stored with the card, so the sentence keeps its provenance and
+// the user can get back to the page from the card.
+const readPageSource = () => {
+  try {
+    const url = location.href;
+    if (!/^https?:/.test(url)) return { sourceUrl: '', sourceTitle: '' };
+    return { sourceUrl: url.slice(0, 2000), sourceTitle: (document.title || '').trim().slice(0, 200) };
+  } catch {
+    return { sourceUrl: '', sourceTitle: '' };
+  }
+};
+
 const readSelectionDetails = () => {
   const text = readSelection();
-  return { text, sentence: readSelectionSentence(text), pageLanguage: readPageLanguage() };
+  return {
+    text,
+    sentence: readSelectionSentence(text),
+    pageLanguage: readPageLanguage(),
+    ...readPageSource(),
+  };
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

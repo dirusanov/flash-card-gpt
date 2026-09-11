@@ -1,5 +1,6 @@
 import { Dispatch } from 'redux';
 import {
+  AnkiExportOptions,
   CardLangLearning,
   CardGeneral,
   createAnkiCards,
@@ -40,7 +41,8 @@ export const saveAnkiCards =
     ankiConnectApiKey: string | null = null,
     deckName: string,
     model_name: string,
-    cards: CardLangLearning[] | CardGeneral[]
+    cards: CardLangLearning[] | CardGeneral[],
+    options: AnkiExportOptions = {}
   ) =>
   async (dispatch: Dispatch) => {
     try {
@@ -50,7 +52,8 @@ export const saveAnkiCards =
         ankiConnectApiKey,
         deckName,
         model_name,
-        cards
+        cards,
+        options
       );
       dispatch({ type: SAVE_ANKI_CARDS, payload: result });
       return result;
@@ -75,6 +78,9 @@ export const saveCardToStorage = (card: {
   wordAudio?: string | null;
   examplesAudio?: Array<string | null>;
   exampleTranscriptions?: Array<string | null>;
+  sentence?: string | null;
+  sourceUrl?: string | null;
+  sourceTitle?: string | null;
   createdAt: Date;
   syncTags?: string[] | null;
   syncId?: string | null;

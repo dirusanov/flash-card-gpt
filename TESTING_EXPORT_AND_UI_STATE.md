@@ -35,6 +35,35 @@ every response is actually validated the way the protocol requires:
   toast and marked the card exported even though nothing new was added to Anki. After
   the fix it should show a duplicate/partial-failure message instead.
 
+### Note types: "Vaulto Basic" and "Vaulto Cloze"
+
+Language cards no longer go to the stock `Basic` model. `createAnkiCards` first runs
+`ensureNoteType` for **Vaulto Basic** (`Front`, `Back`, `Sentence`, `Source`) and, when
+the "Cloze from the sentence" setting is on and at least one card has a sentence, for
+**Vaulto Cloze** (`Text`, `Back Extra`, `Source`, `isCloze: true`). Two reasons for
+owning the names: the sentence and the page get real fields, and stock names are
+localised per Anki profile ("Basic" is not called "Basic" in a Russian profile), so
+sending `'Basic'` was always a gamble.
+
+- `ensureNoteType` = `modelNames` → `createModel` if missing; otherwise
+  `modelFieldNames` → `modelFieldAdd` for each field a newer extension introduced. It
+  never touches templates or CSS of an existing model, so user edits survive.
+- If it fails (old add-on, collection locked) it returns `false` and the card goes to
+  the model name the caller passed with the sentence and source folded into `Back`.
+  The export must still succeed in that case.
+- Cloze notes are a **second** `addNotes` batch after the cards' own. They never affect
+  which cards count as exported: a cloze rejected as a duplicate (same sentence exported
+  earlier) is just already there. `buildClozeText` returns `null` — no cloze — when the
+  word cannot be found in its sentence or the sentence *is* the word.
+- General-topic cards keep the stock model and `Front`/`Back` only.
+
+The whole flow is exercised against a fake AnkiConnect (a `backgroundFetch` stub that
+records every action and answers per-action) — fresh collection, existing model, model
+missing a field, `createModel` refused, card without a sentence, cloze batch all
+duplicates, general-topic passthrough. Reproduce by compiling `ankiService.ts` with
+`tsc` (as `utils/test-ai-cards/run.js` does) and replacing `backgroundFetch` in
+`require.cache` before requiring the compiled module.
+
 ## Card export to a `.txt` file (no AnkiConnect needed)
 
 `performFileExport` in `StoredCards.tsx` builds Anki's plain-text import format

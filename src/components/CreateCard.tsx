@@ -37,10 +37,11 @@ import { planInstruction, CardAction } from '../services/instructionRouter';
 import { ModelProvider } from '../store/reducers/settings';
 import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
 import { imageUrlToBase64, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
-import { requestPageContext, getActiveTabId } from '../services/pageContextBridge';
+import {
+    PageSelectionDetails, SELECTION_CHANGED, getActiveTabId, requestPageContext, requestPageSelection,
+} from '../services/pageContextBridge';
 import { buildSafeImagePrompt } from '../services/imagePromptSafety';
 import { consumePendingSelection, subscribeToPendingSelection } from '../services/pendingSelection';
-import { SELECTION_CHANGED } from '../services/pageContextBridge';
 import {
     formatTranscriptionHtml,
     shouldGenerateTranscription,
@@ -63,6 +64,26 @@ const debugLog = (...args: unknown[]) => {
 };
 const TEXT_SYNC_DEBOUNCE_MS = 120;
 const PROGRESS_UPDATE_INTERVAL_MS = 120;
+
+/** Where a selection was made: the sentence around it and the page it was on. */
+interface SelectionOrigin {
+    text: string;
+    sentence: string;
+    sourceUrl: string;
+    sourceTitle: string;
+}
+
+// Null rather than an all-empty origin when the page had nothing to say, so "typed in"
+// and "selected on a page we could not read" look the same to the card.
+const selectionOriginOf = (
+    text: string,
+    details?: Partial<PageSelectionDetails> | null,
+): SelectionOrigin | null => {
+    const sentence = typeof details?.sentence === 'string' ? details.sentence : '';
+    const sourceUrl = typeof details?.sourceUrl === 'string' ? details.sourceUrl : '';
+    const sourceTitle = typeof details?.sourceTitle === 'string' ? details.sourceTitle : '';
+    return sentence || sourceUrl ? { text, sentence, sourceUrl, sourceTitle } : null;
+};
 
 interface CreateCardProps {
     // Пустой интерфейс, так как больше не нужен onSettingsClick
@@ -252,12 +273,29 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const autoSaveToServer = useSelector((state: RootState) => state.settings.autoSaveToServer);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
+    const ankiClozeFromSentence = useSelector((state: RootState) => state.settings.ankiClozeFromSentence);
     const auth = useSelector((state: RootState) => state.auth);
     const isLoggedIn = !!auth.accessToken;
     const [originalSelectedText, setOriginalSelectedText] = useState('');
     // Text can arrive from the page without the user touching the panel. Saying so removes
     // the "where did this come from?" beat.
     const [cameFromSelection, setCameFromSelection] = useState(false);
+    // Where the current text was selected: the sentence around it and the page. Saved
+    // with the card; dropped the moment the text stops being that selection.
+    const [selectionOrigin, setSelectionOrigin] = useState<SelectionOrigin | null>(null);
+    const selectionOriginRef = useRef<SelectionOrigin | null>(null);
+    selectionOriginRef.current = selectionOrigin;
+    // The origin belongs to a card only while that card is still the selection it came
+    // from; a card built from edited text gets none.
+    const originFieldsFor = (cardText: string) => {
+        const origin = selectionOriginRef.current;
+        const match = origin !== null && origin.text === (cardText || '').trim();
+        return {
+            sentence: match ? origin.sentence || null : null,
+            sourceUrl: match ? origin.sourceUrl || null : null,
+            sourceTitle: match ? origin.sourceTitle || null : null,
+        };
+    };
 
     const enforceLanguageMode = useCallback(() => {
         localStorage.setItem('selected_mode', Modes.LanguageLearning);
@@ -815,6 +853,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         scheduleTextInputSync(newText);
         // Once the user types, the text is theirs — drop the "from your selection" badge.
         setCameFromSelection(false);
+        // ...and the sentence with it: the page said that sentence about the selection,
+        // not about whatever the text is becoming.
+        if (selectionOriginRef.current && newText.trim() !== selectionOriginRef.current.text) {
+            setSelectionOrigin(null);
+        }
 
         // If the card is already marked as saved, check if it's being edited
         if (isSaved) {
@@ -1618,6 +1661,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
                     image: normalizedImage, // base64 данные (постоянные, приоритет)
                     imageUrl: normalizedImageUrl, // URL как резерв
+                    ...originFieldsFor(cardText),
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const,
                     deckId: selectedBackendDeckId,
@@ -1666,6 +1710,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             word_audio_base64: cardToSave.wordAudio,
                             examples_audio_base64: cardToSave.examplesAudio,
                             example_transcriptions: cardToSave.exampleTranscriptions,
+                            sentence: cardToSave.sentence,
+                            source_url: cardToSave.sourceUrl,
+                            source_title: cardToSave.sourceTitle,
                         };
 
                         await dispatch(saveAnkiCards(
@@ -1674,7 +1721,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             ankiConnectApiKey,
                             selectedAnkiDeckName,
                             'Basic', // Fallback model
-                            [ankiCard as any]
+                            [ankiCard as any],
+                            { clozeFromSentence: ankiClozeFromSentence }
                         ));
                         // Mark as exported
                         tabAware.updateCardExportStatus(cardId, 'exported');
@@ -1723,6 +1771,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // Сохраняем оба типа изображений для надежности
                     image: normalizedImage,
                     imageUrl: normalizedImageUrl,
+                    ...originFieldsFor(cardText),
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
@@ -1809,7 +1858,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, []);
 
     // Используем useCallback для стабильной ссылки на функцию обработки выделения
-    const handleTextSelection = useCallback((selectedText: string) => {
+    const handleTextSelection = useCallback((selectedText: string, details?: Partial<PageSelectionDetails> | null) => {
         const normalizedSelection = selectedText.trim();
         if (!normalizedSelection) {
             return;
@@ -1822,9 +1871,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             return;
         }
 
+        const origin = selectionOriginOf(normalizedSelection, details);
+
         if (normalizedSelection === text) {
+            // Same word, different sentence: the card is about the other meaning now.
+            // Nothing else about the composer changes, so only the origin moves.
+            if (origin?.sentence && origin.sentence !== selectionOriginRef.current?.sentence) {
+                setSelectionOrigin(origin);
+            }
             return;
         }
+        setSelectionOrigin(origin);
 
         debugLog('Text selection handled for tab-specific state:', normalizedSelection);
 
@@ -1846,11 +1903,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // The panel has no access to the page, so the content script reports selections and the
     // context menu / shortcut park theirs in storage. Both funnel into handleTextSelection.
     useEffect(() => {
+        // The context menu and the shortcut park the text only; the page still has the
+        // selection, so ask it for the sentence and source while they still match.
         const drain = () => {
-            void consumePendingSelection().then((parked) => {
-                if (parked) {
-                    handleTextSelection(parked);
-                }
+            void consumePendingSelection().then(async (parked) => {
+                if (!parked) return;
+                const details = await requestPageSelection(await getActiveTabId());
+                handleTextSelection(parked, details?.text.trim() === parked.trim() ? details : null);
             });
         };
 
@@ -1859,7 +1918,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         const onMessage = (message: any) => {
             if (message?.action === SELECTION_CHANGED && message.text) {
-                handleTextSelection(message.text);
+                handleTextSelection(message.text, message);
             }
         };
         chrome.runtime.onMessage.addListener(onMessage);
@@ -1933,6 +1992,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (savedCard.transcription) tabAware.setTranscription(savedCard.transcription);
             tabAware.setWordAudio(savedCard.wordAudio ?? null);
             setOriginalSelectedText(savedCard.text);
+            setSelectionOrigin(savedCard.sentence || savedCard.sourceUrl ? {
+                text: savedCard.text,
+                sentence: savedCard.sentence || '',
+                sourceUrl: savedCard.sourceUrl || '',
+                sourceTitle: savedCard.sourceTitle || '',
+            } : null);
             setShowResult(true);
         } else {
             debugLog('Card ID from localStorage not found in Redux storage, resetting');
@@ -2568,6 +2633,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         });
 
         setOriginalSelectedText('');
+        setSelectionOrigin(null);
 
         // Draft shortcut removed: keep flow focused on explicit save operations.
     };
@@ -2594,6 +2660,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (!isSaved) {
             setShowResult(false);
             setOriginalSelectedText('');
+            setSelectionOrigin(null);
             tabAware.updateCard({
                 text: '',
                 translation: '',
@@ -4932,6 +4999,9 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         word_audio_base64: (cardToSave as any).wordAudio,
                         examples_audio_base64: (cardToSave as any).examplesAudio,
                         example_transcriptions: (cardToSave as any).exampleTranscriptions,
+                        sentence: (cardToSave as any).sentence,
+                        source_url: (cardToSave as any).sourceUrl,
+                        source_title: (cardToSave as any).sourceTitle,
                     } : {
                         text: cardToSave.text,
                         front: (cardToSave as any).front,
@@ -4945,7 +5015,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         ankiConnectApiKey,
                         selectedAnkiDeckName,
                         'Basic',
-                        [ankiCard as any]
+                        [ankiCard as any],
+                        { clozeFromSentence: ankiClozeFromSentence }
                     ));
                     tabAware.updateCardExportStatus(cardToSave.id, 'exported');
                     showError(getAnkiSaveSuccessMessage(1), 'success');

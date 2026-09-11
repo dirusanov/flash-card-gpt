@@ -14,6 +14,9 @@ export interface QuickState {
     /** The sentence the text was selected from, and the page's declared language. */
     sentence: string;
     pageLanguage: string;
+    /** The page the selection was made on; kept on the card as its source. */
+    sourceUrl: string;
+    sourceTitle: string;
     /** Explicit language of the text, or null while auto-detect is on. */
     source: string | null;
     /** What the server resolved the text's language to, when it built the draft. */
@@ -25,7 +28,8 @@ export interface QuickState {
 const STEPS: QuickStep[] = ['compose', 'result', 'review', 'done'];
 
 export const emptyQuickState = (): QuickState => ({
-    step: 'compose', text: '', sentence: '', pageLanguage: '', source: null, detected: null, draft: null, saved: false,
+    step: 'compose', text: '', sentence: '', pageLanguage: '', sourceUrl: '', sourceTitle: '',
+    source: null, detected: null, draft: null, saved: false,
 });
 
 const isDraft = (value: unknown): value is StoredCard =>
@@ -45,6 +49,8 @@ export function loadQuickState(): QuickState {
             text: typeof value.text === 'string' ? value.text : '',
             sentence: typeof value.sentence === 'string' ? value.sentence : '',
             pageLanguage: typeof value.pageLanguage === 'string' ? value.pageLanguage : '',
+            sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl : '',
+            sourceTitle: typeof value.sourceTitle === 'string' ? value.sourceTitle : '',
             source: typeof value.source === 'string' ? value.source : null,
             detected: typeof value.detected === 'string' ? value.detected : null,
             draft,

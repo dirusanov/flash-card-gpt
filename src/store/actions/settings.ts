@@ -17,6 +17,7 @@ export const SET_TRANSCRIPTION_MODE = 'SET_TRANSCRIPTION_MODE';
 export const SET_TRANSCRIPTION_LANGUAGE = 'SET_TRANSCRIPTION_LANGUAGE';
 export const SET_TRANSCRIPTION_EXTRA_LANGUAGES = 'SET_TRANSCRIPTION_EXTRA_LANGUAGES';
 export const SET_EXAMPLE_TRANSCRIPTIONS_ENABLED = 'SET_EXAMPLE_TRANSCRIPTIONS_ENABLED';
+export const SET_ANKI_CLOZE_FROM_SENTENCE = 'SET_ANKI_CLOZE_FROM_SENTENCE';
 export const SET_AUTH_API_URL = 'SET_AUTH_API_URL';
 export const SET_SYNC_API_URL = 'SET_SYNC_API_URL';
 export const SET_AUTO_SAVE_TO_SERVER = 'SET_AUTO_SAVE_TO_SERVER';
@@ -116,6 +117,11 @@ export const setTranscriptionExtraLanguages = (languages: string[]) => ({
 
 export const setExampleTranscriptionsEnabled = (enabled: boolean) => ({
     type: SET_EXAMPLE_TRANSCRIPTIONS_ENABLED,
+    payload: enabled,
+});
+
+export const setAnkiClozeFromSentence = (enabled: boolean) => ({
+    type: SET_ANKI_CLOZE_FROM_SENTENCE,
     payload: enabled,
 });
 

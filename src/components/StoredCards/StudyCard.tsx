@@ -1,11 +1,19 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useId } from 'react';
-import { FaVolumeUp, FaEyeSlash, FaRegImage, FaTimes, FaPlus, FaCopy, FaCheck, FaUndo, FaHandPointer } from 'react-icons/fa';
+import { FaVolumeUp, FaEyeSlash, FaRegImage, FaTimes, FaPlus, FaCopy, FaCheck, FaUndo, FaHandPointer, FaExternalLinkAlt } from 'react-icons/fa';
 import { StoredCard } from '../../store/reducers/cards';
 import { removeDecorativeTranslationQuotes } from '../../services/aiProviders';
 import GrammarCard from '../grammar/GrammarCard';
 import AutoTextarea from '../ui/AutoTextarea';
 
 type ExampleTuple = [string, string | null];
+
+// The link's label: the page title when there is one, otherwise the site. Never the
+// raw URL — it would run to three lines on a card.
+const sourceLabel = (url: string, title: string | null | undefined): string => {
+    const clean = (title || '').trim();
+    if (clean) return clean.length > 70 ? `${clean.slice(0, 69)}…` : clean;
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+};
 
 interface StudyCardProps {
     card: StoredCard;
@@ -263,6 +271,8 @@ const StudyCard: React.FC<StudyCardProps> = ({
     const examples = rawExamples.map((example, index) => ({ example, index }))
         .filter(({ example }) => (example?.[0] || '').trim().length > 0);
     const hasGrammar = Boolean((card.linguisticInfo || '').trim());
+    const sentence = (card.sentence || '').trim();
+    const sourceUrl = (card.sourceUrl || '').trim();
 
     const highlight = (text: string): React.ReactNode => {
         if (!word) return text;
@@ -559,6 +569,35 @@ const StudyCard: React.FC<StudyCardProps> = ({
                                     {translation}
                                 </p>
                                 {renderCopyButton('translation', translation)}
+                            </div>
+                        )}
+
+                        {/* The sentence the word was met in — the card's own reason to exist,
+                            shown ahead of the generated examples. The link goes back to the page. */}
+                        {(sentence || sourceUrl) && (
+                            <div
+                                className="mb-3 rounded-card border border-line/70 bg-white/70 px-3 py-2"
+                                onClick={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => { e.stopPropagation(); setFlipped(false); }}
+                            >
+                                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-400">
+                                    Where you found it
+                                </div>
+                                {sentence && (
+                                    <p className="m-0 text-[14px] leading-snug text-gray-800">{highlight(sentence)}</p>
+                                )}
+                                {sourceUrl && (
+                                    <a
+                                        href={sourceUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={`inline-flex max-w-full items-center gap-1 text-[11px] font-medium text-accent hover:underline ${sentence ? 'mt-1.5' : ''}`}
+                                        title={sourceUrl}
+                                    >
+                                        <span className="truncate">{sourceLabel(sourceUrl, card.sourceTitle)}</span>
+                                        <FaExternalLinkAlt size={8} className="shrink-0" />
+                                    </a>
+                                )}
                             </div>
                         )}
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../../store';
 import {
+    setAnkiClozeFromSentence,
     setAnkiConnectApiKey,
     setAnkiConnectUrl,
     setUseAnkiConnect,
@@ -22,6 +23,7 @@ const AnkiRow: React.FC = () => {
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
+    const clozeFromSentence = useSelector((state: RootState) => state.settings.ankiClozeFromSentence);
 
     const [showKey, setShowKey] = useState(false);
     const [testing, setTesting] = useState(false);
@@ -109,6 +111,27 @@ const AnkiRow: React.FC = () => {
                     </Button>
                 </div>
                 <TestResult outcome={result} />
+
+                <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
+                    <span className="flex min-w-0 flex-col">
+                        <span className="text-xs font-semibold text-gray-800">
+                            Cloze from the sentence
+                        </span>
+                        <span className="text-[11px] leading-snug text-gray-500">
+                            Also adds a fill-in-the-gap note built from the sentence the
+                            word was found in.
+                        </span>
+                    </span>
+                    <Switch
+                        checked={clozeFromSentence}
+                        onChange={(enabled) => dispatch(setAnkiClozeFromSentence(enabled))}
+                        label="Cloze from the sentence"
+                    />
+                </div>
+                <p className="m-0 text-[11px] leading-snug text-gray-500">
+                    Cards are saved as the “Vaulto Basic” note type, with the sentence and the
+                    page they came from in fields of their own.
+                </p>
 
                 <Disclosure summary="Setup instructions">
                     <ol className="m-0 flex list-decimal flex-col gap-2 pl-4 text-xs leading-relaxed text-gray-600">

@@ -11,6 +11,7 @@ type PersistedSettings = Partial<Pick<
   | 'translateToLanguage'
   | 'ankiConnectUrl'
   | 'useAnkiConnect'
+  | 'ankiClozeFromSentence'
   | 'visibleSideBar'
   | 'shouldGenerateImage'
   | 'imageGenerationMode'
@@ -60,6 +61,9 @@ export const normalizePersistedSettings = (raw: unknown): PersistedSettings => {
   if (typeof record.translateToLanguage === 'string') result.translateToLanguage = record.translateToLanguage;
   if (typeof record.ankiConnectUrl === 'string') result.ankiConnectUrl = record.ankiConnectUrl;
   if (typeof record.useAnkiConnect === 'boolean') result.useAnkiConnect = record.useAnkiConnect;
+  if (typeof record.ankiClozeFromSentence === 'boolean') {
+    result.ankiClozeFromSentence = record.ankiClozeFromSentence;
+  }
   if (typeof record.visibleSideBar === 'boolean') result.visibleSideBar = record.visibleSideBar;
   if (typeof record.shouldGenerateImage === 'boolean') result.shouldGenerateImage = record.shouldGenerateImage;
   if (typeof record.imageGenerationMode === 'string' && IMAGE_MODES.has(record.imageGenerationMode)) {
@@ -135,6 +139,7 @@ const snapshotSettings = (state: RootState): PersistedSettings => ({
   translateToLanguage: state.settings.translateToLanguage,
   ankiConnectUrl: state.settings.ankiConnectUrl,
   useAnkiConnect: state.settings.useAnkiConnect,
+  ankiClozeFromSentence: state.settings.ankiClozeFromSentence,
   visibleSideBar: state.settings.visibleSideBar,
   shouldGenerateImage: state.settings.shouldGenerateImage,
   imageGenerationMode: state.settings.imageGenerationMode,

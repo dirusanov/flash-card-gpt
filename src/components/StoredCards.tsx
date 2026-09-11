@@ -9,7 +9,7 @@ import { StoredCard } from '../store/reducers/cards';
 import { useTabAware } from './TabAwareProvider';
 import { Modes } from '../constants';
 import { FaDownload, FaTimes, FaEllipsisH, FaSearch, FaCheckSquare, FaCloud, FaCheckCircle, FaChevronRight, FaChevronDown, FaExclamationTriangle, FaDesktop, FaPlay, FaChartBar, FaLayerGroup } from 'react-icons/fa';
-import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards, format_back_lang_learning, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
+import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards, format_back_lang_learning, formatSentenceField, formatSourceField, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
 import useErrorNotification from './useErrorHandler';
 import Menu from './ui/Menu';
 import Button from './ui/Button';
@@ -95,6 +95,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const useAnkiConnect = useSelector((state: RootState) => state.settings.useAnkiConnect);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
+    const ankiClozeFromSentence = useSelector((state: RootState) => state.settings.ankiClozeFromSentence);
     const isAnkiAvailable = useSelector((state: RootState) => state.anki.isAnkiAvailable);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
@@ -742,6 +743,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         example_transcriptions: Array.isArray(card.exampleTranscriptions)
                             ? card.exampleTranscriptions
                             : [],
+                        sentence: card.sentence || null,
+                        source_url: card.sourceUrl || null,
+                        source_title: card.sourceTitle || null,
                     };
 
                     debugLog(`Adding language learning card to Anki export (Deck: ${targetDeckName}):`, {
@@ -831,7 +835,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                             ankiConnectApiKey,
                             targetDeckName,
                             modelName,
-                            groups.lang
+                            groups.lang,
+                            { clozeFromSentence: ankiClozeFromSentence }
                         ));
                         groups.langIds.forEach((cardId, i) => {
                             if (langResult?.[i] != null) succeededIds.add(cardId);
@@ -1270,6 +1275,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 example_transcriptions: Array.isArray(card.exampleTranscriptions)
                     ? card.exampleTranscriptions
                     : [],
+                sentence: card.sentence || null,
+                source_url: card.sourceUrl || null,
+                source_title: card.sourceTitle || null,
             };
 
             return { mode: Modes.LanguageLearning, cards: [ankiCard] };
@@ -1340,7 +1348,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 showError('Unable to build Anki payload for this card.');
                 return false;
             }
-            await createAnkiCards(payload.mode, ankiConnectUrl, ankiConnectApiKey, targetAnkiDeck, 'Basic', payload.cards);
+            await createAnkiCards(payload.mode, ankiConnectUrl, ankiConnectApiKey, targetAnkiDeck, 'Basic', payload.cards,
+                { clozeFromSentence: ankiClozeFromSentence });
             tabAware.updateCardExportStatus(card.id, 'exported_to_anki');
             showError(getAnkiSaveSuccessMessage(payload.cards.length), 'success');
             return true;
@@ -2067,7 +2076,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                     };
 
                     // Use the shared formatting logic from ankiService
-                    const back = format_back_lang_learning(cardForFormatting);
+                    let back = format_back_lang_learning(cardForFormatting);
+
+                    // A .txt import is two fields, so the sentence and the page ride in
+                    // the back, the way the AnkiConnect fallback does it.
+                    const sentenceHtml = formatSentenceField(card.sentence, card.text || card.front || '');
+                    const sourceHtml = formatSourceField(card.sourceUrl, card.sourceTitle);
+                    if (sentenceHtml) back += `<div class="vaulto-sentence">${sentenceHtml}</div>`;
+                    if (sourceHtml) back += `<div class="vaulto-source">${sourceHtml}</div>`;
 
                     // Clean the front and back content to avoid tab/newline issues
                     const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();

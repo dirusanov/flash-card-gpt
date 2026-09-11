@@ -18,6 +18,7 @@ import {
     SET_TRANSCRIPTION_LANGUAGE,
     SET_TRANSCRIPTION_EXTRA_LANGUAGES,
     SET_EXAMPLE_TRANSCRIPTIONS_ENABLED,
+    SET_ANKI_CLOZE_FROM_SENTENCE,
     SET_AUTH_API_URL,
     SET_SYNC_API_URL,
     SET_AUTO_SAVE_TO_SERVER,
@@ -44,6 +45,8 @@ interface SettingsState {
     ankiConnectUrl: string
     ankiConnectApiKey: string | null
     useAnkiConnect: boolean
+    /** Also send each card's source sentence to Anki as a cloze note. */
+    ankiClozeFromSentence: boolean
     visibleSideBar: boolean
     shouldGenerateImage: boolean
     imageGenerationMode: 'off' | 'smart' | 'always'
@@ -74,6 +77,7 @@ const initialState: SettingsState = {
     ankiConnectUrl: 'http://127.0.0.1:8765',
     ankiConnectApiKey: null,
     useAnkiConnect: false,
+    ankiClozeFromSentence: false,
     visibleSideBar: true,
     shouldGenerateImage: true,
     imageGenerationMode: 'smart',
@@ -192,6 +196,11 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
             return {
                 ...state,
                 exampleTranscriptionsEnabled: action.payload,
+            };
+        case SET_ANKI_CLOZE_FROM_SENTENCE:
+            return {
+                ...state,
+                ankiClozeFromSentence: action.payload,
             };
         case SET_AUTH_API_URL:
             return {

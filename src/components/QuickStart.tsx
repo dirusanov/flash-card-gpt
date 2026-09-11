@@ -11,7 +11,9 @@ import {
     saveQuickState, trialErrorMessage,
 } from '../services/quickStart';
 import { consumePendingSelection, subscribeToPendingSelection } from '../services/pendingSelection';
-import { GET_PAGE_SELECTION, SELECTION_CHANGED, getActiveTabId } from '../services/pageContextBridge';
+import {
+    PageSelectionDetails, SELECTION_CHANGED, getActiveTabId, requestPageSelection,
+} from '../services/pageContextBridge';
 import { SrsGrade, applyReview, createInitialSrsState, getIntervalPreview } from '../services/srs';
 import { appendReviewLog } from '../services/reviewLog';
 import LanguagePairBar from './CreateCard/LanguagePairBar';
@@ -24,18 +26,18 @@ import Button from './ui/Button';
 
 const MAX_TEXT = 240;
 
-interface PageSelection { text: string; sentence?: string; pageLanguage?: string; }
+const readPageSelection = async (): Promise<PageSelectionDetails | null> =>
+    requestPageSelection(await getActiveTabId());
 
-const readPageSelection = async (): Promise<PageSelection | null> => {
-    try {
-        const id = await getActiveTabId();
-        if (id == null) return null;
-        const response = await chrome.tabs.sendMessage(id, { action: GET_PAGE_SELECTION });
-        return response?.ok && typeof response.text === 'string' ? response : null;
-    } catch {
-        return null;
-    }
-};
+/** The page-side facts that travel with a selection; empty when it was typed in. */
+type SelectionOrigin = Pick<PageSelectionDetails, 'sentence' | 'pageLanguage' | 'sourceUrl' | 'sourceTitle'>;
+const NO_ORIGIN: SelectionOrigin = { sentence: '', pageLanguage: '', sourceUrl: '', sourceTitle: '' };
+const originOf = (details: Partial<PageSelectionDetails> | null | undefined): SelectionOrigin => ({
+    sentence: details?.sentence || '',
+    pageLanguage: details?.pageLanguage || '',
+    sourceUrl: details?.sourceUrl || '',
+    sourceTitle: details?.sourceTitle || '',
+});
 
 /**
  * The first-run composer: the same language bar, card front and study card as the full
@@ -96,7 +98,7 @@ const QuickStart: React.FC = () => {
     // screen. Only a generation in progress ignores it. An unsaved draft is kept behind
     // the "Unsaved card" strip; a saved one has nothing left to lose.
     useEffect(() => {
-        const accept = (raw: string, sentence = '', pageLanguage = '') => {
+        const accept = (raw: string, origin: SelectionOrigin) => {
             const text = raw.trim().slice(0, MAX_TEXT);
             const current = stateRef.current;
             if (busyRef.current || !text) return;
@@ -104,8 +106,8 @@ const QuickStart: React.FC = () => {
             // "bank" from a riverbank paragraph has to get through. A repeat that carries
             // no sentence of its own — the context menu handing over bare text — must not,
             // or it would wipe the sentence the page already gave us.
-            if (text === current.text && (!sentence || sentence === current.sentence)) return;
-            const patch = { text, sentence, pageLanguage, detected: null, step: 'compose' as const };
+            if (text === current.text && (!origin.sentence || origin.sentence === current.sentence)) return;
+            const patch = { text, ...origin, detected: null, step: 'compose' as const };
             if (current.step === 'compose' || current.step === 'result') {
                 update(patch);
             } else {
@@ -121,12 +123,12 @@ const QuickStart: React.FC = () => {
             if (!selection) return;
             const details = await readPageSelection();
             const matches = details?.text?.trim() === selection.trim();
-            accept(selection, matches ? details?.sentence : '', matches ? details?.pageLanguage : '');
+            accept(selection, matches ? originOf(details) : NO_ORIGIN);
         };
         void takePending();
         const unsubscribe = subscribeToPendingSelection(() => { void takePending(); });
         const listener = (message: any) => {
-            if (message?.action === SELECTION_CHANGED) accept(message.text || '', message.sentence || '', message.pageLanguage || '');
+            if (message?.action === SELECTION_CHANGED) accept(message.text || '', originOf(message));
         };
         chrome.runtime.onMessage.addListener(listener);
         return () => { unsubscribe(); chrome.runtime.onMessage.removeListener(listener); };
@@ -159,7 +161,15 @@ const QuickStart: React.FC = () => {
             });
             // After a cancel the card still lands, as an "unsaved card" strip rather than a
             // sheet opening on its own: the attempt was already spent, so it is kept.
-            update({ draft: result.card, detected: result.sourceLanguage, saved: false,
+            // The card remembers where the word was met: the sentence that fixed its
+            // meaning and the page to go back to. Both are '' for a word typed by hand.
+            const draft = {
+                ...result.card,
+                sentence: current.sentence || null,
+                sourceUrl: current.sourceUrl || null,
+                sourceTitle: current.sourceTitle || null,
+            };
+            update({ draft, detected: result.sourceLanguage, saved: false,
                 step: cancelledRef.current ? 'compose' : 'result' });
             setEditing(false);
             setStatus((prev) => ({ available: true, remaining: result.remaining, limit: prev?.limit || result.remaining }));
@@ -188,10 +198,7 @@ const QuickStart: React.FC = () => {
         try {
             const response = await readPageSelection();
             if (!response?.text?.trim()) throw new Error();
-            update({
-                text: response.text.trim().slice(0, MAX_TEXT), sentence: response.sentence || '',
-                pageLanguage: response.pageLanguage || '', detected: null,
-            });
+            update({ text: response.text.trim().slice(0, MAX_TEXT), ...originOf(response), detected: null });
             setError('');
         } catch {
             setError('Select a word on the page first, then press Alt+C or right-click → Create card.');
@@ -357,7 +364,7 @@ const QuickStart: React.FC = () => {
                             onChange={(value) => update({
                                 text: value.slice(0, MAX_TEXT), detected: null,
                                 // Typing over a selection breaks its link to the page sentence.
-                                ...(value.trim() !== stateRef.current.text.trim() ? { sentence: '', pageLanguage: '' } : {}),
+                                ...(value.trim() !== stateRef.current.text.trim() ? NO_ORIGIN : {}),
                             })}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void generate(); }

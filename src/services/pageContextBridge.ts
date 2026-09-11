@@ -74,14 +74,39 @@ export const requestPageContext = async (
   return response?.ok ? response.context : null;
 };
 
-export const requestPageSelection = async (tabId: number | null): Promise<string> => {
+/** What the content script reports about the current selection, as one message. */
+export interface PageSelectionDetails {
+  text: string;
+  /** The sentence the text sits in — empty when the selection is the whole block. */
+  sentence: string;
+  /** The page's declared language code, or empty. */
+  pageLanguage: string;
+  /** Where the selection was made. Empty on pages that are not http(s). */
+  sourceUrl: string;
+  sourceTitle: string;
+}
+
+const asString = (value: unknown) => (typeof value === 'string' ? value : '');
+
+export const requestPageSelection = async (
+  tabId: number | null,
+): Promise<PageSelectionDetails | null> => {
   if (tabId == null) {
-    return '';
+    return null;
   }
 
-  const response = await sendToTab<{ ok: boolean; text: string }>(tabId, {
+  const response = await sendToTab<{ ok: boolean } & Partial<PageSelectionDetails>>(tabId, {
     action: GET_PAGE_SELECTION,
   });
+  if (!response?.ok || typeof response.text !== 'string') {
+    return null;
+  }
 
-  return response?.ok ? response.text || '' : '';
+  return {
+    text: response.text,
+    sentence: asString(response.sentence),
+    pageLanguage: asString(response.pageLanguage),
+    sourceUrl: asString(response.sourceUrl),
+    sourceTitle: asString(response.sourceTitle),
+  };
 };
