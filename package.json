@@ -1,6 +1,6 @@
 {
   "name": "vaulto-cards-extension",
-  "version": "5.3.0",
+  "version": "5.3.1",
   "description": "Turn any highlighted text into a finished Anki flashcard — AI adds translation, example and image. Syncs via AnkiConnect.",
   "license": "MIT",
   "repository": {
