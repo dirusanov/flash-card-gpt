@@ -79,7 +79,13 @@ export interface TrialStatus { available: boolean; remaining: number; limit: num
 
 export class TrialError extends Error {
     /** `detail` names the server and what it answered, for the error strip and the console. */
-    constructor(public code: string, public detail: string) { super(`${code}: ${detail}`); }
+    constructor(public code: string, public detail: string) {
+        super(`${code}: ${detail}`);
+        // The ES5 build drops the subclass prototype when extending Error; without this
+        // `instanceof TrialError` is always false.
+        Object.setPrototypeOf(this, TrialError.prototype);
+        this.name = 'TrialError';
+    }
 }
 
 // Two model passes plus a dictionary lookup; the server gives up at 75s.
