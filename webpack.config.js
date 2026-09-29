@@ -39,13 +39,11 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 var options = {
   mode: process.env.NODE_ENV || 'development',
   entry: {
-    newtab: path.join(__dirname, 'src', 'pages', 'Newtab', 'index.jsx'),
     options: path.join(__dirname, 'src', 'pages', 'Options', 'index.jsx'),
     popup: path.join(__dirname, 'src', 'pages', 'Popup', 'index.jsx'),
+    sidepanel: path.join(__dirname, 'src', 'pages', 'SidePanel', 'index.jsx'),
     background: path.join(__dirname, 'src', 'pages', 'Background', 'index.js'),
     contentScript: path.join(__dirname, 'src', 'pages', 'Content', 'index.js'),
-    devtools: path.join(__dirname, 'src', 'pages', 'Devtools', 'index.js'),
-    panel: path.join(__dirname, 'src', 'pages', 'Panel', 'index.jsx'),
   },
   output: {
     filename: '[name].bundle.js',
@@ -156,14 +154,12 @@ var options = {
     new CopyWebpackPlugin({
       patterns: [
         {
-          from: 'src/assets/styles/tailwind.css',
-          to: path.join(__dirname, 'build'),
+          // Store name and description per language; the manifest points at them
+          // with __MSG_*__ placeholders.
+          from: 'src/_locales',
+          to: path.join(__dirname, 'build', '_locales'),
           force: true,
         },
-      ],
-    }),
-    new CopyWebpackPlugin({
-      patterns: [
         {
           from: 'src/assets/img/logo-16.png',
           to: path.join(__dirname, 'build'),
@@ -182,12 +178,6 @@ var options = {
       ],
     }),
     new HtmlWebpackPlugin({
-      template: path.join(__dirname, 'src', 'pages', 'Newtab', 'index.html'),
-      filename: 'newtab.html',
-      chunks: ['newtab'],
-      cache: false,
-    }),
-    new HtmlWebpackPlugin({
       template: path.join(__dirname, 'src', 'pages', 'Options', 'index.html'),
       filename: 'options.html',
       chunks: ['options'],
@@ -200,15 +190,9 @@ var options = {
       cache: false,
     }),
     new HtmlWebpackPlugin({
-      template: path.join(__dirname, 'src', 'pages', 'Devtools', 'index.html'),
-      filename: 'devtools.html',
-      chunks: ['devtools'],
-      cache: false,
-    }),
-    new HtmlWebpackPlugin({
-      template: path.join(__dirname, 'src', 'pages', 'Panel', 'index.html'),
-      filename: 'panel.html',
-      chunks: ['panel'],
+      template: path.join(__dirname, 'src', 'pages', 'SidePanel', 'index.html'),
+      filename: 'sidepanel.html',
+      chunks: ['sidepanel'],
       cache: false,
     }),
   ].filter(Boolean),

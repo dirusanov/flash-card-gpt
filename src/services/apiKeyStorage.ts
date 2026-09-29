@@ -41,30 +41,9 @@ const getChromeStorage = () => {
   return null;
 };
 
-const readFallback = (): StoredApiKeys => {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        return normalizeKeys(JSON.parse(raw));
-      }
-    }
-  } catch (error) {
-    console.error('Failed to read API keys from localStorage:', error);
-  }
-  return cloneKeys(DEFAULT_KEYS);
-};
-
-const writeFallback = (keys: StoredApiKeys) => {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
-    }
-  } catch (error) {
-    console.error('Failed to write API keys to localStorage:', error);
-  }
-};
-
+// Keys live in chrome.storage.local only. They must never be mirrored into
+// window.localStorage: a content script shares it with the host page origin, which would
+// expose the key to every script running on the visited site.
 export const loadApiKeys = async (): Promise<StoredApiKeys> => {
   if (cachedKeys) {
     return cloneKeys(cachedKeys);
@@ -72,9 +51,8 @@ export const loadApiKeys = async (): Promise<StoredApiKeys> => {
 
   const storage = getChromeStorage();
   if (!storage) {
-    const fallback = readFallback();
-    cachedKeys = fallback;
-    return cloneKeys(fallback);
+    cachedKeys = cloneKeys(DEFAULT_KEYS);
+    return cloneKeys(DEFAULT_KEYS);
   }
 
   const loaded = await new Promise<StoredApiKeys>((resolve) => {
@@ -83,19 +61,18 @@ export const loadApiKeys = async (): Promise<StoredApiKeys> => {
         const lastError = chrome?.runtime?.lastError;
         if (lastError) {
           console.error('Failed to load API keys from chrome storage:', lastError);
-          resolve(readFallback());
+          resolve(cloneKeys(DEFAULT_KEYS));
           return;
         }
         resolve(normalizeKeys(items?.[STORAGE_KEY]));
       });
     } catch (error) {
       console.error('Failed to access chrome storage for API keys:', error);
-      resolve(readFallback());
+      resolve(cloneKeys(DEFAULT_KEYS));
     }
   });
 
   cachedKeys = loaded;
-  writeFallback(loaded);
   return cloneKeys(loaded);
 };
 
@@ -123,7 +100,6 @@ const persistToChrome = async (keys: StoredApiKeys) => {
 
 const saveApiKeys = async (keys: StoredApiKeys) => {
   cachedKeys = cloneKeys(keys);
-  writeFallback(keys);
   await persistToChrome(keys);
 };
 

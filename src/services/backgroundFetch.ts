@@ -58,6 +58,61 @@ class BackgroundFetchResponse {
 
 const createAbortError = (): DOMException => new DOMException('The user aborted a request.', 'AbortError');
 
+// The side panel, options and popup are extension pages: they can fetch cross-origin directly
+// for hosts in host_permissions, with no page CSP in the way. Routing through the service
+// worker there is not just unnecessary, it breaks long requests — an OpenAI call outlives the
+// worker, Chrome tears the worker down, and the reply arrives as "The message port closed
+// before a response was received". Only a content script, sandboxed by the page's origin,
+// still needs the worker to make the request for it.
+const isExtensionPage = (): boolean => {
+  try {
+    return typeof location !== 'undefined' && location.protocol === 'chrome-extension:';
+  } catch {
+    return false;
+  }
+};
+
+const directFetch = async (
+  url: string,
+  options: BackgroundFetchOptions,
+  abortSignal?: AbortSignal
+): Promise<BackgroundFetchResponse> => {
+  const response = await fetch(url, {
+    method: options.method || 'GET',
+    headers: options.headers || {},
+    body: options.body ?? null,
+    redirect: options.redirect,
+    credentials: options.credentials,
+    signal: abortSignal,
+  });
+
+  const headers: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+
+  let body = '';
+  if (options.responseType === 'dataUrl' && response.ok) {
+    const blob = await response.blob();
+    body = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string) || '');
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read response blob'));
+      reader.readAsDataURL(blob);
+    });
+  } else {
+    body = await response.text();
+  }
+
+  return new BackgroundFetchResponse({
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+    body,
+  });
+};
+
 export async function backgroundFetch(
   url: string,
   options: BackgroundFetchOptions = {},
@@ -65,6 +120,17 @@ export async function backgroundFetch(
 ): Promise<BackgroundFetchResponse> {
   if (abortSignal?.aborted) {
     throw createAbortError();
+  }
+
+  if (isExtensionPage()) {
+    try {
+      return await directFetch(url, options, abortSignal);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw createAbortError();
+      }
+      throw error instanceof Error ? error : new Error(String(error));
+    }
   }
 
   const requestId = `fetch_${Date.now()}_${Math.random().toString(36).slice(2)}`;

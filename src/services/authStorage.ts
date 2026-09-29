@@ -14,39 +14,13 @@ const getChromeStorage = () => {
   return null;
 };
 
-const readFallback = (): AuthSession | null => {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        return JSON.parse(raw) as AuthSession;
-      }
-    }
-  } catch (error) {
-    console.error('Failed to read auth session from localStorage:', error);
-  }
-  return null;
-};
-
-const writeFallback = (session: AuthSession | null) => {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      if (!session) {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } else {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-      }
-    }
-  } catch (error) {
-    console.error('Failed to write auth session to localStorage:', error);
-  }
-};
-
+// Sessions live in chrome.storage.local only. Mirroring them into window.localStorage would
+// hand the access and refresh tokens to every script on the page the content script runs in.
 export const authStorage = {
   async getSession(): Promise<AuthSession | null> {
     const storage = getChromeStorage();
     if (!storage) {
-      return readFallback();
+      return null;
     }
 
     return new Promise<AuthSession | null>((resolve) => {
@@ -55,7 +29,7 @@ export const authStorage = {
           const lastError = chrome?.runtime?.lastError;
           if (lastError) {
             console.error('Failed to load auth session from chrome storage:', lastError);
-            resolve(readFallback());
+            resolve(null);
             return;
           }
           const session = (items?.[STORAGE_KEY] as AuthSession | undefined) ?? null;
@@ -63,13 +37,12 @@ export const authStorage = {
         });
       } catch (error) {
         console.error('Failed to access chrome storage for auth session:', error);
-        resolve(readFallback());
+        resolve(null);
       }
     });
   },
 
   async setSession(session: AuthSession | null): Promise<void> {
-    writeFallback(session);
     const storage = getChromeStorage();
     if (!storage) return;
 
@@ -94,11 +67,7 @@ export const authStorage = {
   async getDeckId(): Promise<string | null> {
     const storage = getChromeStorage();
     if (!storage) {
-      try {
-        return window.localStorage.getItem(DECK_KEY);
-      } catch {
-        return null;
-      }
+      return null;
     }
 
     return new Promise<string | null>((resolve) => {
@@ -120,18 +89,6 @@ export const authStorage = {
   },
 
   async setDeckId(deckId: string | null): Promise<void> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        if (!deckId) {
-          window.localStorage.removeItem(DECK_KEY);
-        } else {
-          window.localStorage.setItem(DECK_KEY, deckId);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to write deck id to localStorage:', error);
-    }
-
     const storage = getChromeStorage();
     if (!storage) return;
 

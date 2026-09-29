@@ -90,7 +90,7 @@ const TextOptionsModal: React.FC<TextOptionsModalProps> = ({
                                     type="checkbox"
                                     checked={!!selectedOptionsMap[option]}
                                     onChange={() => onSelectOption(option)}
-                                    className="mr-3 h-4 w-4 min-w-4 accent-blue-600"
+                                    className="mr-3 h-4 w-4 min-w-4 accent-accent"
                                     id={`option-${index}`}
                                 />
                                 <span className="inline-block flex-1 break-words pr-12 text-left text-sm text-gray-700">{option.replace(/^[-–—•\s]+/, '')}</span>

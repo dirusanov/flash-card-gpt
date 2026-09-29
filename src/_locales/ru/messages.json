@@ -1,0 +1,17 @@
+{
+  "appName": {
+    "message": "AI-карточки для Anki — Vaulto"
+  },
+  "appDesc": {
+    "message": "Выделенный текст в готовую карточку Anki: AI добавит перевод, пример и картинку. Синхронизация через AnkiConnect."
+  },
+  "actionTitle": {
+    "message": "AI-карточки для Anki — Vaulto"
+  },
+  "actionUnavailable": {
+    "message": "Расширение недоступно на этой странице"
+  },
+  "contextMenuCreate": {
+    "message": "Создать карточку из «%s»"
+  }
+}

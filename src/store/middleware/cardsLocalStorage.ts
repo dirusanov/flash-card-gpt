@@ -1,17 +1,20 @@
 import { Middleware } from 'redux';
 import { RootState } from '..';
-import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS, SET_STORED_CARDS } from '../actions/cards';
+import { LOAD_STORED_CARDS, SAVE_CARD_TO_STORAGE, DELETE_STORED_CARD, UPDATE_STORED_CARD, SET_TEXT, SET_CURRENT_CARD_ID, UPDATE_CARD_EXPORT_STATUS, SET_STORED_CARDS, UPDATE_CARD_SYNC_META } from '../actions/cards';
 import { SAVE_TAB_CARD, DELETE_TAB_CARD, UPDATE_TAB_STORED_CARD, UPDATE_TAB_CARD_EXPORT_STATUS, SET_CURRENT_TAB_ID } from '../actions/tabState';
 import { StoredCard } from '../reducers/cards';
+import { normalizeCardImageList } from '../../services/cardImagePersistence';
+import {
+    applyScopeImageMutations,
+    readCardImages,
+    replaceScopeImages,
+} from '../../services/cardImageStore';
 
 const LOCAL_STORAGE_KEY = 'anki_stored_cards';
 const TAB_STORAGE_KEY_PREFIX = 'anki_tab_cards';
 const PERSIST_DEBOUNCE_MS = 300;
 const GLOBAL_CARDS_LOCK_NAME = 'vaulto-global-cards-storage';
 const BACKGROUND_MERGE_STORED_CARDS_ACTION = 'mergeStoredCards';
-const CARD_IMAGES_DB_NAME = 'vaulto-card-images';
-const CARD_IMAGES_DB_VERSION = 1;
-const CARD_IMAGES_STORE = 'images';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const debugLog = (...args: unknown[]) => {
@@ -166,85 +169,25 @@ const removeLegacyLocalStorageKey = (key: string) => {
     }
 };
 
-type CardImageRecord = {
-    key: string;
-    scope: string;
-    cardId: string;
-    image: string;
-    updatedAt: string;
-};
 
-const openCardImagesDb = async (): Promise<IDBDatabase | null> => {
-    if (typeof indexedDB === 'undefined') {
-        return null;
+const normalizeCardsForPersistence = async (
+    cards: StoredCard[],
+    context: string
+): Promise<{ cards: StoredCard[]; changed: boolean }> => {
+    if (!Array.isArray(cards) || cards.length === 0) {
+        return { cards: Array.isArray(cards) ? cards : [], changed: false };
     }
 
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(CARD_IMAGES_DB_NAME, CARD_IMAGES_DB_VERSION);
-
-        request.onupgradeneeded = () => {
-            const db = request.result;
-            const store = db.objectStoreNames.contains(CARD_IMAGES_STORE)
-                ? request.transaction?.objectStore(CARD_IMAGES_STORE)
-                : db.createObjectStore(CARD_IMAGES_STORE, { keyPath: 'key' });
-
-            if (store && !store.indexNames.contains('scope')) {
-                store.createIndex('scope', 'scope', { unique: false });
-            }
-        };
-
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error('Failed to open card image database'));
+    const { normalizedValues, changed, errors } = await normalizeCardImageList(cards);
+    errors.forEach((error) => {
+        console.warn(`Failed to normalize card image during ${context}:`, error);
     });
+
+    return {
+        cards: normalizedValues as StoredCard[],
+        changed,
+    };
 };
-
-const withImagesStore = async <T>(
-    mode: IDBTransactionMode,
-    operation: (store: IDBObjectStore) => Promise<T>
-): Promise<T | null> => {
-    const db = await openCardImagesDb();
-    if (!db) {
-        return null;
-    }
-
-    return new Promise<T>((resolve, reject) => {
-        const transaction = db.transaction(CARD_IMAGES_STORE, mode);
-        const store = transaction.objectStore(CARD_IMAGES_STORE);
-
-        operation(store)
-            .then((result) => {
-                transaction.oncomplete = () => {
-                    db.close();
-                    resolve(result);
-                };
-                transaction.onerror = () => {
-                    db.close();
-                    reject(transaction.error ?? new Error('IndexedDB transaction failed'));
-                };
-                transaction.onabort = () => {
-                    db.close();
-                    reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
-                };
-            })
-            .catch((error) => {
-                try {
-                    transaction.abort();
-                } catch (_abortError) {
-                    // no-op
-                }
-                db.close();
-                reject(error);
-            });
-    });
-};
-
-const requestToPromise = <T = unknown>(request: IDBRequest<T>): Promise<T> =>
-    new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
-    });
-
-const buildImageRecordKey = (scope: string, cardId: string) => `${scope}:${cardId}`;
 
 const getPersistableImage = (card: StoredCard): string | null => {
     if (typeof card.image === 'string' && card.image.startsWith('data:image/')) {
@@ -270,43 +213,24 @@ const stripLargeImagePayload = (card: StoredCard): StoredCard => {
 };
 
 const persistCardImages = async (scope: string, cards: StoredCard[]): Promise<StoredCard[]> => {
-    const sanitizedCards = cards.map((card) => stripLargeImagePayload(card));
+    const { cards: normalizedCards } = await normalizeCardsForPersistence(cards, `persist ${scope}`);
+    const sanitizedCards = normalizedCards.map((card) => stripLargeImagePayload(card));
 
     try {
-        await withImagesStore('readwrite', async (store) => {
-            const scopeIndex = store.index('scope');
-            const existingKeys = await requestToPromise<IDBValidKey[]>(scopeIndex.getAllKeys(IDBKeyRange.only(scope)));
-            const validKeys = new Set<string>();
-
-            for (const card of cards) {
-                if (!card.id) {
-                    continue;
-                }
-
-                const key = buildImageRecordKey(scope, card.id);
-                validKeys.add(key);
-                const image = getPersistableImage(card);
-
-                if (image) {
-                    await requestToPromise(store.put({
-                        key,
-                        scope,
-                        cardId: card.id,
-                        image,
-                        updatedAt: new Date().toISOString(),
-                    } as CardImageRecord));
-                } else {
-                    await requestToPromise(store.delete(key));
-                }
+        // `cards` is the complete list for the scope, so anything absent from it is an orphan
+        // and the store drops it.
+        const images = new Map<string, string>();
+        normalizedCards.forEach((card) => {
+            if (!card.id) {
+                return;
             }
-
-            for (const existingKey of existingKeys) {
-                const key = String(existingKey);
-                if (!validKeys.has(key)) {
-                    await requestToPromise(store.delete(key));
-                }
+            const image = getPersistableImage(card);
+            if (image) {
+                images.set(card.id, image);
             }
         });
+
+        await replaceScopeImages(scope, images);
     } catch (error) {
         logStorageError(`Failed to persist card images for scope ${scope}`, error);
     }
@@ -314,64 +238,50 @@ const persistCardImages = async (scope: string, cards: StoredCard[]): Promise<St
     return sanitizedCards;
 };
 
+// Returns both shapes on purpose. `sanitized` is what gets serialized into the cards record,
+// which must stay free of base64. `normalized` still carries the images and is what any caller
+// that feeds cards back into a full save must use — a stripped card looks to `persistCardImages`
+// like a card whose image was removed, and it would delete the image just written here.
 const persistCardImageMutations = async (
     scope: string,
     upsertCards: StoredCard[],
     deleteIds: string[]
-): Promise<StoredCard[]> => {
-    const sanitizedCards = upsertCards.map((card) => stripLargeImagePayload(card));
+): Promise<{ sanitized: StoredCard[]; normalized: StoredCard[] }> => {
+    const { cards: normalizedCards } = await normalizeCardsForPersistence(upsertCards, `mutation persist ${scope}`);
+    const sanitizedCards = normalizedCards.map((card) => stripLargeImagePayload(card));
 
     try {
-        await withImagesStore('readwrite', async (store) => {
-            for (const card of upsertCards) {
-                if (!card.id) {
-                    continue;
-                }
+        // A partial update: only the mentioned cards are touched. A card that arrives without
+        // an image drops its stored one, which is how an image removal is expressed.
+        const upserts = new Map<string, string>();
+        const removals = deleteIds.filter(Boolean);
 
-                const key = buildImageRecordKey(scope, card.id);
-                const image = getPersistableImage(card);
-
-                if (image) {
-                    await requestToPromise(store.put({
-                        key,
-                        scope,
-                        cardId: card.id,
-                        image,
-                        updatedAt: new Date().toISOString(),
-                    } as CardImageRecord));
-                } else {
-                    await requestToPromise(store.delete(key));
-                }
+        normalizedCards.forEach((card) => {
+            if (!card.id) {
+                return;
             }
-
-            for (const cardId of deleteIds) {
-                if (!cardId) {
-                    continue;
-                }
-
-                await requestToPromise(store.delete(buildImageRecordKey(scope, cardId)));
+            const image = getPersistableImage(card);
+            if (image) {
+                upserts.set(card.id, image);
+            } else {
+                removals.push(card.id);
             }
         });
+
+        await applyScopeImageMutations(scope, upserts, removals);
     } catch (error) {
         logStorageError(`Failed to persist card image mutations for scope ${scope}`, error);
     }
 
-    return sanitizedCards;
+    return { sanitized: sanitizedCards, normalized: normalizedCards };
 };
 
 const hydrateCardImages = async (scope: string, cards: StoredCard[]): Promise<StoredCard[]> => {
     try {
-        const records = await withImagesStore('readonly', async (store) => {
-            const scopeIndex = store.index('scope');
-            return requestToPromise<CardImageRecord[]>(scopeIndex.getAll(IDBKeyRange.only(scope)));
-        });
-
-        const imageMap = new Map<string, string>();
-        (records ?? []).forEach((record) => {
-            if (record?.cardId && record?.image) {
-                imageMap.set(record.cardId, record.image);
-            }
-        });
+        const imageMap = await readCardImages(
+            scope,
+            cards.map((card) => card.id).filter((id): id is string => Boolean(id))
+        );
 
         return cards.map((card) => {
             const storedImage = card.id ? imageMap.get(card.id) ?? null : null;
@@ -463,7 +373,10 @@ const persistGlobalMutationBatch = async (batch: GlobalPersistenceBatch): Promis
         return;
     }
 
-    const sanitizedUpserts = await persistCardImageMutations('global', batch.upserts, batch.deleteIds);
+    const {
+        sanitized: sanitizedUpserts,
+        normalized: normalizedUpserts,
+    } = await persistCardImageMutations('global', batch.upserts, batch.deleteIds);
 
     try {
         if (await mergeGlobalCardsViaBackground({
@@ -490,7 +403,10 @@ const persistGlobalMutationBatch = async (batch: GlobalPersistenceBatch): Promis
             mergedCards.delete(cardId);
         });
 
-        sanitizedUpserts.forEach((card) => {
+        // The image-carrying copies: `loadCardsFromStorage` above hydrated the existing cards,
+        // and saveCardsToStorage below rebuilds the whole image scope from what it is given.
+        // Merging the stripped copies here would erase the images of every upserted card.
+        normalizedUpserts.forEach((card) => {
             if (!card?.id) {
                 return;
             }
@@ -664,7 +580,14 @@ export const loadCardsFromStorage = async (): Promise<StoredCard[]> => {
                         });
                 }
                 
-                return hydrateCardImages('global', cardsWithDates);
+                const hydratedCards = await hydrateCardImages('global', cardsWithDates);
+                const { cards: normalizedCards, changed } = await normalizeCardsForPersistence(hydratedCards, 'global load');
+
+                if (changed) {
+                    await saveCardsToStorage(normalizedCards);
+                }
+
+                return normalizedCards;
             } catch (parseError) {
                 console.error('JSON parse error:', parseError);
                 // Attempt recovery by clearing corrupt data
@@ -781,7 +704,14 @@ export const loadTabCardsFromStorage = async (tabId: number): Promise<StoredCard
                 createdAt: new Date(card.createdAt)
             }));
 
-            return hydrateCardImages(`tab:${tabId}`, cardsWithDates);
+            const hydratedCards = await hydrateCardImages(`tab:${tabId}`, cardsWithDates);
+            const { cards: normalizedCards, changed } = await normalizeCardsForPersistence(hydratedCards, `tab ${tabId} load`);
+
+            if (changed) {
+                await saveTabCardsToStorage(tabId, normalizedCards);
+            }
+
+            return normalizedCards;
         }
     } catch (error) {
         logStorageError(`Error loading cards for tab ${tabId}`, error);
@@ -938,7 +868,8 @@ export const saveCardsToStorage = async (cards: StoredCard[]): Promise<void> => 
                         linguisticInfo: card.linguisticInfo,
                         transcription: card.transcription,
                         wordAudio: card.wordAudio,
-                        examplesAudio: card.examplesAudio
+                        examplesAudio: card.examplesAudio,
+                        exampleTranscriptions: card.exampleTranscriptions
                     }));
                     
                     console.warn(`Attempting to save cards with compressed images instead of removing them.`);
@@ -1104,6 +1035,20 @@ export const cardsLocalStorageMiddleware: Middleware<{}, RootState> = store => n
                 scheduleGlobalCardUpsert(card);
             } catch (error) {
                 logStorageError('Error in card storage middleware', error);
+            }
+            break;
+
+        case UPDATE_CARD_SYNC_META:
+            try {
+                const state = store.getState();
+                const cardId = action.payload?.cardId;
+                const card = cardId
+                    ? state.cards.storedCards.find((storedCard) => storedCard.id === cardId) ?? null
+                    : null;
+
+                scheduleGlobalCardUpsert(card);
+            } catch (error) {
+                logStorageError('Error persisting card sync metadata', error);
             }
             break;
 

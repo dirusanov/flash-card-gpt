@@ -5,26 +5,48 @@ import { useTabAware } from './TabAwareProvider';
 import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
-import { setBack, setExamples, setExamplesAudio, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio, saveAnkiCards } from "../store/actions/cards";
+import { setBack, setExamples, setExamplesAudio, setExampleTranscriptions, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio, saveAnkiCards } from "../store/actions/cards";
 import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
-import { setMode, setTranslateToLanguage, setAIInstructions, setImageInstructions } from "../store/actions/settings";
-import { Modes } from "../constants";
-import ResultDisplay from "./ResultDisplay";
+import { setMode, setTranslateToLanguage } from "../store/actions/settings";
+import { Modes, OPENAI_TEXT_MODEL } from "../constants";
 import DeckSelector from "./CreateCard/DeckSelector";
+import LanguagePairBar from "./CreateCard/LanguagePairBar";
+import DeckDestination from "./CreateCard/DeckDestination";
+import RegenerateControl from "./CreateCard/RegenerateControl";
+import GenerationChips from "./CreateCard/GenerationChips";
+import StudyCard from "./StoredCards/StudyCard";
+import { buildPreviewCard } from "./CreateCard/previewCard";
+import CardFrontInput from "./CreateCard/CardFrontInput";
+import Button from "./ui/Button";
+import Textarea from "./ui/Textarea";
+import Modal from "./ui/Modal";
+import CardGenerationLoader from "./CreateCard/CardGenerationLoader";
+import { ALL_LANGUAGES } from "../data/languages";
+import { getPreferredAudioOnMode, getPreferredImageOnMode, setPreferredAudioOnMode, setPreferredImageOnMode } from "../services/generationPreferences";
 import { type DetailedLoadingMessage } from '../services/loadingMessages';
 import { setGlobalProgressCallback, getGlobalApiTracker, resetGlobalApiTracker } from '../services/apiTracker';
 import { getImage } from '../apiUtils';
 import { backgroundFetch } from '../services/backgroundFetch';
 import useErrorNotification from './useErrorHandler';
-import { FaCog, FaLightbulb, FaCode, FaImage, FaMagic, FaTimes, FaList, FaFont, FaLanguage, FaCheck, FaExchangeAlt, FaRobot, FaSave, FaEdit, FaClock, FaChevronRight, FaKey } from 'react-icons/fa';
+import { FaLightbulb, FaMagic, FaTimes, FaList, FaFont, FaCheck, FaRobot, FaSave, FaEdit, FaKey, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
-import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createOptimizedLinguisticInfo, createTranscription, createCardComponentsParallel } from '../services/aiServiceFactory';
+import { detectLanguageOffline as detectLanguageOfflineService } from '../services/languageDetection';
+import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createOptimizedLinguisticInfo, createTranscription, createCardComponentsParallel, createLinguisticInfo } from '../services/aiServiceFactory';
+import { planInstruction, CardAction } from '../services/instructionRouter';
 import { ModelProvider } from '../store/reducers/settings';
 import { createAIAgentService, PageContentContext } from '../services/aiAgentService';
 import { imageUrlToBase64, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
-import { PageContentExtractor } from '../services/pageContentExtractor';
+import {
+    PageSelectionDetails, SELECTION_CHANGED, getActiveTabId, requestPageContext, requestPageSelection,
+} from '../services/pageContextBridge';
 import { buildSafeImagePrompt } from '../services/imagePromptSafety';
+import { consumePendingSelection, subscribeToPendingSelection } from '../services/pendingSelection';
+import {
+    formatTranscriptionHtml,
+    shouldGenerateTranscription,
+} from '../services/transcription';
+import { generateAndValidateExampleTranscriptions } from '../services/exampleTranscriptions';
 
 interface GeneralCardTemplate {
     id: string;
@@ -43,30 +65,24 @@ const debugLog = (...args: unknown[]) => {
 const TEXT_SYNC_DEBOUNCE_MS = 120;
 const PROGRESS_UPDATE_INTERVAL_MS = 120;
 
-const normalizeTranscriptionValue = (value: string | null | undefined, isIpa: boolean = false): string | null => {
-    if (!value) {
-        return null;
-    }
+/** Where a selection was made: the sentence around it and the page it was on. */
+interface SelectionOrigin {
+    text: string;
+    sentence: string;
+    sourceUrl: string;
+    sourceTitle: string;
+}
 
-    let cleaned = value
-        .trim()
-        .replace(/^IPA:\s*/i, '')
-        .replace(/^[A-Za-z\u0410-\u042F\u0430-\u044F\u0401\u0451\s-]{2,40}:\s*/, '')
-        .trim();
-
-    if (!cleaned) {
-        return null;
-    }
-
-    if (isIpa) {
-        cleaned = cleaned.replace(/^\[|\]$/g, '').replace(/^\/|\/$/g, '').trim();
-        if (!cleaned) {
-            return null;
-        }
-        return `[${cleaned}]`;
-    }
-
-    return cleaned;
+// Null rather than an all-empty origin when the page had nothing to say, so "typed in"
+// and "selected on a page we could not read" look the same to the card.
+const selectionOriginOf = (
+    text: string,
+    details?: Partial<PageSelectionDetails> | null,
+): SelectionOrigin | null => {
+    const sentence = typeof details?.sentence === 'string' ? details.sentence : '';
+    const sourceUrl = typeof details?.sourceUrl === 'string' ? details.sourceUrl : '';
+    const sourceTitle = typeof details?.sourceTitle === 'string' ? details.sourceTitle : '';
+    return sentence || sourceUrl ? { text, sentence, sourceUrl, sourceTitle } : null;
 };
 
 interface CreateCardProps {
@@ -164,7 +180,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         localStorage.setItem('source_language', language);
     }, [dispatch]);
 
-    const { text, translation, examples, examplesAudio, image, imageUrl, wordAudio, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
+    const { text, translation, examples, examplesAudio, exampleTranscriptions, image, imageUrl, wordAudio, front, back, currentCardId, linguisticInfo, transcription, isGeneratingCard, tabId } = tabAware;
     const [textInputValue, setTextInputValue] = useState(text);
     const textInputValueRef = useRef(text);
     const textSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -238,6 +254,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     }, []);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
+    const transcriptionMode = useSelector((state: RootState) => state.settings.transcriptionMode);
+    const transcriptionLanguage = useSelector(
+        (state: RootState) => state.settings.transcriptionLanguage
+    );
+    const transcriptionExtraLanguages = useSelector(
+        (state: RootState) => state.settings.transcriptionExtraLanguages
+    );
+    const exampleTranscriptionsEnabled = useSelector(
+        (state: RootState) => state.settings.exampleTranscriptionsEnabled
+    ) !== false;
     const aiInstructions = useSelector((state: RootState) => state.settings.aiInstructions);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
     const mode = useSelector((state: RootState) => state.settings.mode);
@@ -247,9 +273,29 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const autoSaveToServer = useSelector((state: RootState) => state.settings.autoSaveToServer);
     const ankiConnectUrl = useSelector((state: RootState) => state.settings.ankiConnectUrl);
     const ankiConnectApiKey = useSelector((state: RootState) => state.settings.ankiConnectApiKey);
+    const ankiClozeFromSentence = useSelector((state: RootState) => state.settings.ankiClozeFromSentence);
     const auth = useSelector((state: RootState) => state.auth);
     const isLoggedIn = !!auth.accessToken;
     const [originalSelectedText, setOriginalSelectedText] = useState('');
+    // Text can arrive from the page without the user touching the panel. Saying so removes
+    // the "where did this come from?" beat.
+    const [cameFromSelection, setCameFromSelection] = useState(false);
+    // Where the current text was selected: the sentence around it and the page. Saved
+    // with the card; dropped the moment the text stops being that selection.
+    const [selectionOrigin, setSelectionOrigin] = useState<SelectionOrigin | null>(null);
+    const selectionOriginRef = useRef<SelectionOrigin | null>(null);
+    selectionOriginRef.current = selectionOrigin;
+    // The origin belongs to a card only while that card is still the selection it came
+    // from; a card built from edited text gets none.
+    const originFieldsFor = (cardText: string) => {
+        const origin = selectionOriginRef.current;
+        const match = origin !== null && origin.text === (cardText || '').trim();
+        return {
+            sentence: match ? origin.sentence || null : null,
+            sourceUrl: match ? origin.sourceUrl || null : null,
+            sourceTitle: match ? origin.sourceTitle || null : null,
+        };
+    };
 
     const enforceLanguageMode = useCallback(() => {
         localStorage.setItem('selected_mode', Modes.LanguageLearning);
@@ -267,6 +313,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setTranslation(null));
         dispatch(setExamples([]));
         dispatch(setExamplesAudio([]));
+        dispatch(setExampleTranscriptions([]));
         dispatch(setImage(null));
         dispatch(setImageUrl(null));
         dispatch(setLinguisticInfo(''));
@@ -337,9 +384,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [loadingNewExamples, setLoadingNewExamples] = useState(false);
     const [loadingWordAudio, setLoadingWordAudio] = useState(false);
     const [loadingAccept, setLoadingAccept] = useState(false);
+    // Selection messages arrive from another extension document and may race React state
+    // updates. The ref is raised synchronously when generation starts, so even a mouseup
+    // delivered before the next render cannot replace the study target under the loader.
+    const selectionCaptureBlockedRef = useRef(false);
     const [currentLoadingMessage, setCurrentLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
     const [currentProgress, setCurrentProgress] = useState({ completed: 0, total: 0 });
     const [isEdited, setIsEdited] = useState(false);
+    // The result sheet opens as the card you will see once it is saved; this turns the
+    // very same component into its editor rather than swapping in a different screen.
+    const [isEditingResult, setIsEditingResult] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
     const [forceHideLoader, setForceHideLoader] = useState(false);
@@ -350,7 +404,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const [shouldGenerateImage, setShouldGenerateImageState] = useState(true);
     const [imageGenerationMode, setImageGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
     const [audioGenerationMode, setAudioGenerationModeState] = useState<'off' | 'smart' | 'always'>('smart');
-    const [showAISettings, setShowAISettings] = useState(false);
+    // Which "on" mode each chip returns to. Kept separate from the live mode so switching
+    // a chip off and on again does not quietly demote 'always' to 'smart'.
+    const [imageOnMode, setImageOnMode] = useState<'smart' | 'always'>(getPreferredImageOnMode);
+    const [audioOnMode, setAudioOnMode] = useState<'smart' | 'always'>(getPreferredAudioOnMode);
 
     // Keep tab-level generation lock strictly in sync with loader visibility.
     // App uses this flag to hide Cards/Settings during loading overlay.
@@ -359,6 +416,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             tabAware.setIsGeneratingCard(loadingGetResult);
         }
     }, [loadingGetResult, isGeneratingCard, tabAware]);
+
+    useEffect(() => {
+        selectionCaptureBlockedRef.current =
+            loadingGetResult || isGeneratingCard;
+    }, [loadingGetResult, isGeneratingCard]);
 
     const IMAGE_MODE_STORAGE_KEY = `anki_image_generation_mode_${tabId}`;
     const LEGACY_IMAGE_MODE_STORAGE_KEY = 'anki_image_generation_mode';
@@ -404,6 +466,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 setShouldGenerateImageState(savedMode !== 'off');
                 // Freeze inherited value for this tab to keep tab-local independence.
                 localStorage.setItem(IMAGE_MODE_STORAGE_KEY, savedMode);
+                // Adopt an existing choice as the restore point, so someone already on
+                // 'always' is not silently moved to 'smart' the first time they toggle.
+                if (savedMode !== 'off') {
+                    setImageOnMode(savedMode);
+                    setPreferredImageOnMode(savedMode);
+                }
             }
         } catch (error) {
             console.warn('Failed to restore image generation mode:', error);
@@ -422,14 +490,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (savedMode) {
                 setAudioGenerationModeState(savedMode);
                 localStorage.setItem(AUDIO_MODE_STORAGE_KEY, savedMode);
+                if (savedMode !== 'off') {
+                    setAudioOnMode(savedMode);
+                    setPreferredAudioOnMode(savedMode);
+                }
             }
         } catch (error) {
             console.warn('Failed to restore audio generation mode:', error);
         }
     }, [AUDIO_MODE_STORAGE_KEY, tabId]);
-    const [showImageSettings, setShowImageSettings] = useState(false);
-    const [localAIInstructions, setLocalAIInstructions] = useState(aiInstructions);
-    const [localImageInstructions, setLocalImageInstructions] = useState(imageInstructions);
     const { showError, renderErrorNotification } = useErrorNotification()
 
     // Function to check if an error is related to quota exhaustion
@@ -443,7 +512,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     // (moved) Persist/restore of target language is placed after language list
-    const [customInstruction, setCustomInstruction] = useState('');
     const [isProcessingCustomInstruction, setIsProcessingCustomInstruction] = useState(false);
     const [showModal, setShowModal] = useState(false);
     const [selectedTextOptions, setSelectedTextOptions] = useState<string[]>([]);
@@ -468,6 +536,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     // AbortController for cancelling AI requests
     const abortControllerRef = useRef<AbortController | null>(null);
+    // Bumped at the start of every generation (and on cancel) so delayed loader-hiding
+    // setTimeouts can tell whether they still belong to the generation that scheduled them.
+    // abortControllerRef alone can't answer that: it gets nulled out synchronously in each
+    // generation's own finally block, well before any of its delayed timeouts get a chance
+    // to fire, so comparing against it would make those timeouts never fire at all.
+    const generationIdRef = useRef(0);
     const criticalApiErrorRef = useRef(false);
     const lastProgressPaintRef = useRef(0);
     const pendingProgressRef = useRef<{ message: DetailedLoadingMessage; completed: number; total: number } | null>(null);
@@ -531,7 +605,73 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         [modelProvider, openAiKey]
     );
 
+    const generateExampleTranscriptionsFor = useCallback(async (
+        examplesToTranscribe: Array<[string, string | null]>,
+        sourceLanguageCode: string | null | undefined,
+        abortSignal?: AbortSignal
+    ): Promise<Array<string | null>> => {
+        const emptyResult = new Array(examplesToTranscribe.length).fill(null);
+        if (
+            !exampleTranscriptionsEnabled
+            || transcriptionMode === 'off'
+            || !apiKey
+            || examplesToTranscribe.length === 0
+        ) {
+            return emptyResult;
+        }
+
+        const eligibleIndexes = examplesToTranscribe
+            .map(([sentence], index) => (
+                shouldGenerateTranscription(
+                    sentence,
+                    transcriptionMode,
+                    sourceLanguageCode,
+                    transcriptionExtraLanguages,
+                )
+                    ? index
+                    : -1
+            ))
+            .filter((index) => index >= 0);
+
+        if (eligibleIndexes.length === 0) {
+            return emptyResult;
+        }
+
+        try {
+            const generated = await generateAndValidateExampleTranscriptions(
+                aiService,
+                apiKey,
+                eligibleIndexes.map((index) => examplesToTranscribe[index][0]),
+                sourceLanguageCode
+                    || 'unknown (infer only from the exact source examples)',
+                transcriptionLanguage || 'en',
+                abortSignal,
+            );
+
+            const result = [...emptyResult];
+            eligibleIndexes.forEach((originalIndex, generatedIndex) => {
+                result[originalIndex] = generated[generatedIndex] ?? null;
+            });
+            return result;
+        } catch (error) {
+            if ((error as Error)?.name === 'AbortError') throw error;
+            console.debug('Example pronunciations unavailable:', error);
+            return emptyResult;
+        }
+    }, [
+        aiService,
+        apiKey,
+        exampleTranscriptionsEnabled,
+        transcriptionExtraLanguages,
+        transcriptionLanguage,
+        transcriptionMode,
+    ]);
+
     const providerDisplayName = 'OpenAI';
+    const shortcutHint =
+        typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+            ? '⌘↵'
+            : 'Ctrl+↵';
 
     const notifyMissingApiKey = useCallback(() => {
         setShowMissingApiKeyNotice(true);
@@ -711,6 +851,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const handleTextChange = (newText: string) => {
         setTextInputValue(newText);
         scheduleTextInputSync(newText);
+        // Once the user types, the text is theirs — drop the "from your selection" badge.
+        setCameFromSelection(false);
+        // ...and the sentence with it: the page said that sentence about the selection,
+        // not about whatever the text is becoming.
+        if (selectionOriginRef.current && newText.trim() !== selectionOriginRef.current.text) {
+            setSelectionOrigin(null);
+        }
 
         // If the card is already marked as saved, check if it's being edited
         if (isSaved) {
@@ -718,6 +865,18 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         } else {
             // Check if this text already exists as a card
             checkExistingCard(newText);
+        }
+    };
+
+    // The studied word is `front` for language cards and for general ones alike; `text`
+    // follows it so the card keeps one headword however it was made.
+    const handleFrontUpdate = (newFront: string) => {
+        tabAware.setFront(newFront);
+        if (mode === Modes.LanguageLearning) {
+            tabAware.setText(newFront);
+        }
+        if (isSaved) {
+            setIsEdited(true);
         }
     };
 
@@ -739,8 +898,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Handler for examples update
     const handleExamplesUpdate = (newExamples: Array<[string, string | null]>) => {
         const nextExamplesAudio = normalizeExamplesAudioFor(newExamples, examples, examplesAudio || []);
+        const nextExampleTranscriptions = newExamples.map((example, index) =>
+            examples[index]?.[0] === example[0]
+                ? exampleTranscriptions?.[index] ?? null
+                : null
+        );
         tabAware.setExamples(newExamples);
         tabAware.setExamplesAudio(nextExamplesAudio);
+        tabAware.setExampleTranscriptions(nextExampleTranscriptions);
         if (isSaved) {
             setIsEdited(true);
         }
@@ -884,22 +1049,29 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         try {
             setLoadingWordAudio(true);
+            const tasks: Array<Promise<void>> = [];
 
             if (hasWordToGenerate) {
-                const audioDataUrl = await generateWordAudioData(studiedWord, abortControllerRef.current?.signal);
-                if (audioDataUrl) {
-                    tabAware.setWordAudio(audioDataUrl);
-                }
+                tasks.push((async () => {
+                    const audioDataUrl = await generateWordAudioData(studiedWord, abortControllerRef.current?.signal);
+                    if (audioDataUrl) {
+                        tabAware.setWordAudio(audioDataUrl);
+                    }
+                })());
             }
 
             if (hasExamplesToGenerate) {
-                const nextExamplesAudio = await generateExamplesAudioBatch(
-                    examples,
-                    Array.from({ length: examples.length }, (_v, i) => examplesAudio?.[i] ?? null),
-                    abortControllerRef.current?.signal
-                );
-                tabAware.setExamplesAudio(nextExamplesAudio);
+                tasks.push((async () => {
+                    const nextExamplesAudio = await generateExamplesAudioBatch(
+                        examples,
+                        Array.from({ length: examples.length }, (_v, i) => examplesAudio?.[i] ?? null),
+                        abortControllerRef.current?.signal
+                    );
+                    tabAware.setExamplesAudio(nextExamplesAudio);
+                })());
             }
+
+            await Promise.all(tasks);
 
             if (isSaved) {
                 setIsEdited(true);
@@ -942,8 +1114,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 const formattedExamples = newExamplesResult.map(example =>
                     [example.original, example.translated] as [string, string | null]
                 );
-                tabAware.setExamples(formattedExamples);
-                tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
+                const generatedExampleTranscriptions =
+                    await generateExampleTranscriptionsFor(
+                        formattedExamples,
+                        textLanguage,
+                        abortControllerRef.current?.signal,
+                    );
+                tabAware.updateCard({
+                    examples: formattedExamples,
+                    examplesAudio: new Array(formattedExamples.length).fill(null),
+                    exampleTranscriptions: generatedExampleTranscriptions,
+                });
             }
         } catch (error) {
             // Check if this is a quota error and show appropriate message
@@ -967,102 +1148,136 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     };
 
-    const handleApplyCustomInstruction = async () => {
-        if (!customInstruction.trim() || isProcessingCustomInstruction) {
+    const handleApplyCustomInstruction = async (instructionArg?: string) => {
+        const instruction = (instructionArg ?? '').trim();
+        if (!instruction || isProcessingCustomInstruction) {
             return;
         }
 
         setIsProcessingCustomInstruction(true);
 
         try {
-            // Apply different actions based on content analysis
-            if (customInstruction.toLowerCase().includes('image') ||
-                customInstruction.toLowerCase().includes('picture') ||
-                customInstruction.toLowerCase().includes('изображени') ||
-                customInstruction.toLowerCase().includes('картин')) {
+            const detectedOrManual = isAutoDetectLanguage ? (detectedLanguage || null) : (sourceLanguage || null);
+            // The model works out which parts of the card the request touches. Keyword
+            // lists could only ever match the phrasings and languages someone enumerated.
+            const plan = await planInstruction(aiService, apiKey, instruction, {
+                word: text,
+                hasImage: Boolean(imageUrl || image),
+                language: translateToLanguage,
+            });
+            const wants = (action: CardAction) => plan.actions.includes(action);
 
-                // Generate new image based on instructions
-                const descriptionImage = await getDescriptionImage(openAiKey, text, customInstruction, undefined, sourceLanguage || undefined);
-                const safeDescriptionImage = buildSafeImagePrompt(text, descriptionImage);
-                const { imageUrl, imageBase64 } = await getImage(openAiKey, safeDescriptionImage, customInstruction, sourceLanguage || undefined);
+            if (!wants('rebuild')) {
+                if (wants('image')) {
+                    const descriptionImage = await getDescriptionImage(openAiKey, text, plan.detail, undefined, sourceLanguage || undefined);
+                    const safeDescriptionImage = buildSafeImagePrompt(text, descriptionImage);
+                    const { imageUrl: newImageUrl, imageBase64 } = await getImage(openAiKey, safeDescriptionImage, plan.detail, sourceLanguage || undefined);
 
-                if (imageUrl) {
-                    tabAware.setImageUrl(imageUrl);
+                    if (newImageUrl) {
+                        tabAware.setImageUrl(newImageUrl);
+                    }
+                    if (imageBase64) {
+                        tabAware.setImage(imageBase64);
+                    }
                 }
-                if (imageBase64) {
-                    tabAware.setImage(imageBase64);
+
+                if (wants('examples')) {
+                    debugLog('📚 Starting examples generation...');
+                    const newExamplesResult = await createExamples(
+                        aiService,
+                        apiKey,
+                        text,
+                        translateToLanguage,
+                        true,
+                        plan.detail,
+                        detectedOrManual || undefined,
+                        abortControllerRef.current?.signal
+                    );
+                    const newExamples = newExamplesResult.map(ex => [ex.original, ex.translated] as [string, string | null]);
+                    debugLog('📚 Examples generation completed');
+                    const generatedExampleTranscriptions =
+                        await generateExampleTranscriptionsFor(
+                            newExamples,
+                            detectedOrManual,
+                            abortControllerRef.current?.signal,
+                        );
+                    tabAware.updateCard({
+                        examples: newExamples,
+                        examplesAudio: new Array(newExamples.length).fill(null),
+                        exampleTranscriptions: generatedExampleTranscriptions,
+                    });
                 }
-            } else if (customInstruction.toLowerCase().includes('example') ||
-                customInstruction.toLowerCase().includes('sentence') ||
-                customInstruction.toLowerCase().includes('пример') ||
-                customInstruction.toLowerCase().includes('предложение')) {
 
-                // Generate new examples based on instructions
-                debugLog('📚 Starting examples generation...');
-                const detectedOrManual = isAutoDetectLanguage ? (detectedLanguage || null) : (sourceLanguage || null);
-                const newExamplesResult = await createExamples(
-                    aiService,
-                    apiKey,
-                    text,
-                    translateToLanguage,
-                    true,
-                    customInstruction,
-                    detectedOrManual || undefined,
-                    abortControllerRef.current?.signal
-                );
-                const newExamples = newExamplesResult.map(ex => [ex.original, ex.translated] as [string, string | null]);
-                debugLog('📚 Examples generation completed');
-                tabAware.setExamples(newExamples);
-                tabAware.setExamplesAudio(new Array(newExamples.length).fill(null));
-            } else if (customInstruction.toLowerCase().includes('translat') ||
-                customInstruction.toLowerCase().includes('перевод')) {
+                if (wants('translation')) {
+                    const translation = await createTranslation(
+                        aiService,
+                        apiKey,
+                        text,
+                        translateToLanguage,
+                        plan.detail,
+                        detectedOrManual || undefined,
+                        abortControllerRef.current?.signal
+                    );
+                    if (translation && translation.translated) {
+                        tabAware.setTranslation(translation.translated);
+                    }
+                }
 
-                // Update translation based on instructions
-                const detectedOrManual = isAutoDetectLanguage ? (detectedLanguage || null) : (sourceLanguage || null);
-                const translation = await createTranslation(
-                    aiService,
-                    apiKey,
-                    text,
-                    translateToLanguage,
-                    customInstruction,
-                    detectedOrManual || undefined,
-                    abortControllerRef.current?.signal
-                );
-                if (translation && translation.translated) {
-                    tabAware.setTranslation(translation.translated);
+                if (wants('grammar')) {
+                    const linguisticInfo = await createLinguisticInfo(
+                        aiService,
+                        apiKey,
+                        text,
+                        detectedOrManual || '',
+                        translateToLanguage
+                    );
+                    if (linguisticInfo) {
+                        tabAware.setLinguisticInfo(linguisticInfo);
+                    }
+                }
+
+                if (wants('audio') && openAiKey) {
+                    const wordAudioData = await generateWordAudioData(text, abortControllerRef.current?.signal);
+                    if (wordAudioData) {
+                        tabAware.setWordAudio(wordAudioData);
+                    }
+                    if (examples.length > 0) {
+                        const examplesAudioData = await generateExamplesAudioBatch(
+                            examples,
+                            new Array(examples.length).fill(null),
+                            abortControllerRef.current?.signal
+                        );
+                        tabAware.setExamplesAudio(examplesAudioData);
+                    }
                 }
             } else {
-                // Apply all updates with custom instructions in PARALLEL
-                const detectedOrManual = isAutoDetectLanguage ? (detectedLanguage || null) : (sourceLanguage || null);
-
+                // A broad ask ("make it simpler") — rebuild every part in parallel.
                 debugLog('🚀 Using parallel update for custom instruction...');
 
-                // Determine if we should generate image/audio based on instruction
-                const needsImage = customInstruction.toLowerCase().includes('image') ||
-                    customInstruction.toLowerCase().includes('picture') ||
-                    customInstruction.toLowerCase().includes('изображени') ||
-                    customInstruction.toLowerCase().includes('картин');
-
-                const needsAudio = customInstruction.toLowerCase().includes('audio') ||
-                    customInstruction.toLowerCase().includes('pronunciation') ||
-                    customInstruction.toLowerCase().includes('озвуч') ||
-                    customInstruction.toLowerCase().includes('звук') ||
-                    customInstruction.toLowerCase().includes('произноше');
+                // A card that already has a picture keeps one after the rebuild; otherwise
+                // the user's configured image/audio modes are left exactly as they are.
+                const hasPicture = Boolean(imageUrl || image);
+                const needsAudio = audioGenerationMode !== 'off';
 
                 const result = await createCardComponentsParallel(
                     aiService,
                     apiKey,
                     text,
                     translateToLanguage,
-                    customInstruction,
+                    plan.detail,
                     detectedOrManual || undefined,
-                    needsImage || shouldGenerateImage,
+                    hasPicture || shouldGenerateImage,
                     abortControllerRef.current?.signal,
-                    needsImage ? 'always' : imageGenerationMode,
-                    needsAudio || (audioGenerationMode !== 'off'),
-                    needsAudio ? 'always' : audioGenerationMode,
+                    hasPicture ? 'always' : imageGenerationMode,
+                    needsAudio,
+                    audioGenerationMode,
                     openAiKey,
-                    generateWordAudioData
+                    generateWordAudioData,
+                    {
+                        mode: transcriptionMode,
+                        language: transcriptionLanguage,
+                        extraLanguages: transcriptionExtraLanguages,
+                    }
                 );
 
                 if (result.translation?.translated) {
@@ -1072,8 +1287,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 let formattedExamples: Array<[string, string | null]> = [];
                 if (result.examples) {
                     formattedExamples = result.examples.map(ex => [ex.original, ex.translated] as [string, string | null]);
-                    tabAware.setExamples(formattedExamples);
-                    tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
+                    const generatedExampleTranscriptions =
+                        await generateExampleTranscriptionsFor(
+                            formattedExamples,
+                            detectedOrManual,
+                            abortControllerRef.current?.signal,
+                        );
+                    tabAware.updateCard({
+                        examples: formattedExamples,
+                        examplesAudio: new Array(formattedExamples.length).fill(null),
+                        exampleTranscriptions: generatedExampleTranscriptions,
+                    });
                 }
 
                 if (result.imageUrl) {
@@ -1087,9 +1311,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
 
                 if (formattedExamples.length > 0) {
-                    const effectiveAudioMode = needsAudio ? 'always' : audioGenerationMode;
+                    // Respect the configured mode: "smart" must stay smart, not become "always".
                     const studiedWordForAudio = (result.flashcard?.front || text || '').trim();
-                    if (openAiKey && shouldAutoGenerateExamplesAudioForMode(effectiveAudioMode, studiedWordForAudio)) {
+                    if (openAiKey && shouldAutoGenerateExamplesAudioForMode(audioGenerationMode, studiedWordForAudio)) {
                         try {
                             const examplesAudioData = await generateExamplesAudioBatch(
                                 formattedExamples,
@@ -1108,22 +1332,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 }
 
                 if (result.transcription) {
-                    const languageName = await getLanguageName(translateToLanguage);
-                    const userLang = normalizeTranscriptionValue(result.transcription.userLanguageTranscription);
-                    const ipa = normalizeTranscriptionValue(result.transcription.ipaTranscription, true);
-
-                    const transcriptionHtml = [
-                        userLang &&
-                        `<div class="transcription-item user-lang">
-                                <span class="transcription-label">${languageName}:</span>
-                                <span class="transcription-text">${userLang}</span>
-                            </div>`,
-                        ipa &&
-                        `<div class="transcription-item ipa">
-                                <span class="transcription-label">IPA:</span>
-                                <span class="transcription-text">${ipa}</span>
-                            </div>`
-                    ].filter(Boolean).join('\n');
+                    const transcriptionHtml = formatTranscriptionHtml(
+                        result.transcription,
+                        transcriptionLanguage,
+                    );
 
                     if (transcriptionHtml) {
                         tabAware.setTranscription(transcriptionHtml);
@@ -1139,7 +1351,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
 
             // Clear the instruction after applying
-            setCustomInstruction('');
 
             // No notification, the loader UI is enough feedback
         } catch (error) {
@@ -1152,19 +1363,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             }
 
             console.error('Error applying custom instructions:', error);
-            const customInstructionError = error instanceof Error ? error.message : "Failed to apply custom instructions";
-            showError(customInstructionError);
-            handlePotentialApiKeyIssue(customInstructionError);
+            const instructionError = error instanceof Error ? error.message : "Failed to apply custom instructions";
+            showError(instructionError);
+            handlePotentialApiKeyIssue(instructionError);
         } finally {
             debugLog('📝 Custom instruction processing completed');
             setIsProcessingCustomInstruction(false);
-        }
-    };
-
-    const handleCustomInstructionKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleApplyCustomInstruction();
         }
     };
 
@@ -1211,6 +1415,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     transcription: transcription || '',
                     wordAudio: wordAudio || null,
                     examplesAudio: examplesAudio || [],
+                    exampleTranscriptions: exampleTranscriptions || [],
                     deckId: selectedBackendDeckId,
                     ankiDeckName: selectedAnkiDeckName
                 };
@@ -1452,9 +1657,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     transcription: transcription || '',
                     wordAudio: wordAudio || null,
                     examplesAudio: examplesAudio || [],
+                    exampleTranscriptions: exampleTranscriptions || [],
                     // ИСПРАВЛЕНО: Сохраняем изображения с приоритетом на base64
                     image: normalizedImage, // base64 данные (постоянные, приоритет)
                     imageUrl: normalizedImageUrl, // URL как резерв
+                    ...originFieldsFor(cardText),
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const,
                     deckId: selectedBackendDeckId,
@@ -1501,7 +1708,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             linguisticInfo: cardToSave.linguisticInfo,
                             transcription: cardToSave.transcription,
                             word_audio_base64: cardToSave.wordAudio,
-                            examples_audio_base64: cardToSave.examplesAudio
+                            examples_audio_base64: cardToSave.examplesAudio,
+                            example_transcriptions: cardToSave.exampleTranscriptions,
+                            sentence: cardToSave.sentence,
+                            source_url: cardToSave.sourceUrl,
+                            source_title: cardToSave.sourceTitle,
                         };
 
                         await dispatch(saveAnkiCards(
@@ -1510,7 +1721,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             ankiConnectApiKey,
                             selectedAnkiDeckName,
                             'Basic', // Fallback model
-                            [ankiCard as any]
+                            [ankiCard as any],
+                            { clozeFromSentence: ankiClozeFromSentence }
                         ));
                         // Mark as exported
                         tabAware.updateCardExportStatus(cardId, 'exported');
@@ -1555,9 +1767,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     transcription: transcription || '',
                     wordAudio: wordAudio || null,
                     examplesAudio: examplesAudio || [],
+                    exampleTranscriptions: exampleTranscriptions || [],
                     // Сохраняем оба типа изображений для надежности
                     image: normalizedImage,
                     imageUrl: normalizedImageUrl,
+                    ...originFieldsFor(cardText),
                     createdAt: new Date(),
                     exportStatus: 'not_exported' as const
                 };
@@ -1644,12 +1858,32 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, []);
 
     // Используем useCallback для стабильной ссылки на функцию обработки выделения
-    const handleTextSelection = useCallback((selectedText: string) => {
-        if (!selectedText || selectedText === text) {
+    const handleTextSelection = useCallback((selectedText: string, details?: Partial<PageSelectionDetails> | null) => {
+        const normalizedSelection = selectedText.trim();
+        if (!normalizedSelection) {
             return;
         }
 
-        debugLog('Text selection handled for tab-specific state:', selectedText);
+        // Ignore rather than queue: a selection made while reading during generation must
+        // not replace this card now or unexpectedly become the next card afterwards.
+        if (selectionCaptureBlockedRef.current) {
+            debugLog('Text selection ignored while card generation is active');
+            return;
+        }
+
+        const origin = selectionOriginOf(normalizedSelection, details);
+
+        if (normalizedSelection === text) {
+            // Same word, different sentence: the card is about the other meaning now.
+            // Nothing else about the composer changes, so only the origin moves.
+            if (origin?.sentence && origin.sentence !== selectionOriginRef.current?.sentence) {
+                setSelectionOrigin(origin);
+            }
+            return;
+        }
+        setSelectionOrigin(origin);
+
+        debugLog('Text selection handled for tab-specific state:', normalizedSelection);
 
         // Принудительно закрываем модальное окно перед анализом нового текста
         setShowTextOptionsModal(false);
@@ -1659,45 +1893,39 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         setSelectedTextOptions([]);
 
         // Устанавливаем выделенный текст через tabAware (tab-specific)
-        tabAware.setText(selectedText);
+        tabAware.setText(normalizedSelection);
+        setCameFromSelection(true);
 
         // Логируем для отладки
-        debugLog('Text set via tabAware.setText:', selectedText);
+        debugLog('Text set via tabAware.setText:', normalizedSelection);
     }, [tabAware, text]);
 
+    // The panel has no access to the page, so the content script reports selections and the
+    // context menu / shortcut park theirs in storage. Both funnel into handleTextSelection.
     useEffect(() => {
-        const handleMouseUp = (event: MouseEvent) => {
-            // Проверяем, что событие произошло не внутри sidebar расширения
-            const sidebar = document.getElementById('sidebar');
-            if (sidebar && sidebar.contains(event.target as Node)) {
-                // Если клик был внутри sidebar, не обрабатываем выделение текста
-                return;
-            }
-
-            // Дополнительная проверка для Shadow DOM
-            if (event.target && event.composedPath) {
-                const path = event.composedPath();
-                for (const element of path) {
-                    if (element instanceof Element && element.id === 'sidebar') {
-                        return;
-                    }
-                    // Также проверяем, не находится ли элемент внутри Shadow Root расширения
-                    if (element instanceof ShadowRoot && element.host && element.host.id === 'sidebar') {
-                        return;
-                    }
-                }
-            }
-
-            const selectedText = window.getSelection()?.toString().trim();
-            if (selectedText && selectedText.length > 0) {
-                handleTextSelection(selectedText);
-            }
+        // The context menu and the shortcut park the text only; the page still has the
+        // selection, so ask it for the sentence and source while they still match.
+        const drain = () => {
+            void consumePendingSelection().then(async (parked) => {
+                if (!parked) return;
+                const details = await requestPageSelection(await getActiveTabId());
+                handleTextSelection(parked, details?.text.trim() === parked.trim() ? details : null);
+            });
         };
 
-        document.addEventListener('mouseup', handleMouseUp);
+        drain();
+        const unsubscribe = subscribeToPendingSelection(drain);
+
+        const onMessage = (message: any) => {
+            if (message?.action === SELECTION_CHANGED && message.text) {
+                handleTextSelection(message.text, message);
+            }
+        };
+        chrome.runtime.onMessage.addListener(onMessage);
 
         return () => {
-            document.removeEventListener('mouseup', handleMouseUp);
+            unsubscribe();
+            chrome.runtime.onMessage.removeListener(onMessage);
         };
     }, [handleTextSelection]);
 
@@ -1755,6 +1983,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (savedCard.translation) tabAware.setTranslation(savedCard.translation);
             if (savedCard.examples) tabAware.setExamples(savedCard.examples);
             tabAware.setExamplesAudio(savedCard.examplesAudio ?? []);
+            tabAware.setExampleTranscriptions(savedCard.exampleTranscriptions ?? []);
             if (savedCard.image) tabAware.setImage(savedCard.image);
             if (savedCard.imageUrl) tabAware.setImageUrl(savedCard.imageUrl);
             if (savedCard.front) tabAware.setFront(savedCard.front);
@@ -1763,6 +1992,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (savedCard.transcription) tabAware.setTranscription(savedCard.transcription);
             tabAware.setWordAudio(savedCard.wordAudio ?? null);
             setOriginalSelectedText(savedCard.text);
+            setSelectionOrigin(savedCard.sentence || savedCard.sourceUrl ? {
+                text: savedCard.text,
+                sentence: savedCard.sentence || '',
+                sourceUrl: savedCard.sourceUrl || '',
+                sourceTitle: savedCard.sourceTitle || '',
+            } : null);
             setShowResult(true);
         } else {
             debugLog('Card ID from localStorage not found in Redux storage, resetting');
@@ -1771,6 +2006,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             tabAware.setCurrentCardId(null);
             tabAware.setWordAudio(null);
             tabAware.setExamplesAudio([]);
+            tabAware.setExampleTranscriptions([]);
             setIsNewSubmission(true);
             setExplicitlySaved(false);
         }
@@ -1803,8 +2039,27 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
     }, [text, currentCardId, isNewSubmission, showResult, checkExistingCard]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    // One button drives both modes now, so the composer does not have to know which
+    // handler the current mode wants.
+    const handlePrimaryAction = () => {
+        if (loadingGetResult || textInputValueRef.current.trim() === '') return;
+        if (mode === Modes.GeneralTopic) {
+            void handleCreateAICards();
+            return;
+        }
+        void handleSubmit();
+    };
+
+    // Ctrl/Cmd+Enter submits from inside the textarea; plain Enter still adds a newline.
+    const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            handlePrimaryAction();
+        }
+    };
+
+    const handleSubmit = async (e?: React.FormEvent) => {
+        e?.preventDefault();
         const currentText = textInputValueRef.current.trim();
         if (!currentText) return;
         flushTextInputSync(textInputValueRef.current);
@@ -1832,6 +2087,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
+        // Delayed loader-hiding callbacks below compare against this to tell "cancelled/
+        // superseded by a newer generation" apart from "still the active generation".
+        generationIdRef.current += 1;
+        const myGenerationId = generationIdRef.current;
 
         // Set card generation state to true to disable navigation buttons
         tabAware.setIsGeneratingCard(true);
@@ -1866,6 +2125,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         tabAware.setWordAudio(null);
 
         setForceHideLoader(false);
+        selectionCaptureBlockedRef.current = true;
         setLoadingGetResult(true);
         setCurrentLoadingMessage(null);
 
@@ -1931,8 +2191,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // Extract page context for multimedia
                     let pageContext: PageContentContext | undefined;
                     try {
-                        const { PageContentExtractor } = await import('../services/pageContentExtractor');
-                        pageContext = PageContentExtractor.extractPageContent(currentText);
+                        pageContext = (await requestPageContext(await getActiveTabId(), currentText)) ?? undefined;
                         debugLog(`📋 General mode: Extracted page context with ${pageContext?.pageImages?.length || 0} images`);
                     } catch (extractError) {
                         console.warn('Failed to extract page content for General mode:', extractError);
@@ -2001,7 +2260,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 audioGenerationMode !== 'off',
                 audioGenerationMode,
                 openAiKey,
-                generateWordAudioData
+                generateWordAudioData,
+                {
+                    mode: transcriptionMode,
+                    language: transcriptionLanguage,
+                    extraLanguages: transcriptionExtraLanguages,
+                }
             );
 
             const duration = Date.now() - startTime;
@@ -2035,8 +2299,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 formattedExamples = result.examples.map(example =>
                     [example.original, example.translated] as [string, string | null]
                 );
-                tabAware.setExamples(formattedExamples);
-                tabAware.setExamplesAudio(new Array(formattedExamples.length).fill(null));
+                const generatedExampleTranscriptions =
+                    await generateExampleTranscriptionsFor(
+                        formattedExamples,
+                        sourceLanguageForSubmit,
+                        abortSignal,
+                    );
+                tabAware.updateCard({
+                    examples: formattedExamples,
+                    examplesAudio: new Array(formattedExamples.length).fill(null),
+                    exampleTranscriptions: generatedExampleTranscriptions,
+                });
                 completedOperations.examples = true;
             }
 
@@ -2055,26 +2328,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 completedOperations.image = true;
             }
 
+            if (result.wordAudio) {
+                tabAware.setWordAudio(result.wordAudio);
+            }
+
             // Устанавливаем транскрипцию, если доступна
             if (result.transcription) {
                 try {
-                    const languageName = await getLanguageName(translateToLanguage);
-                    const userLang = normalizeTranscriptionValue(result.transcription.userLanguageTranscription);
-                    const ipa = normalizeTranscriptionValue(result.transcription.ipaTranscription, true);
-                    const transcriptionHtml = [
-                        userLang && `
-                            <div class="transcription-item user-lang">
-                                <span class="transcription-label">${languageName}:</span>
-                                <span class="transcription-text">${userLang}</span>
-                            </div>
-                        `,
-                        ipa && `
-                            <div class="transcription-item ipa">
-                                <span class="transcription-label">IPA:</span>
-                                <span class="transcription-text">${ipa}</span>
-                            </div>
-                        `
-                    ].filter(Boolean).join('\n');
+                    const transcriptionHtml = formatTranscriptionHtml(
+                        result.transcription,
+                        transcriptionLanguage,
+                    );
 
                     if (transcriptionHtml) {
                         tabAware.setTranscription(transcriptionHtml);
@@ -2091,7 +2355,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Показываем предупреждения для неудачных компонентов
                 for (const error of result.errors) {
-                    const detailsMessage = error.error || '';
+                    const rawError = error.error as unknown;
+                    const detailsMessage = typeof rawError === 'string'
+                        ? rawError
+                        : rawError
+                            ? JSON.stringify(rawError)
+                            : '';
                     const normalizedComponent = `${error.component} generation failed: ${detailsMessage}`;
                     if (error.component === 'translation') {
                         // Перевод критичен - показываем ошибку
@@ -2138,29 +2407,89 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 if (studiedWord) {
                     const smartAudioDecision = shouldGenerateAudioForText(studiedWord);
                     const shouldGenerateAudioNow = audioGenerationMode === 'always' || smartAudioDecision.shouldGenerate;
+                    const audioTasks: Array<Promise<void>> = [];
 
-                    if (shouldGenerateAudioNow) {
-                        try {
-                            const audioDataUrl = await generateWordAudioData(studiedWord, abortSignal);
-                            if (audioDataUrl) {
-                                tabAware.setWordAudio(audioDataUrl);
+                    if (shouldGenerateAudioNow && !result.wordAudio) {
+                        audioTasks.push((async () => {
+                            try {
+                                const audioDataUrl = await generateWordAudioData(studiedWord, abortSignal);
+                                if (audioDataUrl) {
+                                    tabAware.setWordAudio(audioDataUrl);
+                                }
+                            } catch (audioError) {
+                                console.warn('Audio generation skipped due to error:', audioError);
                             }
-                        } catch (audioError) {
-                            console.warn('Audio generation skipped due to error:', audioError);
-                        }
+                        })());
                     }
 
                     if (formattedExamples.length > 0 && shouldGenerateAudioNow) {
-                        try {
-                            const examplesAudioData = await generateExamplesAudioBatch(
-                                formattedExamples,
-                                new Array(formattedExamples.length).fill(null),
-                                abortSignal
-                            );
-                            tabAware.setExamplesAudio(examplesAudioData);
-                        } catch (examplesAudioError) {
-                            console.warn('Examples audio generation skipped due to error:', examplesAudioError);
+                        audioTasks.push((async () => {
+                            try {
+                                const examplesAudioData = await generateExamplesAudioBatch(
+                                    formattedExamples,
+                                    new Array(formattedExamples.length).fill(null),
+                                    abortSignal
+                                );
+                                tabAware.setExamplesAudio(examplesAudioData);
+                            } catch (examplesAudioError) {
+                                console.warn('Examples audio generation skipped due to error:', examplesAudioError);
+                            }
+                        })());
+                    }
+
+                    await Promise.all(audioTasks);
+                }
+            }
+
+            // If the parallel pronunciation pass returned no validated fields, retry while
+            // the card loader is still visible. Previously this retry ran in the background
+            // after the modal opened, so a perfectly valid late result looked like a missing
+            // feature (and could be missed entirely if the user saved the card immediately).
+            const studiedWordForTranscription =
+                (result.flashcard?.front && result.flashcard.front.trim())
+                    ? result.flashcard.front.trim()
+                    : currentText;
+            if (
+                !completedOperations.transcription
+                && shouldGenerateTranscription(
+                    studiedWordForTranscription,
+                    transcriptionMode,
+                    sourceLanguageForSubmit,
+                    transcriptionExtraLanguages,
+                )
+            ) {
+                try {
+                    const sourceLangForPron =
+                        sourceLanguageForSubmit
+                        || 'unknown (infer only from the exact study target)';
+                    if (studiedWordForTranscription && transcriptionLanguage) {
+                        const aiAgentService = createAIAgentService(aiService, apiKey);
+                        debugLog(`🔤 Pronunciation Agent (recovery): generating for "${studiedWordForTranscription}" (${sourceLangForPron} -> ${transcriptionLanguage})`);
+                        const pronunciationHtml = await aiAgentService.generatePronunciationHtml(
+                            studiedWordForTranscription,
+                            sourceLangForPron,
+                            transcriptionLanguage,
+                        );
+
+                        if (
+                            abortSignal.aborted
+                            || generationIdRef.current !== myGenerationId
+                        ) {
+                            debugLog('🔤 Pronunciation Agent (recovery): stale result ignored');
+                            return;
                         }
+
+                        if (pronunciationHtml) {
+                            tabAware.setTranscription(pronunciationHtml);
+                            completedOperations.transcription = true;
+                            debugLog('🔤 Pronunciation Agent (recovery): transcription set');
+                        } else {
+                            console.debug('Pronunciation Agent recovery returned no validated fields');
+                        }
+                    }
+                } catch (error) {
+                    if (!abortSignal.aborted) {
+                        console.debug('Pronunciation Agent recovery unavailable:', error);
                     }
                 }
             }
@@ -2188,32 +2517,16 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                 // Hide loading when content is ready and visible
                 setTimeout(() => {
+                    // A newer generation may have started (or this one may have been
+                    // cancelled) while this delay was pending — don't let a stale timeout
+                    // hide the loader out from under a different generation cycle.
+                    if (generationIdRef.current !== myGenerationId) return;
                     debugLog('🎯 Parallel content is ready - hiding loading');
                     setLoadingGetResult(false);
                     setCurrentLoadingMessage(null);
                     setCurrentProgress({ completed: 0, total: 0 });
                 }, 500); // Short delay to ensure UI updates
 
-                // Fallback: если параллельная транскрипция не сработала — запускаем агента в фоне
-                if (!completedOperations.transcription) {
-                    try {
-                        const studiedWord = (result.flashcard?.front && result.flashcard.front.trim()) ? result.flashcard.front.trim() : text;
-                        const sourceLangForPron = sourceLanguageForSubmit;
-                        if (studiedWord && sourceLangForPron && translateToLanguage) {
-                            const aiAgentService = createAIAgentService(aiService, apiKey);
-                            (async () => {
-                                debugLog(`🔤 Pronunciation Agent (fallback): generating for "${studiedWord}" (${sourceLangForPron} -> ${translateToLanguage})`);
-                                const pronunciationHtml = await aiAgentService.generatePronunciationHtml(studiedWord, sourceLangForPron, translateToLanguage);
-                                if (pronunciationHtml) {
-                                    tabAware.setTranscription(pronunciationHtml);
-                                    debugLog('🔤 Pronunciation Agent (fallback): transcription set');
-                                }
-                            })().catch(err => console.warn('Pronunciation Agent fallback async error:', err));
-                        }
-                    } catch (e) {
-                        console.warn('Pronunciation Agent fallback failed to start:', e);
-                    }
-                }
             } else {
                 throw new Error("Failed to create card: No data was successfully generated. Please check your API key and try again.");
             }
@@ -2268,323 +2581,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     };
 
-    const handleSaveAISettings = () => {
-        dispatch(setAIInstructions(localAIInstructions));
-        setShowAISettings(false);
-        // Удалили навязчивое success уведомление
-    };
-
-    const handleSaveImageSettings = () => {
-        dispatch(setImageInstructions(localImageInstructions));
-        setShowImageSettings(false);
-        // Удалили навязчивое success уведомление
-    };
-
-    // Render AI Settings Panel
-    const renderAISettings = () => {
-        if (!showAISettings) {
-            return (
-                <button
-                    onClick={() => setShowAISettings(true)}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        backgroundColor: '#F3F4F6',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '6px',
-                        padding: '6px 12px',
-                        fontSize: '13px',
-                        color: '#4B5563',
-                        cursor: 'pointer',
-                        width: '100%',
-                        justifyContent: 'center'
-                    }}
-                >
-                    <FaCog size={14} />
-                    Customize AI behavior
-                </button>
-            );
-        }
-
-        return (
-            <div style={{
-                backgroundColor: '#F9FAFB',
-                border: '1px solid #E5E7EB',
-                borderRadius: '8px',
-                padding: '16px',
-                width: '100%',
-                marginBottom: '12px'
-            }}>
-                <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '12px',
-                }}>
-                    <h3 style={{
-                        margin: 0,
-                        fontSize: '16px',
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                    }}>
-                        <FaLightbulb size={14} color="#2563EB" />
-                        AI Instructions
-                    </h3>
-                    <button
-                        onClick={() => setShowAISettings(false)}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: '#6B7280',
-                            fontSize: '13px'
-                        }}
-                    >
-                        Cancel
-                    </button>
-                </div>
-
-                <div style={{ marginBottom: '16px' }}>
-                    <label style={{
-                        display: 'block',
-                        marginBottom: '4px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        color: '#374151'
-                    }}>
-                        Additional instructions for AI
-                    </label>
-                    <textarea
-                        value={localAIInstructions}
-                        onChange={(e) => setLocalAIInstructions(e.target.value)}
-                        placeholder="E.g., Keep specialized terms untranslated. Make examples more advanced. Use formal language."
-                        style={{
-                            width: '100%',
-                            padding: '8px 12px',
-                            borderRadius: '6px',
-                            border: '1px solid #E5E7EB',
-                            fontSize: '14px',
-                            minHeight: '100px',
-                            resize: 'vertical'
-                        }}
-                    />
-                    <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '8px', lineHeight: '1.4' }}>
-                        <p style={{ margin: '0 0 6px 0', fontWeight: '500' }}>How to use:</p>
-                        <ul style={{ margin: 0, paddingLeft: '16px' }}>
-                            <li>These are <strong>additional</strong> instructions that supplement the basic AI behavior</li>
-                            <li>The original word will always be used (no need to specify it)</li>
-                            <li>Examples will always be generated for the word you're learning</li>
-                            <li>Use this for style guidance, preferences, or special requirements</li>
-                        </ul>
-                    </div>
-                </div>
-
-                <button
-                    onClick={handleSaveAISettings}
-                    style={{
-                        backgroundColor: '#2563EB',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        padding: '8px 16px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        marginBottom: '8px'
-                    }}
-                >
-                    <FaCode size={14} />
-                    Save Instructions
-                </button>
-
-                {/* Simplified interface - removed test buttons and complex validation options */}
-            </div>
-        );
-    };
-
-    // Render Image Settings Panel
-    const renderImageSettings = () => {
-        if (!shouldGenerateImage) return null;
-
-        if (!showImageSettings) {
-            return (
-                <button
-                    onClick={() => setShowImageSettings(true)}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        backgroundColor: '#F3F4F6',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '6px',
-                        padding: '6px 12px',
-                        fontSize: '13px',
-                        color: '#4B5563',
-                        cursor: 'pointer',
-                        width: '100%',
-                        justifyContent: 'center',
-                        marginTop: '8px'
-                    }}
-                >
-                    <FaImage size={14} />
-                    Customize image generation
-                </button>
-            );
-        }
-
-        return (
-            <div style={{
-                backgroundColor: '#F9FAFB',
-                border: '1px solid #E5E7EB',
-                borderRadius: '8px',
-                padding: '16px',
-                width: '100%',
-                marginBottom: '12px',
-                marginTop: '8px'
-            }}>
-                <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '12px',
-                }}>
-                    <h3 style={{
-                        margin: 0,
-                        fontSize: '16px',
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                    }}>
-                        <FaImage size={14} color="#10B981" />
-                        Image Instructions
-                    </h3>
-                    <button
-                        onClick={() => setShowImageSettings(false)}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: '#6B7280',
-                            fontSize: '13px'
-                        }}
-                    >
-                        Cancel
-                    </button>
-                </div>
-
-                <div style={{ marginBottom: '16px' }}>
-                    <label style={{
-                        display: 'block',
-                        marginBottom: '4px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        color: '#374151'
-                    }}>
-                        Image generation style
-                    </label>
-                    {/* Quick style presets */}
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                const stripped = (localImageInstructions || '')
-                                    .replace(/photoreal(?:istic)?|photo[-\s]?real|realistic/gi, '')
-                                    .replace(/painting|painted|oil\s?painting|watercolor|brush|canvas|illustration|живопис|картина|маслом|акварел/gi, '')
-                                    .trim();
-                                const preset = 'Use photorealistic style with natural lighting and realistic materials.';
-                                setLocalImageInstructions(stripped ? preset + ' ' + stripped : preset);
-                            }}
-                            style={{
-                                padding: '6px 10px',
-                                borderRadius: '6px',
-                                border: '1px solid #E5E7EB',
-                                backgroundColor: '#FFFFFF',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                            }}
-                        >
-                            Photorealistic
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                const stripped = (localImageInstructions || '')
-                                    .replace(/photoreal(?:istic)?|photo[-\s]?real|realistic/gi, '')
-                                    .replace(/painting|painted|oil\s?painting|watercolor|brush|canvas|illustration|живопис|картина|маслом|акварел/gi, '')
-                                    .trim();
-                                const preset = 'Use painting style (oil painting), visible brush strokes and canvas texture.';
-                                setLocalImageInstructions(stripped ? preset + ' ' + stripped : preset);
-                            }}
-                            style={{
-                                padding: '6px 10px',
-                                borderRadius: '6px',
-                                border: '1px solid #E5E7EB',
-                                backgroundColor: '#FFFFFF',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                            }}
-                        >
-                            Painting
-                        </button>
-                    </div>
-                    <textarea
-                        value={localImageInstructions}
-                        onChange={(e) => setLocalImageInstructions(e.target.value)}
-                        placeholder="E.g., use anime style, make it minimalist, use pastel colors, make it black and white"
-                        style={{
-                            width: '100%',
-                            padding: '8px 12px',
-                            borderRadius: '6px',
-                            border: '1px solid #E5E7EB',
-                            fontSize: '14px',
-                            minHeight: '100px',
-                            resize: 'vertical'
-                        }}
-                    />
-                    <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '8px', lineHeight: '1.4' }}>
-                        <p style={{ margin: '0 0 6px 0', fontWeight: '500' }}>How to use:</p>
-                        <ul style={{ margin: 0, paddingLeft: '16px' }}>
-                            <li>These are <strong>style instructions</strong> for image generation</li>
-                            <li>The image will still be related to the word you're learning</li>
-                            <li>Focus on artistic style, mood, colors, composition, etc.</li>
-                            <li>Examples: "watercolor style", "dark background", "realistic rendering"</li>
-                        </ul>
-                    </div>
-                </div>
-
-                <button
-                    onClick={handleSaveImageSettings}
-                    style={{
-                        backgroundColor: '#10B981',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        padding: '8px 16px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px'
-                    }}
-                >
-                    <FaImage size={14} />
-                    Save Image Instructions
-                </button>
-            </div>
-        );
-    };
 
     // Add a way to cancel the current card and reset to fresh state
     const handleCancel = () => {
@@ -2596,6 +2592,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
         }
+
+        // Invalidate this generation's delayed loader-hiding timeouts too, so one firing
+        // after cancel can't flip the loader (or the selected-options map) back on.
+        generationIdRef.current += 1;
 
         setShowResult(false);
         setIsEdited(false);
@@ -2628,36 +2628,22 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             linguisticInfo: '',
             transcription: '',
             wordAudio: null,
-            examplesAudio: []
+            examplesAudio: [],
+            exampleTranscriptions: []
         });
 
         setOriginalSelectedText('');
+        setSelectionOrigin(null);
 
         // Draft shortcut removed: keep flow focused on explicit save operations.
     };
 
-    // Add a function to render the AI provider badge
-    const renderProviderBadge = () => {
-        return (
-            <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                marginLeft: '8px',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                backgroundColor: '#10a37f',
-                color: 'white',
-                fontSize: '10px',
-                fontWeight: '600'
-            }}>
-                OpenAI
-            </span>
-        );
-    };
 
     // Function to handle modal close
     const handleCloseModal = () => {
         debugLog('Modal close handler. Card saved status:', isSaved, 'isEdited:', isEdited);
+        // Otherwise the next card opens straight into the editor.
+        setIsEditingResult(false);
 
         // Если карточки созданы с помощью множественного выделения, просто закрываем модальное окно
         // без дополнительных действий, чтобы предотвратить автоматическое сохранение
@@ -2674,6 +2660,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (!isSaved) {
             setShowResult(false);
             setOriginalSelectedText('');
+            setSelectionOrigin(null);
             tabAware.updateCard({
                 text: '',
                 translation: '',
@@ -2685,7 +2672,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 linguisticInfo: '',
                 transcription: '',
                 wordAudio: null,
-                examplesAudio: []
+                examplesAudio: [],
+                exampleTranscriptions: []
             });
         }
     };
@@ -2695,391 +2683,123 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (!showModal || !showResult) return null;
 
         return (
-            <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'center',
-                zIndex: 1000,
-                backdropFilter: 'blur(2px)',
-                padding: '16px',
-                overflowY: 'auto',
-                overflowX: 'hidden'
-            }} onClick={handleCloseModal}>
-                <div style={{
-                    backgroundColor: '#ffffff',
-                    borderRadius: '12px',
-                    maxWidth: '340px',
-                    width: '100%',
-                    maxHeight: 'calc(100% - 32px)',
-                    overflowY: 'auto',
-                    overflowX: 'hidden',
-                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                    position: 'relative',
-                    padding: '16px',
-                    boxSizing: 'border-box',
-                    margin: 'auto'
-                }} onClick={(e) => e.stopPropagation()}>
-                    <div style={{
-                        position: 'sticky',
-                        top: 0,
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        borderBottom: '1px solid #E5E7EB',
-                        paddingBottom: '12px',
-                        marginBottom: '16px',
-                        backgroundColor: '#ffffff',
-                        zIndex: 2
-                    }}>
-                        {isMultipleCards ? (
-                            <h3 style={{
-                                margin: 0,
-                                fontSize: '16px',
-                                fontWeight: 600,
-                                color: '#111827'
-                            }}>
-                                {`Card ${currentCardIndex + 1} of ${createdCards.length}`}
-                            </h3>
-                        ) : <div />}
+            <Modal
+                open
+                onClose={handleCloseModal}
+                maxWidth={340}
+                title={isMultipleCards ? `Card ${currentCardIndex + 1} of ${createdCards.length}` : 'Your card'}
+                footer={
+                    <div className="flex items-center gap-2">
                         <button
-                            onClick={handleCloseModal}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '8px',
-                                borderRadius: '50%',
-                                cursor: 'pointer',
-                                transition: 'background-color 0.2s'
-                            }}
-                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                            aria-label="Close"
+                            type="button"
+                            onClick={() => setIsEditingResult((prev) => !prev)}
+                            aria-pressed={isEditingResult}
+                            title={isEditingResult ? 'Done editing' : 'Edit card'}
+                            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-control border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                                isEditingResult
+                                    ? 'border-accent-border bg-accent-subtle text-accent'
+                                    : 'border-line bg-white text-gray-500 hover:bg-surface-sunken'
+                            }`}
                         >
-                            <FaTimes size={16} color="#6B7280" />
+                            {isEditingResult ? <FaCheck size={13} /> : <FaEdit size={13} />}
                         </button>
-                    </div>
-
-                    {/* Error notifications now appear as toast in top-right corner */}
-
-                    <div style={{
-                        width: '100%',
-                        maxWidth: '100%',
-                        marginBottom: '12px'
-                    }}>
-                        <div style={{
-                            position: 'relative',
-                            width: '100%',
-                            maxWidth: '100%',
-                        }}>
-                            <input
-                                type="text"
-                                value={customInstruction}
-                                onChange={(e) => setCustomInstruction(e.target.value)}
-                                onKeyDown={handleCustomInstructionKeyDown}
-                                placeholder="Enter custom instructions (e.g., 'more formal examples', 'change image style')"
-                                style={{
-                                    width: '100%',
-                                    maxWidth: '100%',
-                                    padding: '10px 12px',
-                                    paddingRight: '44px',
-                                    borderRadius: '8px',
-                                    border: '1px solid #E5E7EB',
-                                    fontSize: '14px',
-                                    color: '#374151',
-                                    backgroundColor: isProcessingCustomInstruction ? '#F9FAFB' : '#FFFFFF',
-                                    transition: 'all 0.2s ease',
-                                    boxShadow: isProcessingCustomInstruction ? 'inset 0 1px 2px rgba(0, 0, 0, 0.05)' : 'none',
-                                    boxSizing: 'border-box'
-                                }}
-                                disabled={isProcessingCustomInstruction}
-                            />
-                            {isProcessingCustomInstruction ? (
-                                <div style={{
-                                    position: 'absolute',
-                                    right: '10px',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '6px',
-                                    borderRadius: '50%',
-                                    color: '#4F46E5'
-                                }}>
-                                    <Loader type="spinner" size="small" inline color="#4F46E5" />
-                                </div>
+                        <RegenerateControl
+                            onNewImage={handleNewImage}
+                            onNewExamples={handleNewExamples}
+                            onApplyInstruction={(value: string) => { void handleApplyCustomInstruction(value); }}
+                            hasImage={Boolean(image || imageUrl)}
+                            hasExamples={examples.length > 0}
+                            busy={isProcessingCustomInstruction || loadingNewImage || loadingNewExamples}
+                        />
+                        <Button
+                            variant="primary"
+                            size="lg"
+                            className="flex-1"
+                            onClick={isMultipleCards ? handleSaveAllCards : handleAccept}
+                            disabled={loadingAccept || (!isMultipleCards && isSaved)}
+                        >
+                            {loadingAccept ? (
+                                <>
+                                    <Loader type="spinner" size="small" inline color="#ffffff" />
+                                    Saving…
+                                </>
+                            ) : isMultipleCards ? (
+                                `Save all (${createdCards.length - explicitlySavedIds.length})`
+                            ) : isSaved ? (
+                                <>
+                                    <FaCheck size={12} />
+                                    Saved
+                                </>
                             ) : (
-                                <button
-                                    onClick={handleApplyCustomInstruction}
-                                    disabled={!customInstruction.trim() || isProcessingCustomInstruction}
-                                    style={{
-                                        position: 'absolute',
-                                        right: '8px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        background: customInstruction.trim() ? 'linear-gradient(to right, #4F46E5, #6366F1)' : 'none',
-                                        border: 'none',
-                                        color: customInstruction.trim() ? '#FFFFFF' : '#9CA3AF',
-                                        cursor: customInstruction.trim() ? 'pointer' : 'not-allowed',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        padding: '6px',
-                                        borderRadius: '50%',
-                                        width: '28px',
-                                        height: '28px',
-                                        boxShadow: customInstruction.trim() ? '0 1px 3px rgba(0, 0, 0, 0.1)' : 'none',
-                                        transition: 'all 0.2s ease'
-                                    }}
-                                    title="Apply instructions"
-                                >
-                                    <FaMagic size={14} />
-                                </button>
+                                'Save card'
                             )}
-                        </div>
-                        <div style={{
-                            fontSize: '12px',
-                            color: isProcessingCustomInstruction ? '#4F46E5' : '#6B7280',
-                            marginTop: '6px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            fontWeight: isProcessingCustomInstruction ? '500' : 'normal',
-                        }}>
-                            {isProcessingCustomInstruction && (
-                                <span style={{
-                                    display: 'inline-block',
-                                    width: '6px',
-                                    height: '6px',
-                                    borderRadius: '50%',
-                                    backgroundColor: '#4F46E5',
-                                    animation: 'pulse 1.5s infinite',
-                                }}></span>
-                            )}
-                            {isProcessingCustomInstruction ? 'Applying your instructions...' : 'Type instructions and press Enter or click the magic wand'}
-                        </div>
-                        <style>{`
-                            @keyframes pulse {
-                                0% { opacity: 1; }
-                                50% { opacity: 0.4; }
-                                100% { opacity: 1; }
-                            }
-                        `}</style>
+                        </Button>
                     </div>
+                }
+            >
+                <div className="p-4">
 
-                    {/* Добавляем навигацию для множественных карточек */}
+
+                    {/* Card N of M already sits in the modal title, so this is only the
+                        stepper — the old block repeated the count, the saved badge and a
+                        Save All button above the card itself. */}
                     {isMultipleCards && (
-                        <>
-                            <div style={{
-                                marginBottom: '8px',
-                                display: 'flex',
-                                justifyContent: 'center',
-                                alignItems: 'center'
-                            }}>
-                                <div style={{
-                                    fontSize: '13px',
-                                    color: '#4B5563',
-                                    backgroundColor: '#F9FAFB',
-                                    padding: '4px 10px',
-                                    borderRadius: '16px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px'
-                                }}>
-                                    Card {currentCardIndex + 1} of {createdCards.length}
-                                    {createdCards[currentCardIndex] && isCardExplicitlySaved(createdCards[currentCardIndex].id) && (
-                                        <span style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '3px',
-                                            backgroundColor: '#ECFDF5',
-                                            color: '#10B981',
-                                            padding: '2px 6px',
-                                            borderRadius: '10px',
-                                            fontSize: '11px',
-                                            fontWeight: 'bold'
-                                        }}>
-                                            <FaCheck size={8} />
-                                            SAVED
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                gap: '8px',
-                                marginBottom: '12px'
-                            }}>
-                                <button
-                                    onClick={prevCard}
-                                    disabled={currentCardIndex === 0}
-                                    style={{
-                                        padding: '8px 16px',
-                                        backgroundColor: currentCardIndex === 0 ? '#F3F4F6' : '#EFF6FF',
-                                        color: currentCardIndex === 0 ? '#9CA3AF' : '#2563EB',
-                                        border: `1px solid ${currentCardIndex === 0 ? '#E5E7EB' : '#BFDBFE'}`,
-                                        borderRadius: '6px',
-                                        fontSize: '14px',
-                                        fontWeight: 500,
-                                        cursor: currentCardIndex === 0 ? 'not-allowed' : 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        flex: 1
-                                    }}
-                                >
-                                    ← Prev
-                                    {currentCardIndex > 0 && createdCards[currentCardIndex - 1] && (
-                                        isCardExplicitlySaved(createdCards[currentCardIndex - 1].id) ? (
-                                            <span style={{
-                                                width: '6px',
-                                                height: '6px',
-                                                borderRadius: '50%',
-                                                backgroundColor: '#10B981',
-                                                marginLeft: 'auto'
-                                            }}></span>
-                                        ) : null
-                                    )}
-                                </button>
-
-                                <button
-                                    onClick={nextCard}
-                                    disabled={currentCardIndex === createdCards.length - 1}
-                                    style={{
-                                        padding: '8px 16px',
-                                        backgroundColor: currentCardIndex === createdCards.length - 1 ? '#F3F4F6' : '#EFF6FF',
-                                        color: currentCardIndex === createdCards.length - 1 ? '#9CA3AF' : '#2563EB',
-                                        border: `1px solid ${currentCardIndex === createdCards.length - 1 ? '#E5E7EB' : '#BFDBFE'}`,
-                                        borderRadius: '6px',
-                                        fontSize: '14px',
-                                        fontWeight: 500,
-                                        cursor: currentCardIndex === createdCards.length - 1 ? 'not-allowed' : 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        flex: 1,
-                                        justifyContent: 'flex-end'
-                                    }}
-                                >
-                                    {currentCardIndex < createdCards.length - 1 && createdCards[currentCardIndex + 1] && (
-                                        isCardExplicitlySaved(createdCards[currentCardIndex + 1].id) ? (
-                                            <span style={{
-                                                width: '6px',
-                                                height: '6px',
-                                                borderRadius: '50%',
-                                                backgroundColor: '#10B981',
-                                                marginRight: 'auto'
-                                            }}></span>
-                                        ) : null
-                                    )}
-                                    Next →
-                                </button>
-                            </div>
-
-                            {/* Save All button */}
-                            <button
-                                onClick={handleSaveAllCards}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px 12px',
-                                    backgroundColor: '#10B981',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    fontSize: '14px',
-                                    fontWeight: 500,
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '6px',
-                                    marginBottom: '12px',
-                                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-                                }}
-                                disabled={loadingAccept}
+                        <div className="mb-3 flex items-center gap-2">
+                            <Button
+                                size="sm"
+                                onClick={prevCard}
+                                disabled={currentCardIndex === 0}
+                                icon={<FaChevronLeft size={10} />}
                             >
-                                {loadingAccept ? (
-                                    <Loader type="spinner" size="small" inline color="#ffffff" text="Saving" />
-                                ) : (
-                                    <>
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            width="16"
-                                            height="16"
-                                            fill="currentColor"
-                                            viewBox="0 0 16 16"
-                                        >
-                                            <path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
-                                        </svg>
-                                        {explicitlySavedIds.length > 0 ? (
-                                            <>
-                                                Save {createdCards.length - explicitlySavedIds.length} Remaining Cards
-                                                <span style={{
-                                                    fontSize: '11px',
-                                                    backgroundColor: 'rgba(255,255,255,0.25)',
-                                                    borderRadius: '4px',
-                                                    padding: '1px 6px',
-                                                    marginLeft: '4px'
-                                                }}>
-                                                    {explicitlySavedIds.length} saved
-                                                </span>
-                                            </>
-                                        ) : (
-                                            <>Save All Cards ({createdCards.length})</>
-                                        )}
-                                    </>
-                                )}
-                            </button>
-                        </>
+                                Prev
+                            </Button>
+                            <span className="flex-1 text-center text-xs text-gray-500">
+                                {explicitlySavedIds.length} of {createdCards.length} saved
+                            </span>
+                            <Button
+                                size="sm"
+                                onClick={nextCard}
+                                disabled={currentCardIndex === createdCards.length - 1}
+                            >
+                                Next
+                                <FaChevronRight size={10} />
+                            </Button>
+                        </div>
                     )}
 
-                    <DeckSelector />
+                    <div className="mb-3">
+                        <DeckDestination />
+                    </div>
 
-                    <ResultDisplay
-                        mode={mode}
-                        front={front}
-                        translation={translation}
-                        examples={examples}
-                        examplesAudio={examplesAudio}
-                        imageUrl={imageUrl}
-                        image={image}
-                        linguisticInfo={linguisticInfo}
-                        transcription={transcription}
-                        wordAudio={wordAudio}
-                        onNewImage={handleNewImage}
-                        onNewExamples={handleNewExamples}
-                        onGenerateAudio={handleGenerateAudio}
-                        onAccept={handleAccept}
-                        onViewSavedCards={handleViewSavedCards}
-                        onCancel={handleCancel}
-                        loadingNewImage={loadingNewImage}
-                        loadingNewExamples={loadingNewExamples}
-                        loadingAudio={loadingWordAudio}
-                        createdAt={new Date()}
-                        loadingAccept={loadingAccept}
-                        loadingGetResult={loadingGetResult}
-                        shouldGenerateImage={shouldGenerateImage}
-                        isSaved={isSaved}
-                        isEdited={isEdited}
-                        isGeneratingCard={isGeneratingCard}
-                        setTranslation={handleTranslationUpdate}
-                        setBack={handleBackUpdate}
-                        setExamples={handleExamplesUpdate}
-                        setLinguisticInfo={handleLinguisticInfoUpdate}
+                    {/* The same component that shows a saved card: a card being made and a
+                        card already kept are the same thing at different ages, and seeing
+                        one turn into the other is the point. */}
+                    <StudyCard
+                        card={buildPreviewCard({
+                            mode,
+                            front,
+                            back,
+                            text,
+                            translation,
+                            examples,
+                            examplesAudio,
+                            exampleTranscriptions,
+                            image,
+                            imageUrl,
+                            linguisticInfo,
+                            transcription,
+                            wordAudio,
+                        })}
+                        resetKey={`${currentCardIndex}-${front ?? ''}`}
+                        editable={isEditingResult}
+                        busy={isProcessingCustomInstruction || loadingNewImage || loadingNewExamples}
+                        onWordChange={handleFrontUpdate}
+                        onTranslationChange={mode === Modes.LanguageLearning ? handleTranslationUpdate : handleBackUpdate}
+                        onExamplesChange={handleExamplesUpdate}
+                        onGrammarChange={handleLinguisticInfoUpdate}
                     />
                 </div>
-            </div>
+            </Modal>
         );
     };
 
@@ -3116,6 +2836,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
+        // See the single-card generation function above for why this is captured.
+        generationIdRef.current += 1;
+        const myGenerationId = generationIdRef.current;
 
         debugLog('*** MULTIPLE CARDS CREATION STARTED ***');
         debugLog('Image generation settings:', {
@@ -3127,6 +2850,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         setShowTextOptionsModal(false);
         setForceHideLoader(false);
+        selectionCaptureBlockedRef.current = true;
         setLoadingGetResult(true);
 
         // Set card generation state to true to disable navigation buttons
@@ -3173,7 +2897,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             audioGenerationMode !== 'off',
                             audioGenerationMode,
                             openAiKey,
-                            generateWordAudioData
+                            generateWordAudioData,
+                            {
+                                mode: transcriptionMode,
+                                language: transcriptionLanguage,
+                                extraLanguages: transcriptionExtraLanguages,
+                            }
                         );
 
                         // Check if cancelled after parallel calls
@@ -3184,22 +2913,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         // Process transcription HTML
                         let transcriptionHtml = "";
                         if (result.transcription) {
-                            const languageName = await getLanguageName(translateToLanguage);
-                            const userLang = normalizeTranscriptionValue(result.transcription.userLanguageTranscription);
-                            const ipa = normalizeTranscriptionValue(result.transcription.ipaTranscription, true);
-
-                            transcriptionHtml = [
-                                userLang &&
-                                `<div class="transcription-item user-lang">
-                                        <span class="transcription-label">${languageName}:</span>
-                                        <span class="transcription-text">${userLang}</span>
-                                    </div>`,
-                                ipa &&
-                                `<div class="transcription-item ipa">
-                                        <span class="transcription-label">IPA:</span>
-                                        <span class="transcription-text">${ipa}</span>
-                                    </div>`
-                            ].filter(Boolean).join('\n');
+                            transcriptionHtml = formatTranscriptionHtml(
+                                result.transcription,
+                                transcriptionLanguage,
+                            );
                         }
 
                         // Create card object
@@ -3207,6 +2924,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
                         const cardExamples = (result.examples || []).map(example => [example.original, example.translated]) as [string, string | null][];
                         let cardExamplesAudio = new Array(cardExamples.length).fill(null) as Array<string | null>;
+                        const cardExampleTranscriptions =
+                            await generateExampleTranscriptionsFor(
+                                cardExamples,
+                                sourceLangForParallel,
+                                abortSignal,
+                            );
                         const studiedWordForAudio = (result.flashcard?.front || option || '').trim();
                         if (openAiKey && shouldAutoGenerateExamplesAudioForMode(audioGenerationMode, studiedWordForAudio) && cardExamples.length > 0) {
                             cardExamplesAudio = await generateExamplesAudioBatch(cardExamples, cardExamplesAudio, abortSignal);
@@ -3219,6 +2942,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             translation: result.translation?.translated || '',
                             examples: cardExamples,
                             examplesAudio: cardExamplesAudio,
+                            exampleTranscriptions: cardExampleTranscriptions,
                             linguisticInfo: result.linguisticInfo || "",
                             transcription: transcriptionHtml,
                             wordAudio: result.wordAudio || null,
@@ -3286,6 +3010,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     // Examples всегда должен быть массивом
                     dispatch(setExamples(Array.isArray(currentCard.examples) ? currentCard.examples : []));
                     dispatch(setExamplesAudio(Array.isArray(currentCard.examplesAudio) ? currentCard.examplesAudio : []));
+                    dispatch(setExampleTranscriptions(
+                        Array.isArray(currentCard.exampleTranscriptions)
+                            ? currentCard.exampleTranscriptions
+                            : []
+                    ));
 
                     // Image может быть null, но не undefined
                     dispatch(setImage(currentCard.image === undefined ? null : currentCard.image));
@@ -3388,6 +3117,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             // Use the same smart loading management as main function
             setTimeout(() => {
+                // A newer generation may have started (or this one may have been cancelled)
+                // while this delay was pending — the global tracker's in-progress count by
+                // then belongs to whatever generation is running now, not necessarily this one.
+                if (generationIdRef.current !== myGenerationId) return;
+
                 debugLog('⏳ Checking for pending operations in multiple cards creation...');
 
                 const tracker = getGlobalApiTracker();
@@ -3406,6 +3140,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     debugLog('⏸️ Keeping loader visible for multiple cards - operations still running');
                     // Wait a bit longer for multiple cards
                     setTimeout(() => {
+                        if (generationIdRef.current !== myGenerationId) return;
                         debugLog('⏳ Final check for multiple cards...');
                         const finalCheckStats = tracker.getStats();
                         if (finalCheckStats.inProgress === 0) {
@@ -3472,7 +3207,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             linguisticInfo: linguisticInfo || '',
             transcription: transcription || '',
             wordAudio: wordAudio || null,
-            examplesAudio: examplesAudio || []
+            examplesAudio: examplesAudio || [],
+            exampleTranscriptions: exampleTranscriptions || []
         };
 
         // Обновляем массив карточек, заменяя текущую карточку на обновленную
@@ -3507,6 +3243,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         dispatch(setTranscription(''));
         dispatch(setWordAudio(null));
         dispatch(setExamplesAudio([]));
+        dispatch(setExampleTranscriptions([]));
 
         // Затем загружаем данные из карточки
 
@@ -3521,6 +3258,11 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Examples всегда должен быть массивом
         dispatch(setExamples(Array.isArray(card.examples) ? card.examples : []));
         dispatch(setExamplesAudio(Array.isArray(card.examplesAudio) ? card.examplesAudio : []));
+        dispatch(setExampleTranscriptions(
+            Array.isArray(card.exampleTranscriptions)
+                ? card.exampleTranscriptions
+                : []
+        ));
 
         // Image может быть null, но не undefined
         dispatch(setImage(card.image === undefined ? null : card.image));
@@ -3601,9 +3343,17 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         const wordCount = selectedText.trim().split(/\s+/).length;
         debugLog('Word count:', wordCount);
 
-        // If text is a short phrase (3 words or less), use it directly without showing modal
-        if (wordCount <= 3 && !selectedText.includes('.') && !selectedText.includes('\n')) {
-            debugLog('Using short text directly (≤3 words)');
+        // Scripts without spaces between words (Chinese, Japanese, Thai, etc.) always collapse
+        // to a single "word" here, so word count alone can't tell a short phrase from a whole
+        // paragraph — fall back to character length for those.
+        const hasWhitespace = /\s/.test(selectedText.trim());
+        const isShortSelection = hasWhitespace ? wordCount <= 3 : selectedText.trim().length <= 6;
+        // Also recognize full-width CJK sentence punctuation, not just the ASCII '.'.
+        const looksLikeSentence = /[.!?。！？]/.test(selectedText);
+
+        // If text is a short phrase, use it directly without showing modal
+        if (isShortSelection && !looksLikeSentence && !selectedText.includes('\n')) {
+            debugLog('Using short text directly');
             // Принудительно закрываем модальное окно
             setShowTextOptionsModal(false);
 
@@ -4199,65 +3949,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     };
 
     // Расширенный список языков с флагами и локализованными названиями
-    const allLanguages = [
-        { code: 'ru', name: 'Русский', flag: '🇷🇺', englishName: 'Russian' },
-        { code: 'en', name: 'English', flag: '🇬🇧', englishName: 'English' },
-        { code: 'es', name: 'Español', flag: '🇪🇸', englishName: 'Spanish' },
-        { code: 'fr', name: 'Français', flag: '🇫🇷', englishName: 'French' },
-        { code: 'de', name: 'Deutsch', flag: '🇩🇪', englishName: 'German' },
-        { code: 'it', name: 'Italiano', flag: '🇮🇹', englishName: 'Italian' },
-        { code: 'pt', name: 'Português', flag: '🇵🇹', englishName: 'Portuguese' },
-        { code: 'ja', name: '日本語', flag: '🇯🇵', englishName: 'Japanese' },
-        { code: 'ko', name: '한국어', flag: '🇰🇷', englishName: 'Korean' },
-        { code: 'zh', name: '中文', flag: '🇨🇳', englishName: 'Chinese' },
-        { code: 'ar', name: 'العربية', flag: '🇦🇪', englishName: 'Arabic' },
-        { code: 'hi', name: 'हिंदी', flag: '🇮🇳', englishName: 'Hindi' },
-        { code: 'bn', name: 'বাংলা', flag: '🇧🇩', englishName: 'Bengali' },
-        { code: 'tr', name: 'Türkçe', flag: '🇹🇷', englishName: 'Turkish' },
-        { code: 'pl', name: 'Polski', flag: '🇵🇱', englishName: 'Polish' },
-        { code: 'nl', name: 'Nederlands', flag: '🇳🇱', englishName: 'Dutch' },
-        { code: 'cs', name: 'Čeština', flag: '🇨🇿', englishName: 'Czech' },
-        { code: 'sv', name: 'Svenska', flag: '🇸🇪', englishName: 'Swedish' },
-        { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳', englishName: 'Vietnamese' },
-        { code: 'th', name: 'ภาษาไทย', flag: '🇹🇭', englishName: 'Thai' },
-        { code: 'he', name: 'עִבְרִית', flag: '🇮🇱', englishName: 'Hebrew' },
-        { code: 'id', name: 'Bahasa Indonesia', flag: '🇮🇩', englishName: 'Indonesian' },
-        { code: 'uk', name: 'Українська', flag: '🇺🇦', englishName: 'Ukrainian' },
-        { code: 'el', name: 'Ελληνικά', flag: '🇬🇷', englishName: 'Greek' },
-        { code: 'ro', name: 'Română', flag: '🇷🇴', englishName: 'Romanian' },
-        { code: 'hu', name: 'Magyar', flag: '🇭🇺', englishName: 'Hungarian' },
-        { code: 'fi', name: 'Suomi', flag: '🇫🇮', englishName: 'Finnish' },
-        { code: 'da', name: 'Dansk', flag: '🇩🇰', englishName: 'Danish' },
-        { code: 'no', name: 'Norsk', flag: '🇳🇴', englishName: 'Norwegian' },
-        { code: 'sk', name: 'Slovenčina', flag: '🇸🇰', englishName: 'Slovak' },
-        { code: 'lt', name: 'Lietuvių', flag: '🇱🇹', englishName: 'Lithuanian' },
-        { code: 'lv', name: 'Latviešu', flag: '🇱🇻', englishName: 'Latvian' },
-        { code: 'bg', name: 'Български', flag: '🇧🇬', englishName: 'Bulgarian' },
-        { code: 'hr', name: 'Hrvatski', flag: '🇭🇷', englishName: 'Croatian' },
-        { code: 'sr', name: 'Српски', flag: '🇷🇸', englishName: 'Serbian' },
-        { code: 'et', name: 'Eesti', flag: '🇪🇪', englishName: 'Estonian' },
-        { code: 'sl', name: 'Slovenščina', flag: '🇸🇮', englishName: 'Slovenian' },
-    ];
+    const allLanguages = ALL_LANGUAGES;
 
-    // Состояние для модального окна выбора языка
-    const [showLanguageSelector, setShowLanguageSelector] = useState(false);
-    const [languageSearch, setLanguageSearch] = useState('');
-
-    // Фильтрация языков по поисковому запросу
-    const filteredLanguages = useMemo(() => {
-        if (!languageSearch) return allLanguages;
-        const search = languageSearch.toLowerCase();
-        return allLanguages.filter(lang =>
-            lang.name.toLowerCase().includes(search) ||
-            lang.englishName.toLowerCase().includes(search) ||
-            lang.code.toLowerCase().includes(search)
-        );
-    }, [languageSearch]);
-
-    // Получение данных о текущем языке
-    const currentLanguage = useMemo(() => {
-        return allLanguages.find(lang => lang.code === translateToLanguage) || allLanguages[0];
-    }, [translateToLanguage]);
 
     // Persist and restore user-selected target language ("Your Language")
     const TARGET_LANGUAGE_STORAGE_KEY = 'target_language';
@@ -4288,298 +3981,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         }
     }, [translateToLanguage]);
 
-    // Компонент выбора языка
-    const renderLanguageSelector = () => {
-        // Если модальное окно не открыто, показываем кнопку выбора
-        if (!showLanguageSelector) {
-            return (
-                <div style={{
-                    position: 'relative',
-                    width: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px'
-                }}>
-                    <label style={{
-                        color: '#111827',
-                        fontWeight: '600',
-                        fontSize: '14px',
-                        margin: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                    }}>
-                        Your Language
-                        <span style={{
-                            fontSize: '12px',
-                            color: '#6B7280',
-                            fontWeight: 'normal',
-                            fontStyle: 'italic'
-                        }}>
-                            (translations)
-                        </span>
-                    </label>
-                    <button
-                        onClick={() => setShowLanguageSelector(true)}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            width: '100%',
-                            padding: '8px 12px',
-                            borderRadius: '6px',
-                            border: '1px solid #E5E7EB',
-                            backgroundColor: '#F9FAFB',
-                            color: '#374151',
-                            fontSize: '14px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            textAlign: 'left'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
-                    >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '18px' }}>{currentLanguage.flag}</span>
-                            <span>{currentLanguage.name}</span>
-                        </span>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                            <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
-                        </svg>
-                    </button>
-                </div>
-            );
-        }
-
-        // Если модальное окно открыто, показываем полный селектор языков
-        return (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                backdropFilter: 'blur(2px)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 1000,
-                padding: '16px'
-            }} onClick={() => setShowLanguageSelector(false)}>
-                <div style={{
-                    backgroundColor: '#FFFFFF',
-                    borderRadius: '12px',
-                    width: '90%',
-                    maxWidth: '360px',
-                    maxHeight: '80vh',
-                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column'
-                }} onClick={(e) => e.stopPropagation()}>
-                    <div style={{
-                        padding: '16px',
-                        borderBottom: '1px solid #E5E7EB',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '12px'
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center'
-                        }}>
-                            <h3 style={{
-                                margin: 0,
-                                fontSize: '16px',
-                                fontWeight: 600,
-                                color: '#111827'
-                            }}>
-                                Select Your Language
-                            </h3>
-                            <button
-                                onClick={() => setShowLanguageSelector(false)}
-                                style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    padding: '8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    borderRadius: '6px'
-                                }}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#6B7280" viewBox="0 0 16 16">
-                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
-                                </svg>
-                            </button>
-                        </div>
-                        <div style={{
-                            position: 'relative',
-                            width: '100%'
-                        }}>
-                            <input
-                                type="text"
-                                value={languageSearch}
-                                onChange={(e) => setLanguageSearch(e.target.value)}
-                                placeholder="Search languages..."
-                                style={{
-                                    width: '100%',
-                                    padding: '10px 12px 10px 36px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #E5E7EB',
-                                    backgroundColor: '#F9FAFB',
-                                    fontSize: '14px',
-                                    color: '#374151',
-                                    outline: 'none'
-                                }}
-                                onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-                            />
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="16"
-                                height="16"
-                                fill="#9CA3AF"
-                                viewBox="0 0 16 16"
-                                style={{
-                                    position: 'absolute',
-                                    left: '12px',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)'
-                                }}
-                            >
-                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
-                            </svg>
-                            {languageSearch && (
-                                <button
-                                    onClick={() => setLanguageSearch('')}
-                                    style={{
-                                        position: 'absolute',
-                                        right: '12px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        background: 'none',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        padding: '4px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        borderRadius: '50%',
-                                        backgroundColor: '#E5E7EB'
-                                    }}
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="#6B7280" viewBox="0 0 16 16">
-                                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
-                                    </svg>
-                                </button>
-                            )}
-                        </div>
-                        <p style={{
-                            margin: 0,
-                            fontSize: '12px',
-                            color: '#6B7280',
-                            lineHeight: 1.5
-                        }}>
-                            This will be used for both the interface language and translations. Your cards will be created in this language.
-                        </p>
-                    </div>
-                    <div style={{
-                        overflowY: 'auto',
-                        maxHeight: 'calc(80vh - 135px)',
-                        padding: '8px 0'
-                    }}>
-                        {filteredLanguages.length === 0 ? (
-                            <div style={{
-                                padding: '16px',
-                                textAlign: 'center',
-                                color: '#6B7280',
-                                fontSize: '14px'
-                            }}>
-                                No languages found matching "{languageSearch}"
-                            </div>
-                        ) : (
-                            filteredLanguages.map(language => (
-                                <button
-                                    key={language.code}
-                                    onClick={() => {
-                                        dispatch(setTranslateToLanguage(language.code));
-                                        setShowLanguageSelector(false);
-                                    }}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        width: '100%',
-                                        padding: '12px 16px',
-                                        backgroundColor: language.code === translateToLanguage ? '#EFF6FF' : 'transparent',
-                                        border: 'none',
-                                        textAlign: 'left',
-                                        cursor: 'pointer',
-                                        transition: 'background-color 0.2s'
-                                    }}
-                                    onMouseOver={(e) => {
-                                        if (language.code !== translateToLanguage) {
-                                            e.currentTarget.style.backgroundColor = '#F3F4F6';
-                                        }
-                                    }}
-                                    onMouseOut={(e) => {
-                                        if (language.code !== translateToLanguage) {
-                                            e.currentTarget.style.backgroundColor = 'transparent';
-                                        }
-                                    }}
-                                >
-                                    <span style={{
-                                        fontSize: '22px',
-                                        marginRight: '12px',
-                                        width: '28px',
-                                        textAlign: 'center'
-                                    }}>
-                                        {language.flag}
-                                    </span>
-                                    <div style={{
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'flex-start'
-                                    }}>
-                                        <span style={{
-                                            color: language.code === translateToLanguage ? '#2563EB' : '#111827',
-                                            fontWeight: language.code === translateToLanguage ? '600' : 'normal',
-                                            fontSize: '14px'
-                                        }}>
-                                            {language.name}
-                                        </span>
-                                        {language.englishName !== language.name && (
-                                            <span style={{
-                                                color: '#6B7280',
-                                                fontSize: '12px'
-                                            }}>
-                                                {language.englishName}
-                                            </span>
-                                        )}
-                                    </div>
-                                    {language.code === translateToLanguage && (
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            width="16"
-                                            height="16"
-                                            fill="#2563EB"
-                                            viewBox="0 0 16 16"
-                                            style={{ marginLeft: 'auto' }}
-                                        >
-                                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
-                                        </svg>
-                                    )}
-                                </button>
-                            ))
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    };
 
     // Добавим состояние для изучаемого языка (язык исходного текста)
     const [sourceLanguage, setSourceLanguage] = useState<string>(() => {
@@ -4591,34 +3992,12 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         return localStorage.getItem('detected_language') || null;
     });
     const [isDetectingLanguage, setIsDetectingLanguage] = useState(false);
-    const [showSourceLanguageSelector, setShowSourceLanguageSelector] = useState(false);
-    const [sourceLanguageSearch, setSourceLanguageSearch] = useState('');
     const [isAutoDetectLanguage, setIsAutoDetectLanguage] = useState(() => {
         // Default to true unless explicitly set to false in localStorage
         return localStorage.getItem('auto_detect_language') !== 'false';
     });
 
-    // Фильтрация языков для изучаемого языка
-    const filteredSourceLanguages = useMemo(() => {
-        if (!sourceLanguageSearch) return allLanguages;
-        const search = sourceLanguageSearch.toLowerCase();
-        return allLanguages.filter(lang =>
-            lang.name.toLowerCase().includes(search) ||
-            lang.englishName.toLowerCase().includes(search) ||
-            lang.code.toLowerCase().includes(search)
-        );
-    }, [sourceLanguageSearch]);
 
-    // Получение данных о текущем изучаемом языке
-    const currentSourceLanguage = useMemo(() => {
-        if (sourceLanguage) {
-            return allLanguages.find(lang => lang.code === sourceLanguage) || null;
-        }
-        if (detectedLanguage) {
-            return allLanguages.find(lang => lang.code === detectedLanguage) || null;
-        }
-        return null;
-    }, [sourceLanguage, detectedLanguage]);
 
     // Язык страницы из DOM/meta (дешевый хинт)
     const getPageLanguageHint = useCallback((): string | null => {
@@ -4640,34 +4019,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     }, []);
 
     // Офлайн определение языка по паттернам (с учетом языка страницы для коротких строк)
-    const detectLanguageOffline = useCallback((text: string, pageHint?: string | null): string | null => {
-        const cleanText = text.trim().toLowerCase();
-
-        // Скрипты
-        if (/[а-яё]/i.test(cleanText)) return 'ru';
-        if (/[\u4e00-\u9fff]/.test(cleanText)) return 'zh';
-        if (/[\u3040-\u309f\u30a0-\u30ff]/.test(cleanText)) return 'ja';
-        if (/[\uac00-\ud7af]/.test(cleanText)) return 'ko';
-        if (/[\u0600-\u06ff]/.test(cleanText)) return 'ar';
-
-        // Латиница с диакритиками
-        if (/[ñáéíóúü]/i.test(cleanText)) return 'es';
-        if (/[àâäéèêëïîôöùûüÿç]/i.test(cleanText)) return 'fr';
-        if (/[äöüß]/i.test(cleanText)) return 'de';
-        if (/[àèéìíîòóù]/i.test(cleanText)) return 'it';
-
-        // Чистая латиница без диакритики
-        if (/^[a-z\s\.,!?\-'"]+$/i.test(cleanText)) {
-            const englishWords = ['the', 'and', 'is', 'in', 'to', 'of', 'a', 'for', 'with', 'on', 'at', 'by', 'from', 'this', 'that', 'it', 'he', 'she', 'they', 'we', 'you', 'was', 'were', 'are', 'have', 'has', 'had', 'can', 'will', 'would', 'could', 'should'];
-            const words = cleanText.split(/\s+/);
-            const englishMatches = words.filter(word => englishWords.includes(word.replace(/[^\w]/g, ''))).length;
-            if (englishMatches > 0) return 'en';
-            // Для однословных латинских слов доверимся языку страницы
-            if (words.length === 1 && pageHint && pageHint.length === 2) return pageHint;
-        }
-
-        return null;
-    }, []);
+    const detectLanguageOffline = useCallback(
+        (text: string, pageHint?: string | null) => detectLanguageOfflineService(text, pageHint),
+        [],
+    );
 
     // Умное кэширование с паттернами
     const getSmartCacheKey = useCallback((text: string): string => {
@@ -4805,7 +4160,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 Authorization: `Bearer ${openAiKey}`,
                             },
                             body: JSON.stringify({
-                                model: 'gpt-5-nano',
+                                model: OPENAI_TEXT_MODEL,
                                 messages: [
                                     {
                                         role: 'system',
@@ -5006,468 +4361,29 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         return detectedResult;
     }, [openAiKey, modelProvider, detectLanguageOffline, getSmartCacheKey, updateSourceLanguage, detectedLanguage, showError, shouldShowQuotaNotification, getCachedQuotaError, markQuotaNotificationShown, cacheQuotaExceededError, setIsAutoDetectLanguage, allLanguages]);
 
-    // Обработчик переключения между автоопределением и ручным выбором
-    const toggleAutoDetect = () => {
-        const newAutoDetectValue = !isAutoDetectLanguage;
-        setIsAutoDetectLanguage(newAutoDetectValue);
-        // Save to localStorage
-        localStorage.setItem('auto_detect_language', newAutoDetectValue ? 'true' : 'false');
+    // Auto-detect is a value of the source-language picker now ("Detect automatically"),
+    // not a separate switch, so both used to be expressed through this one handler.
+    // `null` means auto; any code means the user picked a language explicitly.
+    const handleSourceLanguageChange = (code: string | null) => {
+        const auto = code === null;
+        setIsAutoDetectLanguage(auto);
+        localStorage.setItem('auto_detect_language', auto ? 'true' : 'false');
 
-        if (isAutoDetectLanguage) {
-            // If turning off auto-detection, set source language to detected language (if available)
-            if (detectedLanguage) {
-                updateSourceLanguage(detectedLanguage);
-            }
-        } else {
-            // If turning on auto-detection, clear manual source language and pending detection value
+        if (auto) {
             updateSourceLanguage('');
             setDetectedLanguage(null);
             localStorage.removeItem('detected_language');
-        }
-    };
-
-    // Компонент выбора изучаемого языка
-    const renderSourceLanguageSelector = () => {
-        // Если модальное окно не открыто, показываем кнопку выбора
-        if (!showSourceLanguageSelector) {
-            return (
-                <div style={{
-                    position: 'relative',
-                    width: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px'
-                }}>
-                    <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        width: '100%'
-                    }}>
-                        <label style={{
-                            color: '#111827',
-                            fontWeight: '600',
-                            fontSize: '14px',
-                            margin: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px'
-                        }}>
-                            <span>Source Language</span>
-                            <span style={{
-                                fontSize: '12px',
-                                color: '#6B7280',
-                                fontWeight: 'normal',
-                                fontStyle: 'italic'
-                            }}>
-                                (of your text)
-                            </span>
-                        </label>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px'
-                        }}>
-                            <span style={{
-                                fontSize: '12px',
-                                color: isAutoDetectLanguage ? '#10B981' : '#9CA3AF',
-                                transition: 'color 0.2s ease'
-                            }}>
-                                Auto
-                            </span>
-                            <button
-                                onClick={toggleAutoDetect}
-                                style={{
-                                    width: '36px',
-                                    height: '20px',
-                                    backgroundColor: isAutoDetectLanguage ? '#10B981' : '#E5E7EB',
-                                    border: 'none',
-                                    borderRadius: '10px',
-                                    position: 'relative',
-                                    cursor: 'pointer',
-                                    transition: 'background-color 0.2s ease'
-                                }}
-                            >
-                                <span style={{
-                                    position: 'absolute',
-                                    width: '16px',
-                                    height: '16px',
-                                    backgroundColor: 'white',
-                                    borderRadius: '50%',
-                                    top: '2px',
-                                    left: isAutoDetectLanguage ? '18px' : '2px',
-                                    transition: 'left 0.2s ease',
-                                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
-                                }}></span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <button
-                        onClick={() => setShowSourceLanguageSelector(true)}
-                        disabled={isAutoDetectLanguage}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            width: '100%',
-                            padding: '8px 12px',
-                            borderRadius: '6px',
-                            border: '1px solid #E5E7EB',
-                            backgroundColor: isAutoDetectLanguage ? '#F3F4F6' : '#F9FAFB',
-                            color: '#374151',
-                            fontSize: '14px',
-                            cursor: isAutoDetectLanguage ? 'not-allowed' : 'pointer',
-                            opacity: isAutoDetectLanguage ? 0.7 : 1,
-                            transition: 'all 0.2s ease',
-                            textAlign: 'left'
-                        }}
-                        onMouseOver={(e) => !isAutoDetectLanguage && (e.currentTarget.style.backgroundColor = '#F3F4F6')}
-                        onMouseOut={(e) => !isAutoDetectLanguage && (e.currentTarget.style.backgroundColor = '#F9FAFB')}
-                    >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {isDetectingLanguage ? (
-                                <Loader type="spinner" size="small" inline color="#6B7280" />
-                            ) : currentSourceLanguage ? (
-                                <>
-                                    <span style={{ fontSize: '18px' }}>{currentSourceLanguage.flag}</span>
-                                    <span>{currentSourceLanguage.name}</span>
-                                    {isAutoDetectLanguage && (
-                                        <span style={{
-                                            fontSize: '11px',
-                                            color: '#10B981',
-                                            backgroundColor: '#ECFDF5',
-                                            padding: '2px 6px',
-                                            borderRadius: '4px',
-                                            marginLeft: '4px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '3px'
-                                        }}>
-                                            <FaCheck size={10} />
-                                            <span>Detected</span>
-                                        </span>
-                                    )}
-                                </>
-                            ) : (
-                                <span style={{ color: '#9CA3AF' }}>
-                                    {isAutoDetectLanguage ? 'Detecting language...' : 'Select source language'}
-                                </span>
-                            )}
-                        </span>
-                        {!isAutoDetectLanguage && (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
-                            </svg>
-                        )}
-                    </button>
-
-                    {/* Язык перевода */}
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '6px 8px',
-                        backgroundColor: '#F3F4F6',
-                        borderRadius: '6px',
-                        marginTop: '4px'
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                        }}>
-                            <span style={{ fontSize: '14px' }}>
-                                {currentSourceLanguage ? currentSourceLanguage.flag : '🌐'}
-                            </span>
-                            <FaExchangeAlt size={12} color="#6B7280" />
-                            <span style={{ fontSize: '14px' }}>{currentLanguage.flag}</span>
-                        </div>
-                        <span style={{
-                            fontSize: '12px',
-                            color: '#4B5563'
-                        }}>
-                            Translating {currentSourceLanguage ? `from ${currentSourceLanguage.englishName}` : ''} to {currentLanguage.englishName}
-                        </span>
-                        {isAutoDetectLanguage && (
-                            <button
-                                onClick={() => {
-                                    // Check if quota is exceeded before resetting language detection
-                                    if (isQuotaExceededCached()) {
-                                        debugLog('Language detection reset skipped due to cached quota error');
-                                        // Only show error if it hasn't been shown yet
-                                        if (shouldShowQuotaNotification()) {
-                                            const cachedError = getCachedQuotaError();
-                                            if (cachedError) {
-                                                showError(cachedError);
-                                                markQuotaNotificationShown();
-                                            }
-                                        }
-                                        return;
-                                    }
-
-                                    // Повторно определяем язык для текущего текста
-                                    if (text) {
-                                        debugLog('Manually triggering language detection for:', text.substring(0, 50) + '...');
-                                        detectLanguage(text);
-                                    }
-                                }}
-                                title="Reset language detection"
-                                style={{
-                                    marginLeft: 'auto',
-                                    background: 'none',
-                                    border: 'none',
-                                    display: 'flex',
-                                    padding: '2px',
-                                    cursor: 'pointer',
-                                    color: '#6B7280'
-                                }}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                                    <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" />
-                                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" />
-                                </svg>
-                            </button>
-                        )}
-                    </div>
-                </div>
-            );
+            // Re-run detection right away so the bar does not sit on "Auto-detect" with
+            // text already in the box.
+            if (text) {
+                detectLanguage(text);
+            }
+            return;
         }
 
-        // Если модальное окно открыто, показываем полный селектор языков
-        return (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                backdropFilter: 'blur(2px)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 1000,
-                padding: '16px'
-            }} onClick={() => setShowSourceLanguageSelector(false)}>
-                <div style={{
-                    backgroundColor: '#FFFFFF',
-                    borderRadius: '12px',
-                    width: '90%',
-                    maxWidth: '360px',
-                    maxHeight: '80vh',
-                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column'
-                }} onClick={(e) => e.stopPropagation()}>
-                    <div style={{
-                        padding: '16px',
-                        borderBottom: '1px solid #E5E7EB',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '12px'
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center'
-                        }}>
-                            <h3 style={{
-                                margin: 0,
-                                fontSize: '16px',
-                                fontWeight: 600,
-                                color: '#111827',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px'
-                            }}>
-                                <FaLanguage color="#6366F1" size={18} />
-                                <span>Select Source Language</span>
-                            </h3>
-                            <button
-                                onClick={() => setShowSourceLanguageSelector(false)}
-                                style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    padding: '8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    borderRadius: '6px'
-                                }}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#6B7280" viewBox="0 0 16 16">
-                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
-                                </svg>
-                            </button>
-                        </div>
-                        <div style={{
-                            position: 'relative',
-                            width: '100%'
-                        }}>
-                            <input
-                                type="text"
-                                value={sourceLanguageSearch}
-                                onChange={(e) => setSourceLanguageSearch(e.target.value)}
-                                placeholder="Search languages..."
-                                style={{
-                                    width: '100%',
-                                    padding: '10px 12px 10px 36px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #E5E7EB',
-                                    backgroundColor: '#F9FAFB',
-                                    fontSize: '14px',
-                                    color: '#374151',
-                                    outline: 'none'
-                                }}
-                                onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-                            />
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="16"
-                                height="16"
-                                fill="#9CA3AF"
-                                viewBox="0 0 16 16"
-                                style={{
-                                    position: 'absolute',
-                                    left: '12px',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)'
-                                }}
-                            >
-                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
-                            </svg>
-                            {sourceLanguageSearch && (
-                                <button
-                                    onClick={() => setSourceLanguageSearch('')}
-                                    style={{
-                                        position: 'absolute',
-                                        right: '12px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        background: 'none',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        padding: '4px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        borderRadius: '50%',
-                                        backgroundColor: '#E5E7EB'
-                                    }}
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="#6B7280" viewBox="0 0 16 16">
-                                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
-                                    </svg>
-                                </button>
-                            )}
-                        </div>
-                        <p style={{
-                            margin: 0,
-                            fontSize: '12px',
-                            color: '#6B7280',
-                            lineHeight: 1.5
-                        }}>
-                            Select the language of your text. This helps generate more accurate translations and examples.
-                        </p>
-                    </div>
-                    <div style={{
-                        overflowY: 'auto',
-                        maxHeight: 'calc(80vh - 135px)',
-                        padding: '8px 0'
-                    }}>
-                        {filteredSourceLanguages.length === 0 ? (
-                            <div style={{
-                                padding: '16px',
-                                textAlign: 'center',
-                                color: '#6B7280',
-                                fontSize: '14px'
-                            }}>
-                                No languages found matching "{sourceLanguageSearch}"
-                            </div>
-                        ) : (
-                            filteredSourceLanguages.map(language => (
-                                <button
-                                    key={language.code}
-                                    onClick={() => {
-                                        setSourceLanguage(language.code);
-                                        setShowSourceLanguageSelector(false);
-                                        setIsAutoDetectLanguage(false);
-                                    }}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        width: '100%',
-                                        padding: '12px 16px',
-                                        backgroundColor: language.code === sourceLanguage ? '#EFF6FF' : 'transparent',
-                                        border: 'none',
-                                        textAlign: 'left',
-                                        cursor: 'pointer',
-                                        transition: 'background-color 0.2s'
-                                    }}
-                                    onMouseOver={(e) => {
-                                        if (language.code !== sourceLanguage) {
-                                            e.currentTarget.style.backgroundColor = '#F3F4F6';
-                                        }
-                                    }}
-                                    onMouseOut={(e) => {
-                                        if (language.code !== sourceLanguage) {
-                                            e.currentTarget.style.backgroundColor = 'transparent';
-                                        }
-                                    }}
-                                >
-                                    <span style={{
-                                        fontSize: '22px',
-                                        marginRight: '12px',
-                                        width: '28px',
-                                        textAlign: 'center'
-                                    }}>
-                                        {language.flag}
-                                    </span>
-                                    <div style={{
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'flex-start'
-                                    }}>
-                                        <span style={{
-                                            color: language.code === sourceLanguage ? '#2563EB' : '#111827',
-                                            fontWeight: language.code === sourceLanguage ? '600' : 'normal',
-                                            fontSize: '14px'
-                                        }}>
-                                            {language.name}
-                                        </span>
-                                        {language.englishName !== language.name && (
-                                            <span style={{
-                                                color: '#6B7280',
-                                                fontSize: '12px'
-                                            }}>
-                                                {language.englishName}
-                                            </span>
-                                        )}
-                                    </div>
-                                    {language.code === sourceLanguage && (
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            width="16"
-                                            height="16"
-                                            fill="#2563EB"
-                                            viewBox="0 0 16 16"
-                                            style={{ marginLeft: 'auto' }}
-                                        >
-                                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
-                                        </svg>
-                                    )}
-                                </button>
-                            ))
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
+        updateSourceLanguage(code);
     };
+
 
     // Тестовая функция для проверки новой итеративной валидации
     // Removed test functions to simplify interface
@@ -5665,6 +4581,24 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         }
     };
 
+    // Choosing smart or always from the chip menu also becomes the mode the chip restores
+    // next time it is switched back on, so the choice survives an off/on round trip.
+    const selectImageMode = (mode: 'off' | 'smart' | 'always') => {
+        if (mode !== 'off') {
+            setImageOnMode(mode);
+            setPreferredImageOnMode(mode);
+        }
+        handleImageModeChange(mode);
+    };
+
+    const selectAudioMode = (mode: 'off' | 'smart' | 'always') => {
+        if (mode !== 'off') {
+            setAudioOnMode(mode);
+            setPreferredAudioOnMode(mode);
+        }
+        handleAudioModeChange(mode);
+    };
+
     // Function to generate general cards
     const generateGeneralCard = useCallback(async (template: GeneralCardTemplate, inputText: string, customPrompt?: string) => {
         if (!inputText.trim()) {
@@ -5800,8 +4734,12 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
         // Create new AbortController for this generation
         abortControllerRef.current = new AbortController();
         const abortSignal = abortControllerRef.current.signal;
+        // See the single-card generation function above for why this is captured.
+        generationIdRef.current += 1;
+        const myGenerationId = generationIdRef.current;
 
         setForceHideLoader(false);
+        selectionCaptureBlockedRef.current = true;
         setLoadingGetResult(true);
 
         try {
@@ -5817,20 +4755,13 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             let pageContext: PageContentContext | undefined;
 
             try {
-                // Пытаемся найти элемент с выделенным текстом
-                const selection = window.getSelection();
-                let selectionElement: Element | undefined;
+                // The panel cannot read the tab's DOM; the content script locates the
+                // selection and extracts the surrounding content on our behalf.
+                pageContext = (await requestPageContext(await getActiveTabId(), currentText)) ?? undefined;
 
-                if (selection && selection.rangeCount > 0) {
-                    const range = selection.getRangeAt(0);
-                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-                        ? range.commonAncestorContainer as Element
-                        : range.commonAncestorContainer.parentElement || undefined;
-                }
-
-                // Извлекаем контент страницы асинхронно для загрузки внешних изображений
-                pageContext = await PageContentExtractor.extractPageContentAsync(currentText, selectionElement);
-
+                // A tab we cannot reach — chrome:// pages, a tab still loading — is normal, and
+                // card creation carries on without page context.
+                if (pageContext) {
                 debugLog('📄 Extracted page content:', {
                     images: pageContext.pageImages.length,
                     formulas: pageContext.formulas.length,
@@ -5850,6 +4781,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         hasBase64: !!img.base64
                     });
                 });
+                }
 
             } catch (extractError) {
                 console.warn('Failed to extract page content, proceeding without multimedia:', extractError);
@@ -5922,6 +4854,11 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             // Add delay to prevent window disappearing too quickly
             // Use a longer delay and check for any pending operations
             setTimeout(() => {
+                // A newer generation may have started (or this one may have been cancelled)
+                // while this delay was pending — don't let a stale timeout hide the loader
+                // out from under a different generation cycle.
+                if (generationIdRef.current !== myGenerationId) return;
+
                 debugLog('⏳ Checking for pending operations before hiding loader...');
 
                 // Check if there are any pending operations by looking at API tracker
@@ -5952,6 +4889,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                     debugLog('⏸️ Keeping loader visible - operations still running');
                     // If there are still pending operations, wait a bit longer
                     setTimeout(() => {
+                        if (generationIdRef.current !== myGenerationId) return;
                         debugLog('⏳ Second check after additional delay...');
                         const secondCheckStats = tracker.getStats();
                         const stillHasPending = secondCheckStats.inProgress > 0;
@@ -6059,7 +4997,11 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         linguisticInfo: (cardToSave as any).linguisticInfo,
                         transcription: (cardToSave as any).transcription,
                         word_audio_base64: (cardToSave as any).wordAudio,
-                        examples_audio_base64: (cardToSave as any).examplesAudio
+                        examples_audio_base64: (cardToSave as any).examplesAudio,
+                        example_transcriptions: (cardToSave as any).exampleTranscriptions,
+                        sentence: (cardToSave as any).sentence,
+                        source_url: (cardToSave as any).sourceUrl,
+                        source_title: (cardToSave as any).sourceTitle,
                     } : {
                         text: cardToSave.text,
                         front: (cardToSave as any).front,
@@ -6073,7 +5015,8 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
                         ankiConnectApiKey,
                         selectedAnkiDeckName,
                         'Basic',
-                        [ankiCard as any]
+                        [ankiCard as any],
+                        { clozeFromSentence: ankiClozeFromSentence }
                     ));
                     tabAware.updateCardExportStatus(cardToSave.id, 'exported');
                     showError(getAnkiSaveSuccessMessage(1), 'success');
@@ -6131,17 +5074,7 @@ Original text: ${text}`;
             // Извлекаем контент страницы для анализа (если возможно)
             let pageContext: PageContentContext | undefined;
             try {
-                const selection = window.getSelection();
-                let selectionElement: Element | undefined;
-
-                if (selection && selection.rangeCount > 0) {
-                    const range = selection.getRangeAt(0);
-                    selectionElement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-                        ? range.commonAncestorContainer as Element
-                        : range.commonAncestorContainer.parentElement || undefined;
-                }
-
-                pageContext = await PageContentExtractor.extractPageContentAsync(text, selectionElement);
+                pageContext = (await requestPageContext(await getActiveTabId(), text)) ?? undefined;
             } catch (extractError) {
                 console.warn('Failed to extract page content for recreation:', extractError);
                 pageContext = undefined;
@@ -6196,872 +5129,204 @@ Original text: ${text}`;
     // Use tab-specific isGeneratingCard from TabAware context to avoid cross-tab leakage
 
     return (
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            flex: 1,
-            width: '100%',
-            height: '100%',
-            position: 'relative'
-        }}>
-            {loadingGetResult && !forceHideLoader && (
-                <div className="loading-overlay" style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                    backdropFilter: 'blur(4px)',
-                    zIndex: 10,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '20px',
-                    padding: '0 20px',
-                    borderRadius: '12px',
-                    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
-                }}>
-                    <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '12px'
-                    }}>
-                        <Loader type="spinner" size="large" color={currentLoadingMessage?.color || '#3B82F6'} />
-                        {currentLoadingMessage && (
-                            <div style={{
-                                fontSize: '20px',
-                                opacity: 0.8
-                            }}>
-                                {currentLoadingMessage.icon}
-                            </div>
-                        )}
+        <div className="relative flex h-full w-full flex-1 flex-col">
+            {/* General mode has no visual study-card front, so it keeps the compact strip.
+                Language cards render progress inside the card itself below. */}
+            {loadingGetResult && !forceHideLoader && mode !== Modes.LanguageLearning && (
+                <div className="shrink-0 border-b border-line bg-surface-muted" role="status" aria-live="polite">
+                    <div className="h-0.5 w-full overflow-hidden bg-line">
+                        <div
+                            className="h-full bg-accent transition-[width] duration-500 ease-out"
+                            style={{
+                                width: `${currentProgress.total > 0
+                                    ? Math.max(6, (currentProgress.completed / currentProgress.total) * 100)
+                                    : 12}%`
+                            }}
+                        />
                     </div>
-                    <div style={{
-                        textAlign: 'center',
-                        color: '#374151',
-                        maxWidth: '400px'
-                    }}>
-                        <div style={{
-                            fontSize: '18px',
-                            fontWeight: '600',
-                            marginBottom: '8px',
-                            color: currentLoadingMessage?.color || '#1f2937'
-                        }}>
-                            {currentLoadingMessage?.currentStepTitle || currentLoadingMessage?.title || "Starting..."}
-                        </div>
-                        <div style={{
-                            fontSize: '14px',
-                            color: '#6b7280',
-                            lineHeight: '1.5'
-                        }}>
-                            {currentLoadingMessage?.currentStepSubtitle || currentLoadingMessage?.subtitle || "Preparing your request..."}
-                        </div>
-
-                    </div>
-
-                    {/* Progress indicator */}
-                    <div style={{
-                        width: '280px',
-                        height: '8px',
-                        backgroundColor: '#f3f4f6',
-                        borderRadius: '4px',
-                        overflow: 'hidden',
-                        marginTop: '12px',
-                        boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.1)'
-                    }}>
-                        <div style={{
-                            height: '100%',
-                            width: `${currentProgress.total > 0 ? Math.max(5, (currentProgress.completed / currentProgress.total) * 100) : 15}%`, // Real progress
-                            background: `linear-gradient(90deg, ${currentLoadingMessage?.color || '#3B82F6'} 0%, ${currentLoadingMessage?.color || '#3B82F6'}dd 50%, ${currentLoadingMessage?.color || '#3B82F6'} 100%)`,
-                            borderRadius: '4px',
-                            transition: 'width 0.6s ease-out, background 0.3s ease-in-out',
-                            boxShadow: `0 0 10px ${currentLoadingMessage?.color || '#3B82F6'}40`,
-                            position: 'relative' as const,
-                            overflow: 'hidden' as const
-                        }}>
-                            {/* Shimmer effect */}
-                            <div style={{
-                                position: 'absolute' as const,
-                                top: 0,
-                                left: '-100%',
-                                width: '100%',
-                                height: '100%',
-                                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
-                                animation: 'shimmer 2s infinite'
-                            }} />
-                        </div>
-                    </div>
-
-                    {/* Timer display */}
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        marginTop: '16px',
-                        padding: '8px 16px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '20px',
-                        border: `1px solid ${currentLoadingMessage?.color || '#3B82F6'}20`,
-                        boxShadow: `0 0 15px ${currentLoadingMessage?.color || '#3B82F6'}20`
-                    }}>
-                        <FaClock style={{
-                            color: currentLoadingMessage?.color || '#3B82F6',
-                            fontSize: '14px',
-                            animation: 'pulse 2s ease-in-out infinite'
-                        }} />
-                        <span style={{
-                            fontSize: '16px',
-                            fontWeight: '600',
-                            color: currentLoadingMessage?.color || '#3B82F6',
-                            fontFamily: 'monospace',
-                            letterSpacing: '1px'
-                        }}>
+                    <div className="flex items-center gap-2 px-3 py-1.5">
+                        <span className="min-w-0 flex-1 truncate text-xs text-gray-600">
+                            {currentLoadingMessage?.currentStepTitle ||
+                                currentLoadingMessage?.title ||
+                                'Starting…'}
+                        </span>
+                        <span className="shrink-0 font-mono text-xs tabular-nums text-gray-400">
                             {formatElapsedTime(elapsedTime)}
                         </span>
+                        <button
+                            type="button"
+                            onClick={handleCancel}
+                            aria-label="Cancel generation"
+                            className="shrink-0 rounded-control p-1 text-gray-400 transition-colors hover:bg-line hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                            <FaTimes size={11} />
+                        </button>
                     </div>
-
-                    {/* Cancel button in the loader */}
-                    <button
-                        onClick={handleCancel}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px',
-                            backgroundColor: '#F3F4F6',
-                            color: '#4B5563',
-                            border: '1px solid #E5E7EB',
-                            borderRadius: '6px',
-                            padding: '10px 16px',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            marginTop: '10px'
-                        }}
-                        onMouseOver={(e) => {
-                            e.currentTarget.style.backgroundColor = '#E5E7EB';
-                            e.currentTarget.style.color = '#374151';
-                        }}
-                        onMouseOut={(e) => {
-                            e.currentTarget.style.backgroundColor = '#F3F4F6';
-                            e.currentTarget.style.color = '#4B5563';
-                        }}
-                        title="Cancel card generation"
-                    >
-                        <FaTimes />
-                        Cancel Generation
-                    </button>
                 </div>
             )}
+
             {textAnalysisLoader && (
-                <div style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                    zIndex: 5,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '20px',
-                    padding: '0 20px'
-                }}>
-                    <Loader type="spinner" size="large" color="#3B82F6" text="Analyzing selected text..." />
-
-                    {/* Cancel button in the text analysis loader */}
+                <div className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-muted px-3 py-2" role="status" aria-live="polite">
+                    <Loader type="spinner" size="small" inline color="#6B7280" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-gray-600">
+                        Analysing the selected text…
+                    </span>
                     <button
+                        type="button"
                         onClick={() => setTextAnalysisLoader(false)}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px',
-                            backgroundColor: '#F3F4F6',
-                            color: '#4B5563',
-                            border: '1px solid #E5E7EB',
-                            borderRadius: '6px',
-                            padding: '10px 16px',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            marginTop: '10px'
-                        }}
-                        onMouseOver={(e) => {
-                            e.currentTarget.style.backgroundColor = '#E5E7EB';
-                            e.currentTarget.style.color = '#374151';
-                        }}
-                        onMouseOut={(e) => {
-                            e.currentTarget.style.backgroundColor = '#F3F4F6';
-                            e.currentTarget.style.color = '#4B5563';
-                        }}
-                        title="Cancel text analysis"
+                        aria-label="Cancel analysis"
+                        className="shrink-0 rounded-control p-1 text-gray-400 transition-colors hover:bg-line hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
-                        <FaTimes />
-                        Cancel Analysis
+                        <FaTimes size={11} />
                     </button>
                 </div>
             )}
+            {/* The only remaining API-key warning. The image and audio controls used to
+                repeat it twice more, in red and amber, right below this one. */}
             {showMissingApiKeyNotice && !apiKey && (
-                <div
-                    style={{
-                        margin: '16px',
-                        marginBottom: 0,
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: '12px',
-                        padding: '16px 18px',
-                        borderRadius: '12px',
-                        background: 'linear-gradient(135deg, #EFF6FF 0%, #FFFFFF 100%)',
-                        border: '1px solid #BFDBFE',
-                        boxShadow: '0 12px 35px -18px rgba(59, 130, 246, 0.45)',
-                        animation: 'slideIn 0.25s ease-out'
-                    }}
-                >
-                    <div
-                        style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '12px',
-                            backgroundColor: '#DBEAFE',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#1D4ED8',
-                            flexShrink: 0
-                        }}
+                <div className="flex shrink-0 items-center gap-2.5 border-b border-warn-border bg-warn-subtle px-3 py-2">
+                    <FaKey size={12} className="shrink-0 text-warn-strong" />
+                    <span className="min-w-0 flex-1 text-xs leading-snug text-warn-strong">
+                        Add your {providerDisplayName} key to start creating cards.
+                    </span>
+                    <button
+                        type="button"
+                        onClick={handleOpenSettings}
+                        className="shrink-0 rounded-control px-2 py-1 text-xs font-semibold text-warn-strong underline-offset-2 transition-colors hover:bg-warn-border/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
-                        <FaKey size={18} />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                        <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '4px'
-                        }}>
-                            <span style={{
-                                fontSize: '15px',
-                                fontWeight: 600,
-                                color: '#1D4ED8'
-                            }}>
-                                Add an API key for {providerDisplayName}
-                            </span>
-                            <span style={{
-                                fontSize: '13px',
-                                color: '#1F2937',
-                                lineHeight: 1.5
-                            }}>
-                                Add a valid key in Settings to create cards. You can update it anytime.
-                            </span>
-                        </div>
-                        <div style={{
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: '8px',
-                            marginTop: '10px'
-                        }}>
-                            <button
-                                onClick={handleOpenSettings}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    background: 'linear-gradient(135deg, #2563EB, #1D4ED8)',
-                                    color: '#ffffff',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    padding: '8px 14px',
-                                    fontSize: '13px',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    boxShadow: '0 6px 16px -8px rgba(37, 99, 235, 0.6)'
-                                }}
-                                onMouseOver={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, #1D4ED8, #1E3A8A)';
-                                }}
-                                onMouseOut={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, #2563EB, #1D4ED8)';
-                                }}
-                            >
-                                Open settings
-                                <FaChevronRight size={12} />
-                            </button>
-                            <button
-                                onClick={handleDismissMissingApiKeyNotice}
-                                style={{
-                                    backgroundColor: '#FFFFFF',
-                                    color: '#1F2937',
-                                    border: '1px solid #E5E7EB',
-                                    borderRadius: '8px',
-                                    padding: '8px 14px',
-                                    fontSize: '13px',
-                                    fontWeight: 500,
-                                    cursor: 'pointer'
-                                }}
-                                onMouseOver={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#F3F4F6';
-                                }}
-                                onMouseOut={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#FFFFFF';
-                                }}
-                            >
-                                Dismiss
-                            </button>
-                        </div>
-                    </div>
+                        Settings
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleDismissMissingApiKeyNotice}
+                        aria-label="Dismiss"
+                        className="shrink-0 rounded-control p-1 text-warn-strong/60 transition-colors hover:bg-warn-border/40 hover:text-warn-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                        <FaTimes size={10} />
+                    </button>
                 </div>
             )}
-            <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                gap: '12px',
-                width: '100%',
-                padding: '12px',
-                paddingTop: '16px',
-                height: '100%',
-                overflowY: 'auto',
-                overflowX: 'hidden',
-                backgroundColor: '#ffffff',
-                paddingBottom: '16px',
-                boxSizing: 'border-box'
-            }}>
-                <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '12px',
-                    width: '100%',
-                    maxWidth: '320px'
-                }}>
+            {/* Composer. The input leads, and it takes whatever height the panel gives it —
+                a fixed-height box left a dead gap above the footer on a tall panel. */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden bg-white px-3 pb-2 pt-2">
+                <div className="mx-auto flex min-h-0 w-full max-w-[340px] flex-1 flex-col gap-2">
                     {mode === Modes.LanguageLearning && (
-                        <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'flex-start',
-                            width: '100%',
-                            gap: '8px'
-                        }}>
-                            {/* Компонент выбора языка интерфейса/перевода */}
-                            {renderLanguageSelector()}
-
-                            {/* Добавляем компонент выбора изучаемого языка */}
-                            {renderSourceLanguageSelector()}
-
-                            <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                width: '100%',
-                                gap: '8px',
-                                marginTop: '4px'
-                            }}>
-                                <label style={{
-                                    color: '#111827',
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    margin: 0
-                                }}>Image Generation:</label>
-
-                                {/* Smart Image Generation Mode Selector */}
-                                <div style={{
-                                    display: 'flex',
-                                    width: '100%',
-                                    backgroundColor: '#F3F4F6',
-                                    borderRadius: '8px',
-                                    padding: '4px',
-                                    gap: '2px',
-                                    opacity: isImageGenerationAvailable() ? 1 : 0.5
-                                }}>
-                                    {/* Off Mode */}
-                                    <button
-                                        type="button"
-                                        onClick={() => handleImageModeChange('off')}
-                                        disabled={!isImageGenerationAvailable()}
-                                        style={{
-                                            flex: 1,
-                                            whiteSpace: 'nowrap',
-                                            padding: '8px 12px',
-                                            borderRadius: '6px',
-                                            border: 'none',
-                                            backgroundColor: imageGenerationMode === 'off' ? '#FFFFFF' : 'transparent',
-                                            color: imageGenerationMode === 'off' ? '#111827' : '#6B7280',
-                                            fontSize: '11px',
-                                            fontWeight: imageGenerationMode === 'off' ? '600' : '500',
-                                            cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
-                                            transition: 'all 0.2s ease',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '4px',
-                                            boxShadow: imageGenerationMode === 'off' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
-                                        }}
-                                    >
-                                        🚫 Off
-                                    </button>
-
-                                    {/* Smart Mode */}
-                                    <button
-                                        type="button"
-                                        onClick={() => handleImageModeChange('smart')}
-                                        disabled={!isImageGenerationAvailable()}
-                                        style={{
-                                            flex: 1,
-                                            whiteSpace: 'nowrap',
-                                            padding: '8px 12px',
-                                            borderRadius: '6px',
-                                            border: 'none',
-                                            backgroundColor: imageGenerationMode === 'smart' ? '#FFFFFF' : 'transparent',
-                                            color: imageGenerationMode === 'smart' ? '#111827' : '#6B7280',
-                                            fontSize: '11px',
-                                            fontWeight: imageGenerationMode === 'smart' ? '600' : '500',
-                                            cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
-                                            transition: 'all 0.2s ease',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '4px',
-                                            boxShadow: imageGenerationMode === 'smart' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
-                                        }}
-                                    >
-                                        🧠 Smart
-                                    </button>
-
-                                    {/* Always Mode */}
-                                    <button
-                                        type="button"
-                                        onClick={() => handleImageModeChange('always')}
-                                        disabled={!isImageGenerationAvailable()}
-                                        style={{
-                                            flex: 1,
-                                            whiteSpace: 'nowrap',
-                                            padding: '8px 12px',
-                                            borderRadius: '6px',
-                                            border: 'none',
-                                            backgroundColor: imageGenerationMode === 'always' ? '#FFFFFF' : 'transparent',
-                                            color: imageGenerationMode === 'always' ? '#111827' : '#6B7280',
-                                            fontSize: '11px',
-                                            fontWeight: imageGenerationMode === 'always' ? '600' : '500',
-                                            cursor: isImageGenerationAvailable() ? 'pointer' : 'not-allowed',
-                                            transition: 'all 0.2s ease',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '4px',
-                                            boxShadow: imageGenerationMode === 'always' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
-                                        }}
-                                    >
-                                        🎨 Always
-                                    </button>
-                                </div>
-
-                                {/* Description text */}
-                                <div style={{ position: 'relative', height: '2.8em', marginTop: '2px' }}>
-                                    <div style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        fontSize: '11px',
-                                        color: '#6B7280',
-                                        lineHeight: '1.4',
-                                        display: '-webkit-box',
-                                        WebkitLineClamp: 2,
-                                        WebkitBoxOrient: 'vertical',
-                                        overflow: 'hidden',
-                                    }}>
-                                        {imageGenerationMode === 'off' && 'No images will be generated'}
-                                        {imageGenerationMode === 'smart' && 'AI decides: Images only for concrete objects, places, and visual concepts. Saves API costs by skipping abstract terms.'}
-                                        {imageGenerationMode === 'always' && 'Images generated for all cards'}
-                                    </div>
-                                </div>
-
-                                {!isImageGenerationAvailable() && (
-                                    <div style={{
-                                        fontSize: '11px',
-                                        color: '#EF4444',
-                                        backgroundColor: '#FEF2F2',
-                                        padding: '6px 8px',
-                                        borderRadius: '6px',
-                                        border: '1px solid #FECACA'
-                                    }}>
-                                        OpenAI API key required for image generation
-                                    </div>
-                                )}
-                            </div>
-
-                            <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                width: '100%',
-                                gap: '8px',
-                                marginTop: '0px'
-                            }}>
-                                <label style={{
-                                    color: '#111827',
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    margin: 0
-                                }}>Audio Pronunciation:</label>
-
-                                <div style={{
-                                    display: 'flex',
-                                    width: '100%',
-                                    backgroundColor: '#F3F4F6',
-                                    borderRadius: '8px',
-                                    padding: '4px',
-                                    gap: '2px',
-                                    opacity: openAiKey ? 1 : 0.55
-                                }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleAudioModeChange('off')}
-                                        style={{
-                                            flex: 1,
-                                            whiteSpace: 'nowrap',
-                                            padding: '8px 12px',
-                                            borderRadius: '6px',
-                                            border: 'none',
-                                            backgroundColor: audioGenerationMode === 'off' ? '#FFFFFF' : 'transparent',
-                                            color: audioGenerationMode === 'off' ? '#111827' : '#6B7280',
-                                            fontSize: '11px',
-                                            fontWeight: audioGenerationMode === 'off' ? '600' : '500',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s ease',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '4px',
-                                            boxShadow: audioGenerationMode === 'off' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
-                                        }}
-                                    >
-                                        🔇 Off
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleAudioModeChange('smart')}
-                                        style={{
-                                            flex: 1,
-                                            whiteSpace: 'nowrap',
-                                            padding: '8px 12px',
-                                            borderRadius: '6px',
-                                            border: 'none',
-                                            backgroundColor: audioGenerationMode === 'smart' ? '#FFFFFF' : 'transparent',
-                                            color: audioGenerationMode === 'smart' ? '#111827' : '#6B7280',
-                                            fontSize: '11px',
-                                            fontWeight: audioGenerationMode === 'smart' ? '600' : '500',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s ease',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '4px',
-                                            boxShadow: audioGenerationMode === 'smart' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
-                                        }}
-                                    >
-                                        🧠 Smart
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleAudioModeChange('always')}
-                                        style={{
-                                            flex: 1,
-                                            whiteSpace: 'nowrap',
-                                            padding: '8px 12px',
-                                            borderRadius: '6px',
-                                            border: 'none',
-                                            backgroundColor: audioGenerationMode === 'always' ? '#FFFFFF' : 'transparent',
-                                            color: audioGenerationMode === 'always' ? '#111827' : '#6B7280',
-                                            fontSize: '11px',
-                                            fontWeight: audioGenerationMode === 'always' ? '600' : '500',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s ease',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '4px',
-                                            boxShadow: audioGenerationMode === 'always' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
-                                        }}
-                                    >
-                                        🔊 Always
-                                    </button>
-                                </div>
-
-                                <div style={{ position: 'relative', minHeight: '2.8em', marginTop: '2px' }}>
-                                    <div style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        fontSize: '11px',
-                                        color: '#6B7280',
-                                        lineHeight: '1.4',
-                                        display: '-webkit-box',
-                                        WebkitLineClamp: 2,
-                                        WebkitBoxOrient: 'vertical',
-                                        overflow: 'hidden',
-                                    }}>
-                                        {audioGenerationMode === 'off' && 'Audio pronunciation will not be generated automatically.'}
-                                        {audioGenerationMode === 'smart' && 'Auto-generates audio for single words and short clean phrases only.'}
-                                        {audioGenerationMode === 'always' && 'Audio pronunciation generated for every created language card.'}
-                                    </div>
-                                </div>
-
-                                {!openAiKey && (
-                                    <div style={{
-                                        fontSize: '11px',
-                                        color: '#B45309',
-                                        backgroundColor: '#FFFBEB',
-                                        padding: '6px 8px',
-                                        borderRadius: '6px',
-                                        border: '1px solid #FDE68A'
-                                    }}>
-                                        OpenAI API key required for audio generation
-                                    </div>
-                                )}
-                            </div>
-                            {imageGenerationMode !== 'off' && isImageGenerationAvailable() && renderImageSettings()}
-                        </div>
+                        <LanguagePairBar
+                            sourceCode={isAutoDetectLanguage ? null : (sourceLanguage || null)}
+                            detectedCode={detectedLanguage}
+                            isDetecting={isDetectingLanguage}
+                            onSourceChange={handleSourceLanguageChange}
+                            targetCode={translateToLanguage}
+                            onTargetChange={(code) => dispatch(setTranslateToLanguage(code))}
+                        />
                     )}
 
                     {mode === Modes.GeneralTopic && (
-                        <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '12px',
-                            padding: '16px',
-                            backgroundColor: '#F8FAFC',
-                            borderRadius: '8px',
-                            border: '1px solid #E2E8F0'
-                        }}>
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                marginBottom: '8px'
-                            }}>
-                                <FaRobot style={{ color: '#6366F1' }} />
-                                <h4 style={{
-                                    fontSize: '16px',
-                                    fontWeight: '600',
-                                    color: '#111827',
-                                    margin: 0
-                                }}>
-                                    AI Agent Card Creator
-                                </h4>
-                            </div>
-
-                            <p style={{
-                                fontSize: '14px',
-                                color: '#6B7280',
-                                margin: 0,
-                                lineHeight: '1.4'
-                            }}>
-                                Select text on any page and AI agents will automatically create optimal cards for learning. The system analyzes content and creates 1 to several cards with quality validation.
+                        <div className="flex shrink-0 flex-col gap-1 rounded-card border border-line bg-surface-muted p-3">
+                            <h2 className="m-0 flex items-center gap-2 text-sm font-semibold text-gray-900">
+                                <FaRobot size={13} className="text-accent" />
+                                AI agent card creator
+                            </h2>
+                            <p className="m-0 text-xs leading-snug text-gray-500">
+                                Agents read the text, split it into as many cards as it needs, and
+                                check the result before handing it over.
                             </p>
-
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 12px',
-                                backgroundColor: '#FEF3C7',
-                                borderRadius: '6px',
-                                border: '1px solid #F59E0B'
-                            }}>
-                                <FaLightbulb style={{ color: '#F59E0B' }} />
-                                <span style={{
-                                    fontSize: '11px',
-                                    color: '#92400E',
-                                    fontWeight: '500'
-                                }}>
-                                    AI analyzes text, creates cards and validates results
-                                </span>
-                            </div>
-
-
-                            {!loadingGetResult && (
-                                <button
-                                    onClick={handleCreateAICards}
-                                    disabled={!textInputValue.trim() || loadingGetResult}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '6px',
-                                        width: '100%',
-                                        padding: '8px 10px',
-                                        backgroundColor: textInputValue.trim() && !loadingGetResult ? '#2563EB' : '#E5E7EB',
-                                        color: textInputValue.trim() && !loadingGetResult ? '#ffffff' : '#9CA3AF',
-                                        border: 'none',
-                                        borderRadius: '6px',
-                                        fontSize: '14px',
-                                        fontWeight: '600',
-                                        cursor: textInputValue.trim() && !loadingGetResult ? 'pointer' : 'not-allowed',
-                                        transition: 'all 0.2s ease',
-                                        marginTop: '4px',
-                                        opacity: loadingGetResult ? 0.7 : 1
-                                    }}
-                                    onMouseOver={(e) => {
-                                        if (textInputValue.trim() && !loadingGetResult) {
-                                            e.currentTarget.style.backgroundColor = '#1D4ED8';
-                                        }
-                                    }}
-                                    onMouseOut={(e) => {
-                                        if (textInputValue.trim() && !loadingGetResult) {
-                                            e.currentTarget.style.backgroundColor = '#2563EB';
-                                        }
-                                    }}
-                                >
-                                    {loadingGetResult ? (
-                                        <Loader type="spinner" size="small" inline color="#ffffff" />
-                                    ) : (
-                                        <FaRobot />
-                                    )}
-                                    Create Cards with AI
-                                </button>
-                            )}
-
-                            {/* Removed separate loader - now using unified loadingGetResult loader */}
                         </div>
                     )}
 
-                    {renderAISettings()}
-
-                    {/* Форма для ввода текста - показываем только в режиме Language Learning */}
-                    {mode === Modes.LanguageLearning && (
-                        <form onSubmit={handleSubmit} style={{
-                            width: '100%',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px',
-                            marginTop: '4px',
-                            marginBottom: '0'
-                        }}>
-                            <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '4px',
-                                width: '100%'
-                            }}>
-                                <label htmlFor="text" style={{
-                                    color: '#111827',
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    display: 'flex',
-                                    alignItems: 'center'
-                                }}>
-                                    Text:
-                                    {renderProviderBadge()}
-                                </label>
-                                <textarea
-                                    id="text"
-                                    value={textInputValue}
-                                    onChange={(e) => handleTextChange(e.target.value)}
-                                    placeholder="Enter text to translate or select text from a webpage"
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '80px',
-                                        padding: '8px 12px',
-                                        borderRadius: '6px',
-                                        border: '1px solid #E5E7EB',
-                                        backgroundColor: '#ffffff',
-                                        color: '#374151',
-                                        fontSize: '14px',
-                                        resize: 'vertical',
-                                        outline: 'none',
-                                        transition: 'all 0.2s ease'
-                                    }}
-                                    onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                                    onBlur={(e) => {
-                                        flushTextInputSync();
-                                        e.target.style.borderColor = '#E5E7EB';
-                                    }}
-                                />
-                            </div>
-
-                            <button
-                                type="submit"
-                                disabled={loadingGetResult}
-                                style={{
-                                    width: '100%',
-                                    padding: '8px 10px',
-                                    marginTop: '4px',
-                                    borderRadius: '6px',
-                                    backgroundColor: '#2563EB',
-                                    color: '#ffffff',
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    opacity: loadingGetResult ? 0.7 : 1
-                                }}
-                                onMouseOver={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#1D4ED8')}
-                                onMouseOut={(e) => !loadingGetResult && (e.currentTarget.style.backgroundColor = '#2563EB')}
-                            >
-                                {loadingGetResult ?
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <Loader type="spinner" size="small" inline color="#ffffff" text="Creating card" />
-                                    </div> : 'Create Card'}
-                            </button>
-                        </form>
+                    {/* A language card is its headword, so you type it onto the front you
+                        will later flip. General mode takes pasted articles, where a big
+                        centred font would be unreadable — it keeps the plain composer.
+                        The card input labels itself, so the sr-only label belongs to the
+                        textarea branch rather than dangling over both. */}
+                    {mode === Modes.LanguageLearning && loadingGetResult && !forceHideLoader ? (
+                        <CardGenerationLoader
+                            target={textInputValue}
+                            title={currentLoadingMessage?.currentStepTitle ||
+                                currentLoadingMessage?.title ||
+                                'Starting card creation…'}
+                            subtitle={currentLoadingMessage?.currentStepSubtitle ||
+                                currentLoadingMessage?.subtitle ||
+                                'Preparing the answer, examples, and grammar reference'}
+                            completed={currentProgress.completed}
+                            total={currentProgress.total}
+                            elapsed={formatElapsedTime(elapsedTime)}
+                            onCancel={handleCancel}
+                        />
+                    ) : mode === Modes.LanguageLearning ? (
+                        <CardFrontInput
+                            autoFocus
+                            value={textInputValue}
+                            onChange={handleTextChange}
+                            onKeyDown={handleComposerKeyDown}
+                            onBlur={() => flushTextInputSync()}
+                            placeholder="Type a word or phrase — or select one on the page"
+                        />
+                    ) : (
+                        <>
+                        <label htmlFor="text" className="sr-only">
+                            Text for the card
+                        </label>
+                        <Textarea
+                            id="text"
+                            fill
+                            autoFocus
+                            value={textInputValue}
+                            onChange={(e) => handleTextChange(e.target.value)}
+                            onKeyDown={handleComposerKeyDown}
+                            onBlur={() => flushTextInputSync()}
+                            placeholder="Paste the text you want cards from — or select it on the page"
+                        />
+                        </>
                     )}
 
-                    {/* Простое поле ввода для General Topic режима */}
-                    {mode === Modes.GeneralTopic && (
-                        <div style={{
-                            width: '100%',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px',
-                            marginTop: '4px'
-                        }}>
-                            <label htmlFor="general-text" style={{
-                                color: '#111827',
-                                fontWeight: '600',
-                                fontSize: '14px',
-                                display: 'flex',
-                                alignItems: 'center'
-                            }}>
-                                Text for Analysis:
-                                {renderProviderBadge()}
-                            </label>
-                            <textarea
-                                id="general-text"
-                                    value={textInputValue}
-                                    onChange={(e) => handleTextChange(e.target.value)}
-                                placeholder="Enter or select text from the page to create cards"
-                                style={{
-                                    width: '100%',
-                                    minHeight: '80px',
-                                    padding: '8px 12px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #E5E7EB',
-                                    backgroundColor: '#ffffff',
-                                    color: '#374151',
-                                    fontSize: '14px',
-                                    resize: 'vertical',
-                                    outline: 'none',
-                                    transition: 'all 0.2s ease'
-                                }}
-                                onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                                onBlur={(e) => {
-                                    flushTextInputSync();
-                                    e.target.style.borderColor = '#E5E7EB';
-                                }}
+                    {!loadingGetResult && cameFromSelection && textInputValue.trim() !== '' && (
+                        <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-accent-subtle px-2.5 py-1 text-[11px] font-medium text-accent">
+                            <FaMagic size={9} />
+                            From your selection on the page
+                        </span>
+                    )}
+
+                    {mode === Modes.LanguageLearning && !loadingGetResult && (
+                        <div className="shrink-0">
+                            <GenerationChips
+                                imageMode={imageGenerationMode}
+                                audioMode={audioGenerationMode}
+                                onImageModeChange={selectImageMode}
+                                onAudioModeChange={selectAudioMode}
+                                imageOnMode={imageOnMode}
+                                audioOnMode={audioOnMode}
+                                hasOpenAiKey={Boolean(openAiKey)}
                             />
                         </div>
                     )}
+                </div>
+            </div>
 
+            {/* Primary action stays put instead of scrolling away below the settings. */}
+            <div className="shrink-0 border-t border-line bg-white px-3 py-2.5">
+                <div className="mx-auto flex w-full max-w-[340px] flex-col gap-1.5">
+                    <DeckDestination />
+                    <Button
+                        variant="primary"
+                        size="lg"
+                        fullWidth
+                        disabled={loadingGetResult || textInputValue.trim() === ''}
+                        onClick={handlePrimaryAction}
+                    >
+                        {loadingGetResult ? (
+                            <>
+                                Creating card… {formatElapsedTime(elapsedTime)}
+                            </>
+                        ) : (
+                            <>
+                                {mode === Modes.GeneralTopic ? 'Create cards' : 'Create card'}
+                                <span className="ml-1 text-xs font-normal opacity-70">
+                                    {shortcutHint}
+                                </span>
+                            </>
+                        )}
+                    </Button>
                 </div>
             </div>
 
@@ -7071,11 +5336,7 @@ Original text: ${text}`;
             {/* Add the modal */}
             {renderModal()}
 
-            {/* Добавляем модальное окно для выбора изучаемого языка */}
-            {showSourceLanguageSelector && renderSourceLanguageSelector()}
-
-            {/* Не забываем добавить модальное окно для выбора языка в список отображаемых модальных окон */}
-            {showLanguageSelector && renderLanguageSelector()}
+            {/* Both language pickers are owned by LanguagePairBar now. */}
 
             {/* AI Cards Preview Modal - Matching Main Interface Style */}
             {showPreview && previewCards.length > 0 && (
@@ -7254,49 +5515,22 @@ Original text: ${text}`;
                             </div>
                         )}
 
-                        {/* Content - Using unified ResultDisplay style */}
+                        {/* Content */}
                         <div style={{
                             flex: 1,
                             overflow: 'auto',
                             padding: '16px',
                             backgroundColor: '#ffffff'
                         }}>
-                            {/* Current Card Display using ResultDisplay component style */}
+                            {/* The saved-card view, reused */}
                             {previewCards[currentPreviewIndex] && (
                                 <div style={{ animation: 'slideIn 0.3s ease-out' }}>
                                     <DeckSelector />
-                                    <ResultDisplay
-                                        front={previewCards[currentPreviewIndex].front || null}
-                                        back={previewCards[currentPreviewIndex].back || null}
-                                        translation={null}
-                                        examples={[]}
-                                        imageUrl={previewCards[currentPreviewIndex].imageUrl || null}
-                                        image={previewCards[currentPreviewIndex].image || null}
-                                        linguisticInfo=""
-                                        transcription={null}
-                                        wordAudio={previewCards[currentPreviewIndex].wordAudio || null}
-                                        onNewImage={() => { }}
-                                        onNewExamples={() => { }}
-                                        onAccept={handleSaveCurrentCard}
-                                        onViewSavedCards={() => { }}
-                                        loadingNewImage={false}
-                                        loadingNewExamples={false}
-                                        loadingAccept={loadingAccept}
-                                        createdAt={new Date()}
-                                        mode={Modes.GeneralTopic}
-                                        shouldGenerateImage={false}
-                                        isSaved={savedCardIndices.has(currentPreviewIndex)}
-                                        isEdited={false}
-                                        isGeneratingCard={false}
-                                        hideActionButtons={true}
-                                        setBack={(newBack) => {
-                                            const newPreviewCards = [...previewCards];
-                                            newPreviewCards[currentPreviewIndex] = {
-                                                ...newPreviewCards[currentPreviewIndex],
-                                                back: newBack
-                                            };
-                                            setPreviewCards(newPreviewCards);
-                                        }}
+                                    {/* Already a StoredCard, so it needs no adapter —
+                                        the same component that shows it once saved. */}
+                                    <StudyCard
+                                        card={previewCards[currentPreviewIndex]}
+                                        resetKey={String(currentPreviewIndex)}
                                     />
 
                                     {/* Removed unnecessary card metadata - cleaner interface */}

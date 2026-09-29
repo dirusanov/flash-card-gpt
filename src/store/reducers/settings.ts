@@ -14,6 +14,11 @@ import {
     SET_IMAGE_INSTRUCTIONS,
     SET_MODEL_PROVIDER,
     SET_SOURCE_LANGUAGE,
+    SET_TRANSCRIPTION_MODE,
+    SET_TRANSCRIPTION_LANGUAGE,
+    SET_TRANSCRIPTION_EXTRA_LANGUAGES,
+    SET_EXAMPLE_TRANSCRIPTIONS_ENABLED,
+    SET_ANKI_CLOZE_FROM_SENTENCE,
     SET_AUTH_API_URL,
     SET_SYNC_API_URL,
     SET_AUTO_SAVE_TO_SERVER,
@@ -22,6 +27,11 @@ import {
     HYDRATE_SETTINGS
 } from "../actions/settings";
 import { Modes } from "../../constants";
+import {
+    DEFAULT_TRANSCRIPTION_LANGUAGE,
+    DEFAULT_TRANSCRIPTION_MODE,
+    TranscriptionMode,
+} from "../../services/transcription";
 
 // Define provider types as a constant
 export enum ModelProvider {
@@ -35,6 +45,8 @@ interface SettingsState {
     ankiConnectUrl: string
     ankiConnectApiKey: string | null
     useAnkiConnect: boolean
+    /** Also send each card's source sentence to Anki as a cloze note. */
+    ankiClozeFromSentence: boolean
     visibleSideBar: boolean
     shouldGenerateImage: boolean
     imageGenerationMode: 'off' | 'smart' | 'always'
@@ -44,10 +56,17 @@ interface SettingsState {
     imageInstructions: string
     modelProvider: ModelProvider
     sourceLanguage: string
+    transcriptionMode: TranscriptionMode
+    transcriptionLanguage: string
+    transcriptionExtraLanguages: string[]
+    exampleTranscriptionsEnabled: boolean
     authApiUrl: string
     syncApiUrl: string
     autoSaveToServer: boolean
     selectedBackendDeckId: string | null
+    /** Cached name of the selected Vaulto deck, so the destination summary can show it
+     *  without re-fetching the deck list. Null means "the default deck". */
+    selectedBackendDeckName: string | null
     selectedAnkiDeckName: string | null
 }
 
@@ -58,6 +77,7 @@ const initialState: SettingsState = {
     ankiConnectUrl: 'http://127.0.0.1:8765',
     ankiConnectApiKey: null,
     useAnkiConnect: false,
+    ankiClozeFromSentence: false,
     visibleSideBar: true,
     shouldGenerateImage: true,
     imageGenerationMode: 'smart',
@@ -68,10 +88,15 @@ const initialState: SettingsState = {
     modelProvider: ModelProvider.OpenAI,
     // Empty by default; auto-detection or explicit user choice will set it
     sourceLanguage: '',
+    transcriptionMode: DEFAULT_TRANSCRIPTION_MODE,
+    transcriptionLanguage: DEFAULT_TRANSCRIPTION_LANGUAGE,
+    transcriptionExtraLanguages: [],
+    exampleTranscriptionsEnabled: true,
     authApiUrl: 'https://auth.vaultonote.com',
     syncApiUrl: 'https://api-cards.vaultonote.com',
     autoSaveToServer: false,
     selectedBackendDeckId: null,
+    selectedBackendDeckName: null,
     selectedAnkiDeckName: null
 };
 
@@ -152,6 +177,31 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
                 ...state,
                 sourceLanguage: action.payload,
             };
+        case SET_TRANSCRIPTION_MODE:
+            return {
+                ...state,
+                transcriptionMode: action.payload,
+            };
+        case SET_TRANSCRIPTION_LANGUAGE:
+            return {
+                ...state,
+                transcriptionLanguage: action.payload,
+            };
+        case SET_TRANSCRIPTION_EXTRA_LANGUAGES:
+            return {
+                ...state,
+                transcriptionExtraLanguages: action.payload,
+            };
+        case SET_EXAMPLE_TRANSCRIPTIONS_ENABLED:
+            return {
+                ...state,
+                exampleTranscriptionsEnabled: action.payload,
+            };
+        case SET_ANKI_CLOZE_FROM_SENTENCE:
+            return {
+                ...state,
+                ankiClozeFromSentence: action.payload,
+            };
         case SET_AUTH_API_URL:
             return {
                 ...state,
@@ -170,7 +220,8 @@ export const settingsReducer = (state = initialState, action: any): SettingsStat
         case SET_SELECTED_BACKEND_DECK_ID:
             return {
                 ...state,
-                selectedBackendDeckId: action.payload,
+                selectedBackendDeckId: action.payload?.id ?? null,
+                selectedBackendDeckName: action.payload?.name ?? null,
             };
         case SET_SELECTED_ANKI_DECK_NAME:
             return {

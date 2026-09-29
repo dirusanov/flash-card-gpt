@@ -11,7 +11,9 @@ const LANG_ENGLISH_NAMES: Record<string, string> = {
   pt: 'Portuguese',
   ja: 'Japanese',
   ko: 'Korean',
-  zh: 'Chinese',
+  // The product currently offers one "Chinese" source option rather than separate
+  // Mandarin/Cantonese choices, so its pronunciation convention is Standard Mandarin.
+  zh: 'Standard Chinese (Mandarin)',
   ar: 'Arabic',
   hi: 'Hindi',
   bn: 'Bengali',
@@ -43,7 +45,6 @@ const LANG_ENGLISH_NAMES: Record<string, string> = {
 
 export function getLanguageEnglishName(code?: string | null): string | null {
   if (!code) return null;
-  const norm = code.toLowerCase();
+  const norm = code.toLowerCase().split(/[-_]/u)[0];
   return LANG_ENGLISH_NAMES[norm] || null;
 }
-

@@ -55,7 +55,8 @@ export function format_example(
     word: string,
     translation: string | null = null,
     font_size: string = "0.8em",
-    audioSource: string = ''
+    audioSource: string = '',
+    pronunciation: string | null = null
 ): string {
     const formatted_example = example.replace(word, `<b>${word}</b>`);
 
@@ -74,13 +75,16 @@ export function format_example(
              <audio controls src="${audioSrc}" style="width: 100%; height: 32px;"></audio>
            </div>`
         : '';
+    const pronunciationRow = pronunciation?.trim()
+        ? `<br><span style="font-family: monospace; font-size: 0.78em; color: #7C3AED;">${pronunciation.trim()}</span>`
+        : '';
     if (translation) {
         const translatedSentence = normalizeExampleTranslation(translation);
         return translatedSentence
-            ? `${audioPrefix}${formatted_example}<br><span style='font-size: ${font_size};'><i>${translatedSentence}</i></span>`
-            : `${audioPrefix}${formatted_example}`;
+            ? `${audioPrefix}${formatted_example}${pronunciationRow}<br><span style='font-size: ${font_size};'><i>${translatedSentence}</i></span>`
+            : `${audioPrefix}${formatted_example}${pronunciationRow}`;
     } else {
-        return `${audioPrefix}${formatted_example}`;
+        return `${audioPrefix}${formatted_example}${pronunciationRow}`;
     }
 }
 
@@ -93,6 +97,11 @@ export interface CardLangLearning {
     transcription?: string; // HTML with user-language + IPA
     word_audio_base64?: string | null; // base64 audio or data URL
     examples_audio_base64?: Array<string | null>;
+    example_transcriptions?: Array<string | null>;
+    /** The sentence the word was selected from and the page it was on, if known. */
+    sentence?: string | null;
+    source_url?: string | null;
+    source_title?: string | null;
     ankiAudioTag?: string;
     exampleAudioTags?: Array<string | null>;
 }
@@ -212,7 +221,17 @@ export function format_back_lang_learning(card: any): string {
         .map((ex: any, index: number) => {
             const audioSource = card.exampleAudioTags?.[index] ||
                 (card.examplesAudio ? card.examplesAudio[index] : '') || '';
-            return format_example(ex[0], card.text, ex[1], "0.8em", audioSource);
+            const pronunciation = card.example_transcriptions?.[index]
+                || card.exampleTranscriptions?.[index]
+                || null;
+            return format_example(
+                ex[0],
+                card.text,
+                ex[1],
+                "0.8em",
+                audioSource,
+                pronunciation,
+            );
         })
         .join('<br><br>');
 
@@ -390,13 +409,199 @@ function format_back_general(back: string, image_base64?: string | null): string
     return `\n${mathReady}\n${imageHtml}\n`;
 }
 
+// A generic AnkiConnect call. AnkiConnect answers HTTP 200 whether or not the action
+// worked; failure lives only in the body's `error`.
+const ankiInvoke = async (
+    ankiConnectUrl: string,
+    ankiConnectApiKey: string | null,
+    action: string,
+    params: Record<string, unknown> = {},
+): Promise<any> => {
+    const response = await backgroundFetch(ankiConnectUrl, {
+        method: 'POST',
+        body: JSON.stringify({ action, version: 6, key: ankiConnectApiKey, params }),
+        headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+        throw new Error(`AnkiConnect ${action} failed with HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    if (data?.error) {
+        throw new Error(String(data.error));
+    }
+    return data?.result;
+};
+
+/**
+ * Vaulto's own note types. The stock "Basic" only has Front and Back, so the sentence a
+ * word was met in could at best be pasted into the answer; a note type of our own gives
+ * it and the page a field each, which is what lets an Anki user search, sort and template
+ * on them. The names are ours, so they are the same in every Anki language — the stock
+ * names are translated ("Basic" is "Простая" in a Russian profile), which is why sending
+ * "Basic" has always been a gamble.
+ */
+export const VAULTO_NOTE_TYPE = 'Vaulto Basic';
+export const VAULTO_CLOZE_NOTE_TYPE = 'Vaulto Cloze';
+
+const CARD_CSS = `.card { font-family: arial; font-size: 20px; text-align: center; color: black; background-color: white; }
+.vaulto-sentence { margin-top: 1em; font-size: 0.9em; color: #333; }
+.vaulto-sentence b { color: #1d4ed8; }
+.vaulto-source { margin-top: 0.5em; font-size: 0.7em; }
+.vaulto-source a { color: #6b7280; }`;
+
+const BASIC_MODEL = {
+    modelName: VAULTO_NOTE_TYPE,
+    inOrderFields: ['Front', 'Back', 'Sentence', 'Source'],
+    css: CARD_CSS,
+    cardTemplates: [{
+        Name: 'Card 1',
+        Front: '{{Front}}',
+        Back: '{{FrontSide}}<hr id=answer>{{Back}}'
+            + '{{#Sentence}}<div class="vaulto-sentence">{{Sentence}}</div>{{/Sentence}}'
+            + '{{#Source}}<div class="vaulto-source">{{Source}}</div>{{/Source}}',
+    }],
+};
+
+const CLOZE_MODEL = {
+    modelName: VAULTO_CLOZE_NOTE_TYPE,
+    inOrderFields: ['Text', 'Back Extra', 'Source'],
+    css: CARD_CSS + '\n.cloze { font-weight: bold; color: blue; }',
+    isCloze: true,
+    cardTemplates: [{
+        Name: 'Cloze',
+        Front: '{{cloze:Text}}',
+        Back: '{{cloze:Text}}<br>{{Back Extra}}'
+            + '{{#Source}}<div class="vaulto-source">{{Source}}</div>{{/Source}}',
+    }],
+};
+
+// Creates the note type on first use; on later runs only adds fields a newer version of
+// the extension introduced, so a user's own template edits survive. Returns false when
+// AnkiConnect refused, in which case the caller falls back to the stock model.
+const ensureNoteType = async (
+    ankiConnectUrl: string,
+    ankiConnectApiKey: string | null,
+    model: typeof BASIC_MODEL | typeof CLOZE_MODEL,
+): Promise<boolean> => {
+    try {
+        const names: string[] = await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'modelNames');
+        if (!names.includes(model.modelName)) {
+            await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'createModel', model);
+            return true;
+        }
+        const existing: string[] = await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'modelFieldNames', {
+            modelName: model.modelName,
+        });
+        for (const fieldName of model.inOrderFields) {
+            if (!existing.includes(fieldName)) {
+                await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'modelFieldAdd', {
+                    modelName: model.modelName, fieldName,
+                });
+            }
+        }
+        return true;
+    } catch (error) {
+        console.warn(`Could not prepare the "${model.modelName}" note type:`, error);
+        return false;
+    }
+};
+
+const escapeHtml = (text: string): string =>
+    text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// The first place the word appears in its sentence — the selection came from that very
+// sentence, so an exact, case-insensitive match is expected; a miss means the sentence
+// was edited out from under the word and nothing should be marked.
+const findWordInSentence = (sentence: string, word: string): { start: number; end: number } | null => {
+    const needle = word.trim();
+    if (!needle || !sentence) return null;
+    const match = new RegExp(escapeRegExp(needle), 'i').exec(sentence);
+    return match ? { start: match.index, end: match.index + match[0].length } : null;
+};
+
+/** The Sentence field: the sentence with the studied word in bold. */
+export const formatSentenceField = (sentence: string | null | undefined, word: string): string => {
+    const clean = (sentence || '').trim();
+    if (!clean) return '';
+    const hit = findWordInSentence(clean, word);
+    if (!hit) return escapeHtml(clean);
+    return `${escapeHtml(clean.slice(0, hit.start))}<b>${escapeHtml(clean.slice(hit.start, hit.end))}</b>${escapeHtml(clean.slice(hit.end))}`;
+};
+
+/** The Source field: a link back to the page, labelled with its title or host. */
+export const formatSourceField = (url: string | null | undefined, title: string | null | undefined): string => {
+    const cleanUrl = (url || '').trim();
+    if (!/^https?:\/\//.test(cleanUrl)) return '';
+    let label = (title || '').trim();
+    if (!label) {
+        try { label = new URL(cleanUrl).hostname.replace(/^www\./, ''); } catch { label = cleanUrl; }
+    }
+    return `<a href="${escapeHtml(cleanUrl)}">${escapeHtml(label)}</a>`;
+};
+
+/**
+ * The sentence as a cloze deletion: the studied word becomes {{c1::word}}. Null when the
+ * word cannot be found in the sentence, or when the sentence *is* the word — a cloze
+ * with nothing around the gap tests nothing.
+ */
+export const buildClozeText = (sentence: string | null | undefined, word: string): string | null => {
+    const clean = (sentence || '').trim();
+    const hit = findWordInSentence(clean, word);
+    if (!hit || hit.end - hit.start >= clean.length) return null;
+    const gap = clean.slice(hit.start, hit.end).replace(/::/g, ':\u200b:').replace(/}}/g, '}\u200b}');
+    return `${escapeHtml(clean.slice(0, hit.start))}{{c1::${escapeHtml(gap)}}}${escapeHtml(clean.slice(hit.end))}`;
+};
+
+// Anki's own duplicate check is per note type, so a word exported as stock "Basic" by an
+// earlier version would sail into "Vaulto Basic" as a second copy. Ask for every note
+// whose first field is one of these words, whatever its type, and answer with the words
+// found — normalised the way they are compared. Any failure means "none found": a lookup
+// that cannot run must not block an export.
+const escapeAnkiSearchTerm = (text: string): string =>
+    text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\*/g, '\\*').replace(/_/g, '\\_');
+
+const normalizeFront = (text: string): string => stripAnkiFieldHtml(text).replace(/\s+/g, ' ').trim().toLowerCase();
+
+const findExistingFronts = async (
+    ankiConnectUrl: string,
+    ankiConnectApiKey: string | null,
+    fronts: string[],
+): Promise<Set<string>> => {
+    const wanted = Array.from(new Set(fronts.map(normalizeFront).filter(Boolean)));
+    if (wanted.length === 0) return new Set();
+    try {
+        const query = wanted.map((front) => `"Front:${escapeAnkiSearchTerm(front)}"`).join(' OR ');
+        const ids: number[] = await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'findNotes', { query });
+        if (!Array.isArray(ids) || ids.length === 0) return new Set();
+        const info: any[] = await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'notesInfo', { notes: ids });
+        const found = new Set<string>();
+        for (const note of Array.isArray(info) ? info : []) {
+            const first = Object.keys(note?.fields || {})[0];
+            const value = first ? normalizeFront(note.fields[first]?.value || '') : '';
+            if (value && wanted.includes(value)) found.add(value);
+        }
+        return found;
+    } catch (error) {
+        console.warn('Could not check Anki for existing notes:', error);
+        return new Set();
+    }
+};
+
+export interface AnkiExportOptions {
+    /** Also add a cloze note from each card's source sentence, when it has one. */
+    clozeFromSentence?: boolean;
+}
+
 export const createAnkiCards = async (
     mode: Modes,
     ankiConnectUrl: string,
     ankiConnectApiKey: string | null,
     deckName: string,
     modelName: string,
-    cards: CardLangLearning[] | CardGeneral[]
+    cards: CardLangLearning[] | CardGeneral[],
+    options: AnkiExportOptions = {},
 ) => {
     try {
         const createDeckPayload = JSON.stringify({
@@ -412,14 +617,44 @@ export const createAnkiCards = async (
             headers: { 'Content-Type': 'application/json' },
         });
 
+        // AnkiConnect always answers with HTTP 200, even on failure — success/failure is
+        // only ever signaled through the JSON body's `error` field, never the HTTP status.
         if (!createDeckResponse.ok) {
             throw new Error('Failed to create deck.');
         }
+        const createDeckResult = await createDeckResponse.json();
+        if (createDeckResult?.error) {
+            throw new Error(`Failed to create deck: ${createDeckResult.error}`);
+        }
+
+        // Language cards go to Vaulto's own note type so the sentence and the page get
+        // fields of their own. If AnkiConnect will not create it (an old add-on, a locked
+        // collection), the stock model still gets the card, sentence folded into Back.
+        const isLanguage = mode === Modes.LanguageLearning;
+        const useVaultoModel = isLanguage
+            && await ensureNoteType(ankiConnectUrl, ankiConnectApiKey, BASIC_MODEL);
+        const langModelName = useVaultoModel ? VAULTO_NOTE_TYPE : modelName;
+        // Only the new note type can slip past Anki's own per-type duplicate check.
+        const alreadyInAnki = useVaultoModel
+            ? await findExistingFronts(ankiConnectUrl, ankiConnectApiKey, (cards as CardLangLearning[]).map((card) => card.text))
+            : new Set<string>();
+        const skipped = new Set<number>();
+        const clozeNotes: Array<Record<string, unknown>> = [];
+        const wantCloze = isLanguage && Boolean(options.clozeFromSentence)
+            && cards.some((card) => 'sentence' in card && Boolean(card.sentence))
+            && await ensureNoteType(ankiConnectUrl, ankiConnectApiKey, CLOZE_MODEL);
 
         const notes = await Promise.all(cards.map(async (card, index) => {
             let fields;
+            let noteModelName = modelName;
             if (mode === Modes.LanguageLearning && 'translation' in card && 'examples' in card && 'image_base64' in card) {
                 const langCard = card as CardLangLearning;
+                if (alreadyInAnki.has(normalizeFront(langCard.text))) {
+                    // Reported exactly as Anki itself reports a duplicate: a null in this
+                    // note's slot. No media is uploaded for a note that will not be added.
+                    skipped.add(index);
+                    return null;
+                }
                 const rawAudioBase64 = extractRawBase64(langCard.word_audio_base64);
                 let audioTag = '';
                 if (rawAudioBase64) {
@@ -444,10 +679,31 @@ export const createAnkiCards = async (
                     ankiAudioTag: audioTag,
                     exampleAudioTags
                 };
-                fields = {
-                    Front: cardForRender.text,
-                    Back: format_back_lang_learning(cardForRender),
-                };
+                const back = format_back_lang_learning(cardForRender);
+                const sentenceHtml = formatSentenceField(langCard.sentence, langCard.text);
+                const sourceHtml = formatSourceField(langCard.source_url, langCard.source_title);
+                noteModelName = langModelName;
+                fields = useVaultoModel
+                    ? { Front: cardForRender.text, Back: back, Sentence: sentenceHtml, Source: sourceHtml }
+                    : {
+                        Front: cardForRender.text,
+                        Back: back
+                            + (sentenceHtml ? `<div class="vaulto-sentence">${sentenceHtml}</div>` : '')
+                            + (sourceHtml ? `<div class="vaulto-source">${sourceHtml}</div>` : ''),
+                    };
+
+                if (wantCloze) {
+                    const clozeText = buildClozeText(langCard.sentence, langCard.text);
+                    if (clozeText) {
+                        clozeNotes.push({
+                            deckName,
+                            modelName: VAULTO_CLOZE_NOTE_TYPE,
+                            fields: { Text: clozeText, 'Back Extra': back, Source: sourceHtml },
+                            options: { allowDuplicate: false },
+                            tags: [],
+                        });
+                    }
+                }
             } else if (mode === Modes.GeneralTopic && 'back' in card) {
                 const generalCard = card as CardGeneral;
                 fields = {
@@ -458,18 +714,19 @@ export const createAnkiCards = async (
             }
             return {
                 deckName,
-                modelName,
+                modelName: noteModelName,
                 fields,
                 options: { allowDuplicate: false },
                 tags: [],
             };
         }));
 
+        const notesToAdd = notes.filter((note) => note !== null);
         const addNotesPayload = JSON.stringify({
             action: 'addNotes',
             version: 6,
             key: ankiConnectApiKey,
-            params: { notes },
+            params: { notes: notesToAdd },
         });
 
         const response = await backgroundFetch(ankiConnectUrl, {
@@ -486,7 +743,33 @@ export const createAnkiCards = async (
         if (result.error) {
             throw new Error(getAnkiSaveErrorMessage(result.error, cards.length));
         }
-        return result.result;
+
+        // addNotes returns one entry per input note: the new note ID on success, or null
+        // if that specific note was rejected (most commonly a duplicate, since we always
+        // send allowDuplicate: false). A null here does NOT populate `result.error` above,
+        // so callers that only checked for a thrown error would otherwise treat this as a
+        // full success even though nothing was actually saved to Anki for that note.
+        // Back to one slot per input card, the skipped ones null like any other duplicate.
+        const added: Array<number | null> = Array.isArray(result.result) ? result.result : [];
+        let next = 0;
+        const noteResults: Array<number | null> = cards.map((_, index) =>
+            skipped.has(index) ? null : (added[next++] ?? null));
+        if (noteResults.length > 0 && noteResults.every((id) => id === null)) {
+            throw new Error('cannot create note because it is a duplicate');
+        }
+
+        // The cloze notes ride behind the cards they came from. They are an extra, so
+        // they never change which cards count as exported: a cloze rejected as a
+        // duplicate (the same sentence, exported before) is simply already there.
+        if (clozeNotes.length > 0) {
+            try {
+                await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'addNotes', { notes: clozeNotes });
+            } catch (error) {
+                console.warn('Cloze notes were not added:', error);
+            }
+        }
+
+        return noteResults;
     } catch (error) {
         throw error; // Пробрасываем ошибку, чтобы вызвать showError в компоненте
     }
@@ -576,6 +859,106 @@ const normalizeAnkiUrl = (url: string | null | undefined) => {
     } catch (error) {
         console.warn('Invalid AnkiConnect URL provided, falling back to default.', error);
         return fallback;
+    }
+};
+
+export interface AnkiImportedNote {
+    noteId: number;
+    front: string;
+    back: string;
+    tags: string[];
+}
+
+// Anki fields carry HTML (and [sound:...] refs for audio) — stripped down to plain text
+// since imported notes land as ordinary front/back Vaulto cards, not full Anki renders.
+const stripAnkiFieldHtml = (value: string): string =>
+    (value || '')
+        .replace(/\[sound:[^\]]*\]/gi, '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/?div[^>]*>/gi, '\n')
+        .replace(/<\/?[^>]+>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+// Read-only counterpart to createAnkiCards: pulls the notes already sitting in an existing
+// Anki deck so they can be imported as Vaulto cards, rather than only ever pushing cards
+// out to Anki. Most note types (Basic, Basic and reversed, Cloze's first two fields, …) put
+// the prompt in the first field and the answer in the second, which is good enough for a
+// plain front/back import — anything richer the user can still edit afterwards.
+export const fetchNotesInDeck = async (
+    ankiConnectUrl: string,
+    apiKey: string | null,
+    deckName: string
+): Promise<{ notes: AnkiImportedNote[]; error: string | null }> => {
+    const endpoint = normalizeAnkiUrl(ankiConnectUrl);
+    // A deck name can itself contain a quote or backslash (rare, but Anki allows it) —
+    // unescaped, either would break out of the quoted search term below.
+    const escapedDeckName = deckName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+    try {
+        const findResponse = await backgroundFetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'findNotes',
+                version: 6,
+                key: apiKey,
+                params: { query: `deck:"${escapedDeckName}"` },
+            }),
+        });
+        if (!findResponse.ok) {
+            throw new Error(`HTTP error! Status: ${findResponse.status}`);
+        }
+        const findData = await findResponse.json();
+        if (findData.error) {
+            return { notes: [], error: findData.error };
+        }
+
+        const noteIds: number[] = Array.isArray(findData.result) ? findData.result : [];
+        if (noteIds.length === 0) {
+            return { notes: [], error: null };
+        }
+
+        const infoResponse = await backgroundFetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'notesInfo',
+                version: 6,
+                key: apiKey,
+                params: { notes: noteIds },
+            }),
+        });
+        if (!infoResponse.ok) {
+            throw new Error(`HTTP error! Status: ${infoResponse.status}`);
+        }
+        const infoData = await infoResponse.json();
+        if (infoData.error) {
+            return { notes: [], error: infoData.error };
+        }
+
+        const rawNotes: any[] = Array.isArray(infoData.result) ? infoData.result : [];
+        const notes: AnkiImportedNote[] = rawNotes
+            .map((note): AnkiImportedNote => {
+                const fieldNames = Object.keys(note?.fields || {});
+                const frontField = fieldNames[0];
+                const backField = fieldNames[1];
+                return {
+                    noteId: note.noteId,
+                    front: stripAnkiFieldHtml(frontField ? note.fields[frontField]?.value : ''),
+                    back: stripAnkiFieldHtml(backField ? note.fields[backField]?.value : ''),
+                    tags: Array.isArray(note?.tags) ? note.tags : [],
+                };
+            })
+            .filter((note) => note.front || note.back);
+
+        return { notes, error: null };
+    } catch (error) {
+        return {
+            notes: [],
+            error: getAnkiConnectAvailabilityError(error) || 'Failed to load notes from Anki',
+        };
     }
 };
 

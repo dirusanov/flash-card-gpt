@@ -1,6 +1,7 @@
 import { AIService } from './aiServiceFactory';
 import { StoredCard } from '../store/reducers/cards';
 import { Modes } from '../constants';
+import { formatTranscriptionHtml } from './transcription';
 
 // Типы для системы AI агентов
 export interface AIAgent {
@@ -592,32 +593,6 @@ export class AIAgentService {
         }
     }
 
-    private async getLanguageNameWithCache(languageCode: string): Promise<string> {
-        try {
-            const cacheKey = `language_name_${languageCode}`;
-            const cached = typeof localStorage !== 'undefined' ? localStorage.getItem(cacheKey) : null;
-            if (cached) return cached;
-
-            // Fallback к имени через AI (один краткий запрос)
-            if (this.aiService.createChatCompletion) {
-                const prompt = `Return only the native name of the language with ISO 639-1 code "${languageCode}".`;
-                const response = await this.aiService.createChatCompletion(this.apiKey, [
-                    { role: 'user', content: prompt }
-                ]);
-                const name = response?.content?.trim();
-                if (name) {
-                    if (typeof localStorage !== 'undefined') {
-                        localStorage.setItem(cacheKey, name);
-                    }
-                    return name;
-                }
-            }
-        } catch (e) {
-            console.warn('getLanguageNameWithCache failed, fallback to code:', e);
-        }
-        return (languageCode || '').toUpperCase();
-    }
-
     public async generatePronunciationHtml(text: string, sourceLanguage: string, userLanguage: string): Promise<string | null> {
         if (!text || !sourceLanguage || !userLanguage) return null;
 
@@ -628,29 +603,10 @@ export class AIAgentService {
         });
 
         if (!userLanguageTranscription && !ipaTranscription) return null;
-
-        const languageName = await this.getLanguageNameWithCache(userLanguage);
-        const blocks: string[] = [];
-
-        if (userLanguageTranscription) {
-            blocks.push(
-                `<div class="transcription-item user-lang">
-                    <span class="transcription-label">${languageName}:</span>
-                    <span class="transcription-text">${userLanguageTranscription}</span>
-                </div>`
-            );
-        }
-        if (ipaTranscription) {
-            const bracketed = ipaTranscription.startsWith('[') ? ipaTranscription : `[${ipaTranscription}]`;
-            blocks.push(
-                `<div class="transcription-item ipa">
-                    <span class="transcription-label">IPA:</span>
-                    <span class="transcription-text">${bracketed}</span>
-                </div>`
-            );
-        }
-
-        return blocks.join('\n');
+        return formatTranscriptionHtml(
+            { userLanguageTranscription, ipaTranscription },
+            userLanguage,
+        ) || null;
     }
 
     // 🚀 НОВАЯ АРХИТЕКТУРА: Анализ → Планирование → Параллельная генерация → Проверка → Форматирование

@@ -13,6 +13,11 @@ export const SET_AI_INSTRUCTIONS = 'SET_AI_INSTRUCTIONS';
 export const SET_IMAGE_INSTRUCTIONS = 'SET_IMAGE_INSTRUCTIONS';
 export const SET_MODEL_PROVIDER = 'SET_MODEL_PROVIDER';
 export const SET_SOURCE_LANGUAGE = 'SET_SOURCE_LANGUAGE';
+export const SET_TRANSCRIPTION_MODE = 'SET_TRANSCRIPTION_MODE';
+export const SET_TRANSCRIPTION_LANGUAGE = 'SET_TRANSCRIPTION_LANGUAGE';
+export const SET_TRANSCRIPTION_EXTRA_LANGUAGES = 'SET_TRANSCRIPTION_EXTRA_LANGUAGES';
+export const SET_EXAMPLE_TRANSCRIPTIONS_ENABLED = 'SET_EXAMPLE_TRANSCRIPTIONS_ENABLED';
+export const SET_ANKI_CLOZE_FROM_SENTENCE = 'SET_ANKI_CLOZE_FROM_SENTENCE';
 export const SET_AUTH_API_URL = 'SET_AUTH_API_URL';
 export const SET_SYNC_API_URL = 'SET_SYNC_API_URL';
 export const SET_AUTO_SAVE_TO_SERVER = 'SET_AUTO_SAVE_TO_SERVER';
@@ -95,6 +100,31 @@ export const setSourceLanguage = (language: string) => ({
     payload: language,
 });
 
+export const setTranscriptionMode = (mode: 'auto' | 'always' | 'off') => ({
+    type: SET_TRANSCRIPTION_MODE,
+    payload: mode,
+});
+
+export const setTranscriptionLanguage = (language: string) => ({
+    type: SET_TRANSCRIPTION_LANGUAGE,
+    payload: language,
+});
+
+export const setTranscriptionExtraLanguages = (languages: string[]) => ({
+    type: SET_TRANSCRIPTION_EXTRA_LANGUAGES,
+    payload: languages,
+});
+
+export const setExampleTranscriptionsEnabled = (enabled: boolean) => ({
+    type: SET_EXAMPLE_TRANSCRIPTIONS_ENABLED,
+    payload: enabled,
+});
+
+export const setAnkiClozeFromSentence = (enabled: boolean) => ({
+    type: SET_ANKI_CLOZE_FROM_SENTENCE,
+    payload: enabled,
+});
+
 export const setAuthApiUrl = (url: string) => ({
     type: SET_AUTH_API_URL,
     payload: url,
@@ -110,9 +140,13 @@ export const setAutoSaveToServer = (enabled: boolean) => ({
     payload: enabled,
 });
 
-export const setSelectedBackendDeckId = (deckId: string | null) => ({
+// Carries the name alongside the id so the "where cards are saved" summary can label the
+// deck without re-fetching the deck list. Pass null to fall back to the default deck.
+export const setSelectedBackendDeckId = (
+    deck: { id: string; name: string } | null
+) => ({
     type: SET_SELECTED_BACKEND_DECK_ID,
-    payload: deckId,
+    payload: deck,
 });
 
 export const setSelectedAnkiDeckName = (deckName: string | null) => ({

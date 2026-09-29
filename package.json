@@ -1,7 +1,7 @@
 {
   "name": "vaulto-cards-extension",
-  "version": "5.0.24",
-  "description": "Turn selected page text into study cards with AI, optional Anki export, and Vaulto sync",
+  "version": "5.3.1",
+  "description": "Turn any highlighted text into a finished Anki flashcard — AI adds translation, example and image. Syncs via AnkiConnect.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -18,10 +18,17 @@
     "dev:js": "node utils/webserver.js",
     "dev:css": "tailwindcss -w -i ./styles/tailwind.css -o src/assets/styles/tailwind.css",
     "build:css": "tailwindcss -m -i ./styles/tailwind.css -o src/assets/styles/tailwind.css --minify",
+    "store-shots": "node scripts/store-shots",
     "prettier": "prettier --write '**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
     "watch:storybook": "start-storybook -p 6006",
     "storybook": "concurrently \"npm:watch:storybook\" \"npm:dev:css\"",
-    "build-storybook": "build-storybook"
+    "build-storybook": "build-storybook",
+    "test:ai-cards": "node utils/test-ai-cards/run.js",
+    "test:linguistic-validator": "node utils/test-ai-cards/test-linguistic-validator.js",
+    "test:translation-quality": "node utils/test-ai-cards/test-translation-quality.js",
+    "test:example-quality": "node utils/test-ai-cards/test-example-quality.js",
+    "test:transcription-policy": "node utils/test-ai-cards/test-transcription-policy.js",
+    "test:example-transcriptions": "node utils/test-ai-cards/test-example-transcriptions.js"
   },
   "dependencies": {
     "@types/katex": "^0.16.7",
@@ -77,6 +84,7 @@
     "html-loader": "^4.2.0",
     "html-webpack-plugin": "^5.5.0",
     "mini-css-extract-plugin": "^2.7.6",
+    "playwright": "^1.63.0",
     "postcss": "^8.4.29",
     "postcss-loader": "^6.2.1",
     "prettier": "^2.8.3",
@@ -91,6 +99,7 @@
     "ts-loader": "^9.4.2",
     "type-fest": "^3.5.2",
     "typescript": "^4.9.4",
+    "undici": "^7.29.0",
     "webpack": "^5.75.0",
     "webpack-cli": "^4.10.0",
     "webpack-dev-server": "^4.11.1",

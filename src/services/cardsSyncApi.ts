@@ -111,10 +111,15 @@ export const cardsSyncApi = {
     );
   },
 
-  deleteDeck(baseUrl: string, accessToken: string, deckId: string): Promise<DeckApi> {
+  /**
+   * `moveTo` reassigns the deck's cards to another deck instead of deleting them along
+   * with it. Always pass it from the panel: deleting a folder should not destroy its
+   * contents.
+   */
+  deleteDeck(baseUrl: string, accessToken: string, deckId: string, moveTo?: string): Promise<DeckApi> {
     return requestJson<DeckApi>(
       baseUrl,
-      `/decks/${deckId}`,
+      `/decks/${deckId}${moveTo ? `?move_to=${encodeURIComponent(moveTo)}` : ''}`,
       {
         method: 'DELETE',
       },
@@ -154,6 +159,7 @@ export const cardsSyncApi = {
     accessToken: string,
     noteId: string,
     payload: {
+      deck_id?: string;
       fields_json?: Record<string, any>;
       tags?: string[];
       source?: string;
@@ -198,3 +204,82 @@ export const cardsSyncApi = {
 
 export const isCardsSyncApiError = (error: unknown): error is CardsSyncApiError =>
   error instanceof CardsSyncApiError;
+
+// Server-side study statistics, aggregated over every device's review logs. Review logs
+// are pushed up but never come back down (/sync/pull carries no review_log entries), so
+// this endpoint is the only way for the numbers to include reviews done on the phone.
+export type CardsStatsApi = {
+  today: { due: number; overdue: number; new_cards: number; estimated_time_min: number; total_studied: number };
+  pipeline: { new_cards: number; learning: number; reviewing: number; mature: number; total: number };
+  heatmap: Record<string, { count: number; time_ms: number }>;
+  retention: { date: string; good_or_easy: number; total: number }[];
+  forecast: { date: string; due: number }[];
+  streak: { current: number; max: number; active_this_week: number; best_day: number };
+};
+
+export const cardsStatsApi = {
+  get(baseUrl: string, accessToken: string): Promise<CardsStatsApi> {
+    return requestJson<CardsStatsApi>(baseUrl, '/cards/stats', { method: 'GET' }, accessToken);
+  },
+};
+
+// ─── /sync protocol ───────────────────────────────────────────────────────────
+// The study schedule travels on a different channel from note content: the mobile app
+// pushes `card` and `review_log` entities here, with flat SRS columns, and reads them
+// back through the cursor-based pull. Matching this exactly is what makes a card
+// reviewed in the panel show up already-scheduled on the phone.
+
+export type SyncChange = {
+  entity_type: 'card' | 'review_log' | 'note';
+  op: 'upsert' | 'delete';
+  entity_id?: string;
+  payload: Record<string, any>;
+};
+
+export type SyncPullChange = {
+  cursor: number;
+  entity_type: string;
+  entity_id: string;
+  op: string;
+  version: number;
+  changed_at: string;
+  payload?: Record<string, any>;
+};
+
+export type SyncPullResponse = {
+  cursor: number;
+  next_cursor: number;
+  changes: SyncPullChange[];
+};
+
+// `platform: 'web'` and this client id are what the extension already sends when it
+// deletes a note through /sync/push, so the server is known to accept them.
+const SYNC_CLIENT_ID = 'vaulto-extension';
+const SYNC_PLATFORM = 'web';
+
+export const srsSyncApi = {
+  push(baseUrl: string, accessToken: string, changes: SyncChange[]): Promise<{ applied: number }> {
+    return requestJson<{ applied: number }>(
+      baseUrl,
+      '/sync/push',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          client_id: SYNC_CLIENT_ID,
+          platform: SYNC_PLATFORM,
+          changes,
+        }),
+      },
+      accessToken,
+    );
+  },
+
+  pull(baseUrl: string, accessToken: string, cursor: number, limit = 200): Promise<SyncPullResponse> {
+    return requestJson<SyncPullResponse>(
+      baseUrl,
+      `/sync/pull?cursor=${cursor}&limit=${limit}`,
+      { method: 'GET' },
+      accessToken,
+    );
+  },
+};

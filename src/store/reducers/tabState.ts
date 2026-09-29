@@ -1,6 +1,7 @@
 import {
     SET_CURRENT_TAB_ID,
     SET_TAB_CARD_FIELD,
+    SET_TAB_CARD_FIELDS,
     CLEAR_TAB_CARD_DATA,
     SAVE_TAB_CARD,
     DELETE_TAB_CARD,
@@ -23,6 +24,7 @@ import {
     SET_TRANSCRIPTION,
     SET_WORD_AUDIO,
     SET_EXAMPLES_AUDIO,
+    SET_EXAMPLE_TRANSCRIPTIONS,
     SET_IS_GENERATING_CARD,
     SET_CURRENT_CARD_ID as SET_GLOBAL_CURRENT_CARD_ID,
     SAVE_CARD_TO_STORAGE as GLOBAL_SAVE_CARD_TO_STORAGE,
@@ -39,6 +41,7 @@ export interface TabCardData {
     imageUrl: string | null;
     wordAudio: string | null;
     examplesAudio: Array<string | null>;
+    exampleTranscriptions: Array<string | null>;
     front: string;
     back: string | null;
     linguisticInfo: string;
@@ -68,6 +71,7 @@ const createDefaultTabCardData = (): TabCardData => ({
     imageUrl: null,
     wordAudio: null,
     examplesAudio: [],
+    exampleTranscriptions: [],
     front: "",
     back: null,
     linguisticInfo: "",
@@ -105,6 +109,9 @@ const normalizeStoredCard = (card: StoredCard): StoredCard => ({
     imageUrl: card.imageUrl ?? null,
     wordAudio: card.wordAudio ?? null,
     examplesAudio: Array.isArray(card.examplesAudio) ? card.examplesAudio : [],
+    exampleTranscriptions: Array.isArray(card.exampleTranscriptions)
+        ? card.exampleTranscriptions
+        : [],
     translation: card.translation ?? null,
     front: card.front ?? card.text,
     back: card.back ?? null,
@@ -137,18 +144,81 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
         case SET_TAB_CARD_FIELD:
             const { tabId: fieldTabId, field, value } = action.payload;
             if (fieldTabId && newState.tabStates[fieldTabId]) {
+                const currentCardData = newState.tabStates[fieldTabId].cardData;
+                const examplesChanged = field === 'examples' && Array.isArray(value);
+                const currentExampleTranscriptions =
+                    currentCardData.exampleTranscriptions || [];
+                const nextExampleTranscriptions = examplesChanged
+                    ? value.map((item: [string, string | null], index: number) =>
+                        currentCardData.examples[index]?.[0] === item?.[0]
+                            ? currentExampleTranscriptions[index] ?? null
+                            : null
+                    )
+                    : currentExampleTranscriptions;
                 newState.tabStates = {
                     ...newState.tabStates,
                     [fieldTabId]: {
                         ...newState.tabStates[fieldTabId],
                         cardData: {
                             ...newState.tabStates[fieldTabId].cardData,
-                            [field]: value
+                            [field]: value,
+                            exampleTranscriptions: nextExampleTranscriptions,
                         }
                     }
                 };
             }
             break;
+
+        case SET_TAB_CARD_FIELDS: {
+            const { tabId: fieldsTabId, updates } = action.payload as {
+                tabId: number;
+                updates: Partial<TabCardData>;
+            };
+            if (fieldsTabId && newState.tabStates[fieldsTabId] && updates) {
+                const currentCardData = newState.tabStates[fieldsTabId].cardData;
+                const hasOwn = (fieldName: keyof TabCardData) =>
+                    Object.prototype.hasOwnProperty.call(updates, fieldName);
+                const examplesChanged = hasOwn('examples') && Array.isArray(updates.examples);
+                const nextExamples = examplesChanged
+                    ? updates.examples as Array<[string, string | null]>
+                    : currentCardData.examples;
+                const nextExamplesAudio = hasOwn('examplesAudio')
+                    ? (Array.isArray(updates.examplesAudio) ? updates.examplesAudio : [])
+                    : examplesChanged
+                        ? nextExamples.map((_item, index) =>
+                            currentCardData.examplesAudio[index] ?? null
+                        )
+                        : currentCardData.examplesAudio;
+                const nextExampleTranscriptions = hasOwn('exampleTranscriptions')
+                    ? (
+                        Array.isArray(updates.exampleTranscriptions)
+                            ? updates.exampleTranscriptions
+                            : []
+                    )
+                    : examplesChanged
+                        ? nextExamples.map((item, index) =>
+                            currentCardData.examples[index]?.[0] === item?.[0]
+                                ? currentCardData.exampleTranscriptions[index] ?? null
+                                : null
+                        )
+                        : currentCardData.exampleTranscriptions;
+
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [fieldsTabId]: {
+                        ...newState.tabStates[fieldsTabId],
+                        cardData: {
+                            ...currentCardData,
+                            ...updates,
+                            examples: nextExamples,
+                            examplesAudio: nextExamplesAudio,
+                            exampleTranscriptions: nextExampleTranscriptions,
+                        },
+                    },
+                };
+            }
+            break;
+        }
 
         case CLEAR_TAB_CARD_DATA:
             const { tabId: clearTabId } = action.payload;
@@ -316,6 +386,9 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
             const tId = newState.currentTabId;
             if (tId && newState.tabStates[tId]) {
                 const previousExamplesAudio = newState.tabStates[tId].cardData.examplesAudio || [];
+                const previousExamples = newState.tabStates[tId].cardData.examples || [];
+                const previousTranscriptions =
+                    newState.tabStates[tId].cardData.exampleTranscriptions || [];
                 newState.tabStates = {
                     ...newState.tabStates,
                     [tId]: {
@@ -324,6 +397,12 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                             ...newState.tabStates[tId].cardData,
                             examples: action.payload,
                             examplesAudio: (action.payload || []).map((_item: unknown, index: number) => previousExamplesAudio[index] ?? null),
+                            exampleTranscriptions: (action.payload || []).map(
+                                (item: [string, string | null], index: number) =>
+                                    previousExamples[index]?.[0] === item?.[0]
+                                        ? previousTranscriptions[index] ?? null
+                                        : null
+                            ),
                         },
                     },
                 };
@@ -452,6 +531,24 @@ const tabStateReducer = (state = initialState, action: any): TabStateState => {
                         cardData: {
                             ...newState.tabStates[tId].cardData,
                             examplesAudio: Array.isArray(action.payload) ? action.payload : [],
+                        },
+                    },
+                };
+            }
+            break;
+        }
+        case SET_EXAMPLE_TRANSCRIPTIONS: {
+            const tId = newState.currentTabId;
+            if (tId && newState.tabStates[tId]) {
+                newState.tabStates = {
+                    ...newState.tabStates,
+                    [tId]: {
+                        ...newState.tabStates[tId],
+                        cardData: {
+                            ...newState.tabStates[tId].cardData,
+                            exampleTranscriptions: Array.isArray(action.payload)
+                                ? action.payload
+                                : [],
                         },
                     },
                 };

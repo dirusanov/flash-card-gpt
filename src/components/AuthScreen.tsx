@@ -1,57 +1,90 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
-import { setAuthSession, clearAuthSession, setAuthLoading } from '../store/actions/auth';
+import {
+  setAuthSession,
+  clearAuthSession,
+  setAuthLoading,
+} from '../store/actions/auth';
 import { authApi } from '../services/authApi';
 import { authService } from '../services/authService';
 import { authStorage } from '../services/authStorage';
 import { googleOAuth } from '../services/googleOAuth';
 import brandLogo from '../assets/img/vaulto-cards-logo.png';
+import { FaCheckCircle, FaClock, FaLayerGroup, FaEnvelope } from 'react-icons/fa';
+import Button from './ui/Button';
+import Modal from './ui/Modal';
+import Loader from './Loader';
 
 interface AuthScreenProps {
   onBackClick: () => void;
 }
 
-const colors = {
-  background: '#F8F9FA',
-  backgroundSecondary: '#E9ECEF',
-  surface: '#FFFFFF',
-  text: '#1A1A1A',
-  textSecondary: '#6C757D',
-  textTertiary: '#ADB5BD',
-  border: '#DEE2E6',
-  primary: '#0066FF',
-  primaryHover: '#0052CC',
-  danger: '#DC3545',
-  success: '#10B981',
+type DashboardTone = 'neutral' | 'success' | 'warning';
+
+const TONE_CLASSES: Record<DashboardTone, string> = {
+  neutral: 'bg-surface-sunken text-gray-600',
+  success: 'bg-ok-subtle text-ok-strong',
+  warning: 'bg-warn-subtle text-warn-strong',
 };
 
-const buttonBase: React.CSSProperties = {
-  borderRadius: 12,
-  padding: '12px 14px',
-  fontWeight: 600,
-  fontSize: 14,
-  border: 'none',
-  cursor: 'pointer',
-  width: '100%',
-};
+const StatusChip: React.FC<{ label: string; tone?: DashboardTone }> = ({
+  label,
+  tone = 'neutral',
+}) => (
+  <span
+    className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2.5 py-1 text-[12px] font-semibold ${TONE_CLASSES[tone]}`}
+  >
+    {label}
+  </span>
+);
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '12px 14px',
-  borderRadius: 12,
-  border: `1px solid ${colors.border}`,
-  backgroundColor: colors.surface,
-  color: colors.text,
-  fontSize: 14,
-  outline: 'none',
-  boxSizing: 'border-box',
-};
+const MetricTile: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  accent: string;
+}> = ({ icon, label, value, accent }) => (
+  <div className="flex min-w-0 flex-col items-center rounded-card border border-line bg-white p-3 text-center shadow-control">
+    <span
+      className="flex h-8 w-8 items-center justify-center rounded-card"
+      style={{ backgroundColor: `${accent}14`, color: accent }}
+    >
+      {icon}
+    </span>
+    <span className="mt-2.5 text-[22px] font-bold leading-none tracking-tight text-gray-900">
+      {value}
+    </span>
+    <span
+      className="mt-1.5 max-w-full truncate text-[11px] font-semibold text-gray-500"
+      title={label}
+    >
+      {label}
+    </span>
+  </div>
+);
+
+// Shared input styling so the fields match the rest of the panel's controls.
+const INPUT_CLASS =
+  'w-full rounded-control border border-line bg-white px-3 py-2.5 text-[14px] text-gray-900 outline-none transition-colors placeholder:text-gray-400 focus:border-accent focus:ring-2 focus:ring-accent';
+const FIELD_LABEL_CLASS = 'mb-1.5 block text-[13px] font-semibold text-gray-700';
 
 const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
   const dispatch = useDispatch();
   const auth = useSelector((state: RootState) => state.auth);
-  const authApiUrl = useSelector((state: RootState) => state.settings.authApiUrl);
+  const storedCards = useSelector(
+    (state: RootState) => state.cards.storedCards
+  );
+  const authApiUrl = useSelector(
+    (state: RootState) => state.settings.authApiUrl
+  );
+  const autoSaveToServer = useSelector(
+    (state: RootState) => state.settings.autoSaveToServer
+  );
+  const brandLogoUrl =
+    typeof chrome !== 'undefined' && chrome.runtime?.getURL
+      ? chrome.runtime.getURL(brandLogo)
+      : brandLogo;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -61,33 +94,69 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [verificationEmail, setVerificationEmail] = useState('');
   const [verificationPassword, setVerificationPassword] = useState('');
-  const [verificationState, setVerificationState] = useState<'idle' | 'waiting' | 'verified'>('idle');
+  const [verificationState, setVerificationState] = useState<
+    'idle' | 'waiting' | 'verified'
+  >('idle');
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const autoLoginTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoLoginTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   const isBusy = auth.isLoading || googleLoading;
+  const isSignedIn = Boolean(auth.accessToken);
 
   const subtitle = useMemo(() => {
+    if (isSignedIn) {
+      return 'Signed in — your cards sync automatically.';
+    }
     if (verificationState === 'waiting') {
       return 'We sent a secure verification link to your email and will keep watching for confirmation.';
     }
     if (verificationState === 'verified') {
       return 'Your Vaulto Cards account is ready. Completing sign-in now.';
     }
-    return mode === 'signin' ? 'Sign in to continue' : 'Create an account to sync your cards';
-  }, [mode, verificationState]);
+    return mode === 'signin'
+      ? 'Sign in to back up and sync your cards.'
+      : 'Create an account so your cards are never lost.';
+  }, [isSignedIn, mode, verificationState]);
 
   const heading = useMemo(() => {
+    if (isSignedIn) {
+      return 'Account';
+    }
     if (verificationState === 'waiting') {
       return 'Check your inbox';
     }
     if (verificationState === 'verified') {
-      return 'Email Verified!';
+      return 'Email verified';
     }
-    return mode === 'signin' ? 'Welcome Back' : 'Create Account';
-  }, [mode, verificationState]);
+    return mode === 'signin' ? 'Welcome back' : 'Create account';
+  }, [isSignedIn, mode, verificationState]);
+
+  const accountOverview = useMemo(() => {
+    const totalCards = storedCards.length;
+    const syncedCards = storedCards.filter(
+      (card) =>
+        Boolean(card.syncId) &&
+        typeof card.syncVersion === 'number' &&
+        !card.syncPending
+    );
+
+    return {
+      totalCards,
+      syncedCardsCount: syncedCards.length,
+      notSyncedCardsCount: Math.max(totalCards - syncedCards.length, 0),
+    };
+  }, [storedCards]);
+
+  const cloudStatusLabel = autoSaveToServer
+    ? 'Cloud sync on'
+    : 'Cloud sync off';
+  const cloudStatusTone: DashboardTone = autoSaveToServer
+    ? 'success'
+    : 'neutral';
 
   useEffect(() => {
     const stopPolling = () => {
@@ -115,7 +184,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
 
     const checkStatus = async () => {
       try {
-        const profile = await authApi.checkVerificationStatus(authApiUrl, verificationEmail);
+        const profile = await authApi.checkVerificationStatus(
+          authApiUrl,
+          verificationEmail
+        );
         if (profile.is_verified) {
           stopPolling();
           setVerificationState('verified');
@@ -123,7 +195,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
           autoLoginTimeoutRef.current = setTimeout(async () => {
             dispatch(setAuthLoading(true));
             try {
-              const session = await authService.completeLogin(authApiUrl, verificationEmail, verificationPassword);
+              const session = await authService.completeLogin(
+                authApiUrl,
+                verificationEmail,
+                verificationPassword
+              );
               await authStorage.setSession(session);
               dispatch(setAuthSession(session));
             } catch (err: any) {
@@ -147,7 +223,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
       stopPolling();
       clearAutoLoginTimeout();
     };
-  }, [authApiUrl, dispatch, verificationEmail, verificationPassword, verificationState]);
+  }, [
+    authApiUrl,
+    dispatch,
+    verificationEmail,
+    verificationPassword,
+    verificationState,
+  ]);
 
   const resetVerificationState = () => {
     if (pollIntervalRef.current) {
@@ -173,13 +255,19 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
     resetVerificationState();
     dispatch(setAuthLoading(true));
     try {
-      const session = await authService.completeLogin(authApiUrl, email.trim(), password.trim());
+      const session = await authService.completeLogin(
+        authApiUrl,
+        email.trim(),
+        password.trim()
+      );
       await authStorage.setSession(session);
       dispatch(setAuthSession(session));
     } catch (err: any) {
       const message = err?.message || 'Sign in failed.';
       if (message === 'Account is not verified') {
-        setError('Your account is not verified yet. Open the verification email, then sign in again.');
+        setError(
+          'Your account is not verified yet. Open the verification email, then sign in again.'
+        );
       } else {
         setError(message);
       }
@@ -239,122 +327,117 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
     }
   };
 
+  const submitForm = () => {
+    if (isBusy) return;
+    if (mode === 'signin') handleSignIn();
+    else handleSignUp();
+  };
+
   return (
-    <div style={{
-      minHeight: '100%',
-      backgroundColor: colors.background,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '24px 16px 80px',
-      boxSizing: 'border-box',
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: 372,
-        backgroundColor: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: 16,
-        padding: '22px',
-        boxShadow: '0 12px 24px rgba(0,0,0,0.08)',
-        boxSizing: 'border-box',
-      }}>
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-            <img
-              src={brandLogo}
-              alt="Vaulto Cards logo"
-              style={{
-              width: 38,
-              height: 38,
-              objectFit: 'contain',
-            }}
-            />
-            <div style={{ fontSize: 13, fontWeight: 600, color: colors.textSecondary }}>Vaulto Cards</div>
+    <div className="flex min-h-full justify-center px-4 pb-24 pt-5">
+      <div className="w-full max-w-[380px]">
+        {/* ── Header: logo + heading ─────────────────────────────── */}
+        <div className="mb-4 flex items-center gap-2.5">
+          <img
+            src={brandLogoUrl}
+            alt="Vaulto Cards"
+            className="h-9 w-9 shrink-0 rounded-card border border-line bg-white object-contain p-1"
+          />
+          <div className="min-w-0">
+            <div className="text-[17px] font-bold leading-tight tracking-tight text-gray-900">
+              {heading}
+            </div>
+            <div className="text-[12px] leading-snug text-gray-500">{subtitle}</div>
           </div>
-          <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 700, letterSpacing: '-0.03em', color: colors.text }}>
-            {heading}
-          </div>
-          <div style={{ fontSize: 16, lineHeight: 1.5, color: colors.textSecondary, marginTop: 8 }}>{subtitle}</div>
         </div>
 
-        {auth.accessToken ? (
-          <>
-            <div style={{
-              fontSize: 13,
-              color: colors.text,
-              marginBottom: 16,
-              textAlign: 'center',
-            }}>
-              Signed in as <strong>{auth.user?.email || 'Unknown user'}</strong>
-            </div>
-            <button
-              onClick={() => setShowSignOutConfirm(true)}
-              disabled={isBusy}
-              style={{
-                ...buttonBase,
-                backgroundColor: colors.danger,
-                color: '#fff',
-                opacity: isBusy ? 0.7 : 1,
-              }}
-            >
-              Sign Out
-            </button>
-            <button
-              onClick={onBackClick}
-              style={{
-                ...buttonBase,
-                backgroundColor: '#EDF2F7',
-                color: colors.text,
-                marginTop: 10,
-              }}
-            >
-              Back to Cards
-            </button>
-          </>
-        ) : verificationState !== 'idle' ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-            <div style={{
-              width: 88,
-              height: 88,
-              borderRadius: 28,
-              backgroundColor: colors.backgroundSecondary,
-              border: `1px solid ${verificationState === 'verified' ? colors.success : colors.border}`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 38,
-              marginBottom: 18,
-              color: verificationState === 'verified' ? colors.success : colors.primary,
-            }}>
-              {verificationState === 'verified' ? '✓' : '@'}
+        {isSignedIn ? (
+          /* ── Signed in: account overview ──────────────────────── */
+          <div className="flex flex-col gap-4">
+            <div className="rounded-sheet border border-line bg-surface-muted p-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  Vaulto account
+                </span>
+                <StatusChip label={cloudStatusLabel} tone={cloudStatusTone} />
+              </div>
+              <div
+                className="mt-3 truncate rounded-card border border-line bg-white px-3 py-2.5 text-[15px] font-semibold text-gray-900"
+                title={auth.user?.email || 'Unknown user'}
+              >
+                {auth.user?.email || 'Unknown user'}
+              </div>
             </div>
 
-            <div style={{ fontSize: 14, color: colors.textSecondary, lineHeight: 1.6, marginBottom: 18 }}>
+            <div className="grid grid-cols-3 gap-2.5">
+              <MetricTile
+                icon={<FaLayerGroup size={14} />}
+                label="Cards"
+                value={accountOverview.totalCards}
+                accent="#1A1A1A"
+              />
+              <MetricTile
+                icon={<FaCheckCircle size={14} />}
+                label="Synced"
+                value={accountOverview.syncedCardsCount}
+                accent="#10B981"
+              />
+              <MetricTile
+                icon={<FaClock size={14} />}
+                label="Not synced"
+                value={accountOverview.notSyncedCardsCount}
+                accent="#F59E0B"
+              />
+            </div>
+
+            <Button
+              variant="danger"
+              size="lg"
+              fullWidth
+              onClick={() => setShowSignOutConfirm(true)}
+              disabled={isBusy}
+            >
+              Sign out
+            </Button>
+          </div>
+        ) : verificationState !== 'idle' ? (
+          /* ── Email verification waiting / done ────────────────── */
+          <div className="flex flex-col items-center rounded-sheet border border-line bg-white p-6 text-center shadow-card">
+            <span
+              className={`flex h-16 w-16 items-center justify-center rounded-sheet text-2xl ${
+                verificationState === 'verified'
+                  ? 'bg-ok-subtle text-ok-strong'
+                  : 'bg-accent-subtle text-accent'
+              }`}
+            >
               {verificationState === 'verified' ? (
-                'Your account has been successfully verified. Logging you in now...'
+                <FaCheckCircle size={30} />
+              ) : (
+                <FaEnvelope size={26} />
+              )}
+            </span>
+
+            <div className="mt-4 text-[14px] leading-relaxed text-gray-500">
+              {verificationState === 'verified' ? (
+                'Your account has been verified. Signing you in now…'
               ) : (
                 <>
                   We sent a verification link to
                   <br />
-                  <strong style={{ color: colors.text }}>{verificationEmail}</strong>
+                  <strong className="text-gray-900">{verificationEmail}</strong>
                 </>
               )}
             </div>
 
-            <div style={{
-              width: '100%',
-              backgroundColor: colors.backgroundSecondary,
-              border: `1px solid ${colors.border}`,
-              borderRadius: 12,
-              padding: '12px 14px',
-              fontSize: 13,
-              color: colors.textSecondary,
-              marginBottom: 14,
-            }}>
-              {verificationState === 'verified'
-                ? 'Verification complete. Please wait a moment.'
-                : 'Waiting for verification. Open the link from the email and this screen will update automatically.'}
+            <div className="mt-4 flex w-full items-center justify-center gap-2 rounded-card border border-line bg-surface-muted px-3 py-2.5 text-[12px] text-gray-500">
+              {verificationState !== 'verified' && (
+                <Loader type="spinner" size="small" inline color="#0066FF" />
+              )}
+              <span>
+                {verificationState === 'verified'
+                  ? 'Verification complete. One moment…'
+                  : 'Waiting for confirmation — this updates automatically.'}
+              </span>
             </div>
 
             <button
@@ -365,58 +448,48 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
                 setNotice('');
                 setError('');
               }}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: colors.primary,
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: 600,
-                padding: 0,
-              }}
+              className="mt-4 text-[13px] font-semibold text-accent transition-colors hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-control"
             >
               Back to sign in
             </button>
           </div>
         ) : (
-          <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          /* ── Sign in / sign up form ───────────────────────────── */
+          <div className="rounded-sheet border border-line bg-white p-4 shadow-card">
+            <div className="flex flex-col gap-3">
               <div>
-                <div style={{ fontSize: 13, lineHeight: 1.4, fontWeight: 600, color: colors.text, marginBottom: 8 }}>Email</div>
+                <label className={FIELD_LABEL_CLASS} htmlFor="auth-email">
+                  Email
+                </label>
                 <input
+                  id="auth-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && submitForm()}
                   placeholder="name@example.com"
-                  style={inputStyle}
+                  className={INPUT_CLASS}
                 />
               </div>
 
               <div>
-                <div style={{ fontSize: 13, lineHeight: 1.4, fontWeight: 600, color: colors.text, marginBottom: 8 }}>Password</div>
-                <div style={{ position: 'relative' }}>
+                <label className={FIELD_LABEL_CLASS} htmlFor="auth-password">
+                  Password
+                </label>
+                <div className="relative">
                   <input
+                    id="auth-password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && submitForm()}
                     placeholder="Enter your password"
-                    style={{ ...inputStyle, paddingRight: 70 }}
+                    className={`${INPUT_CLASS} pr-14`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
-                    style={{
-                      position: 'absolute',
-                      right: 10,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'transparent',
-                      border: 'none',
-                      color: colors.textSecondary,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-control px-1.5 py-1 text-[12px] font-semibold text-gray-500 transition-colors hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     {showPassword ? 'Hide' : 'Show'}
                   </button>
@@ -425,192 +498,139 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onBackClick }) => {
 
               {mode === 'signup' && (
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
-                    Confirm Password
-                  </div>
+                  <label className={FIELD_LABEL_CLASS} htmlFor="auth-confirm">
+                    Confirm password
+                  </label>
                   <input
+                    id="auth-confirm"
                     type="password"
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && submitForm()}
                     placeholder="Repeat password"
-                    style={inputStyle}
+                    className={INPUT_CLASS}
                   />
                 </div>
               )}
 
-              <button
-                onClick={mode === 'signin' ? handleSignIn : handleSignUp}
+              <Button
+                variant="primary"
+                size="lg"
+                fullWidth
+                onClick={submitForm}
                 disabled={isBusy}
-                style={{
-                  ...buttonBase,
-                  backgroundColor: colors.primary,
-                  color: '#fff',
-                  fontSize: 16,
-                  opacity: isBusy ? 0.7 : 1,
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = colors.primaryHover)}
-                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = colors.primary)}
+                className="mt-1"
               >
-                {isBusy ? 'Please wait...' : mode === 'signin' ? 'Sign In' : 'Sign Up'}
-              </button>
+                {isBusy ? (
+                  <>
+                    <Loader type="spinner" size="small" inline color="#FFFFFF" />
+                    Please wait…
+                  </>
+                ) : mode === 'signin' ? (
+                  'Sign in'
+                ) : (
+                  'Sign up'
+                )}
+              </Button>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0' }}>
-                <div style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-                <span style={{ fontSize: 13, color: colors.textTertiary }}>or continue with</span>
-                <div style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+              <div className="my-1 flex items-center gap-2">
+                <span className="h-px flex-1 bg-line" />
+                <span className="text-[12px] text-gray-400">or continue with</span>
+                <span className="h-px flex-1 bg-line" />
               </div>
 
-              <button
+              <Button
+                variant="secondary"
+                size="lg"
+                fullWidth
                 onClick={handleGoogleSignIn}
                 disabled={isBusy}
-                style={{
-                  ...buttonBase,
-                  backgroundColor: '#FFFFFF',
-                  color: colors.text,
-                  border: `1px solid ${colors.border}`,
-                  fontSize: 16,
-                }}
               >
                 Continue with Google
-              </button>
+              </Button>
             </div>
 
             {error && (
-              <div style={{
-                marginTop: 12,
-                fontSize: 13,
-                color: colors.danger,
-                textAlign: 'center',
-                lineHeight: 1.5,
-              }}>
+              <div className="mt-3 rounded-card border border-danger-border bg-danger-subtle px-3 py-2 text-center text-[13px] leading-snug text-danger-strong">
                 {error}
               </div>
             )}
-
             {notice && (
-              <div style={{
-                marginTop: 12,
-                fontSize: 13,
-                color: colors.textSecondary,
-                textAlign: 'center',
-                lineHeight: 1.5,
-              }}>
+              <div className="mt-3 text-center text-[13px] leading-snug text-gray-500">
                 {notice}
               </div>
             )}
 
-            <div style={{ marginTop: 14, textAlign: 'center', fontSize: 12, color: colors.textSecondary }}>
+            <div className="mt-4 text-center text-[13px] text-gray-500">
               {mode === 'signin' ? (
-                <button
-                  onClick={() => {
-                    resetVerificationState();
-                    setMode('signup');
-                    setError('');
-                    setNotice('');
-                  }}
-                  style={{ background: 'transparent', border: 'none', color: colors.primary, cursor: 'pointer' }}
-                >
-                  Don&apos;t have an account? Sign Up
-                </button>
+                <>
+                  Don&apos;t have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetVerificationState();
+                      setMode('signup');
+                      setError('');
+                      setNotice('');
+                    }}
+                    className="font-semibold text-accent transition-colors hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-control"
+                  >
+                    Sign up
+                  </button>
+                </>
               ) : (
-                <button
-                  onClick={() => {
-                    resetVerificationState();
-                    setMode('signin');
-                    setError('');
-                    setNotice('');
-                  }}
-                  style={{ background: 'transparent', border: 'none', color: colors.primary, cursor: 'pointer' }}
-                >
-                  Already have an account? Sign In
-                </button>
+                <>
+                  Already have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetVerificationState();
+                      setMode('signin');
+                      setError('');
+                      setNotice('');
+                    }}
+                    className="font-semibold text-accent transition-colors hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-control"
+                  >
+                    Sign in
+                  </button>
+                </>
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
-      {showSignOutConfirm && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.45)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-            zIndex: 1000,
-          }}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 360,
-              backgroundColor: colors.surface,
-              borderRadius: 16,
-              padding: 18,
-              border: `1px solid ${colors.border}`,
-              boxShadow: '0 18px 40px rgba(15, 23, 42, 0.18)',
-              boxSizing: 'border-box',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <div style={{
-                width: 36,
-                height: 36,
-                borderRadius: 12,
-                backgroundColor: 'rgba(220, 53, 69, 0.12)',
-                color: colors.danger,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 700,
-              }}>
-                !
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: colors.text }}>
-                Confirm Sign Out
-              </div>
-            </div>
-            <div style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 1.5, marginBottom: 16 }}>
-              You will be signed out of your account on this device. Your saved cards stay intact.
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => setShowSignOutConfirm(false)}
-                style={{
-                  ...buttonBase,
-                  backgroundColor: '#EDF2F7',
-                  color: colors.text,
-                  width: '50%',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  await handleSignOut();
-                  setShowSignOutConfirm(false);
-                }}
-                disabled={isBusy}
-                style={{
-                  ...buttonBase,
-                  backgroundColor: colors.danger,
-                  color: '#fff',
-                  width: '50%',
-                  opacity: isBusy ? 0.7 : 1,
-                }}
-              >
-                Sign Out
-              </button>
-            </div>
+
+      <Modal
+        open={showSignOutConfirm}
+        onClose={() => setShowSignOutConfirm(false)}
+        title="Sign out?"
+      >
+        <div className="px-4 py-4">
+          <p className="m-0 text-[13px] leading-relaxed text-gray-500">
+            You will be signed out on this device. Your saved cards stay intact.
+          </p>
+          <div className="mt-4 flex gap-2.5">
+            <Button
+              variant="secondary"
+              fullWidth
+              onClick={() => setShowSignOutConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              fullWidth
+              disabled={isBusy}
+              onClick={async () => {
+                await handleSignOut();
+                setShowSignOutConfirm(false);
+              }}
+            >
+              Sign out
+            </Button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 };

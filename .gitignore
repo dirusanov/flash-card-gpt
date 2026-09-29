@@ -8,6 +8,9 @@
 
 # testing
 /coverage
+/utils/test-ai-cards/.compiled
+/utils/test-ai-cards/.results
+/utils/test-ai-cards/*.key.txt
 
 # production
 /build
@@ -26,3 +29,7 @@
 # secrets
 secrets.*.js
 *.pem
+
+# build artifacts
+build.zip
+.codex

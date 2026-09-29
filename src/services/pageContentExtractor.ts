@@ -96,9 +96,10 @@ export class PageContentExtractor {
             const isNearText = this.isElementNearSelection(svg, selectionElement, selectedText);
             const relevanceScore = this.calculateSvgRelevance(svg, selectedText, isNearText);
 
-            if (relevanceScore > 0.1) {
+            const src = relevanceScore > 0.1 ? this.svgToDataUrl(svg) : '';
+            if (src) {
                 images.push({
-                    src: this.svgToDataUrl(svg),
+                    src,
                     alt: svg.getAttribute('aria-label') || svg.getAttribute('title') || 'SVG диаграмма',
                     width: width || 200,
                     height: height || 200,
@@ -154,9 +155,10 @@ export class PageContentExtractor {
             const isNearText = this.isElementNearSelection(svg, selectionElement, selectedText);
             const relevanceScore = this.calculateSvgRelevance(svg, selectedText, isNearText);
             
-            if (relevanceScore > 0.3) {
+            const src = relevanceScore > 0.3 ? this.svgToDataUrl(svg) : '';
+            if (src) {
                 images.push({
-                    src: this.svgToDataUrl(svg),
+                    src,
                     alt: svg.getAttribute('aria-label') || svg.getAttribute('title') || 'SVG диаграмма',
                     width: width || 200,
                     height: height || 200,
@@ -450,9 +452,20 @@ export class PageContentExtractor {
         return Math.max(0, Math.min(1, score));
     }
 
+    // btoa() only speaks Latin-1, so a diagram labelled in Cyrillic, Greek or CJK used to
+    // throw InvalidCharacterError here — and since nothing between this and the message
+    // handler caught it, one such SVG killed the whole page-context extraction. Encode the
+    // markup as UTF-8 bytes first, and treat a still-unserialisable SVG as simply absent.
     private static svgToDataUrl(svg: SVGElement): string {
-        const svgData = new XMLSerializer().serializeToString(svg);
-        return `data:image/svg+xml;base64,${btoa(svgData)}`;
+        try {
+            const svgData = new XMLSerializer().serializeToString(svg);
+            const bytes = new TextEncoder().encode(svgData);
+            let binary = '';
+            bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+            return `data:image/svg+xml;base64,${btoa(binary)}`;
+        } catch {
+            return '';
+        }
     }
 
     private static extractFormulaText(element: Element): string | null {
