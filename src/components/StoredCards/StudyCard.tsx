@@ -135,6 +135,24 @@ const StudyCard: React.FC<StudyCardProps> = ({
     }, [resetKey, card.id]);
 
     const rootRef = useRef<HTMLDivElement>(null);
+    const frontRef = useRef<HTMLDivElement>(null);
+    const backRef = useRef<HTMLDivElement>(null);
+
+    // Both faces stay mounted for the 3D flip. Backface visibility only hides pixels:
+    // without inert, controls on the hidden face are still reachable with Tab.
+    useLayoutEffect(() => {
+        if (editable) return;
+
+        const hiddenFace = flipped ? frontRef.current : backRef.current;
+        const visibleFace = flipped ? backRef.current : frontRef.current;
+        const focusWasOnHiddenFace = Boolean(hiddenFace?.contains(document.activeElement));
+
+        frontRef.current?.toggleAttribute('inert', flipped);
+        backRef.current?.toggleAttribute('inert', !flipped);
+
+        if (focusWasOnHiddenFace) visibleFace?.focus({ preventScroll: true });
+    }, [editable, flipped]);
+
     // How much room the sheet gives the card. Bounding by the viewport alone let the card
     // grow taller than the modal body, so the body scrolled *and* the card scrolled — two
     // scrollbars for one overflow.
@@ -445,6 +463,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                     routinely block text selection inside button elements, which is
                     exactly what made the word uncopyable here before. */}
                 <div
+                    ref={frontRef}
                     role="button"
                     tabIndex={0}
                     onClick={flipToFront}
@@ -474,14 +493,15 @@ const StudyCard: React.FC<StudyCardProps> = ({
                             />
                         )}
                         {card.wordAudio && (
-                            <span
+                            <button
+                                type="button"
                                 onClick={(e) => play(e, card.wordAudio)}
-                                role="button"
+                                onDoubleClick={(e) => e.stopPropagation()}
                                 aria-label="Play pronunciation"
-                                className="mt-1 inline-flex h-11 w-11 items-center justify-center rounded-full bg-accent-subtle text-accent transition-colors hover:bg-accent-border"
+                                className="mt-1 inline-flex h-11 w-11 items-center justify-center rounded-full bg-accent-subtle text-accent transition-colors hover:bg-accent-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                             >
                                 <FaVolumeUp size={16} />
-                            </span>
+                            </button>
                         )}
                         <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-muted px-3 py-1 text-[11px] font-semibold text-gray-500">
                             <FaHandPointer size={10} className="shrink-0" />
@@ -499,6 +519,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                     selection guard stays as a backstop for a drag that starts on text but
                     ends outside it. */}
                 <div
+                    ref={backRef}
                     role="button"
                     tabIndex={0}
                     onClick={flipToBack}
@@ -510,7 +531,7 @@ const StudyCard: React.FC<StudyCardProps> = ({
                         }
                     }}
                     aria-label="Back to question"
-                    className="absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-sheet border border-ok-border bg-ok-subtle shadow-card [backface-visibility:hidden]"
+                    className="absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-sheet border border-ok-border bg-ok-subtle shadow-card [backface-visibility:hidden] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     style={{ transform: 'rotateY(180deg)' }}
                 >
                     {/* Scrolls on its own so the "Tap to go back" hint below stays pinned at
