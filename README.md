@@ -48,6 +48,8 @@ npm install
 ```sh
 npm run build
 ```
+For store uploads, use the generated `build.zip` in the project root. Its `manifest.json`
+is at the root of the archive; do not zip the `build` folder yourself.
 5. Open `chrome://extensions/` in Chrome.
 6. Enable Developer mode.
 7. Click “Load unpacked” and select the `build` folder.

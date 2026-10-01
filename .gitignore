@@ -31,5 +31,5 @@ secrets.*.js
 *.pem
 
 # build artifacts
-build.zip
+/build.zip
 .codex
