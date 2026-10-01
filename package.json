@@ -28,7 +28,8 @@
     "test:translation-quality": "node utils/test-ai-cards/test-translation-quality.js",
     "test:example-quality": "node utils/test-ai-cards/test-example-quality.js",
     "test:transcription-policy": "node utils/test-ai-cards/test-transcription-policy.js",
-    "test:example-transcriptions": "node utils/test-ai-cards/test-example-transcriptions.js"
+    "test:example-transcriptions": "node utils/test-ai-cards/test-example-transcriptions.js",
+    "test:anki": "node utils/test-anki/run.js"
   },
   "dependencies": {
     "@types/katex": "^0.16.7",

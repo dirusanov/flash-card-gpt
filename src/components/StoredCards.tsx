@@ -9,7 +9,7 @@ import { StoredCard } from '../store/reducers/cards';
 import { useTabAware } from './TabAwareProvider';
 import { Modes } from '../constants';
 import { FaDownload, FaTimes, FaEllipsisH, FaSearch, FaCheckSquare, FaCloud, FaCheckCircle, FaChevronRight, FaChevronDown, FaExclamationTriangle, FaDesktop, FaPlay, FaChartBar, FaLayerGroup } from 'react-icons/fa';
-import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards, format_back_lang_learning, formatSentenceField, formatSourceField, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
+import { CardLangLearning, CardGeneral, fetchDecks, createAnkiCards, ANKI_TEXT_FILE_HEADER, formatAnkiTextFileRow, getAnkiSaveErrorMessage, getAnkiSaveSuccessMessage, isAnkiDuplicateError } from '../services/ankiService';
 import useErrorNotification from './useErrorHandler';
 import Menu from './ui/Menu';
 import Button from './ui/Button';
@@ -52,6 +52,26 @@ const isDev = process.env.NODE_ENV !== 'production';
 const debugLog = (...args: unknown[]) => {
     if (isDev) {
         console.log(...args);
+    }
+};
+
+const prepareAnkiImage = async (source: string | null | undefined): Promise<string | null> => {
+    if (!source) return null;
+    if (!/^https?:\/\//i.test(source)) return source;
+
+    try {
+        const response = await fetch(source);
+        if (!response.ok) return source;
+        const blob = await response.blob();
+        return await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || source));
+            reader.onerror = () => reject(reader.error || new Error('Could not read card image'));
+            reader.readAsDataURL(blob);
+        });
+    } catch (error) {
+        console.warn('Could not embed card image; keeping its URL:', error);
+        return source;
     }
 };
 
@@ -685,7 +705,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             return;
         }
 
-        if (!deckId) {
+        const selectedCardsData = storedCards.filter(card => selectedCardIds.has(card.id));
+        if (!deckId && selectedCardsData.some(card => !card.ankiDeckName)) {
             showError('Please select an Anki deck before saving.');
             return;
         }
@@ -693,8 +714,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         setIsLoading(true);
         try {
             const modelName = 'Basic';
-            const selectedCardsData = storedCards.filter(card => selectedCardIds.has(card.id));
-
             // Group cards by target deck and mode. IDs are tracked in parallel arrays (same
             // index as the corresponding card) so a partial AnkiConnect failure — some notes
             // in a batch rejected as duplicates — can be mapped back to the specific cards
@@ -708,28 +727,13 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
             // Process cards one by one to handle async image processing
             for (const card of selectedCardsData) {
-                const targetDeckName = card.ankiDeckName || deckId;
+                const targetDeckName = card.ankiDeckName || deckId || '';
                 if (!exportGroups[targetDeckName]) {
                     exportGroups[targetDeckName] = { lang: [], langIds: [], general: [], generalIds: [] };
                 }
 
                 if (card.mode === Modes.LanguageLearning && card.translation) {
-                    // Process image data for Anki
-                    let processedImageBase64 = null;
-                    if (card.image) {
-                        // Extract the base64 part if it has a data URI prefix
-                        if (card.image.startsWith('data:')) {
-                            const base64Prefix = 'base64,';
-                            const prefixIndex = card.image.indexOf(base64Prefix);
-                            if (prefixIndex !== -1) {
-                                processedImageBase64 = card.image.substring(prefixIndex + base64Prefix.length);
-                            } else {
-                                processedImageBase64 = card.image;
-                            }
-                        } else {
-                            processedImageBase64 = card.image;
-                        }
-                    }
+                    const processedImageBase64 = await prepareAnkiImage(card.image || card.imageUrl);
 
                     const ankiCard = {
                         text: card.text || card.front || '',
@@ -756,52 +760,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                     exportGroups[targetDeckName].lang.push(ankiCard);
                     exportGroups[targetDeckName].langIds.push(card.id);
                 } else if (card.mode === Modes.GeneralTopic && (card.front || card.text) && (card.back || card.text)) {
-                    // Process image data for GeneralTopic cards too
-                    let processedImageBase64 = null;
-
-                    // Check both image and imageUrl fields
-                    let imageSource = card.image || card.imageUrl;
-
-                    if (imageSource) {
-                        if (imageSource.startsWith('data:')) {
-                            // Handle data URI format
-                            const base64Prefix = 'base64,';
-                            const prefixIndex = imageSource.indexOf(base64Prefix);
-                            if (prefixIndex !== -1) {
-                                processedImageBase64 = imageSource.substring(prefixIndex + base64Prefix.length);
-                            } else {
-                                processedImageBase64 = imageSource;
-                            }
-                        } else if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
-                            // Handle URL - need to fetch and convert to base64
-                            try {
-                                debugLog(`Fetching image from URL for card ${card.id}: ${imageSource}`);
-                                const response = await fetch(imageSource);
-                                if (response.ok) {
-                                    const blob = await response.blob();
-                                    const base64Data = await new Promise<string>((resolve) => {
-                                        const reader = new FileReader();
-                                        reader.onloadend = () => {
-                                            const result = reader.result as string;
-                                            const base64Prefix = 'base64,';
-                                            const prefixIndex = result.indexOf(base64Prefix);
-                                            if (prefixIndex !== -1) {
-                                                resolve(result.substring(prefixIndex + base64Prefix.length));
-                                            } else {
-                                                resolve(result);
-                                            }
-                                        };
-                                        reader.readAsDataURL(blob);
-                                    });
-                                    processedImageBase64 = base64Data;
-                                }
-                            } catch (error) {
-                                console.error(`Error fetching image from URL for card ${card.id}:`, error);
-                            }
-                        } else {
-                            processedImageBase64 = imageSource;
-                        }
-                    }
+                    const processedImageBase64 = await prepareAnkiImage(card.image || card.imageUrl);
 
                     const generalCard = {
                         front: card.front || card.text || 'No content',
@@ -1234,34 +1193,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         if (!card) return null;
 
         if (card.mode === Modes.LanguageLearning) {
-            let processedImageBase64: string | null = null;
-            const imageSource = card.image || card.imageUrl;
-            if (imageSource) {
-                if (imageSource.startsWith('data:')) {
-                    const base64Prefix = 'base64,';
-                    const prefixIndex = imageSource.indexOf(base64Prefix);
-                    processedImageBase64 = prefixIndex !== -1
-                        ? imageSource.substring(prefixIndex + base64Prefix.length)
-                        : imageSource;
-                } else if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
-                    const response = await fetch(imageSource);
-                    if (response.ok) {
-                        const blob = await response.blob();
-                        processedImageBase64 = await new Promise<string>((resolve) => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                                const result = reader.result as string;
-                                const base64Prefix = 'base64,';
-                                const prefixIndex = result.indexOf(base64Prefix);
-                                resolve(prefixIndex !== -1 ? result.substring(prefixIndex + base64Prefix.length) : result);
-                            };
-                            reader.readAsDataURL(blob);
-                        });
-                    }
-                } else {
-                    processedImageBase64 = imageSource;
-                }
-            }
+            const processedImageBase64 = await prepareAnkiImage(card.image || card.imageUrl);
 
             const ankiCard: CardLangLearning = {
                 text: card.text || card.front || '',
@@ -1284,34 +1216,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }
 
         if (card.mode === Modes.GeneralTopic) {
-            let processedImageBase64: string | null = null;
-            const imageSource = card.image || card.imageUrl;
-            if (imageSource) {
-                if (imageSource.startsWith('data:')) {
-                    const base64Prefix = 'base64,';
-                    const prefixIndex = imageSource.indexOf(base64Prefix);
-                    processedImageBase64 = prefixIndex !== -1
-                        ? imageSource.substring(prefixIndex + base64Prefix.length)
-                        : imageSource;
-                } else if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
-                    const response = await fetch(imageSource);
-                    if (response.ok) {
-                        const blob = await response.blob();
-                        processedImageBase64 = await new Promise<string>((resolve) => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                                const result = reader.result as string;
-                                const base64Prefix = 'base64,';
-                                const prefixIndex = result.indexOf(base64Prefix);
-                                resolve(prefixIndex !== -1 ? result.substring(prefixIndex + base64Prefix.length) : result);
-                            };
-                            reader.readAsDataURL(blob);
-                        });
-                    }
-                } else {
-                    processedImageBase64 = imageSource;
-                }
-            }
+            const processedImageBase64 = await prepareAnkiImage(card.image || card.imageUrl);
 
             const ankiCard: CardGeneral = {
                 text: card.text || card.front || '',
@@ -2037,10 +1942,11 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 ? storedCards.filter(card => selectedCardIds.has(card.id))
                 : filteredCards;
 
-            // Create a simpler format without embedded images, following the exact example format
-            let exportContent = "#separator:tab\n#html:true\n";
+            // Anki's tab-separated HTML format keeps images and audio in the back field.
+            let exportContent = ANKI_TEXT_FILE_HEADER;
 
-            selectedCardsData.forEach((card, index) => {
+            for (let index = 0; index < selectedCardsData.length; index++) {
+                const card = selectedCardsData[index];
                 debugLog(`Processing card ${index} for file export:`, {
                     id: card.id,
                     mode: card.mode,
@@ -2056,16 +1962,17 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 });
 
                 if (card.mode === Modes.LanguageLearning) {
-                    // Front is the studied word/phrase (fallback to front if text missing)
                     const front = (card.text || card.front || '').trim();
 
                     // Map StoredCard to a format compatible with ankiService formatting helpers
                     const cardForFormatting = {
                         ...card,
-                        image_base64: card.image || card.imageUrl, // Handle both
+                        image_base64: await prepareAnkiImage(card.image || card.imageUrl),
                         word_audio_base64: card.wordAudio,
                         examples_audio_base64: card.examplesAudio,
                         example_transcriptions: card.exampleTranscriptions,
+                        source_url: card.sourceUrl,
+                        source_title: card.sourceTitle,
                         // For file export, we want to embed the audio directly as data URIs
                         ankiAudioTag: card.wordAudio ?
                             (card.wordAudio.startsWith('data:') ? card.wordAudio : `data:audio/mpeg;base64,${card.wordAudio}`) :
@@ -2075,97 +1982,38 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         )
                     };
 
-                    // Use the shared formatting logic from ankiService
-                    let back = format_back_lang_learning(cardForFormatting);
-
-                    // A .txt import is two fields, so the sentence and the page ride in
-                    // the back, the way the AnkiConnect fallback does it.
-                    const sentenceHtml = formatSentenceField(card.sentence, card.text || card.front || '');
-                    const sourceHtml = formatSourceField(card.sourceUrl, card.sourceTitle);
-                    if (sentenceHtml) back += `<div class="vaulto-sentence">${sentenceHtml}</div>`;
-                    if (sourceHtml) back += `<div class="vaulto-source">${sourceHtml}</div>`;
-
-                    // Clean the front and back content to avoid tab/newline issues
-                    const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
-                    // Keep HTML compact for file export; converting template newlines to <br>
-                    // makes pronunciation/grammar blocks artificially tall.
-                    const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n\s*/g, '').trim();
-
-                    // Export the formatted card with proper escaping
-                    exportContent += `${cleanFront}\t${cleanBack}\n`;
+                    const row = formatAnkiTextFileRow(Modes.LanguageLearning, {
+                        ...cardForFormatting,
+                        text: front,
+                        translation: card.translation || '',
+                        examples: card.examples || [],
+                    });
+                    exportContent += row;
 
                     debugLog(`Exported card ${index}:`, {
-                        front: cleanFront.substring(0, 50),
-                        backLength: cleanBack.length,
-                        hasLinguisticInfo: cleanBack.includes('Grammar & Linguistics')
+                        front: front.substring(0, 50),
+                        backLength: row.length,
+                        hasLinguisticInfo: row.includes('Grammar & Linguistics')
                     });
                 }
                 else if (card.mode === Modes.GeneralTopic) {
                     const front = (card.front || card.text || 'No content').trim();
-                    let back = (card.back || card.text || '').trim();
-
-                    // Add image to back if exists
-                    if (card.image) {
-                        // The image is already in base64 format, but may start with data:image/png;base64, or similar prefix
-                        let imageData = card.image;
-
-                        // Extract the actual base64 data if it has a prefix
-                        if (imageData.startsWith('data:')) {
-                            const base64Prefix = 'base64,';
-                            const prefixIndex = imageData.indexOf(base64Prefix);
-                            if (prefixIndex !== -1) {
-                                // Extract just the base64 part without the prefix
-                                const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
-                                // Add image to back content
-                                back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                            } else {
-                                // Fallback if prefix structure is unexpected
-                                back += `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                            }
-                        } else {
-                            // If it's already just base64 data, use it directly
-                            back += `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        }
-                    } else if (card.imageUrl) {
-                        // ImageUrl might be a base64 string or a URL
-                        let imageUrl = card.imageUrl;
-
-                        if (imageUrl.startsWith('data:')) {
-                            // Extract the actual base64 data if it has a prefix
-                            const base64Prefix = 'base64,';
-                            const prefixIndex = imageUrl.indexOf(base64Prefix);
-                            if (prefixIndex !== -1) {
-                                // Extract just the base64 part without the prefix
-                                const rawBase64 = imageUrl.substring(prefixIndex + base64Prefix.length);
-                                // Add image to back content
-                                back += `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                            } else {
-                                // Fallback if prefix structure is unexpected
-                                back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                            }
-                        } else if (imageUrl.startsWith('http')) {
-                            // For remote URLs, just use as is
-                            back += `<div><img src="${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        } else {
-                            // If it's already just base64 data, use it directly
-                            back += `<div><img src="data:image/jpeg;base64,${imageUrl}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-                        }
-                    }
-
-                    // Clean the content to avoid tab/newline issues
-                    const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, ' ').trim();
-                    const cleanBack = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
-
-                    exportContent += `${cleanFront}\t${cleanBack}\n`;
+                    const row = formatAnkiTextFileRow(Modes.GeneralTopic, {
+                        text: card.text || front,
+                        front,
+                        back: (card.back || card.text || '').trim(),
+                        image_base64: await prepareAnkiImage(card.image || card.imageUrl),
+                    });
+                    exportContent += row;
 
                     debugLog(`Exported General Topic card ${index}:`, {
-                        front: cleanFront.substring(0, 50),
-                        backLength: cleanBack.length,
+                        front: front.substring(0, 50),
+                        backLength: row.length,
                         hasImage: !!(card.image || card.imageUrl),
                         imageSource: card.image ? 'image field' : card.imageUrl ? 'imageUrl field' : 'none'
                     });
                 }
-            });
+            }
 
             // Sanitize filename - remove invalid characters and ensure .txt extension
             let fileName = exportFileName.trim();
@@ -2582,6 +2430,15 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 color: '#6B7280'
                             }}>
                                 The .txt extension will be added automatically
+                            </p>
+                            <p style={{
+                                margin: '10px 0 0 0',
+                                fontSize: '12px',
+                                color: '#92400E',
+                                lineHeight: '1.4'
+                            }}>
+                                Anki imports the text and HTML. Embedded images and audio may display on this computer,
+                                but a .txt file does not add them to Anki media or sync them to other devices. Use AnkiConnect for portable media.
                             </p>
                         </div>
 

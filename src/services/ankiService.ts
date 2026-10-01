@@ -103,6 +103,7 @@ export interface CardLangLearning {
     source_url?: string | null;
     source_title?: string | null;
     ankiAudioTag?: string;
+    ankiImageFilename?: string | null;
     exampleAudioTags?: Array<string | null>;
 }
 
@@ -207,13 +208,75 @@ const storeMediaFile = async (
     });
 
     if (!response.ok) {
-        throw new Error('Failed to store audio media file in Anki.');
+        throw new Error('Failed to store media file in Anki.');
     }
 
     const result = await response.json();
     if (result?.error) {
         throw new Error(`Anki error while storing media: ${result.error}`);
     }
+};
+
+const imageMediaData = (image: string | null | undefined): { data: string; extension: string } | null => {
+    const source = (image || '').trim();
+    const dataUrl = /^data:image\/(png|jpe?g|gif|webp|avif);base64,([a-z\d+/=\s]+)$/i.exec(source);
+    if (dataUrl) {
+        return { data: dataUrl[2].replace(/\s/g, ''), extension: dataUrl[1].toLowerCase() === 'jpg' ? 'jpeg' : dataUrl[1].toLowerCase() };
+    }
+    if (source.startsWith('data:') || /^https?:\/\//i.test(source)) return null;
+    const raw = source.replace(/\s/g, '');
+    if (!/^[a-z\d+/]+={0,2}$/i.test(raw)) return null;
+    const extension = raw.startsWith('iVBOR') ? 'png'
+        : raw.startsWith('/9j/') ? 'jpeg'
+            : raw.startsWith('R0lGOD') ? 'gif'
+                : raw.startsWith('UklGR') ? 'webp'
+                    : 'jpeg';
+    return { data: raw, extension };
+};
+
+const storeImageForAnki = async (
+    url: string,
+    key: string | null,
+    image: string | null | undefined,
+    front: string,
+    index: number,
+): Promise<string | null> => {
+    const media = imageMediaData(image);
+    if (!media) return null;
+    const filename = `vaulto_${sanitizeForFilename(front).slice(0, 80)}_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}.${media.extension}`;
+    await storeMediaFile(url, key, filename, media.data);
+    return filename;
+};
+
+const imageSourceForAnki = (image: string | null | undefined): string | null => {
+    const source = (image || '').trim();
+    if (!source) return null;
+    if (/^https?:\/\//i.test(source)) {
+        return source.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    }
+
+    const dataUrl = /^data:image\/(png|jpe?g|gif|webp|avif);base64,([a-z\d+/=\s]+)$/i.exec(source);
+    if (dataUrl) {
+        const mime = dataUrl[1].toLowerCase() === 'jpg' ? 'jpeg' : dataUrl[1].toLowerCase();
+        return `data:image/${mime};base64,${dataUrl[2].replace(/\s/g, '')}`;
+    }
+    if (source.startsWith('data:')) return null;
+
+    const raw = source.replace(/\s/g, '');
+    if (!/^[a-z\d+/]+={0,2}$/i.test(raw)) return null;
+    const mime = raw.startsWith('iVBOR') ? 'png'
+        : raw.startsWith('/9j/') ? 'jpeg'
+            : raw.startsWith('R0lGOD') ? 'gif'
+                : raw.startsWith('UklGR') ? 'webp'
+                    : 'jpeg';
+    return `data:image/${mime};base64,${raw}`;
+};
+
+export const formatImageForAnki = (image: string | null | undefined, storedFilename?: string | null): string => {
+    const source = storedFilename || imageSourceForAnki(image);
+    return source
+        ? `<div><img src="${source}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`
+        : '';
 };
 
 export function format_back_lang_learning(card: any): string {
@@ -235,28 +298,7 @@ export function format_back_lang_learning(card: any): string {
         })
         .join('<br><br>');
 
-    let imageHtml = '';
-    if (card.image_base64) {
-        let imageData = card.image_base64;
-
-        // Extract the actual base64 data if it has a prefix
-        if (imageData.startsWith('data:')) {
-            const base64Prefix = 'base64,';
-            const prefixIndex = imageData.indexOf(base64Prefix);
-            if (prefixIndex !== -1) {
-                // Extract just the base64 part without the prefix
-                const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
-                // Anki format requires the proper data URI format for HTML
-                imageHtml = `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-            } else {
-                // Fallback if prefix structure is unexpected
-                imageHtml = `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-            }
-        } else {
-            // If it's already just base64 data, use it directly with proper prefix
-            imageHtml = `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-        }
-    }
+    const imageHtml = formatImageForAnki(card.image_base64, card.ankiImageFilename);
 
     // Format linguistic information with beautiful styling
     let linguisticHtml = '';
@@ -351,7 +393,7 @@ function toMathJaxDelimiters(text: string): string {
 }
 
 // Smart list-safe formatter for general back content that preserves math
-function format_back_general(back: string, image_base64?: string | null): string {
+function format_back_general(back: string, image_base64?: string | null, imageFilename?: string | null): string {
     const cleaned = back.replace(/^(Key points?:?)/i, '').trim();
 
     // If content already contains list or KaTeX HTML, keep it as-is (just normalize math delimiters)
@@ -386,22 +428,7 @@ function format_back_general(back: string, image_base64?: string | null): string
     }
 
     // Images
-    let imageHtml = '';
-    if (image_base64) {
-        let imageData = image_base64;
-        if (imageData.startsWith('data:')) {
-            const base64Prefix = 'base64,';
-            const prefixIndex = imageData.indexOf(base64Prefix);
-            if (prefixIndex !== -1) {
-                const rawBase64 = imageData.substring(prefixIndex + base64Prefix.length);
-                imageHtml = `<div><img src="data:image/jpeg;base64,${rawBase64}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-            } else {
-                imageHtml = `<div><img src="${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-            }
-        } else {
-            imageHtml = `<div><img src="data:image/jpeg;base64,${imageData}" style="max-width: 350px; max-height: 350px; margin: 0 auto;"></div>`;
-        }
-    }
+    const imageHtml = formatImageForAnki(image_base64, imageFilename);
 
     // Convert math delimiters for Anki MathJax
     const mathReady = toMathJaxDelimiters(bodyHtml);
@@ -541,6 +568,37 @@ export const formatSourceField = (url: string | null | undefined, title: string 
     return `<a href="${escapeHtml(cleanUrl)}">${escapeHtml(label)}</a>`;
 };
 
+export const ANKI_TEXT_FILE_HEADER = '#separator:tab\n#html:true\n';
+
+// Keep TXT export in one place so the downloaded rows can be tested without a browser.
+// Anki's two-field text import has no Sentence or Source fields, so those ride in Back.
+export const formatAnkiTextFileRow = (mode: Modes, card: CardLangLearning | CardGeneral): string => {
+    let front: string;
+    let back: string;
+
+    if (mode === Modes.LanguageLearning) {
+        const language = card as CardLangLearning;
+        front = language.text;
+        back = format_back_lang_learning(language);
+        const sentence = formatSentenceField(language.sentence, language.text);
+        const source = formatSourceField(language.source_url, language.source_title);
+        if (sentence) back += `<div class="vaulto-sentence">${sentence}</div>`;
+        if (source) back += `<div class="vaulto-source">${source}</div>`;
+        // Template whitespace is not intended as visible blank lines in Anki.
+        back = back.replace(/\t/g, ' ').replace(/\r?\n\s*/g, '').trim();
+    } else if (mode === Modes.GeneralTopic) {
+        const general = card as CardGeneral;
+        front = general.front;
+        back = `${general.back.trim()}${formatImageForAnki(general.image_base64)}`;
+        back = back.replace(/\t/g, ' ').replace(/\r?\n/g, '<br>').trim();
+    } else {
+        throw new Error('Unsupported card mode for Anki text export');
+    }
+
+    const cleanFront = escapeHtml(front.replace(/\t/g, ' ').replace(/\r?\n/g, ' ').trim());
+    return `${cleanFront}\t${back}\n`;
+};
+
 /**
  * The sentence as a cloze deletion: the studied word becomes {{c1::word}}. Null when the
  * word cannot be found in the sentence, or when the sentence *is* the word — a cloze
@@ -554,11 +612,10 @@ export const buildClozeText = (sentence: string | null | undefined, word: string
     return `${escapeHtml(clean.slice(0, hit.start))}{{c1::${escapeHtml(gap)}}}${escapeHtml(clean.slice(hit.end))}`;
 };
 
-// Anki's own duplicate check is per note type, so a word exported as stock "Basic" by an
-// earlier version would sail into "Vaulto Basic" as a second copy. Ask for every note
-// whose first field is one of these words, whatever its type, and answer with the words
-// found — normalised the way they are compared. Any failure means "none found": a lookup
-// that cannot run must not block an export.
+// Anki's default duplicate check is collection-wide and per note type. Check the chosen
+// deck across note types instead: a word in another deck is a legitimate new card, while
+// a stock "Basic" card already in this deck must not be copied as "Vaulto Basic".
+// Any lookup failure means "none found": it must not block an export.
 const escapeAnkiSearchTerm = (text: string): string =>
     text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\*/g, '\\*').replace(/_/g, '\\_');
 
@@ -567,12 +624,14 @@ const normalizeFront = (text: string): string => stripAnkiFieldHtml(text).replac
 const findExistingFronts = async (
     ankiConnectUrl: string,
     ankiConnectApiKey: string | null,
+    deckName: string,
     fronts: string[],
 ): Promise<Set<string>> => {
     const wanted = Array.from(new Set(fronts.map(normalizeFront).filter(Boolean)));
     if (wanted.length === 0) return new Set();
     try {
-        const query = wanted.map((front) => `"Front:${escapeAnkiSearchTerm(front)}"`).join(' OR ');
+        const frontQuery = wanted.map((front) => `"Front:${escapeAnkiSearchTerm(front)}"`).join(' OR ');
+        const query = `deck:"${escapeAnkiSearchTerm(deckName)}" (${frontQuery})`;
         const ids: number[] = await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'findNotes', { query });
         if (!Array.isArray(ids) || ids.length === 0) return new Set();
         const info: any[] = await ankiInvoke(ankiConnectUrl, ankiConnectApiKey, 'notesInfo', { notes: ids });
@@ -593,6 +652,12 @@ export interface AnkiExportOptions {
     /** Also add a cloze note from each card's source sentence, when it has one. */
     clozeFromSentence?: boolean;
 }
+
+const DECK_DUPLICATE_OPTIONS = {
+    allowDuplicate: false,
+    duplicateScope: 'deck',
+    duplicateScopeOptions: { checkAllModels: true },
+};
 
 export const createAnkiCards = async (
     mode: Modes,
@@ -634,9 +699,8 @@ export const createAnkiCards = async (
         const useVaultoModel = isLanguage
             && await ensureNoteType(ankiConnectUrl, ankiConnectApiKey, BASIC_MODEL);
         const langModelName = useVaultoModel ? VAULTO_NOTE_TYPE : modelName;
-        // Only the new note type can slip past Anki's own per-type duplicate check.
-        const alreadyInAnki = useVaultoModel
-            ? await findExistingFronts(ankiConnectUrl, ankiConnectApiKey, (cards as CardLangLearning[]).map((card) => card.text))
+        const alreadyInAnki = isLanguage
+            ? await findExistingFronts(ankiConnectUrl, ankiConnectApiKey, deckName, (cards as CardLangLearning[]).map((card) => card.text))
             : new Set<string>();
         const skipped = new Set<number>();
         const clozeNotes: Array<Record<string, unknown>> = [];
@@ -674,9 +738,13 @@ export const createAnkiCards = async (
                     await storeMediaFile(ankiConnectUrl, ankiConnectApiKey, filename, rawExampleAudio);
                     exampleAudioTags.push(`[sound:${filename}]`);
                 }
+                const ankiImageFilename = await storeImageForAnki(
+                    ankiConnectUrl, ankiConnectApiKey, langCard.image_base64, langCard.text, index,
+                );
                 const cardForRender: CardLangLearning = {
                     ...langCard,
                     ankiAudioTag: audioTag,
+                    ankiImageFilename,
                     exampleAudioTags
                 };
                 const back = format_back_lang_learning(cardForRender);
@@ -699,24 +767,27 @@ export const createAnkiCards = async (
                             deckName,
                             modelName: VAULTO_CLOZE_NOTE_TYPE,
                             fields: { Text: clozeText, 'Back Extra': back, Source: sourceHtml },
-                            options: { allowDuplicate: false },
+                            options: DECK_DUPLICATE_OPTIONS,
                             tags: [],
                         });
                     }
                 }
             } else if (mode === Modes.GeneralTopic && 'back' in card) {
                 const generalCard = card as CardGeneral;
+                const imageFilename = await storeImageForAnki(
+                    ankiConnectUrl, ankiConnectApiKey, generalCard.image_base64, generalCard.front, index,
+                );
                 fields = {
                     // Ensure formulas on both sides render well in Anki via MathJax
                     Front: toMathJaxDelimiters(generalCard.front),
-                    Back: format_back_general(generalCard.back, generalCard.image_base64),
+                    Back: format_back_general(generalCard.back, generalCard.image_base64, imageFilename),
                 };
             }
             return {
                 deckName,
                 modelName: noteModelName,
                 fields,
-                options: { allowDuplicate: false },
+                options: DECK_DUPLICATE_OPTIONS,
                 tags: [],
             };
         }));
@@ -874,10 +945,22 @@ export interface AnkiImportedNote {
 const stripAnkiFieldHtml = (value: string): string =>
     (value || '')
         .replace(/\[sound:[^\]]*\]/gi, '')
+        .replace(/\{\{c\d+::([^}:]*)(?:::[^}]*)?\}\}/gi, '$1')
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<\/?div[^>]*>/gi, '\n')
         .replace(/<\/?[^>]+>/g, '')
         .replace(/&nbsp;/gi, ' ')
+        .replace(/&#(\d+);/g, (match, number) => {
+            const code = Number(number);
+            return code <= 0x10ffff ? String.fromCodePoint(code) : match;
+        })
+        .replace(/&#x([\da-f]+);/gi, (match, hex) => {
+            const code = parseInt(hex, 16);
+            return code <= 0x10ffff ? String.fromCodePoint(code) : match;
+        })
+        .replace(/&(amp|lt|gt|quot|apos);/gi, (_match, entity) => ({
+            amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+        } as Record<string, string>)[entity.toLowerCase()] || _match)
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 

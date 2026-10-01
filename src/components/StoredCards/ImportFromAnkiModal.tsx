@@ -92,7 +92,8 @@ const ImportFromAnkiModal: React.FC<ImportFromAnkiModalProps> = ({
                 <p className="m-0 text-[12px] leading-snug text-gray-500">
                     Pulls the notes already in an Anki deck into <span className="font-semibold text-gray-700">{targetDeckName}</span>,
                     so you can study them here too. This is a one-time copy, not a live sync — editing a card
-                    afterwards here or in Anki doesn&apos;t affect the other.
+                    afterwards here or in Anki doesn&apos;t affect the other. Only plain-text fronts and backs
+                    are copied; Anki audio, images and scheduling are not imported.
                 </p>
 
                 {!useAnkiConnect ? (
