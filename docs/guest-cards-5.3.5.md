@@ -26,3 +26,8 @@ database. TypeScript, the guest-client checks and the extension build passed.
 An anonymous production request created a card with three examples, audio and a
 JPEG image in 23.2 seconds; its cached retry spent no additional credit. Nginx
 burst rejection (429 with Retry-After) and the 16 KB payload limit (413) were verified.
+
+Chrome Web Store: 5.3.5 uploaded and submitted on 2026-10-05, replacing the pending
+5.3.4 submission. Verified status: Pending review, with automatic publication after
+approval. English and Russian listings now describe guest images and limits.
+Archive SHA256: `8d02f7946b781754581737832df1989ea0f63ab4de891b5fbdb27bcd3fd7208b`.
