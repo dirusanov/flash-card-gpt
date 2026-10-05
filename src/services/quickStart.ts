@@ -23,6 +23,8 @@ export interface QuickState {
     detected: string | null;
     draft: StoredCard | null;
     saved: boolean;
+    includeImage: boolean;
+    imageNotice: string;
 }
 
 const STEPS: QuickStep[] = ['compose', 'result', 'review', 'done'];
@@ -30,6 +32,7 @@ const STEPS: QuickStep[] = ['compose', 'result', 'review', 'done'];
 export const emptyQuickState = (): QuickState => ({
     step: 'compose', text: '', sentence: '', pageLanguage: '', sourceUrl: '', sourceTitle: '',
     source: null, detected: null, draft: null, saved: false,
+    includeImage: true, imageNotice: '',
 });
 
 const isDraft = (value: unknown): value is StoredCard =>
@@ -55,6 +58,8 @@ export function loadQuickState(): QuickState {
             detected: typeof value.detected === 'string' ? value.detected : null,
             draft,
             saved: Boolean(value.saved && draft),
+            includeImage: value.includeImage !== false,
+            imageNotice: typeof value.imageNotice === 'string' ? value.imageNotice : '',
         };
     } catch {
         return base;
@@ -75,7 +80,7 @@ function installationId(): string {
     return id;
 }
 
-export interface TrialStatus { available: boolean; remaining: number; limit: number; }
+export interface TrialStatus { available: boolean; remaining: number; limit: number; imagesAvailable?: boolean; }
 
 export class TrialError extends Error {
     /** `detail` names the server and what it answered, for the error strip and the console. */
@@ -90,6 +95,7 @@ export class TrialError extends Error {
 
 // Two model passes plus a dictionary lookup; the server gives up at 75s.
 const REQUEST_TIMEOUT_MS = 90000;
+const STATUS_TIMEOUT_MS = 10000;
 
 const hostOf = (baseUrl: string): string => {
     try { return new URL(baseUrl).host; } catch { return baseUrl || '(empty URL)'; }
@@ -97,26 +103,31 @@ const hostOf = (baseUrl: string): string => {
 
 // Every failure surfaces at once, with the server and the reason, and is logged: a trial that
 // silently does nothing is worse than one that fails in the open.
-async function trialFetch(baseUrl: string, path: string, init: RequestInit = {}): Promise<any> {
+async function trialFetch(baseUrl: string, path: string, init: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<any> {
     const host = hostOf(baseUrl);
     const url = `${baseUrl.replace(/\/$/, '')}/trial/${path}`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const abort = () => controller.abort();
+    if (init.signal?.aborted) abort();
+    else init.signal?.addEventListener('abort', abort, { once: true });
+    const timeout = setTimeout(abort, timeoutMs);
     console.info(`[Vaulto trial] ${init.method || 'GET'} ${url}`);
     let response: Response;
+    let raw: string;
     try {
         response = await fetch(url, { ...init, credentials: 'omit', cache: 'no-store', signal: controller.signal });
+        raw = await response.text();
     } catch (error) {
         const aborted = error instanceof DOMException && error.name === 'AbortError';
         const reason = aborted
-            ? `no answer within ${REQUEST_TIMEOUT_MS / 1000}s`
+            ? `request cancelled or no answer within ${timeoutMs / 1000}s`
             : (error instanceof Error ? error.message : String(error));
         console.warn(`[Vaulto trial] ${url} failed: ${reason}`);
         throw new TrialError('network', `${host}: ${reason}`);
     } finally {
         clearTimeout(timeout);
+        init.signal?.removeEventListener('abort', abort);
     }
-    const raw = await response.text();
     let data: any = null;
     try { data = raw ? JSON.parse(raw) : null; } catch { /* not JSON: reported below */ }
     if (!response.ok || !data || typeof data !== 'object') {
@@ -129,17 +140,19 @@ async function trialFetch(baseUrl: string, path: string, init: RequestInit = {})
 }
 
 export async function getTrialStatus(baseUrl: string): Promise<TrialStatus> {
-    const data = await trialFetch(baseUrl, `status?installation_id=${encodeURIComponent(installationId())}`);
+    const data = await trialFetch(baseUrl, `status?installation_id=${encodeURIComponent(installationId())}`, {}, STATUS_TIMEOUT_MS);
     if (typeof data.available !== 'boolean' || !Number.isInteger(data.remaining) || !Number.isInteger(data.limit)) {
         throw new TrialError('bad_response', `${hostOf(baseUrl)} returned an unexpected status payload`);
     }
-    return data;
+    return { available: data.available, remaining: data.remaining, limit: data.limit,
+        imagesAvailable: data.available && data.images_available === true };
 }
 
 export interface TrialResult {
     card: StoredCard;
     sourceLanguage: string;
     remaining: number;
+    imageNotice: string;
 }
 
 const isText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
@@ -151,11 +164,13 @@ export interface TrialRequest {
     target: string;
     sentence?: string;
     pageLanguage?: string;
+    /** Set only after status advertises image support; older servers forbid extra fields. */
+    includeImage?: boolean;
 }
 
 const LANGUAGE_CODE = /^[a-z]{2,3}(-[A-Za-z]{2,8})?$/;
 
-export async function createTrialCard(baseUrl: string, request: TrialRequest): Promise<TrialResult> {
+export async function createTrialCard(baseUrl: string, request: TrialRequest, signal?: AbortSignal): Promise<TrialResult> {
     const sentence = (request.sentence || '').trim().slice(0, 600);
     const pageLanguage = (request.pageLanguage || '').trim();
     const input = {
@@ -165,6 +180,7 @@ export async function createTrialCard(baseUrl: string, request: TrialRequest): P
         ...(request.source ? { source_language: request.source } : {}),
         ...(sentence && sentence !== request.text.trim() ? { context: sentence } : {}),
         ...(LANGUAGE_CODE.test(pageLanguage) ? { page_language: pageLanguage } : {}),
+        ...(request.includeImage === true ? { include_image: true } : {}),
     };
     const fingerprint = JSON.stringify({ baseUrl, ...input });
     let pending: { fingerprint: string; id: string } | null = null;
@@ -178,7 +194,8 @@ export async function createTrialCard(baseUrl: string, request: TrialRequest): P
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...input, request_id: pending!.id }),
-        });
+            signal,
+        }, request.includeImage ? 165000 : REQUEST_TIMEOUT_MS);
         const card = data.card || {};
         const examples: Array<[string, string]> = Array.isArray(card.examples)
             ? card.examples
@@ -190,6 +207,8 @@ export async function createTrialCard(baseUrl: string, request: TrialRequest): P
             console.warn('[Vaulto trial] incomplete card payload', data);
             throw new TrialError('bad_response', `${hostOf(baseUrl)} returned an incomplete card`);
         }
+        const image = typeof card.image === 'string' && card.image.length <= 1200030
+            && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(card.image) ? card.image : null;
         return {
             card: {
                 id: crypto.randomUUID(),
@@ -202,11 +221,17 @@ export async function createTrialCard(baseUrl: string, request: TrialRequest): P
                 wordAudio: isText(card.word_audio) && card.word_audio.startsWith('data:audio') ? card.word_audio : null,
                 examples,
                 examplesAudio: examples.map(() => null),
+                image,
                 createdAt: new Date(),
                 exportStatus: 'not_exported',
             },
             sourceLanguage: card.source_language,
             remaining: data.remaining,
+            imageNotice: request.includeImage && !image
+                ? (card.image_status === 'unavailable'
+                    ? 'Images are currently unavailable in free cards. Your text card is ready to save.'
+                    : 'The image could not be created. Your text card is ready to save; you can try images with your own key in Settings.')
+                : '',
         };
     } catch (error) {
         // A timeout may have completed on the server. Keep the id until a definite

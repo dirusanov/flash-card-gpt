@@ -32,4 +32,5 @@ secrets.*.js
 
 # build artifacts
 /build.zip
+/build-*.zip
 .codex

@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from './store';
 import CreateCard from './components/CreateCard';
 import QuickStart from './components/QuickStart';
+import FeatureOverview from './components/FeatureOverview';
 import Settings from './components/Settings';
 import AuthScreen from './components/AuthScreen';
 import StoredCards from './components/StoredCards';
@@ -17,6 +18,7 @@ import { setCurrentTabId } from './store/actions/tabState';
 import { TabAwareProvider, useTabAware } from './components/TabAwareProvider';
 import { subscribeToPendingSelection } from './services/pendingSelection';
 import { recordDailyActivity } from './services/usageMetrics';
+import { isDue } from './services/srs';
 
 interface AppProps { tabId: number; }
 
@@ -88,6 +90,16 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
   const useAnkiConnect = useSelector((s: RootState) => s.settings.useAnkiConnect);
   const ankiConnectApiKey = useSelector((s: RootState) => s.settings.ankiConnectApiKey);
   const ankiConnectUrl = useSelector((s: RootState) => s.settings.ankiConnectUrl);
+  const [reviewTime, setReviewTime] = useState(() => new Date());
+  const dueCount = useMemo(
+    () => tabAware.storedCards.filter((card) => isDue(card.srsState, reviewTime)).length,
+    [tabAware.storedCards, reviewTime],
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => setReviewTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const handleWindowError = (event: ErrorEvent) => {
@@ -208,9 +220,13 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
       default:
         return (
           <div style={cardContentStyle}>
-            <CreateCardErrorBoundary>
-              {hasOwnKey ? <CreateCard /> : <QuickStart />}
-            </CreateCardErrorBoundary>
+            <FeatureOverview hasOwnKey={hasOwnKey} signedIn={isLoggedIn}
+              disabled={tabAware.isGeneratingCard} onNavigate={handlePageChange} />
+            <div className="min-h-0 flex-1">
+              <CreateCardErrorBoundary>
+                {hasOwnKey ? <CreateCard /> : <QuickStart />}
+              </CreateCardErrorBoundary>
+            </div>
           </div>
         );
     }
@@ -240,6 +256,7 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
               onClick={() => handlePageChange(page)}
               disabled={locked}
               aria-current={active ? 'page' : undefined}
+              aria-label={page === 'storedCards' && dueCount > 0 ? `Cards, ${dueCount} ready to review` : label}
               className={[
                 'flex flex-1 flex-col items-center justify-center gap-0.5 rounded-card border px-2 py-2 text-[11px]',
                 'transition-colors duration-150',
@@ -249,9 +266,16 @@ const AppContent: React.FC<{ tabId: number }> = ({ tabId }) => {
                   ? 'border-accent-border bg-accent-subtle font-semibold text-accent'
                   : 'border-line bg-surface-muted font-medium text-gray-500 hover:bg-surface-sunken',
               ].join(' ')}
-              title={title}
+              title={page === 'storedCards' && dueCount > 0 ? `${dueCount} ${dueCount === 1 ? 'card' : 'cards'} ready to review` : title}
             >
-              {icon}
+              <span className="flex items-center gap-1">
+                {icon}
+                {page === 'storedCards' && dueCount > 0 && (
+                  <span aria-hidden="true" className="rounded-full bg-accent px-1.5 text-[10px] font-semibold leading-4 text-white">
+                    {dueCount > 99 ? '99+' : dueCount}
+                  </span>
+                )}
+              </span>
               <span>{label}</span>
             </button>
           );

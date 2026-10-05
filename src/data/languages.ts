@@ -50,6 +50,20 @@ export const ALL_LANGUAGES: LanguageOption[] = [
 export const findLanguage = (code: string | null | undefined): LanguageOption | null =>
     code ? ALL_LANGUAGES.find((lang) => lang.code === code) || null : null;
 
+/** Used only for fresh settings; a saved choice still wins during hydration. */
+export const getDefaultTranslationLanguage = (
+    locales: readonly string[] = typeof navigator !== 'undefined'
+        ? (navigator.languages?.length ? navigator.languages : [navigator.language])
+        : ['en'],
+): string => {
+    for (const locale of locales) {
+        const base = locale.toLowerCase().split(/[-_]/)[0];
+        const code = ({ nb: 'no', nn: 'no', iw: 'he', in: 'id' } as Record<string, string>)[base] || base;
+        if (findLanguage(code)) return code;
+    }
+    return 'en';
+};
+
 export const filterLanguages = (search: string): LanguageOption[] => {
     const query = search.trim().toLowerCase();
     if (!query) return ALL_LANGUAGES;

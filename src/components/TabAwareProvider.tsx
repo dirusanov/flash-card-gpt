@@ -294,7 +294,9 @@ export const TabAwareProvider: React.FC<TabAwareProviderProps> = ({ tabId, child
                 }
             },
             setIsGeneratingCard: (isGenerating: boolean) => {
-                if (isSameValue('isGeneratingCard', isGenerating)) return;
+                // An async generator retains this dispatcher from before it started.
+                // Comparing with that render's flag would drop its final `false` and
+                // leave Cards, Login and Settings locked after a successful generation.
                 if (tabState) {
                     dispatch(setTabIsGeneratingCard(tabId, isGenerating));
                 } else {

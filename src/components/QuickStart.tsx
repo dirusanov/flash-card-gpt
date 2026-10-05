@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { FaCheck, FaKey, FaMagic } from 'react-icons/fa';
+import { FaCheck, FaKey, FaMagic, FaImage, FaVolumeUp } from 'react-icons/fa';
 import { RootState } from '../store';
 import { setTranslateToLanguage } from '../store/actions/settings';
 import { useTabAware } from './TabAwareProvider';
@@ -58,13 +58,17 @@ const QuickStart: React.FC = () => {
     const [state, setState] = useState<QuickState>(loadQuickState);
     const stateRef = useRef(state);
     const [status, setStatus] = useState<TrialStatus | null>(null);
+    const [statusAttempt, setStatusAttempt] = useState(0);
     const [busy, setBusy] = useState(false);
     const busyRef = useRef(false);
     const [elapsed, setElapsed] = useState(0);
     const cancelledRef = useRef(false);
+    const requestRef = useRef<AbortController | null>(null);
     const [error, setError] = useState('');
     const [editing, setEditing] = useState(false);
-    const [flipped, setFlipped] = useState(false);
+    // A generated draft is a preview: show what was created, including its image.
+    // The first review still starts on the question side after Save.
+    const [flipped, setFlipped] = useState(state.step === 'result');
     const shownAt = useRef(Date.now());
 
     const update = (patch: Partial<QuickState>) => {
@@ -78,6 +82,8 @@ const QuickStart: React.FC = () => {
     // has the trial switched off, that is said up front, not after the first Create.
     useEffect(() => {
         let active = true;
+        setStatus(null);
+        setError('');
         getTrialStatus(syncApiUrl)
             .then((value) => {
                 if (!active) return;
@@ -92,7 +98,12 @@ const QuickStart: React.FC = () => {
                 setError(trialErrorMessage(e));
             });
         return () => { active = false; };
-    }, [syncApiUrl]);
+    }, [syncApiUrl, statusAttempt]);
+
+    useEffect(() => () => {
+        cancelledRef.current = true;
+        requestRef.current?.abort();
+    }, []);
 
     // Every new selection on the page replaces the word in the composer, as on the full
     // screen. Only a generation in progress ignores it. An unsaved draft is kept behind
@@ -144,12 +155,14 @@ const QuickStart: React.FC = () => {
 
     const detected = state.source ? null : (state.detected || detectLanguageOffline(state.text));
     const exhausted = Boolean(status?.available && status.remaining === 0);
-    const canCreate = !busy && state.text.trim() !== '' && !exhausted;
+    const canCreate = !busy && state.text.trim() !== '' && status?.available === true && !exhausted;
 
     const generate = async () => {
-        if (busyRef.current || !stateRef.current.text.trim()) return;
+        if (busyRef.current || !stateRef.current.text.trim() || status?.available !== true || exhausted) return;
         busyRef.current = true;
         cancelledRef.current = false;
+        const controller = new AbortController();
+        requestRef.current = controller;
         setBusy(true);
         setError('');
         tab.setIsGeneratingCard(true);
@@ -158,9 +171,9 @@ const QuickStart: React.FC = () => {
             const result = await createTrialCard(syncApiUrl, {
                 text: current.text, source: current.source, target,
                 sentence: current.sentence, pageLanguage: current.pageLanguage,
-            });
-            // After a cancel the card still lands, as an "unsaved card" strip rather than a
-            // sheet opening on its own: the attempt was already spent, so it is kept.
+                includeImage: status.imagesAvailable === true && current.includeImage,
+            }, controller.signal);
+            if (cancelledRef.current) return;
             // The card remembers where the word was met: the sentence that fixed its
             // meaning and the page to go back to. Both are '' for a word typed by hand.
             const draft = {
@@ -169,16 +182,19 @@ const QuickStart: React.FC = () => {
                 sourceUrl: current.sourceUrl || null,
                 sourceTitle: current.sourceTitle || null,
             };
-            update({ draft, detected: result.sourceLanguage, saved: false,
-                step: cancelledRef.current ? 'compose' : 'result' });
+            update({ draft, detected: result.sourceLanguage, saved: false, imageNotice: result.imageNotice,
+                step: 'result' });
             setEditing(false);
-            setStatus((prev) => ({ available: true, remaining: result.remaining, limit: prev?.limit || result.remaining }));
+            setFlipped(true);
+            setStatus((prev) => ({ ...prev, available: true, remaining: result.remaining, limit: prev?.limit || result.remaining }));
         } catch (e) {
+            if (cancelledRef.current) return;
             setError(trialErrorMessage(e));
             if (e instanceof Error && (e as { code?: string }).code === 'trial_exhausted') {
-                setStatus((prev) => ({ available: true, limit: prev?.limit || 0, remaining: 0 }));
+                setStatus((prev) => ({ ...prev, available: true, limit: prev?.limit || 0, remaining: 0 }));
             }
         } finally {
+            requestRef.current = null;
             busyRef.current = false;
             setBusy(false);
             tab.setIsGeneratingCard(false);
@@ -189,9 +205,9 @@ const QuickStart: React.FC = () => {
     // same request id, so the next Create for this text picks it up without a new attempt.
     const cancel = () => {
         cancelledRef.current = true;
-        busyRef.current = false;
-        setBusy(false);
-        tab.setIsGeneratingCard(false);
+        // Abort the client wait before another request can begin. A late response must
+        // never replace the next word's draft; the service keeps the retry request id.
+        requestRef.current?.abort();
     };
 
     const useSelection = async () => {
@@ -267,7 +283,7 @@ const QuickStart: React.FC = () => {
 
     const startOver = () => {
         setError('');
-        update({ step: 'compose', text: '', detected: null, draft: null, saved: false });
+        update({ step: 'compose', text: '', ...NO_ORIGIN, detected: null, draft: null, saved: false, imageNotice: '' });
     };
 
     const draft = state.draft;
@@ -336,8 +352,39 @@ const QuickStart: React.FC = () => {
                 </p>
             )}
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden px-3 pb-2 pt-2">
+            {status && !status.available && !busy && (
+                <div className="mx-3 mt-2 flex gap-2">
+                    <Button size="sm" onClick={() => setStatusAttempt((attempt) => attempt + 1)}>
+                        Try connection again
+                    </Button>
+                    <Button size="sm" onClick={() => tab.setCurrentPage('settings')}>
+                        Use your own key
+                    </Button>
+                </div>
+            )}
+
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-3 pb-2 pt-2">
                 <div className="mx-auto flex min-h-0 w-full max-w-[340px] flex-1 flex-col gap-2">
+                    {!busy && !state.text.trim() && !draft && tab.storedCards.length === 0 && (
+                        <div className="shrink-0 py-1">
+                            <h1 className="m-0 text-lg font-bold text-gray-900">Make your first vocabulary card</h1>
+                            <p className="m-0 mt-1 text-xs leading-relaxed text-gray-500">
+                                Pick a word. Get a translation and examples, then save it and try a review.
+                                No account or API key needed for your free cards.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const text = target === 'en' ? 'sobremesa' : 'resilience';
+                                    update({ text, ...NO_ORIGIN, source: null, detected: target === 'en' ? 'es' : 'en' });
+                                }}
+                                className="mt-2 rounded-full border border-accent-border bg-accent-subtle px-3 py-1 text-xs font-medium text-accent hover:bg-accent-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            >
+                                Try “{target === 'en' ? 'sobremesa' : 'resilience'}”
+                            </button>
+                        </div>
+                    )}
+                    <div className="shrink-0">
                     <LanguagePairBar
                         sourceCode={state.source}
                         detectedCode={detected}
@@ -346,12 +393,13 @@ const QuickStart: React.FC = () => {
                         targetCode={target}
                         onTargetChange={(code) => dispatch(setTranslateToLanguage(code))}
                     />
+                    </div>
 
                     {busy ? (
                         <CardGenerationLoader
                             target={state.text}
-                            title="Translating and writing an example"
-                            subtitle="Usually takes a few seconds"
+                            title={status?.imagesAvailable && state.includeImage ? 'Creating your card and image' : 'Translating and writing examples'}
+                            subtitle={status?.imagesAvailable && state.includeImage ? 'Images can take a little longer. You can cancel waiting.' : 'Usually takes a few seconds'}
                             completed={0}
                             total={0}
                             elapsed={`${Math.floor(elapsed / 1000)}s`}
@@ -359,6 +407,7 @@ const QuickStart: React.FC = () => {
                         />
                     ) : (
                         <CardFrontInput
+                            compact
                             autoFocus
                             value={state.text}
                             onChange={(value) => update({
@@ -371,6 +420,31 @@ const QuickStart: React.FC = () => {
                             }}
                             placeholder="Type a word or phrase — or select one on the page"
                         />
+                    )}
+
+                    {!busy && (
+                        <div className="shrink-0 rounded-card border border-line bg-surface-muted px-3 py-2 text-xs">
+                            <div className="flex flex-wrap items-center gap-3">
+                                <label className="inline-flex items-center gap-1.5 text-gray-700">
+                                    <input type="checkbox" checked={Boolean(status?.imagesAvailable && state.includeImage)}
+                                        disabled={!status?.imagesAvailable}
+                                        onChange={(event) => update({ includeImage: event.target.checked })} />
+                                    <FaImage aria-hidden="true" size={11} /> Image
+                                </label>
+                                <span className="inline-flex items-center gap-1.5 text-gray-600"><FaVolumeUp aria-hidden="true" size={11} /> Word + example audio</span>
+                            </div>
+                            <p className="m-0 mt-1.5 text-[11px] leading-snug text-gray-500">
+                                {!status ? 'Checking image availability…' : status.imagesAvailable
+                                    ? (state.includeImage ? 'An image will be requested for this card. Turn it off for a faster card.' : 'Images are off for this card. Audio is available through the speaker buttons.')
+                                    : 'Free cards currently have no images. Add your own key to use Image → Every card.'}
+                            </p>
+                            {status && !status.imagesAvailable && (
+                                <button type="button" onClick={() => tab.setCurrentPage('settings')}
+                                    className="mt-1 rounded-control py-1 text-[11px] font-semibold text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                                    Set up images
+                                </button>
+                            )}
+                        </div>
                     )}
 
                     {!busy && !state.text.trim() && (
@@ -387,7 +461,7 @@ const QuickStart: React.FC = () => {
                     {!busy && draft && !state.saved && state.step === 'compose' && (
                         <button
                             type="button"
-                            onClick={() => update({ step: 'result' })}
+                            onClick={() => { setFlipped(true); update({ step: 'result' }); }}
                             className="flex shrink-0 items-center justify-between rounded-card border border-accent-border bg-accent-subtle px-3 py-2 text-left text-xs text-accent hover:bg-accent-border/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
                             <span className="min-w-0 truncate font-medium">Unsaved card: “{draft.text}”</span>
@@ -458,12 +532,17 @@ const QuickStart: React.FC = () => {
                         </div>
                     )}
                 >
+                    {state.step === 'result' && state.imageNotice && (
+                        <p role="status" className="mx-3 mt-3 mb-0 rounded-card border border-warn-border bg-warn-subtle px-3 py-2 text-xs text-warn-strong">
+                            {state.imageNotice}
+                        </p>
+                    )}
                     <StudyCard
                         card={draft}
                         resetKey={`${draft.id}-${state.step}`}
                         editable={state.step === 'result' && editing}
-                        flipped={state.step === 'review' ? flipped : undefined}
-                        onFlippedChange={state.step === 'review' ? setFlipped : undefined}
+                        flipped={flipped}
+                        onFlippedChange={setFlipped}
                         onWordChange={(value) => update({ draft: { ...draft, text: value, front: value } })}
                         onTranslationChange={(value) => update({ draft: { ...draft, translation: value } })}
                         onExamplesChange={(examples) => update({ draft: { ...draft, examples } })}

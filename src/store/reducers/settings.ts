@@ -27,6 +27,7 @@ import {
     HYDRATE_SETTINGS
 } from "../actions/settings";
 import { Modes } from "../../constants";
+import { getDefaultTranslationLanguage } from '../../data/languages';
 import {
     DEFAULT_TRANSCRIPTION_LANGUAGE,
     DEFAULT_TRANSCRIPTION_MODE,
@@ -73,7 +74,7 @@ interface SettingsState {
 const initialState: SettingsState = {
     openAiKey: '',
     mode: Modes.LanguageLearning,
-    translateToLanguage: 'ru',
+    translateToLanguage: getDefaultTranslationLanguage(),
     ankiConnectUrl: 'http://127.0.0.1:8765',
     ankiConnectApiKey: null,
     useAnkiConnect: false,

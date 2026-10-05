@@ -169,6 +169,11 @@ const GenerationChips: React.FC<GenerationChipsProps> = ({
             disabled={!hasOpenAiKey}
             lastOnMode={audioOnMode}
         />
+        {hasOpenAiKey && imageMode === 'smart' && (
+            <p className="m-0 w-full text-center text-[11px] leading-snug text-gray-500">
+                Smart skips abstract words. Choose Image → Every card to request an image each time.
+            </p>
+        )}
     </div>
 );
 

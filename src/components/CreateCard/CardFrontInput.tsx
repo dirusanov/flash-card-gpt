@@ -9,6 +9,8 @@ interface CardFrontInputProps {
     autoFocus?: boolean;
     /** Small caption in the study card's "Tap to reveal answer" position. */
     hint?: string;
+    /** Leave room for first-run guidance and generation options in a short panel. */
+    compact?: boolean;
 }
 
 /**
@@ -29,6 +31,7 @@ const CardFrontInput: React.FC<CardFrontInputProps> = ({
     placeholder,
     autoFocus,
     hint = 'The back is generated for you',
+    compact = false,
 }) => {
     const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -46,7 +49,7 @@ const CardFrontInput: React.FC<CardFrontInputProps> = ({
     // deliberately well under the resting size: a hard 340px minimum overflowed a short
     // panel by a few pixels and put a scrollbar on the column.
     return (
-        <div className="flex min-h-[240px] flex-1 overflow-y-auto rounded-sheet border border-line bg-white shadow-card transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20">
+        <div className={`${compact ? 'min-h-[120px]' : 'min-h-[240px]'} flex flex-1 overflow-y-auto rounded-sheet border border-line bg-white shadow-card transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20`}>
             {/* `m-auto` centres the content while there is room and stops when there is
                 not — justify-center would clip the top once the word wraps. */}
             <div className="m-auto flex w-full flex-col items-center gap-3 p-5">

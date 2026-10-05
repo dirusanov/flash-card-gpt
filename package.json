@@ -1,7 +1,7 @@
 {
   "name": "vaulto-cards-extension",
-  "version": "5.3.2",
-  "description": "Turn any highlighted text into a finished Anki flashcard — AI adds translation, example and image. Syncs via AnkiConnect.",
+  "version": "5.3.4",
+  "description": "Learn vocabulary from web pages with AI flashcards. Get translation and examples, review in your browser, or export to Anki.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -29,7 +29,8 @@
     "test:example-quality": "node utils/test-ai-cards/test-example-quality.js",
     "test:transcription-policy": "node utils/test-ai-cards/test-transcription-policy.js",
     "test:example-transcriptions": "node utils/test-ai-cards/test-example-transcriptions.js",
-    "test:anki": "node utils/test-anki/run.js"
+    "test:anki": "node utils/test-anki/run.js",
+    "test:quick-start": "node utils/test-quick-start/run.js"
   },
   "dependencies": {
     "@types/katex": "^0.16.7",
