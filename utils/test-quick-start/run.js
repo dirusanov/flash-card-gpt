@@ -21,7 +21,7 @@ global.localStorage = {
 const { getDefaultTranslationLanguage } = require('../../src/data/languages.ts');
 const { settingsReducer } = require('../../src/store/reducers/settings.ts');
 const { hydrateSettings } = require('../../src/store/actions/settings.ts');
-const { createTrialCard, getTrialStatus, TrialError, loadQuickState, saveQuickState, emptyQuickState } = require('../../src/services/quickStart.ts');
+const { createTrialCard, getTrialStatus, TrialError, trialErrorMessage, loadQuickState, saveQuickState, emptyQuickState } = require('../../src/services/quickStart.ts');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const { Provider } = require('react-redux');
@@ -151,6 +151,21 @@ const response = (body, status = 200) => new Response(JSON.stringify(body), { st
 
     global.fetch = async () => response({ detail: { code: 'trial_exhausted' } }, 429);
     await assert.rejects(createTrialCard(endpoint, request), (error) => error instanceof TrialError && error.code === 'trial_exhausted');
+    let limitedRequest;
+    global.fetch = async (_url, options) => {
+      limitedRequest = JSON.parse(options.body);
+      return new Response(JSON.stringify({ detail: { code: 'trial_rate_limited' } }), { status: 429, headers: { 'Retry-After': '60' } });
+    };
+    await assert.rejects(createTrialCard(endpoint, request), (error) => {
+      assert.equal(error.retryAfter, 60);
+      assert.match(trialErrorMessage(error), /wait a moment/);
+      return error instanceof TrialError && error.code === 'trial_rate_limited';
+    });
+    global.fetch = async (_url, options) => {
+      assert.equal(JSON.parse(options.body).request_id, limitedRequest.request_id, 'admission failure must not replace the retry ID');
+      return response(validCard);
+    };
+    await createTrialCard(endpoint, request);
     console.log('PASS: navigation, languages, deadlines, abort/retry credits, legacy server compatibility, image capability, image persistence and graceful failure');
   } finally {
     global.fetch = originalFetch;

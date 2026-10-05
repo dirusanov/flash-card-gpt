@@ -7,7 +7,7 @@ import { useTabAware } from './TabAwareProvider';
 import { findLanguage } from '../data/languages';
 import { detectLanguageOffline } from '../services/languageDetection';
 import {
-    QuickState, TrialStatus, createTrialAudio, createTrialCard, getTrialStatus, loadQuickState,
+    QuickState, TrialError, TrialStatus, createTrialAudio, createTrialCard, getTrialStatus, loadQuickState,
     saveQuickState, trialErrorMessage,
 } from '../services/quickStart';
 import { consumePendingSelection, subscribeToPendingSelection } from '../services/pendingSelection';
@@ -65,6 +65,7 @@ const QuickStart: React.FC = () => {
     const cancelledRef = useRef(false);
     const requestRef = useRef<AbortController | null>(null);
     const [error, setError] = useState('');
+    const [retrySeconds, setRetrySeconds] = useState(0);
     const [editing, setEditing] = useState(false);
     // A generated draft is a preview: show what was created, including its image.
     // The first review still starts on the question side after Save.
@@ -153,12 +154,19 @@ const QuickStart: React.FC = () => {
         return () => clearInterval(timer);
     }, [busy]);
 
+    const waitingToRetry = retrySeconds > 0;
+    useEffect(() => {
+        if (!waitingToRetry) return;
+        const timer = setInterval(() => setRetrySeconds((seconds) => Math.max(0, seconds - 1)), 1000);
+        return () => clearInterval(timer);
+    }, [waitingToRetry]);
+
     const detected = state.source ? null : (state.detected || detectLanguageOffline(state.text));
     const exhausted = Boolean(status?.available && status.remaining === 0);
-    const canCreate = !busy && state.text.trim() !== '' && status?.available === true && !exhausted;
+    const canCreate = !busy && !waitingToRetry && state.text.trim() !== '' && status?.available === true && !exhausted;
 
     const generate = async () => {
-        if (busyRef.current || !stateRef.current.text.trim() || status?.available !== true || exhausted) return;
+        if (busyRef.current || waitingToRetry || !stateRef.current.text.trim() || status?.available !== true || exhausted) return;
         busyRef.current = true;
         cancelledRef.current = false;
         const controller = new AbortController();
@@ -190,6 +198,7 @@ const QuickStart: React.FC = () => {
         } catch (e) {
             if (cancelledRef.current) return;
             setError(trialErrorMessage(e));
+            if (e instanceof TrialError && e.retryAfter > 0) setRetrySeconds(e.retryAfter);
             if (e instanceof Error && (e as { code?: string }).code === 'trial_exhausted') {
                 setStatus((prev) => ({ ...prev, available: true, limit: prev?.limit || 0, remaining: 0 }));
             }
@@ -369,7 +378,7 @@ const QuickStart: React.FC = () => {
                         <div className="shrink-0 py-1">
                             <h1 className="m-0 text-lg font-bold text-gray-900">Make your first vocabulary card</h1>
                             <p className="m-0 mt-1 text-xs leading-relaxed text-gray-500">
-                                Pick a word. Get a translation and examples, then save it and try a review.
+                                Pick a word. Get a translation, examples and an image, then save it and try a review.
                                 No account or API key needed for your free cards.
                             </p>
                             <button
@@ -474,7 +483,9 @@ const QuickStart: React.FC = () => {
             <div className="shrink-0 border-t border-line bg-white px-3 py-2.5">
                 <div className="mx-auto flex w-full max-w-[340px] flex-col gap-1.5">
                     <Button variant="primary" size="lg" fullWidth disabled={!canCreate} onClick={() => void generate()}>
-                        {busy ? 'Creating…' : 'Create card'}
+                        {busy ? 'Creating…' : waitingToRetry
+                            ? `Try again in ${retrySeconds >= 3600 ? `${Math.ceil(retrySeconds / 3600)}h` : retrySeconds >= 60 ? `${Math.ceil(retrySeconds / 60)}m` : `${retrySeconds}s`}`
+                            : 'Create card'}
                     </Button>
                     <div className="flex items-center justify-between text-[11px] text-gray-500">
                         <span>{remainingLine ?? (status ? 'Free cards unavailable' : 'Checking free cards…')}</span>

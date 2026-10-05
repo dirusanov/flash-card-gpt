@@ -3,7 +3,7 @@ Remember the words you meet while reading.
 Vaulto turns a selected word or phrase on a web page into a vocabulary flashcard with a translation and usage examples. Save it, practise recalling it in your browser, or export it to Anki.
 
 START WITH A FREE CARD
-You can try limited free AI generation without an account or an API key. The welcome page includes a sample word, and the composer shows your remaining allowance. Free generation requires an internet connection and server availability.
+Create free vocabulary cards with a translation, usage examples, word audio and an optional AI image without an account or an API key. The welcome page includes a sample word, and the composer shows your remaining allowance. Free generation has attempt, network and daily service limits and requires an internet connection and server availability. Saved cards and review work locally without signing in.
 
 HOW IT WORKS
 1. Highlight a word or phrase on a web page.
@@ -22,7 +22,7 @@ OPTIONAL ANKI EXPORT
 Export directly to Anki Desktop using AnkiConnect. This requires Anki Desktop to be running and the AnkiConnect add-on to be installed and configured. You can also export cards to a file.
 
 OPTIONAL ACCOUNT AND AI KEY
-Sign in to sync saved cards with Vaulto across devices. Add your own OpenAI API key to continue beyond the free allowance and use advanced generation, including images. API usage with your own key is billed separately by the provider.
+Sign in to sync saved cards with Vaulto across devices. Add your own OpenAI API key to continue beyond the free allowance and use advanced generation settings. API usage with your own key is billed separately by the provider.
 
 SUPPORTED CONTENT
 Vaulto is currently designed for language vocabulary: words and phrases, rather than general exam-question generation. Direct selection in Chrome's built-in PDF viewer, browser/system pages and some restricted pages is not supported. You can paste a word or phrase into the composer instead.

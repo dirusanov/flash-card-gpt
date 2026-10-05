@@ -84,7 +84,7 @@ export interface TrialStatus { available: boolean; remaining: number; limit: num
 
 export class TrialError extends Error {
     /** `detail` names the server and what it answered, for the error strip and the console. */
-    constructor(public code: string, public detail: string) {
+    constructor(public code: string, public detail: string, public retryAfter = 0) {
         super(`${code}: ${detail}`);
         // The ES5 build drops the subclass prototype when extending Error; without this
         // `instanceof TrialError` is always false.
@@ -134,7 +134,8 @@ async function trialFetch(baseUrl: string, path: string, init: RequestInit = {},
         const code = data?.detail?.code || (response.status === 429 ? 'trial_busy' : 'http_error');
         const detail = `${host} answered ${response.status}${data?.detail?.code ? ` ${data.detail.code}` : ''}`;
         console.warn(`[Vaulto trial] ${url}: ${detail}`, raw.slice(0, 200));
-        throw new TrialError(code, detail);
+        const retryAfter = Number(response.headers?.get('Retry-After') || 0);
+        throw new TrialError(code, detail, Number.isFinite(retryAfter) ? Math.min(86400, Math.max(0, Math.ceil(retryAfter))) : 0);
     }
     return data;
 }
@@ -251,7 +252,11 @@ export const trialErrorMessage = (error: unknown): string => {
         case 'trial_exhausted':
             return 'Your free cards are used up. Add your own OpenAI key in Settings to keep creating.';
         case 'trial_busy':
-            return `Free card creation is busy right now (${error.detail}). Please try again a little later.`;
+            return 'A few free cards are being created right now. Please try again shortly; your allowance has not been used.';
+        case 'trial_rate_limited':
+            return 'Please wait a moment before creating another free card. Your allowance has not been used.';
+        case 'trial_daily_limit':
+            return 'The daily free allowance is used up. Come back tomorrow, or add your own OpenAI key in Settings.';
         case 'request_pending':
             return 'Your card is still being built. Press Create again in a moment to pick it up.';
         case 'generation_failed':
