@@ -1,0 +1,25 @@
+{
+  "version": "5.3.7",
+  "bytes": 1760201,
+  "sha256": "a83a98890cdf0cd3c743d5dbd1837bd24edf1ba4e8b24e631c9428d6352ab40d",
+  "typescript": "passed",
+  "build": "passed",
+  "server_tests_passed": 112,
+  "extension_suites": [
+    "linguistic-validator",
+    "translation-quality",
+    "example-quality",
+    "transcription-policy",
+    "example-transcriptions",
+    "speech-quality",
+    "quick-start",
+    "anki"
+  ],
+  "reviewed_sample_cards": 12,
+  "images_visually_reviewed": 6,
+  "validated_audio_files": 12,
+  "production_public_smoke": "passed",
+  "store_published": false,
+  "server_tests_context": "The full 112-test working-tree run included 15 pre-existing authenticated-quota tests excluded from this change.",
+  "staged_backend_pipeline_tests_passed": 52
+}

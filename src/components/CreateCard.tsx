@@ -1277,7 +1277,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         mode: transcriptionMode,
                         language: transcriptionLanguage,
                         extraLanguages: transcriptionExtraLanguages,
-                    }
+                    },
+                    originFieldsFor(text).sentence
                 );
 
                 if (result.translation?.translated) {
@@ -2265,7 +2266,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     mode: transcriptionMode,
                     language: transcriptionLanguage,
                     extraLanguages: transcriptionExtraLanguages,
-                }
+                },
+                originFieldsFor(currentText).sentence
             );
 
             const duration = Date.now() - startTime;
@@ -2902,7 +2904,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                                 mode: transcriptionMode,
                                 language: transcriptionLanguage,
                                 extraLanguages: transcriptionExtraLanguages,
-                            }
+                            },
+                            originFieldsFor(option).sentence
                         );
 
                         // Check if cancelled after parallel calls

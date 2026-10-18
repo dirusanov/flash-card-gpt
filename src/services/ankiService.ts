@@ -1,3 +1,4 @@
+import { audioFileExtension } from './speechQuality';
 import { Modes } from '../constants';
 import { backgroundFetch } from './backgroundFetch';
 
@@ -722,7 +723,7 @@ export const createAnkiCards = async (
                 const rawAudioBase64 = extractRawBase64(langCard.word_audio_base64);
                 let audioTag = '';
                 if (rawAudioBase64) {
-                    const filename = `${sanitizeForFilename(langCard.text)}_${Date.now()}_${index}.mp3`;
+                    const filename = `${sanitizeForFilename(langCard.text)}_${Date.now()}_${index}.${audioFileExtension(langCard.word_audio_base64)}`;
                     await storeMediaFile(ankiConnectUrl, ankiConnectApiKey, filename, rawAudioBase64);
                     audioTag = `[sound:${filename}]`;
                 }
@@ -734,7 +735,7 @@ export const createAnkiCards = async (
                         exampleAudioTags.push(null);
                         continue;
                     }
-                    const filename = `${sanitizeForFilename(langCard.text)}_ex_${exampleIndex}_${Date.now()}_${index}.mp3`;
+                    const filename = `${sanitizeForFilename(langCard.text)}_ex_${exampleIndex}_${Date.now()}_${index}.${audioFileExtension(examplesAudio[exampleIndex])}`;
                     await storeMediaFile(ankiConnectUrl, ankiConnectApiKey, filename, rawExampleAudio);
                     exampleAudioTags.push(`[sound:${filename}]`);
                 }

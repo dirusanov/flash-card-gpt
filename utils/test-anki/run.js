@@ -102,6 +102,24 @@ const reset = (handler) => {
         if (request.action === 'addNotes') return { result: [104] };
         return { result: null };
     });
+    reset((request) => {
+        if (request.action === 'modelNames' || request.action === 'findNotes') return { result: [] };
+        if (request.action === 'addNotes') return { result: [107] };
+        return { result: null };
+    });
+    await send([card('audio formats', {
+        word_audio_base64: 'data:audio/wav;base64,dGVzdA==',
+        examples_audio_base64: ['data:audio/mp3;base64,dGVzdA==', 'data:audio/wav;base64,dGVzdA=='],
+    })]);
+    const audioMedia = calls.filter(request => request.action === 'storeMediaFile');
+    assert.match(audioMedia[0].params.filename, /\.wav$/);
+    assert.match(audioMedia[1].params.filename, /\.mp3$/);
+    assert.match(audioMedia[2].params.filename, /\.wav$/);
+    reset((request) => {
+        if (request.action === 'modelNames' || request.action === 'findNotes') return { result: [] };
+        if (request.action === 'addNotes') return { result: [104] };
+        return { result: null };
+    });
     const sentence = 'She showed resilience after the setback.';
     assert.deepEqual(await send([card('resilience', { sentence, source_url: 'https://example.com', source_title: 'Example' })], 'Vaulto QA Connect', { clozeFromSentence: true }), [104]);
     const addCalls = calls.filter((request) => request.action === 'addNotes');

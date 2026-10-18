@@ -3,11 +3,12 @@ export enum Modes {
     GeneralTopic = 'general-topic',
 }
 
-export const OPENAI_TEXT_MODEL = 'gpt-5.4-nano';
+export const OPENAI_TEXT_MODEL = 'gpt-5.4-mini';
 // Used for quality-critical generation/revision/validation passes. The fast model still
 // handles ordinary first drafts; the accurate model is reserved for linguistic judgments
 // such as morphology, translation coverage, bilingual examples, and phonetic validation.
-export const OPENAI_TEXT_MODEL_ACCURATE = 'gpt-5.4-mini';
+export const OPENAI_TEXT_MODEL_ACCURATE = 'gpt-4.1';
+export const OPENAI_TEXT_MODEL_FLUENCY = 'gpt-5.4';
 export const OPENAI_IMAGE_MODEL = 'gpt-image-2';
 export const OPENAI_IMAGE_FALLBACK_MODEL = 'gpt-image-1.5';
 // Current API response for gpt-image-* accepts 1024x1024 as the smallest square size.

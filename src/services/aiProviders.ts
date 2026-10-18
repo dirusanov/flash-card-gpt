@@ -342,6 +342,7 @@ export interface AIProviderInterface {
       subtitle?: string;
       icon?: string;
       color?: string;
+      jsonSchema?: Record<string, unknown>;
     },
     model?: string
   ) => Promise<{content: string} | null>;
@@ -1475,6 +1476,7 @@ export class OpenAIProvider extends BaseAIProvider {
       subtitle?: string;
       icon?: string;
       color?: string;
+      jsonSchema?: Record<string, unknown>;
     },
     model?: string
   ): Promise<{content: string} | null> {
@@ -1509,6 +1511,9 @@ export class OpenAIProvider extends BaseAIProvider {
             body: JSON.stringify({
               model: model || this.modelName,
               messages: formattedMessages,
+              ...(trackingInfo?.jsonSchema ? { response_format: { type: 'json_schema', json_schema: {
+                name: 'quality_audit', strict: true, schema: trackingInfo.jsonSchema,
+              } } } : {}),
             }),
           },
           requestSignal,

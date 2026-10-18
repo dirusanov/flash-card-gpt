@@ -203,7 +203,7 @@ const createMockService = (initialExamples, responses) => {
     corrected.map((example) => [example.original, example.translated]),
     [null],
   );
-  const preserved = await createExamples(
+  await assert.rejects(() => createExamples(
     safeUnavailable.service,
     'test-key',
     '你好',
@@ -211,8 +211,8 @@ const createMockService = (initialExamples, responses) => {
     true,
     '',
     'zh',
-  );
-  assert.deepStrictEqual(preserved, corrected);
+  ), /could not be verified/);
+
 
   const properNameExamples = [
     ['「山猫」という店で昼ご飯を食べました。', 'I had lunch at the restaurant 山猫.'],

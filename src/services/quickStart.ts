@@ -84,7 +84,8 @@ export interface TrialStatus { available: boolean; remaining: number; limit: num
 
 export class TrialError extends Error {
     /** `detail` names the server and what it answered, for the error strip and the console. */
-    constructor(public code: string, public detail: string, public retryAfter = 0) {
+    constructor(public code: string, public detail: string, public retryAfter = 0,
+                public remaining: number | null = null, public allowanceRefunded = false) {
         super(`${code}: ${detail}`);
         // The ES5 build drops the subclass prototype when extending Error; without this
         // `instanceof TrialError` is always false.
@@ -135,7 +136,11 @@ async function trialFetch(baseUrl: string, path: string, init: RequestInit = {},
         const detail = `${host} answered ${response.status}${data?.detail?.code ? ` ${data.detail.code}` : ''}`;
         console.warn(`[Vaulto trial] ${url}: ${detail}`, raw.slice(0, 200));
         const retryAfter = Number(response.headers?.get('Retry-After') || 0);
-        throw new TrialError(code, detail, Number.isFinite(retryAfter) ? Math.min(86400, Math.max(0, Math.ceil(retryAfter))) : 0);
+        const remaining = Number.isInteger(data?.detail?.remaining) && data.detail.remaining >= 0
+            ? data.detail.remaining : null;
+        throw new TrialError(code, detail,
+            Number.isFinite(retryAfter) ? Math.min(86400, Math.max(0, Math.ceil(retryAfter))) : 0,
+            remaining, data?.detail?.allowance_refunded === true);
     }
     return data;
 }
@@ -228,11 +233,11 @@ export async function createTrialCard(baseUrl: string, request: TrialRequest, si
             },
             sourceLanguage: card.source_language,
             remaining: data.remaining,
-            imageNotice: request.includeImage && !image
+            imageNotice: [!isText(card.word_audio) ? 'Pronunciation audio is unavailable for this card.' : '', request.includeImage && !image
                 ? (card.image_status === 'unavailable'
                     ? 'Images are currently unavailable in free cards. Your text card is ready to save.'
                     : 'The image could not be created. Your text card is ready to save; you can try images with your own key in Settings.')
-                : '',
+                : ''].filter(Boolean).join(' '),
         };
     } catch (error) {
         // A timeout may have completed on the server. Keep the id until a definite
@@ -260,7 +265,9 @@ export const trialErrorMessage = (error: unknown): string => {
         case 'request_pending':
             return 'Your card is still being built. Press Create again in a moment to pick it up.';
         case 'generation_failed':
-            return `Could not build a card for this text (${error.detail}). Try another word or phrase.`;
+            return error.allowanceRefunded
+                ? 'Could not create this card. Your free allowance was not used. Your text is kept; please try again.'
+                : 'Could not create this card. Your text is kept; please try again.';
         case 'trial_unavailable':
             return `Free card creation is switched off on the server (${error.detail}).`;
         default:
@@ -269,11 +276,11 @@ export const trialErrorMessage = (error: unknown): string => {
 };
 
 /** Voice for one example sentence; counted under the trial's own speech quota, not cards. */
-export async function createTrialAudio(baseUrl: string, text: string): Promise<string> {
+export async function createTrialAudio(baseUrl: string, text: string, sourceLanguage?: string | null): Promise<string> {
     const data = await trialFetch(baseUrl, 'audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ installation_id: installationId(), text: text.trim().slice(0, 300) }),
+        body: JSON.stringify({ installation_id: installationId(), text: text.trim().slice(0, 300), ...(sourceLanguage ? { source_language: sourceLanguage } : {}) }),
     });
     if (!isText(data.audio) || !data.audio.startsWith('data:audio')) {
         throw new TrialError('bad_response', `${hostOf(baseUrl)} returned no audio`);

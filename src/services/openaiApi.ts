@@ -1,3 +1,4 @@
+import { isAudibleWavDataUrl, normalizeWavDataUrl } from './speechQuality';
 import { backgroundFetch } from './backgroundFetch';
 import { getGlobalApiTracker } from './apiTracker';
 import { getLanguageEnglishName } from './languageNames';
@@ -429,7 +430,7 @@ export const translateText = async (
 export const getOpenAiSpeechAudioDataUrl = async (
   apiKey: string,
   text: string,
-  _sourceLanguage?: string,
+  sourceLanguage?: string,
   abortSignal?: AbortSignal
 ): Promise<string | null> => {
   const tracker = getGlobalApiTracker();
@@ -454,54 +455,58 @@ export const getOpenAiSpeechAudioDataUrl = async (
 
     tracker.setInProgress(requestId);
 
-    const response = await backgroundFetch(
-      'https://api.openai.com/v1/audio/speech',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await backgroundFetch(
+        'https://api.openai.com/v1/audio/speech',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: attempt < 2 ? 'gpt-4o-mini-tts' : 'tts-1',
+            voice: 'alloy',
+            input: normalizedText,
+            response_format: 'wav',
+            ...(attempt < 2 ? { instructions: `Read the input exactly in ${getLanguageEnglishName(sourceLanguage || null) || sourceLanguage || 'its original language'}. Use native pronunciation at a clear natural volume. Do not translate, spell out, add words, or read these instructions.` } : {}),
+          }),
+          responseType: 'dataUrl',
         },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini-tts',
-          voice: 'alloy',
-          input: normalizedText,
-          response_format: 'mp3',
-        }),
-        responseType: 'dataUrl',
-      },
-      abortSignal
-    );
+        abortSignal
+      );
 
-    if (!response.ok) {
-      let errorData: any = null;
-      try {
-        errorData = await response.json();
-      } catch {
-        errorData = null;
-      }
-
-      if (errorData && errorData.error) {
-        const errorMessage = formatOpenAIErrorMessage(errorData);
-        if (errorData.error.code === 'insufficient_quota' || response.status === 429) {
-          cacheQuotaExceededError(errorMessage);
+      if (!response.ok) {
+        let errorData: any = null;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = null;
         }
+
+        if (errorData && errorData.error) {
+          const errorMessage = formatOpenAIErrorMessage(errorData);
+          if (errorData.error.code === 'insufficient_quota' || response.status === 429) {
+            cacheQuotaExceededError(errorMessage);
+          }
+          tracker.errorRequest(requestId);
+          throw new Error(errorMessage);
+        }
+
         tracker.errorRequest(requestId);
-        throw new Error(errorMessage);
+        throw new Error(`OpenAI TTS API error: ${response.status} ${response.statusText}`);
       }
 
-      tracker.errorRequest(requestId);
-      throw new Error(`OpenAI TTS API error: ${response.status} ${response.statusText}`);
-    }
+      const audioDataUrl = normalizeWavDataUrl(await response.text());
+      if (!isAudibleWavDataUrl(audioDataUrl)) {
+        if (attempt < 2) continue;
+        throw new Error('Pronunciation audio was silent or malformed. Please retry.');
+      }
 
-    const audioDataUrl = await response.text();
-    if (!audioDataUrl || !audioDataUrl.startsWith('data:audio')) {
-      tracker.errorRequest(requestId);
-      throw new Error('OpenAI TTS response did not contain audio data.');
+      tracker.completeRequest(requestId);
+      return audioDataUrl;
     }
-
-    tracker.completeRequest(requestId);
-    return audioDataUrl;
+    return null;
   } catch (error) {
     tracker.errorRequest(requestId);
     if (!isAbortLikeError(error)) {

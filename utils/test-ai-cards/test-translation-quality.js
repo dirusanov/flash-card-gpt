@@ -142,16 +142,16 @@ const createMockService = (initialTranslation, responses) => {
     '«по сравнению с» | «сравнённый»',
     [null],
   );
-  const preserved = await createTranslation(
+  await assert.rejects(() => createTranslation(
     unavailable.service,
     'test-key',
     'compared',
     'ru',
     '',
     'en',
-  );
+  ), /could not be verified/);
 
-  assert.strictEqual(preserved.translated, 'по сравнению с, сравнённый');
+
 
   const exhausted = createMockService(
     'по сравнению с',
@@ -163,16 +163,15 @@ const createMockService = (initialTranslation, responses) => {
       invalidAudit('Further context would be helpful.'),
     ],
   );
-  const latest = await createTranslation(
+  await assert.rejects(() => createTranslation(
     exhausted.service,
     'test-key',
     'compared',
     'ru',
     '',
     'en',
-  );
+  ), /could not be verified/);
 
-  assert.strictEqual(latest.translated, 'сравнил, сравнённый, по сравнению с');
   assert.strictEqual(exhausted.prompts.length, 5);
 
   const clothing = createMockService(

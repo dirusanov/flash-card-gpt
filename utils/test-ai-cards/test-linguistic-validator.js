@@ -14,6 +14,12 @@ execFileSync(
   { stdio: 'inherit' },
 );
 
+const { grammarLabelsUseOutputScript } = require(path.join(COMPILED, 'services/grammarQuality.js'));
+assert.equal(grammarLabelsUseOutputScript('📚 品詞: 連語', 'en'), false);
+assert.equal(grammarLabelsUseOutputScript('📚 词性: 连词', 'ru'), false);
+assert.equal(grammarLabelsUseOutputScript('📚 Part of speech: phrase\n🔤 Base form: 独立心が強い', 'en'), true);
+assert.equal(grammarLabelsUseOutputScript('📚 Часть речи: союз\n🧱 Конструкция: 虽然…但是…', 'ru'), true);
+
 global.location = { protocol: 'chrome-extension:' };
 
 const {
@@ -81,6 +87,18 @@ async function generateWithResponses(
   assert.match(valid.prompts[1], /VERDICT: INVALID/);
   assert.match(valid.prompts[1], /конкретное замечание для генератора/);
 
+  const structured = await generateWithResponses([
+    { content: nounReference }, validAudit(),
+    { content: JSON.stringify({ valid: true, issues: [] }) },
+  ]);
+  assert.equal(structured.result.wasValidated, true);
+  assert.equal(structured.result.linguisticInfo, nounReference);
+  const unfinished = await generateWithResponses([
+    { content: nounReference }, validAudit(), null,
+  ]);
+  assert.equal(unfinished.result.wasValidated, false);
+  assert.equal(unfinished.result.linguisticInfo, null);
+
   const corrected = await generateWithResponses([
     { content: '📚 Часть речи: артикль' },
     invalidAudit('Часть речи относится к артиклю, а не к главному слову gato.'),
@@ -103,7 +121,7 @@ async function generateWithResponses(
   ]);
 
   assert.deepStrictEqual(unavailable.result, {
-    linguisticInfo: nounReference,
+    linguisticInfo: null,
     wasValidated: false,
     attempts: 1,
   });
@@ -114,7 +132,7 @@ async function generateWithResponses(
   ]);
 
   assert.deepStrictEqual(validatorError.result, {
-    linguisticInfo: nounReference,
+    linguisticInfo: null,
     wasValidated: false,
     attempts: 1,
   });
@@ -230,7 +248,7 @@ async function generateWithResponses(
   ], { target: '还', sourceLanguage: 'zh' });
 
   assert.deepStrictEqual(exhausted.result, {
-    linguisticInfo: '📚 Часть речи: наречие / глагол',
+    linguisticInfo: null,
     wasValidated: false,
     attempts: 3,
   });
@@ -241,7 +259,7 @@ async function generateWithResponses(
   ], { target: 'compared', sourceLanguage: 'en' });
 
   assert.deepStrictEqual(malformedAudit.result, {
-    linguisticInfo: comparedReference,
+    linguisticInfo: null,
     wasValidated: false,
     attempts: 1,
   });

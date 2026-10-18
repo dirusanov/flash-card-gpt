@@ -1,4 +1,4 @@
-import { OPENAI_TEXT_MODEL_ACCURATE } from '../constants';
+import { OPENAI_TEXT_MODEL_ACCURATE, OPENAI_TEXT_MODEL_FLUENCY } from '../constants';
 import { removeDecorativeTranslationQuotes } from './aiProviders';
 import { getLanguageEnglishName } from './languageNames';
 
@@ -462,19 +462,18 @@ async function auditExamples(
         subtitle: `Checking native fluency ${attempt}`,
         icon: '✍️',
         color: '#F59E0B',
-      }, OPENAI_TEXT_MODEL_ACCURATE);
+      }, OPENAI_TEXT_MODEL_FLUENCY);
 
       const fluencyAudit = parseAuditResponse(
         fluencyCompletion?.content?.trim() || '',
         [],
       );
 
-      // A transient failure of the extra fluency pass must not discard a set already
-      // approved by the structural, script, and bilingual semantic checks.
-      return fluencyAudit.status === 'unavailable' ? bilingualAudit : fluencyAudit;
+      // Both independent checks must complete before these examples are shown as ready.
+      return fluencyAudit;
     } catch (error) {
       console.debug('Example fluency validator unavailable:', error);
-      return bilingualAudit;
+      return { status: 'unavailable', invalidIndexes: [], issues: [] };
     }
   } catch (error) {
     console.debug('Example validator unavailable:', error);
@@ -674,8 +673,7 @@ export async function validateAndReviseExamples(
     }
 
     if (audit.status === 'unavailable') {
-      console.debug('Example validator unavailable; kept the structurally safe set');
-      return candidate;
+      throw new Error('Examples could not be verified. Please retry.');
     }
 
     if (attempts >= MAX_EXAMPLE_GENERATION_ATTEMPTS) {
@@ -684,6 +682,7 @@ export async function validateAndReviseExamples(
         + audit.issues.join(' | '),
       );
       const invalidIndexes = new Set(audit.invalidIndexes);
+      if (!invalidIndexes.size) throw new Error('Examples could not be verified. Please retry.');
       return candidate.filter((_, index) => !invalidIndexes.has(index + 1));
     }
 
@@ -703,6 +702,7 @@ export async function validateAndReviseExamples(
     if (!revised) {
       console.debug('Example revision returned malformed content; removed invalid examples');
       const invalidIndexes = new Set(audit.invalidIndexes);
+      if (!invalidIndexes.size) throw new Error('Examples could not be verified. Please retry.');
       return candidate.filter((_, index) => !invalidIndexes.has(index + 1));
     }
 

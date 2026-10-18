@@ -1,6 +1,6 @@
 {
   "name": "vaulto-cards-extension",
-  "version": "5.3.5",
+  "version": "5.3.7",
   "description": "Learn vocabulary from web pages with AI flashcards. Get translation and examples, review in your browser, or export to Anki.",
   "license": "MIT",
   "repository": {
@@ -29,6 +29,7 @@
     "test:example-quality": "node utils/test-ai-cards/test-example-quality.js",
     "test:transcription-policy": "node utils/test-ai-cards/test-transcription-policy.js",
     "test:example-transcriptions": "node utils/test-ai-cards/test-example-transcriptions.js",
+    "test:speech-quality": "node utils/test-ai-cards/test-speech-quality.js",
     "test:anki": "node utils/test-anki/run.js",
     "test:quick-start": "node utils/test-quick-start/run.js"
   },

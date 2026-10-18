@@ -449,6 +449,13 @@ const runCardTranscriptionCase = async ({
     expectedSourceLanguage: 'zh',
     expectedGuideLanguage: 'en',
   });
+  const missing = createCardService().service;
+  missing.createTranscription = async () => null;
+  const incomplete = await createCardComponentsParallel(missing, 'test-key', '你好', 'ru', '', 'zh',
+    false, undefined, 'off', false, 'off', undefined, undefined, { mode: 'always', language: 'en' });
+  assert.equal(incomplete.transcription, undefined);
+  assert.ok(incomplete.errors.some(error => error.component === 'transcription'));
+
   const coffeeHtml = formatTranscriptionHtml(coffeeCard.transcription, 'en');
   assert.match(coffeeHtml, /kāfēi/u);
   assert.match(coffeeHtml, /\[kʰa˥ feɪ̯˥\]/u);

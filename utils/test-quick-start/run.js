@@ -116,7 +116,7 @@ const response = (body, status = 200) => new Response(JSON.stringify(body), { st
     };
     const illustrated = await createTrialCard(endpoint, { ...request, includeImage: true });
     assert.equal(illustrated.card.image, image);
-    assert.equal(illustrated.imageNotice, '');
+    assert.equal(illustrated.imageNotice, 'Pronunciation audio is unavailable for this card.');
     assert.equal(timeouts.at(-1), 165000);
     saveQuickState({ ...emptyQuickState(), step: 'result', draft: illustrated.card, includeImage: false });
     const restored = loadQuickState();
@@ -151,6 +151,35 @@ const response = (body, status = 200) => new Response(JSON.stringify(body), { st
 
     global.fetch = async () => response({ detail: { code: 'trial_exhausted' } }, 429);
     await assert.rejects(createTrialCard(endpoint, request), (error) => error instanceof TrialError && error.code === 'trial_exhausted');
+
+    let failedRequest;
+    global.fetch = async (_url, options) => {
+      failedRequest = JSON.parse(options.body);
+      return response({ detail: { code: 'generation_failed', remaining: 5, allowance_refunded: true } }, 502);
+    };
+    await assert.rejects(createTrialCard(endpoint, request), (error) => {
+      assert.equal(error.remaining, 5, 'the UI must receive the restored allowance');
+      assert.equal(error.allowanceRefunded, true);
+      assert.match(trialErrorMessage(error), /allowance was not used/);
+      return error instanceof TrialError;
+    });
+    global.fetch = async (_url, options) => {
+      assert.notEqual(JSON.parse(options.body).request_id, failedRequest.request_id,
+        'a confirmed failure must allow a fresh request');
+      return response(validCard);
+    };
+    await createTrialCard(endpoint, request);
+    for (const detail of [{ code: 'generation_failed' },
+      { code: 'generation_failed', remaining: '5', allowance_refunded: 'true' }]) {
+      global.fetch = async () => response({ detail }, 502);
+      await assert.rejects(createTrialCard(endpoint, request), (error) => {
+        assert.equal(error.remaining, null);
+        assert.equal(error.allowanceRefunded, false);
+        assert.doesNotMatch(trialErrorMessage(error), /allowance was not used/,
+          'old servers or malformed metadata must not promise a refund');
+        return error instanceof TrialError;
+      });
+    }
     let limitedRequest;
     global.fetch = async (_url, options) => {
       limitedRequest = JSON.parse(options.body);

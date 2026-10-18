@@ -199,6 +199,17 @@ const QuickStart: React.FC = () => {
             if (cancelledRef.current) return;
             setError(trialErrorMessage(e));
             if (e instanceof TrialError && e.retryAfter > 0) setRetrySeconds(e.retryAfter);
+            if (e instanceof TrialError && e.remaining !== null) {
+                const remaining = e.remaining;
+                setStatus((prev) => prev ? { ...prev, remaining } : prev);
+            } else if (e instanceof TrialError && e.code === 'generation_failed') {
+                // Older servers do not include the updated allowance in the error.
+                // Refresh without clearing the user's text or the failure message.
+                try {
+                    const currentStatus = await getTrialStatus(syncApiUrl);
+                    if (!cancelledRef.current) setStatus(currentStatus);
+                } catch { /* Keep the creation error if the status check also fails. */ }
+            }
             if (e instanceof Error && (e as { code?: string }).code === 'trial_exhausted') {
                 setStatus((prev) => ({ ...prev, available: true, limit: prev?.limit || 0, remaining: 0 }));
             }
@@ -277,7 +288,7 @@ const QuickStart: React.FC = () => {
         const text = draft?.examples?.[index]?.[0];
         if (!draft || !text) return;
         try {
-            const audio = await createTrialAudio(syncApiUrl, text);
+            const audio = await createTrialAudio(syncApiUrl, text, state.detected || state.source || state.pageLanguage);
             const current = stateRef.current.draft;
             if (!current || current.id !== draft.id) return;
             const examplesAudio = (current.examples || []).map((_, i) => current.examplesAudio?.[i] ?? null);
