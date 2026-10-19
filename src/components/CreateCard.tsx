@@ -1193,6 +1193,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         detectedOrManual || undefined,
                         abortControllerRef.current?.signal
                     );
+                    if (!newExamplesResult.length) throw new Error('No examples could be verified. Please retry.');
                     const newExamples = newExamplesResult.map(ex => [ex.original, ex.translated] as [string, string | null]);
                     debugLog('📚 Examples generation completed');
                     const generatedExampleTranscriptions =
@@ -1218,9 +1219,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         detectedOrManual || undefined,
                         abortControllerRef.current?.signal
                     );
-                    if (translation && translation.translated) {
-                        tabAware.setTranslation(translation.translated);
-                    }
+                    if (!translation?.translated?.trim()) throw new Error('Translation could not be verified. Please retry.');
+                    tabAware.setTranslation(translation.translated);
                 }
 
                 if (wants('grammar')) {
@@ -1231,9 +1231,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         detectedOrManual || '',
                         translateToLanguage
                     );
-                    if (linguisticInfo) {
-                        tabAware.setLinguisticInfo(linguisticInfo);
-                    }
+                    if (!linguisticInfo) throw new Error('Grammar could not be verified. Please retry.');
+                    tabAware.setLinguisticInfo(linguisticInfo);
                 }
 
                 if (wants('audio') && openAiKey) {
@@ -1328,19 +1327,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                     }
                 }
 
-                if (result.linguisticInfo) {
-                    tabAware.setLinguisticInfo(result.linguisticInfo);
-                }
-
-                if (result.transcription) {
-                    const transcriptionHtml = formatTranscriptionHtml(
-                        result.transcription,
-                        transcriptionLanguage,
-                    );
-
-                    if (transcriptionHtml) {
-                        tabAware.setTranscription(transcriptionHtml);
-                    }
+                tabAware.setLinguisticInfo(result.linguisticInfo || '');
+                tabAware.setTranscription(formatTranscriptionHtml(result.transcription, transcriptionLanguage));
+                if (result.errors.length) {
+                    showError(result.errors.map(error => `${error.component}: ${error.error}`).join('; '), 'warning');
                 }
 
                 if (result.flashcard?.front) {
@@ -2120,7 +2110,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             tabAware.setImageUrl(null);
         }
 
-        // Only clear linguistic info and transcription as they are text-specific
+        // Old content must not survive a failed verification for the new text.
+        tabAware.setTranslation('');
+        tabAware.setBack(null);
+        tabAware.updateCard({ examples: [], examplesAudio: [], exampleTranscriptions: [] });
         tabAware.setLinguisticInfo("");
         tabAware.setTranscription('');
         tabAware.setWordAudio(null);
@@ -2860,6 +2853,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
         try {
             const newCards: StoredCard[] = [];
+            let hadBatchFailures = false;
 
             // Each card already fans out into multiple parallel AI/media requests.
             // Keep cross-card concurrency low to avoid extension-wide CPU/memory spikes.
@@ -2913,6 +2907,8 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                             return null;
                         }
 
+                        if (result.errors.length) hadBatchFailures = true;
+
                         // Process transcription HTML
                         let transcriptionHtml = "";
                         if (result.transcription) {
@@ -2965,6 +2961,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                         if (error instanceof Error && isQuotaError(error)) {
                             throw error;
                         }
+                        hadBatchFailures = true;
                         console.error(`Error creating card for "${option}":`, error);
                         return null;
                     }
@@ -3061,7 +3058,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Показываем результат
                 setShowResult(true);
                 setShowModal(true);
-                // Удалили навязчивое success уведомление
+                if (hadBatchFailures) {
+                    showError(`Created ${newCards.length} of ${selectedOptions.length} cards. Some cards or fields could not be verified; please retry the missing parts.`, 'warning');
+                }
 
                 debugLog('Created new cards, none saved yet. Card IDs:', newCards.map(card => card.id));
             } else {

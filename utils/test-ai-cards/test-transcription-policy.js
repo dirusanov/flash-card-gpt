@@ -456,6 +456,21 @@ const runCardTranscriptionCase = async ({
   assert.equal(incomplete.transcription, undefined);
   assert.ok(incomplete.errors.some(error => error.component === 'transcription'));
 
+  // Batch/custom callers must never receive a successful result with no translation.
+  const emptyTranslation = createCardService().service;
+  emptyTranslation.translateText = async () => null;
+  await assert.rejects(() => createCardComponentsParallel(emptyTranslation, 'test-key', '你好', 'ru', '', 'zh',
+    false, undefined, 'off', false, 'off', undefined, undefined, { mode: 'off' }), /Translation could not be verified/);
+
+  // A failed examples component returns an empty set, so rebuild callers clear stale examples.
+  const failedExamples = createCardService().service;
+  failedExamples.getExamples = async () => { throw new Error('examples provider failed'); };
+  const noExamples = await createCardComponentsParallel(failedExamples, 'test-key', '你好', 'ru', '', 'zh',
+    false, undefined, 'off', false, 'off', undefined, undefined, { mode: 'off' });
+  assert.deepStrictEqual(noExamples.examples, []);
+  assert.ok(noExamples.translation.translated);
+  assert.ok(noExamples.errors.some(error => error.component === 'examples'));
+
   const coffeeHtml = formatTranscriptionHtml(coffeeCard.transcription, 'en');
   assert.match(coffeeHtml, /kāfēi/u);
   assert.match(coffeeHtml, /\[kʰa˥ feɪ̯˥\]/u);

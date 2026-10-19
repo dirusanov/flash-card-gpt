@@ -991,7 +991,11 @@ export const createCardComponentsParallel = async (
   // 2. Примеры (параллельно с переводом)
   promises.push(
     timed('examples', createExamples(service, apiKey, text, translateToLanguage, true, customPrompt, sourceLanguage, abortSignal))
-      .then(result => ({ type: 'examples', result }))
+      .then(result => {
+        if (!result.length) throw new Error('No examples could be verified. Please retry.');
+        if (result.length < 3) errors.push({ component: 'examples', error: `Only ${result.length} examples could be verified. Please retry for a complete set.` });
+        return { type: 'examples', result };
+      })
       .catch(error => {
         const message = stringifyUnknownError(error);
         if (isApiKeyErrorMessage(message)) {
@@ -1244,7 +1248,7 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
   }
 
   // Обрабатываем результаты
-  const finalResult: any = { errors };
+  const finalResult: any = { errors, examples: [] };
 
   for (const result of results) {
     if (abortSignal?.aborted) {
@@ -1258,9 +1262,16 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
     }
   }
 
+  // All callers, including batch creation and custom-instruction rebuilds, need a
+  // verified translation. Never let them turn a component error into an empty card.
+  if (!finalResult.translation?.translated?.trim()) {
+    const failure = errors.find(error => error.component === 'translation');
+    throw new Error(failure?.error || 'Translation could not be verified. Please retry.');
+  }
+
   const duration = Date.now() - startTime;
   console.log(`⚡ Parallel card creation completed in ${duration}ms`);
-  console.log(`📊 Success: ${Object.keys(finalResult).length - 1}/${promises.length}, Errors: ${errors.length}`);
+  console.log(`📊 Success: ${results.filter(result => !('error' in result)).length}/${promises.length}, Errors: ${errors.length}`);
   if (componentTimings.length > 0) {
     const sortedTimings = [...componentTimings].sort((a, b) => b.durationMs - a.durationMs);
     console.log('⏱️ Component timings (slowest first):', sortedTimings);

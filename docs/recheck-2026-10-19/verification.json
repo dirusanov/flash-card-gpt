@@ -1,0 +1,25 @@
+{
+  "checked_at_utc": "2026-10-19T06:35:05.767124+00:00",
+  "extension_version": "5.3.7",
+  "backend_tests_passed": 99,
+  "backend_tests_skipped": 0,
+  "backend_test_context": "Clean committed backend snapshot plus the two audio-error regression tests, on an isolated internal Docker network with a disposable PostgreSQL database. Unrelated authenticated-quota changes excluded.",
+  "extension_suites_passed": 8,
+  "typescript": "passed",
+  "production_build": "passed",
+  "zip_sha256": "1839c8cd587ddb84601fb7a81bbd5964e2e8a2a601cfab985971d329974697b3",
+  "new_fixes": [
+    "Reject parallel results without a verified translation in all callers",
+    "Clear old translations/examples before generating new text",
+    "Clear failed optional fields and expose errors during card rebuilds",
+    "Warn about partial batch creation",
+    "Map example-audio timeout/provider errors to the public generation_failed response"
+  ],
+  "production_health": "passed",
+  "guest_limit": 20,
+  "new_live_ai_generations": 0,
+  "live_anki_import": "unavailable: AnkiConnect port 8765 closed",
+  "live_authenticated_cloud_sync": "not tested",
+  "browser_store_publication": "not performed",
+  "main_branches_merged": false
+}
