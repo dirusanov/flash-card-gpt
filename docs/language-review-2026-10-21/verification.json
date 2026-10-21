@@ -1,0 +1,70 @@
+{
+  "version": "5.3.9",
+  "supersedes": "5.3.8 from 2026-10-20; additional review found incomplete fixes",
+  "source_changes": [
+    "page language is context, never an authoritative shared-alphabet guess",
+    "auto detection no longer writes manual source preference",
+    "manual source picker updates React state and Redux together",
+    "provider-independent resolver freezes text and context before awaiting",
+    "exact-context cache v3 ignores old heuristic results; simultaneous duplicates share one request",
+    "failed detection stops main/batch generation rather than carrying old/empty language",
+    "submission preparation prevents duplicate starts and rejects changed text, settings, origin, cancel or unmount",
+    "same word on another page refreshes context in both free and full composer",
+    "no hard blacklist of transliterated languages"
+  ],
+  "validation": {
+    "script_cases": 44,
+    "additional_resolver_tests": [
+      "concurrent calls",
+      "input mutation during await",
+      "exact-context cache isolation",
+      "invalid or unavailable responses",
+      "retry after provider failure",
+      "storage errors",
+      "transliteration"
+    ],
+    "submission_tests": [
+      "duplicate submit",
+      "editing",
+      "manual selection",
+      "target changes",
+      "unmount",
+      "cancel",
+      "stale finalizer"
+    ],
+    "other_extension_suites_passed": 8,
+    "typescript": "pass",
+    "production_build": "pass",
+    "backend_full_tests_passed": 99,
+    "backend_full_skipped": 0,
+    "backend_test_isolation": "temporary PostgreSQL on internal Docker network; production database untouched"
+  },
+  "astra_review": {
+    "requested_model": "gpt-6-astra",
+    "findings_received": [
+      "page hint overriding actual text",
+      "in-flight submit starting stale generation",
+      "context cache poisoned by changed origin",
+      "Cyrillic plus Latin falsely resolved to Serbian",
+      "same-word page context lost",
+      "unmount during detection"
+    ],
+    "findings_addressed": true,
+    "final_approval": false,
+    "reason": "reviewer stopped because workspace credits were exhausted before final approval"
+  },
+  "live_ai_validation": {
+    "complete": false,
+    "provider_requests_blocked": 15,
+    "reason": "credit_balance_exhausted",
+    "offline_only_cases": 1,
+    "new_generated_cards": 0
+  },
+  "limits": [
+    "No live validation of new model responses until provider credits are replenished",
+    "New build not installed/tested in Brave",
+    "No store publication or branch merge"
+  ],
+  "artifact": "vaulto-cards-5.3.9.zip",
+  "sha256": "da4719444da39a63a91a26571398afb62e714c3746b8b9fedce059960f46fdbd"
+}

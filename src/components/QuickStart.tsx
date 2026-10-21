@@ -118,7 +118,10 @@ const QuickStart: React.FC = () => {
             // "bank" from a riverbank paragraph has to get through. A repeat that carries
             // no sentence of its own — the context menu handing over bare text — must not,
             // or it would wipe the sentence the page already gave us.
-            if (text === current.text && (!origin.sentence || origin.sentence === current.sentence)) return;
+            const hasOrigin = Boolean(origin.sentence || origin.pageLanguage || origin.sourceUrl);
+            const sameOrigin = origin.sentence === current.sentence && origin.pageLanguage === current.pageLanguage
+                && origin.sourceUrl === current.sourceUrl && origin.sourceTitle === current.sourceTitle;
+            if (text === current.text && (!hasOrigin || sameOrigin)) return;
             const patch = { text, ...origin, detected: null, step: 'compose' as const };
             if (current.step === 'compose' || current.step === 'result') {
                 update(patch);
@@ -161,7 +164,7 @@ const QuickStart: React.FC = () => {
         return () => clearInterval(timer);
     }, [waitingToRetry]);
 
-    const detected = state.source ? null : (state.detected || detectLanguageOffline(state.text));
+    const detected = state.source ? null : (state.detected || detectLanguageOffline(state.text, state.pageLanguage));
     const exhausted = Boolean(status?.available && status.remaining === 0);
     const canCreate = !busy && !waitingToRetry && state.text.trim() !== '' && status?.available === true && !exhausted;
 

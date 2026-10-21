@@ -6,9 +6,9 @@ import { ThunkDispatch } from 'redux-thunk';
 import { AnyAction } from 'redux';
 import { RootState } from "../store";
 import { setBack, setExamples, setExamplesAudio, setExampleTranscriptions, setImage, setImageUrl, setTranslation, setText, loadStoredCards, setFront, setCurrentCardId, setLinguisticInfo, setTranscription, setWordAudio, saveAnkiCards } from "../store/actions/cards";
-import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, formatOpenAIErrorMessage, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
+import { getDescriptionImage, isQuotaExceededCached, getCachedQuotaError, cacheQuotaExceededError, shouldShowQuotaNotification, markQuotaNotificationShown, getOpenAiSpeechAudioDataUrl } from "../services/openaiApi";
 import { setMode, setTranslateToLanguage } from "../store/actions/settings";
-import { Modes, OPENAI_TEXT_MODEL } from "../constants";
+import { Modes } from "../constants";
 import DeckSelector from "./CreateCard/DeckSelector";
 import LanguagePairBar from "./CreateCard/LanguagePairBar";
 import DeckDestination from "./CreateCard/DeckDestination";
@@ -26,12 +26,12 @@ import { getPreferredAudioOnMode, getPreferredImageOnMode, setPreferredAudioOnMo
 import { type DetailedLoadingMessage } from '../services/loadingMessages';
 import { setGlobalProgressCallback, getGlobalApiTracker, resetGlobalApiTracker } from '../services/apiTracker';
 import { getImage } from '../apiUtils';
-import { backgroundFetch } from '../services/backgroundFetch';
 import useErrorNotification from './useErrorHandler';
 import { FaLightbulb, FaMagic, FaTimes, FaList, FaFont, FaCheck, FaRobot, FaSave, FaEdit, FaKey, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { createSubmissionGuard } from '../services/submissionGuard';
 import { StoredCard } from '../store/reducers/cards';
 import Loader from './Loader';
-import { detectLanguageOffline as detectLanguageOfflineService } from '../services/languageDetection';
+import { detectLanguageOffline as detectLanguageOfflineService, languageDetectionCacheKey, createLanguageDetector } from '../services/languageDetection';
 import { getAIService, getApiKeyForProvider, createTranslation, createExamples, createFlashcard, createOptimizedLinguisticInfo, createTranscription, createCardComponentsParallel, createLinguisticInfo } from '../services/aiServiceFactory';
 import { planInstruction, CardAction } from '../services/instructionRouter';
 import { ModelProvider } from '../store/reducers/settings';
@@ -67,6 +67,7 @@ const PROGRESS_UPDATE_INTERVAL_MS = 120;
 
 /** Where a selection was made: the sentence around it and the page it was on. */
 interface SelectionOrigin {
+    pageLanguage?: string;
     text: string;
     sentence: string;
     sourceUrl: string;
@@ -82,7 +83,8 @@ const selectionOriginOf = (
     const sentence = typeof details?.sentence === 'string' ? details.sentence : '';
     const sourceUrl = typeof details?.sourceUrl === 'string' ? details.sourceUrl : '';
     const sourceTitle = typeof details?.sourceTitle === 'string' ? details.sourceTitle : '';
-    return sentence || sourceUrl ? { text, sentence, sourceUrl, sourceTitle } : null;
+    const pageLanguage = details?.pageLanguage || '';
+    return sentence || sourceUrl || pageLanguage ? { text, sentence, sourceUrl, sourceTitle, pageLanguage } : null;
 };
 
 interface CreateCardProps {
@@ -175,6 +177,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Helper function to update source language in Redux
     const updateSourceLanguage = useCallback((language: string) => {
         // Use direct action object instead of the action creator to fix type issues
+        setSourceLanguage(language);
         dispatch({ type: 'SET_SOURCE_LANGUAGE', payload: language });
         // Also save to localStorage
         localStorage.setItem('source_language', language);
@@ -388,6 +391,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // updates. The ref is raised synchronously when generation starts, so even a mouseup
     // delivered before the next render cannot replace the study target under the loader.
     const selectionCaptureBlockedRef = useRef(false);
+    const submitPreparationGuard = useRef(createSubmissionGuard());
+    useEffect(() => {
+        submitPreparationGuard.current.activate();
+        return () => {
+            submitPreparationGuard.current.dispose();
+            languageDetectionRequestRef.current += 1;
+        };
+    }, []);
     const [currentLoadingMessage, setCurrentLoadingMessage] = useState<DetailedLoadingMessage | null>(null);
     const [currentProgress, setCurrentProgress] = useState({ completed: 0, total: 0 });
     const [isEdited, setIsEdited] = useState(false);
@@ -925,13 +936,13 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 text,
                 imageInstructions,
                 abortControllerRef.current?.signal,
-                sourceLanguage || undefined
+                (isAutoDetectLanguage ? detectedLanguage : sourceLanguage) || undefined
             );
             const safeDescriptionImage = buildSafeImagePrompt(text, descriptionImage);
 
             // Image generation is handled via OpenAI even when another provider is used for text.
             if (openAiKey) {
-                const { imageUrl, imageBase64 } = await getImage(openAiKey, safeDescriptionImage, imageInstructions, sourceLanguage || undefined);
+                const { imageUrl, imageBase64 } = await getImage(openAiKey, safeDescriptionImage, imageInstructions, (isAutoDetectLanguage ? detectedLanguage : sourceLanguage) || undefined);
 
                 if (imageUrl) {
                     tabAware.setImageUrl(imageUrl);
@@ -1169,9 +1180,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
 
             if (!wants('rebuild')) {
                 if (wants('image')) {
-                    const descriptionImage = await getDescriptionImage(openAiKey, text, plan.detail, undefined, sourceLanguage || undefined);
+                    const descriptionImage = await getDescriptionImage(openAiKey, text, plan.detail, undefined, (isAutoDetectLanguage ? detectedLanguage : sourceLanguage) || undefined);
                     const safeDescriptionImage = buildSafeImagePrompt(text, descriptionImage);
-                    const { imageUrl: newImageUrl, imageBase64 } = await getImage(openAiKey, safeDescriptionImage, plan.detail, sourceLanguage || undefined);
+                    const { imageUrl: newImageUrl, imageBase64 } = await getImage(openAiKey, safeDescriptionImage, plan.detail, (isAutoDetectLanguage ? detectedLanguage : sourceLanguage) || undefined);
 
                     if (newImageUrl) {
                         tabAware.setImageUrl(newImageUrl);
@@ -1867,11 +1878,15 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         if (normalizedSelection === text) {
             // Same word, different sentence: the card is about the other meaning now.
             // Nothing else about the composer changes, so only the origin moves.
-            if (origin?.sentence && origin.sentence !== selectionOriginRef.current?.sentence) {
+            if (details && JSON.stringify(origin) !== JSON.stringify(selectionOriginRef.current)) {
+                submitPreparationGuard.current.invalidate();
+                languageDetectionRequestRef.current += 1;
                 setSelectionOrigin(origin);
             }
             return;
         }
+        submitPreparationGuard.current.invalidate();
+        languageDetectionRequestRef.current += 1;
         setSelectionOrigin(origin);
 
         debugLog('Text selection handled for tab-specific state:', normalizedSelection);
@@ -2052,26 +2067,32 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const handleSubmit = async (e?: React.FormEvent) => {
         e?.preventDefault();
         const currentText = textInputValueRef.current.trim();
-        if (!currentText) return;
+        if (!currentText || loadingGetResult) return;
         flushTextInputSync(textInputValueRef.current);
-
-        let detectedLanguageForSubmit = detectedLanguage;
-
-        if (isAutoDetectLanguage) {
-            try {
-                const detectionResult = await detectLanguage(currentText);
-                if (detectionResult) {
-                    detectedLanguageForSubmit = detectionResult;
-                }
-            } catch (languageError) {
-                console.error('Language detection failed before submission:', languageError);
-            }
-        }
 
         if (!apiKey) {
             notifyMissingApiKey();
             return;
         }
+        const preparationIdentity = () => JSON.stringify([
+            detectionKeyFor(textInputValueRef.current), composerLanguageSettingsRef.current,
+        ]);
+        const ticket = submitPreparationGuard.current.begin(preparationIdentity());
+        if (!ticket) return;
+        let detectedLanguageForSubmit: string | null = null;
+        let ready = false;
+        try {
+            if (isAutoDetectLanguage) detectedLanguageForSubmit = await detectLanguage(currentText);
+            ready = submitPreparationGuard.current.isCurrent(ticket, preparationIdentity());
+        } catch (error) {
+            if (submitPreparationGuard.current.isCurrent(ticket, preparationIdentity())) {
+                showError(error instanceof Error ? error.message : 'Could not detect the text language.');
+            }
+        } finally {
+            submitPreparationGuard.current.finish(ticket);
+        }
+        // A result belongs only to the exact live composer submission that requested it.
+        if (!ready) return;
 
         criticalApiErrorRef.current = false;
 
@@ -2580,6 +2601,9 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     // Add a way to cancel the current card and reset to fresh state
     const handleCancel = () => {
         debugLog('Canceling current card, clearing all state');
+        submitPreparationGuard.current.invalidate();
+        languageDetectionRequestRef.current += 1;
+        setLanguageDetection(null);
 
         // Cancel any ongoing AI requests
         if (abortControllerRef.current) {
@@ -2864,17 +2888,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
                 // Process current batch in parallel
                 const batchPromises = batch.map(async (option) => {
                     try {
-                        let detectedLanguageForOption = detectedLanguage;
+                        let detectedLanguageForOption: string | null = null;
 
                         if (isAutoDetectLanguage) {
-                            try {
-                                const detectionResult = await detectLanguage(option);
-                                if (detectionResult) {
-                                    detectedLanguageForOption = detectionResult;
-                                }
-                            } catch (languageError) {
-                                console.error(`Language detection failed for option "${option}":`, languageError);
-                            }
+                            detectedLanguageForOption = await detectLanguage(option);
                         }
 
                         const sourceLangForParallel = isAutoDetectLanguage ? detectedLanguageForOption : sourceLanguage;
@@ -3989,396 +4006,78 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         // Load from localStorage on initialization
         return localStorage.getItem('source_language') || '';
     });
-    const [detectedLanguage, setDetectedLanguage] = useState<string | null>(() => {
-        // Load detected language from localStorage
-        return localStorage.getItem('detected_language') || null;
-    });
-    const [isDetectingLanguage, setIsDetectingLanguage] = useState(false);
-    const [isAutoDetectLanguage, setIsAutoDetectLanguage] = useState(() => {
-        // Default to true unless explicitly set to false in localStorage
-        return localStorage.getItem('auto_detect_language') !== 'false';
-    });
+    const [languageDetection, setLanguageDetection] = useState<{ key: string; language: string | null; pending: boolean } | null>(null);
+    const languageDetectionRequestRef = useRef(0);
+    const [isAutoDetectLanguage, setIsAutoDetectLanguage] = useState(() =>
+        localStorage.getItem('auto_detect_language') !== 'false');
 
+    const composerLanguageSettings = JSON.stringify([isAutoDetectLanguage, sourceLanguage, translateToLanguage, modelProvider, apiKey]);
+    const composerLanguageSettingsRef = useRef(composerLanguageSettings);
+    composerLanguageSettingsRef.current = composerLanguageSettings;
 
-
-    // Язык страницы из DOM/meta (дешевый хинт)
-    const getPageLanguageHint = useCallback((): string | null => {
-        try {
-            const htmlLang = (document.documentElement.getAttribute('lang') || '').trim();
-            if (htmlLang) {
-                const norm = htmlLang.toLowerCase().split('-')[0];
-                return norm.length === 2 ? norm : null;
-            }
-            const metaLang = (document.querySelector('meta[http-equiv="Content-Language" i]') as HTMLMetaElement)?.content
-                || (document.querySelector('meta[name="language" i]') as HTMLMetaElement)?.content
-                || (document.querySelector('meta[property="og:locale" i]') as HTMLMetaElement)?.content;
-            if (metaLang) {
-                const norm = metaLang.toLowerCase().split('-')[0];
-                return norm.length === 2 ? norm : null;
-            }
-        } catch (_) { /* ignore */ }
-        return null;
+    const detectionInputFor = useCallback((value: string) => {
+        const origin = selectionOriginRef.current;
+        const matches = origin?.text === value.trim();
+        return { text: value, pageLanguage: matches ? origin.pageLanguage : null, sentence: matches ? origin.sentence : null };
     }, []);
+    const detectionKeyFor = useCallback((value: string) => {
+        const input = detectionInputFor(value);
+        return languageDetectionCacheKey(input.text, input.pageLanguage, input.sentence);
+    }, [detectionInputFor]);
+    const currentDetectionKey = detectionKeyFor(textInputValue);
+    const detectedLanguage = languageDetection?.key === currentDetectionKey
+        ? languageDetection.language : detectLanguageOfflineService(textInputValue);
+    const isDetectingLanguage = languageDetection?.key === currentDetectionKey && languageDetection.pending;
 
-    // Офлайн определение языка по паттернам (с учетом языка страницы для коротких строк)
-    const detectLanguageOffline = useCallback(
-        (text: string, pageHint?: string | null) => detectLanguageOfflineService(text, pageHint),
-        [],
-    );
+    const languageDetector = useMemo(() => createLanguageDetector(async (messages) => {
+        if (!apiKey) throw new Error('Set up your AI provider or choose the text language in the From field.');
+        return aiService.createChatCompletion(apiKey, messages, {
+            title: 'Detecting language', subtitle: 'Identifying the selected text language',
+        });
+    }, localStorage), [aiService, apiKey]);
 
-    // Умное кэширование с паттернами
-    const getSmartCacheKey = useCallback((text: string): string => {
-        const cleanText = text.trim().toLowerCase();
-        // Создаем ключ на основе паттерна текста, а не точного содержания
-        const pattern = cleanText
-            .replace(/[а-яё]/g, 'C') // кириллица
-            .replace(/[a-z]/g, 'L')  // латиница
-            .replace(/[0-9]/g, 'N')  // цифры
-            .replace(/\s+/g, 'S')    // пробелы
-            .replace(/[^\w\s]/g, 'P') // пунктуация
-            .slice(0, 50); // первые 50 символов паттерна
-
-        return `lang_pattern_${pattern}_${cleanText.length < 20 ? cleanText : cleanText.slice(0, 20)}`;
-    }, []);
-
-    // Функция для автоматического определения языка
-    const detectLanguage = useCallback(async (text: string): Promise<string | null> => {
-        debugLog('=== LANGUAGE DETECTION START ===');
-        debugLog('Input text:', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
-        debugLog('Text length:', text.length);
-
-        // Определяем язык, если есть текст
-        if (!text || text.trim().length < 2) {
-            debugLog('Text too short for language detection');
-            return null;
-        }
-
-        let detectedResult: string | null = null;
-
-        const recordDetection = (languageCode: string | null | undefined, context: string) => {
-            const normalized = (languageCode || '').trim().toLowerCase();
-            if (!normalized) {
-                return;
-            }
-
-            if (detectedLanguage !== normalized) {
-                debugLog(`Setting detected language (${context}):`, normalized);
-                setDetectedLanguage(normalized);
-            }
-
-            localStorage.setItem('detected_language', normalized);
-
-            const smartCacheKey = getSmartCacheKey(text);
-            localStorage.setItem(smartCacheKey, normalized);
-
-            updateSourceLanguage(normalized);
-            detectedResult = normalized;
-        };
-
-        // 1. ОФЛАЙН определение (быстро и бесплатно) с учетом языка страницы
-        const pageHint = getPageLanguageHint();
-        const offlineDetected = detectLanguageOffline(text, pageHint);
-        if (offlineDetected) {
-            debugLog('Language detected offline:', offlineDetected);
-            recordDetection(offlineDetected, 'offline detection');
-            return detectedResult;
-        }
-
-        // 1.1. Если указан язык страницы и текст короткий/неоднозначный — используем хинт без LLM
-        const isShortOrAmbiguous = text.trim().split(/\s+/).length <= 2;
-        if (!detectedResult && pageHint && isShortOrAmbiguous) {
-            debugLog('Using page language hint due to short/ambiguous text:', pageHint);
-            recordDetection(pageHint, 'page hint');
-            return detectedResult;
-        }
-
-        // 2. УМНОЕ кэширование: проверяем по паттерну
-        const smartCacheKey = getSmartCacheKey(text);
-        const cachedResult = localStorage.getItem(smartCacheKey);
-
-        if (cachedResult && detectedLanguage !== cachedResult) {
-            debugLog('Using smart cached language detection result:', cachedResult);
-            recordDetection(cachedResult, 'smart cache');
-            return detectedResult;
-        }
-
-        // 3. Если язык уже определен для текущего текста, не определяем повторно
-        if (detectedLanguage && cachedResult === detectedLanguage) {
-            debugLog('Language already detected for this text:', detectedLanguage);
-            detectedResult = detectedLanguage;
-            return detectedLanguage;
-        }
-
-        // 4. Проверяем квоту и только тогда делаем API вызов (ЭКОНОМИЯ!)
-        if (isQuotaExceededCached()) {
-            debugLog('Language detection skipped due to cached quota error');
-            // Only show error if it hasn't been shown yet
-            if (shouldShowQuotaNotification()) {
-                const cachedError = getCachedQuotaError();
-                if (cachedError) {
-                    showError(cachedError);
-                    markQuotaNotificationShown();
-                }
-            }
-            return detectedLanguage ?? detectedResult;
-        }
-
-        // 5. Проверим, не слишком ли часто мы делаем API вызовы (дополнительная защита)
-        const lastApiCall = localStorage.getItem('last_language_api_call');
-        const now = Date.now();
-        if (lastApiCall && (now - parseInt(lastApiCall)) < 2000) { // мин 2 секунды между API вызовами
-            debugLog('Language detection API call skipped - too frequent calls');
-            return detectedLanguage ?? detectedResult;
-        }
-
-        debugLog('Making API call for language detection...');
-        localStorage.setItem('last_language_api_call', now.toString());
-        setIsDetectingLanguage(true);
-
+    const detectLanguage = useCallback(async (value: string): Promise<string> => {
+        const requestId = ++languageDetectionRequestRef.current;
+        const input = detectionInputFor(value);
+        const key = languageDetectionCacheKey(input.text, input.pageLanguage, input.sentence);
+        setLanguageDetection({ key, language: null, pending: true });
         try {
-            // If OpenAI is available, use it for language detection.
-            if (openAiKey) {
-
-                let detectedCode: string | undefined;
-                // Extra check for quota cache before making OpenAI request
-                if (isQuotaExceededCached()) {
-                    debugLog('OpenAI language detection skipped due to cached quota error');
-                    if (shouldShowQuotaNotification()) {
-                        const cachedError = getCachedQuotaError();
-                        if (cachedError) {
-                            throw new Error(cachedError);
-                        }
-                    }
-                    return detectedLanguage ?? detectedResult;
-                }
-
-                try {
-                    const response = await backgroundFetch(
-                        'https://api.openai.com/v1/chat/completions',
-                        {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                Authorization: `Bearer ${openAiKey}`,
-                            },
-                            body: JSON.stringify({
-                                model: OPENAI_TEXT_MODEL,
-                                messages: [
-                                    {
-                                        role: 'system',
-                                        content: 'You are a language detection assistant. Respond only with the ISO 639-1 language code.',
-                                    },
-                                    {
-                                        role: 'user',
-                                        content: `Detect the language of this text and respond only with the ISO 639-1 language code (e.g. 'en', 'ru', 'fr', etc.): "${text.slice(0, 160)}"`,
-                                    },
-                                ],
-                                max_tokens: 5,
-                                temperature: 0.0,
-                            }),
-                        }
-                    );
-
-                    const data = await response.json();
-
-                    if (!response.ok) {
-                        if (data?.error) {
-                            const formattedError = formatOpenAIErrorMessage(data);
-                            if (data.error.code === 'insufficient_quota' || response.status === 429) {
-                                cacheQuotaExceededError(formattedError);
-                                debugLog('Quota error detected and cached in OpenAI language detection');
-                            }
-                            throw new Error(formattedError);
-                        }
-
-                        throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
-                    }
-
-                    detectedCode = data.choices?.[0]?.message?.content?.trim().toLowerCase();
-                    debugLog('Language detected via OpenAI:', detectedCode);
-                } catch (openaiError) {
-                    if (openaiError instanceof Error) {
-                        const errorMessage = openaiError.message;
-                        if (errorMessage.includes('quota') ||
-                            errorMessage.includes('insufficient_quota') ||
-                            errorMessage.includes('billing') ||
-                            errorMessage.includes('exceeded') ||
-                            errorMessage.includes('429')) {
-                            cacheQuotaExceededError(errorMessage);
-                            debugLog('Quota error detected and cached in OpenAI language detection');
-                        }
-                    }
-                    throw openaiError;
-                }
-
-                // Проверяем, является ли результат действительным языковым кодом
-                if (detectedCode && allLanguages.some(lang => lang.code === detectedCode)) {
-                    debugLog('Language successfully detected:', detectedCode);
-                    recordDetection(detectedCode, 'API detection');
-                    return detectedResult;
-                } else {
-                    debugLog('Invalid or unrecognized language code:', detectedCode);
-                }
-            } else {
-                // Если OpenAI недоступен, используем более простую эвристику
-                // Это упрощенная версия, в реальном приложении можно использовать 
-                // библиотеки вроде franc.js или langdetect
-                const textSample = text.trim().toLowerCase().slice(0, 100);
-
-                // Единый блок определения языка
-                const cyrillicPattern = /[а-яё]/gi;
-                const latinPattern = /[a-z]/gi;
-                const chinesePattern = /[\u4e00-\u9fff]/gi;
-                const japanesePattern = /[\u3040-\u309f\u30a0-\u30ff]/gi;
-                const koreanPattern = /[\uac00-\ud7af]/gi;
-                const arabicPattern = /[\u0600-\u06ff]/gi;
-
-                // Паттерны для испанского языка
-                const spanishPattern = /[áéíóúüñ¿¡]/gi;
-                const spanishWords = ['hasta', 'desde', 'como', 'pero', 'porque', 'adonde', 'quien', 'para', 'por'];
-
-                // Проверяем испанские слова
-                const isSpanishWord = spanishWords.some(word =>
-                    textSample === word || textSample.startsWith(word + ' ') || textSample.includes(' ' + word + ' ')
-                );
-
-                // Определяем язык
-                let detectedLang = '';
-
-                if (cyrillicPattern.test(textSample)) {
-                    debugLog("Detected Cyrillic script - setting Russian");
-                    detectedLang = 'ru';
-                } else if (chinesePattern.test(textSample)) {
-                    debugLog("Detected Chinese characters");
-                    detectedLang = 'zh';
-                } else if (japanesePattern.test(textSample)) {
-                    debugLog("Detected Japanese characters");
-                    detectedLang = 'ja';
-                } else if (koreanPattern.test(textSample)) {
-                    debugLog("Detected Korean characters");
-                    detectedLang = 'ko';
-                } else if (arabicPattern.test(textSample)) {
-                    debugLog("Detected Arabic script");
-                    detectedLang = 'ar';
-                } else if (spanishPattern.test(textSample) || isSpanishWord) {
-                    debugLog("Detected Spanish text or common Spanish word");
-                    detectedLang = 'es';
-                } else if (latinPattern.test(textSample)) {
-                    // For ambiguous Latin-only text in fallback path, prefer page hint over defaulting to English
-                    const pageHint = getPageLanguageHint();
-                    if (pageHint) {
-                        debugLog("Detected Latin script, using page hint:", pageHint);
-                        detectedLang = pageHint;
-                    } else {
-                        debugLog("Detected Latin script, defaulting to English (no hint)");
-                        detectedLang = 'en';
-                    }
-                }
-
-                if (detectedLang) {
-                    debugLog('Language detected using fallback method:', detectedLang);
-                    recordDetection(detectedLang, 'fallback detection');
-                    return detectedResult;
-                }
+            const language = await languageDetector(input);
+            if (requestId === languageDetectionRequestRef.current) {
+                setLanguageDetection({ key, language, pending: false });
             }
+            return language;
         } catch (error) {
-            console.error("Error detecting language:", error);
-
-            // Check if this is a quota error first
-            if (error instanceof Error && isQuotaError(error)) {
-                console.error('Quota error detected in language detection:', error.message);
-                showError(error.message);
-                markQuotaNotificationShown();
-                return detectedLanguage ?? detectedResult;
+            if (requestId === languageDetectionRequestRef.current) {
+                setLanguageDetection({ key, language: null, pending: false });
             }
-
-            // Проверяем, связана ли ошибка с API ключом
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            const isApiKeyError = errorMessage.includes('401') ||
-                errorMessage.includes('Unauthorized') ||
-                errorMessage.includes('Authentication') ||
-                errorMessage.includes('Invalid API key') ||
-                errorMessage.includes('Incorrect API key') ||
-                errorMessage.includes('API key is missing');
-
-            if (isApiKeyError) {
-                console.warn("API key error detected, disabling auto-detection to prevent infinite retries");
-                // Отключаем автоопределение языка при ошибке API ключа
-                setIsAutoDetectLanguage(false);
-                localStorage.setItem('auto_detect_language', 'false');
-
-                // Показываем уведомление пользователю об ошибке API ключа
-                // (предполагается, что showError доступна из контекста)
-                const providerName = 'OpenAI';
-
-                if (typeof showError === 'function') {
-                    const invalidKeyMessage = `Language detection failed: Invalid ${providerName} API key. Please check your API key in settings.`;
-                    showError(invalidKeyMessage, 'error');
-                    handlePotentialApiKeyIssue(invalidKeyMessage);
-                }
-
-                // Возвращаемся к простой эвристике при ошибке API ключа
-                const textSample = text.trim().toLowerCase().slice(0, 100);
-                const cyrillicPattern = /[а-яё]/gi;
-                const latinPattern = /[a-z]/gi;
-                const chinesePattern = /[\u4e00-\u9fff]/gi;
-                const japanesePattern = /[\u3040-\u309f\u30a0-\u30ff]/gi;
-                const koreanPattern = /[\uac00-\ud7af]/gi;
-                const arabicPattern = /[\u0600-\u06ff]/gi;
-                const spanishPattern = /[áéíóúüñ¿¡]/gi;
-                const spanishWords = ['hasta', 'desde', 'como', 'pero', 'porque', 'adonde', 'quien', 'para', 'por'];
-                const isSpanishWord = spanishWords.some(word =>
-                    textSample === word || textSample.startsWith(word + ' ') || textSample.includes(' ' + word + ' ')
-                );
-
-                let detectedLang = '';
-                if (cyrillicPattern.test(textSample)) {
-                    detectedLang = 'ru';
-                } else if (chinesePattern.test(textSample)) {
-                    detectedLang = 'zh';
-                } else if (japanesePattern.test(textSample)) {
-                    detectedLang = 'ja';
-                } else if (koreanPattern.test(textSample)) {
-                    detectedLang = 'ko';
-                } else if (arabicPattern.test(textSample)) {
-                    detectedLang = 'ar';
-                } else if (spanishPattern.test(textSample) || isSpanishWord) {
-                    detectedLang = 'es';
-                } else if (latinPattern.test(textSample)) {
-                    const pageHint = getPageLanguageHint();
-                    detectedLang = pageHint || 'en';
-                }
-
-                if (detectedLang) {
-                    debugLog("Language detected using fallback method in error handler:", detectedLang);
-                    recordDetection(detectedLang, 'fallback method in error handler');
-                    return detectedResult;
-                }
-            }
-        } finally {
-            setIsDetectingLanguage(false);
-            debugLog('=== LANGUAGE DETECTION END ===');
+            // Failure leaves auto mode and the user's manual preference unchanged.
+            throw error;
         }
-
-        return detectedResult;
-    }, [openAiKey, modelProvider, detectLanguageOffline, getSmartCacheKey, updateSourceLanguage, detectedLanguage, showError, shouldShowQuotaNotification, getCachedQuotaError, markQuotaNotificationShown, cacheQuotaExceededError, setIsAutoDetectLanguage, allLanguages]);
+    }, [detectionInputFor, languageDetector]);
 
     // Auto-detect is a value of the source-language picker now ("Detect automatically"),
     // not a separate switch, so both used to be expressed through this one handler.
     // `null` means auto; any code means the user picked a language explicitly.
     const handleSourceLanguageChange = (code: string | null) => {
+        submitPreparationGuard.current.invalidate();
+        languageDetectionRequestRef.current += 1;
         const auto = code === null;
         setIsAutoDetectLanguage(auto);
         localStorage.setItem('auto_detect_language', auto ? 'true' : 'false');
 
         if (auto) {
-            updateSourceLanguage('');
-            setDetectedLanguage(null);
-            localStorage.removeItem('detected_language');
+            setLanguageDetection(null);
             // Re-run detection right away so the bar does not sit on "Auto-detect" with
             // text already in the box.
-            if (text) {
-                detectLanguage(text);
+            if (textInputValueRef.current.trim()) {
+                const inputKey = detectionKeyFor(textInputValueRef.current);
+                void detectLanguage(textInputValueRef.current).catch(error => {
+                    if (localStorage.getItem('auto_detect_language') !== 'false'
+                        && inputKey === detectionKeyFor(textInputValueRef.current)) {
+                        showError(error instanceof Error ? error.message : 'Could not detect the text language.');
+                    }
+                });
             }
             return;
         }
@@ -4397,34 +4096,6 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             setIsEdited(true);
         }
     };
-
-    // Add this to the component mount effect to ensure source language is properly initialized
-    useEffect(() => {
-        // Get source language and auto-detect preference from localStorage
-        const savedSourceLanguage = localStorage.getItem('source_language');
-        const savedDetectedLanguage = localStorage.getItem('detected_language');
-        const savedAutoDetect = localStorage.getItem('auto_detect_language');
-
-        debugLog('Initializing language settings from localStorage:', {
-            savedSourceLanguage,
-            savedDetectedLanguage,
-            savedAutoDetect
-        });
-
-        // Update Redux store with saved source language
-        if (savedSourceLanguage) {
-            updateSourceLanguage(savedSourceLanguage);
-        } else if (savedDetectedLanguage && (savedAutoDetect !== 'false')) {
-            // If auto-detect is enabled and we have a previously detected language
-            updateSourceLanguage(savedDetectedLanguage);
-        }
-
-        // Set auto-detect preference
-        if (savedAutoDetect === 'false') {
-            setIsAutoDetectLanguage(false);
-        }
-
-    }, []);
 
     // AI-powered функция для получения названия языка
     const getLanguageNameFromAI = useCallback(async (languageCode: string): Promise<string> => {
@@ -4668,10 +4339,10 @@ Format: "YES - concrete object that can be visualized" or "NO - abstract concept
             let imageData = null;
             if (shouldGenerateImage && imageGenerationMode !== 'off' && isImageGenerationAvailable()) {
                 try {
-                    const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions, undefined, sourceLanguage || undefined);
+                    const imageDescription = await aiService.getDescriptionImage(apiKey, inputText, imageInstructions, undefined, (isAutoDetectLanguage ? detectedLanguage : sourceLanguage) || undefined);
                     if (imageDescription) {
                         const safeImageDescription = buildSafeImagePrompt(inputText, imageDescription);
-                        const { imageUrl, imageBase64 } = await getImage(openAiKey, safeImageDescription, imageInstructions, sourceLanguage || undefined);
+                        const { imageUrl, imageBase64 } = await getImage(openAiKey, safeImageDescription, imageInstructions, (isAutoDetectLanguage ? detectedLanguage : sourceLanguage) || undefined);
                         if (imageBase64) {
                             imageData = imageBase64;
                         } else if (imageUrl) {
