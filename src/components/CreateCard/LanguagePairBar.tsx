@@ -56,7 +56,7 @@ const LanguagePairBar: React.FC<LanguagePairBarProps> = ({
     const target = findLanguage(targetCode) || findLanguage('en');
 
     const renderSourceValue = () => {
-        if (isDetecting) {
+        if (isAuto && isDetecting) {
             return (
                 <span className="flex min-w-0 flex-1 items-center gap-2">
                     <Loader type="spinner" size="small" inline color="#9CA3AF" />

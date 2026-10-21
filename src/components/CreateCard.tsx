@@ -1881,12 +1881,14 @@ const CreateCard: React.FC<CreateCardProps> = () => {
             if (details && JSON.stringify(origin) !== JSON.stringify(selectionOriginRef.current)) {
                 submitPreparationGuard.current.invalidate();
                 languageDetectionRequestRef.current += 1;
+                setLanguageDetection(null);
                 setSelectionOrigin(origin);
             }
             return;
         }
         submitPreparationGuard.current.invalidate();
         languageDetectionRequestRef.current += 1;
+        setLanguageDetection(null);
         setSelectionOrigin(origin);
 
         debugLog('Text selection handled for tab-specific state:', normalizedSelection);
@@ -4027,7 +4029,7 @@ const CreateCard: React.FC<CreateCardProps> = () => {
     const currentDetectionKey = detectionKeyFor(textInputValue);
     const detectedLanguage = languageDetection?.key === currentDetectionKey
         ? languageDetection.language : detectLanguageOfflineService(textInputValue);
-    const isDetectingLanguage = languageDetection?.key === currentDetectionKey && languageDetection.pending;
+    const isDetectingLanguage = isAutoDetectLanguage && languageDetection?.key === currentDetectionKey && languageDetection.pending;
 
     const languageDetector = useMemo(() => createLanguageDetector(async (messages) => {
         if (!apiKey) throw new Error('Set up your AI provider or choose the text language in the From field.');
@@ -4064,10 +4066,10 @@ const CreateCard: React.FC<CreateCardProps> = () => {
         languageDetectionRequestRef.current += 1;
         const auto = code === null;
         setIsAutoDetectLanguage(auto);
+        setLanguageDetection(null);
         localStorage.setItem('auto_detect_language', auto ? 'true' : 'false');
 
         if (auto) {
-            setLanguageDetection(null);
             // Re-run detection right away so the bar does not sit on "Auto-detect" with
             // text already in the box.
             if (textInputValueRef.current.trim()) {

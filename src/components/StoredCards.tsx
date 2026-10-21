@@ -33,6 +33,7 @@ import ImportFromAnkiModal from './StoredCards/ImportFromAnkiModal';
 import { cardsStatsApi } from '../services/cardsSyncApi';
 import { DEFAULT_DECK_NAME } from '../services/cardsSyncService';
 import { useAuthenticatedRequest } from '../hooks/useAuthenticatedRequest';
+import { createCardLanguageResolver } from '../services/cardLanguage';
 import { ModelProvider } from '../store/reducers/settings';
 import { backgroundFetch } from "../services/backgroundFetch";
 import { buildSafeImagePrompt, extractOpenAIImagePayload } from '../services/imagePromptSafety';
@@ -119,7 +120,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     const isAnkiAvailable = useSelector((state: RootState) => state.anki.isAnkiAvailable);
     const openAiKey = useSelector((state: RootState) => state.settings.openAiKey);
     const imageInstructions = useSelector((state: RootState) => state.settings.imageInstructions);
-    const sourceLanguage = useSelector((state: RootState) => state.settings.sourceLanguage);
     const translateToLanguage = useSelector((state: RootState) => state.settings.translateToLanguage);
     const transcriptionMode = useSelector((state: RootState) => state.settings.transcriptionMode);
     const transcriptionLanguage = useSelector(
@@ -137,8 +137,15 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
     // stored card runs through the exact same services.
     const aiService = useMemo(() => getAIService(modelProvider as ModelProvider), [modelProvider]);
     const apiKey = useMemo(() => getApiKeyForProvider(modelProvider as ModelProvider, openAiKey), [modelProvider, openAiKey]);
+    // A saved card has its own study language; the composer's last manual choice
+    // says nothing about this card (including old and cloud-synchronized cards).
+    const resolveCardLanguage = useMemo(() => createCardLanguageResolver(
+        messages => aiService.createChatCompletion(apiKey, messages, { title: 'Detecting card language' }),
+        localStorage,
+    ), [aiService, apiKey]);
     const generateExampleTranscriptionsFor = useCallback(async (
-        examplesToTranscribe: Array<[string, string | null]>
+        examplesToTranscribe: Array<[string, string | null]>,
+        sourceLanguage: string,
     ): Promise<Array<string | null>> => {
         const result = new Array(examplesToTranscribe.length).fill(null);
         if (
@@ -185,7 +192,6 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         aiService,
         apiKey,
         exampleTranscriptionsEnabled,
-        sourceLanguage,
         transcriptionExtraLanguages,
         transcriptionLanguage,
         transcriptionMode,
@@ -1306,6 +1312,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
             // Используем локальное состояние вместо Redux
             const currentText = localEditingCardData?.text || editingCard.text;
+            const sourceLanguage = await resolveCardLanguage({ ...editingCard, ...localEditingCardData, text: currentText });
 
             debugLog('Starting image generation for text:', currentText);
 
@@ -1428,6 +1435,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         try {
             setLoadingNewExamples(true);
             const currentText = localEditingCardData.text || localEditingCardData.front || editingCard.text || '';
+            const sourceLanguage = await resolveCardLanguage({ ...editingCard, ...localEditingCardData, text: currentText });
             const result = await createExamples(
                 aiService,
                 apiKey,
@@ -1439,7 +1447,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             );
             const newExamples = result.map((ex) => [ex.original, ex.translated] as [string, string | null]);
             const newExampleTranscriptions =
-                await generateExampleTranscriptionsFor(newExamples);
+                await generateExampleTranscriptionsFor(newExamples, sourceLanguage);
             setLocalEditingCardData((prev) => prev ? ({
                 ...prev,
                 examples: newExamples,
@@ -1471,6 +1479,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
         try {
             const currentText = localEditingCardData.text || localEditingCardData.front || '';
+            const sourceLanguage = await resolveCardLanguage({ ...localEditingCardData, text: currentText });
             const hasImage = Boolean(localEditingCardData.image || localEditingCardData.imageUrl);
 
             // The model decides which parts of the card the request touches. Matching
@@ -1545,7 +1554,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         )
                         : null;
                     const rebuiltExampleTranscriptions = rebuiltExamples
-                        ? await generateExampleTranscriptionsFor(rebuiltExamples)
+                        ? await generateExampleTranscriptionsFor(rebuiltExamples, sourceLanguage)
                         : null;
 
                     setLocalEditingCardData((prev) => {
@@ -1699,8 +1708,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
 
         try {
             setLoadingAudio(true);
+            const sourceLanguage = await resolveCardLanguage(localEditingCardData);
             if (hasWordToGenerate) {
-                const wordAudioDataUrl = await getOpenAiSpeechAudioDataUrl(openAiKey, studiedWord);
+                const wordAudioDataUrl = await getOpenAiSpeechAudioDataUrl(openAiKey, studiedWord, sourceLanguage);
                 if (wordAudioDataUrl) {
                     setLocalEditingCardData((prev) => prev ? ({ ...prev, wordAudio: wordAudioDataUrl }) : prev);
                 }
@@ -1711,7 +1721,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                 const generationResults = await Promise.allSettled(
                     missingIndexes.map(async (index) => ({
                         index,
-                        audioDataUrl: await getOpenAiSpeechAudioDataUrl(openAiKey, examples[index][0]),
+                        audioDataUrl: await getOpenAiSpeechAudioDataUrl(openAiKey, examples[index][0], sourceLanguage),
                     }))
                 );
 

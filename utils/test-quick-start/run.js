@@ -30,6 +30,7 @@ const cardsReducer = require('../../src/store/reducers/cards.ts').default;
 const tabStateReducer = require('../../src/store/reducers/tabState.ts').default;
 const { setCurrentTabId } = require('../../src/store/actions/tabState.ts');
 const { TabAwareProvider, useTabAware } = require('../../src/components/TabAwareProvider.tsx');
+const LanguagePairBar = require('../../src/components/CreateCard/LanguagePairBar.tsx').default;
 const endpoint = 'https://example.com';
 const request = { text: 'resilience', source: 'en', target: 'ru' };
 const validCard = {
@@ -47,6 +48,18 @@ const response = (body, status = 200) => new Response(JSON.stringify(body), { st
 
 (async () => {
   try {
+    // A late auto-detection flag cannot hide an explicit manual source choice.
+    const manual = renderToStaticMarkup(React.createElement(LanguagePairBar, {
+      sourceCode: 'en', detectedCode: null, isDetecting: true,
+      onSourceChange() {}, targetCode: 'ru', onTargetChange() {},
+    }));
+    assert.match(manual, /Language of your text: English/);
+    assert.doesNotMatch(manual, /Detecting…/);
+    const automatic = renderToStaticMarkup(React.createElement(LanguagePairBar, {
+      sourceCode: null, detectedCode: null, isDetecting: true,
+      onSourceChange() {}, targetCode: 'ru', onTargetChange() {},
+    }));
+    assert.match(automatic, /Detecting…/);
     // Both dispatches come from the render before the async request starts, just as
     // generate() retains them across await. Finishing must unlock the actual store.
     for (const tabScoped of [false, true]) {

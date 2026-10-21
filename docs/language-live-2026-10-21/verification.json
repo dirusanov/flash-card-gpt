@@ -1,0 +1,54 @@
+{
+  "version": "5.3.10",
+  "previous_version": "5.3.9",
+  "fixes": [
+    "Manual source choice cannot remain stuck on Detecting",
+    "Changing only source URL resets pending language state",
+    "Saved-card editing resolves the card language from its text/context/examples instead of global composer preferences",
+    "Saved-card audio receives the resolved source language",
+    "Foreign context quotations are optional and cannot be resurrected from a rejected draft",
+    "Quality audit verifies source language and example language; manual source mismatches fail closed/refund",
+    "Pronunciation references are tagged and discarded when the language changes",
+    "TTS runs only after the final card passes review and quality audit",
+    "Multiple quality errors get full card repair",
+    "Regional source tags are compared by ISO base; unsupported three-letter explicit source tags fail validation before generation/quota"
+  ],
+  "checks": {
+    "language_script_cases": 44,
+    "resolver_and_submission_tests": "passed including saved-card contexts and legacy front-only cards",
+    "manual_pending_component_render": "passed",
+    "extension_suites_passed": 9,
+    "typescript": "passed",
+    "production_build": "passed",
+    "zip_integrity": "passed",
+    "backend_tests_passed": 113,
+    "backend_skipped": 0,
+    "backend_database": "isolated temporary PostgreSQL, no production DB mutation"
+  },
+  "astra_review": {
+    "model": "gpt-6-astra",
+    "complete": true,
+    "final_verdict": "No remaining concrete findings in reviewed changes after format validation fix",
+    "limits": [
+      "No successful live AI run",
+      "Ambiguous words in legacy cards without saved source language remain probabilistic",
+      "Final-audit-then-TTS latency unmeasured on live API"
+    ]
+  },
+  "live_api": {
+    "attempts": 2,
+    "successful": 0,
+    "error": "credit_balance_exhausted",
+    "runtime_key_matches_compose": true,
+    "generated_cards": 0,
+    "historical_blocked_result": "live-language-blocked-first.json",
+    "last_attempt": "live-language-results.json"
+  },
+  "release_limits": [
+    "Not installed/tested in Brave",
+    "Not published to Chrome Web Store",
+    "Feature branches not merged"
+  ],
+  "artifact": "vaulto-cards-5.3.10.zip",
+  "sha256": "2479e814e311933190931b9b6c95877942f58385092d5f6c2c56bd5bf7dbb024"
+}
