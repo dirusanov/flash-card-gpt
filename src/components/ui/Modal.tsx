@@ -48,6 +48,9 @@ const Modal: React.FC<ModalProps> = ({
         // Ignore keys aimed at a modal stacked above this one.
         if (openModals[openModals.length - 1] !== idRef.current) return;
 
+        // An open menu handles its own Escape first; keep its containing modal open.
+        if (event.key === 'Escape' && event.target instanceof Element
+            && event.target.closest('[role="menu"]')) return;
         if (event.key === 'Escape') {
             event.stopPropagation();
             onCloseRef.current();

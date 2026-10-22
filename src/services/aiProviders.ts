@@ -1,3 +1,4 @@
+import { EXAMPLE_TARGET_POLICY } from './exampleTargetPolicy';
 import { formatErrorMessage } from './errorFormatting';
 import {
   OPENAI_IMAGE_BACKGROUND,
@@ -148,8 +149,9 @@ export const createExamplesPrompt = (studyTarget: string, sourceLanguage?: strin
 
 Rules for EVERY language and writing system:
 - Write all three sentences in ${language}.
-- Use the exact visible study target, not merely its lemma or a differently inflected form.
-  Ordinary sentence-initial capitalization differences are allowed.
+${EXAMPLE_TARGET_POLICY}
+- For a SENTENCE target, prefer three NEW sentences for useful practice; do not copy the
+  study sentence as a default first example. Preserve a quotation only if explicitly required.
 - Silently analyze whether the isolated visible form has multiple common grammatical
   readings or functions. When it does, distribute the three examples across those readings
   and include at least one sentence for each important reading that fits within three

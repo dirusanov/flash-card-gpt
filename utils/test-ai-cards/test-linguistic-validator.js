@@ -20,6 +20,10 @@ assert.equal(grammarLabelsUseOutputScript('📚 词性: 连词', 'ru'), false);
 assert.equal(grammarLabelsUseOutputScript('📚 Part of speech: phrase\n🔤 Base form: 独立心が強い', 'en'), true);
 assert.equal(grammarLabelsUseOutputScript('📚 Часть речи: союз\n🧱 Конструкция: 虽然…但是…', 'ru'), true);
 
+assert.equal(grammarLabelsUseOutputScript('🧩 Конструкция: copularная связка', 'ru'), false);
+assert.equal(grammarLabelsUseOutputScript('🧩 Конструкция: именное сказуемое с ser', 'ru'), true);
+assert.equal(grammarLabelsUseOutputScript('📚 Слово: iPhoneом', 'ru', 'iPhoneом'), true);
+
 global.location = { protocol: 'chrome-extension:' };
 
 const {
@@ -287,6 +291,35 @@ async function generateWithResponses(
   });
   assert.match(clothing.prompts[2], /Meaning compatibility is not morphological evidence/i);
   assert.match(clothing.prompts[3], /не маркирует единственное или множественное/u);
+
+  const hybrid = await generateWithResponses([
+    {content:'🧩 Конструкция: copularная связка'},
+    {content:'🧩 Конструкция: именное сказуемое с ser'},
+    validAudit(), validAudit(),
+  ], {target:'El gato es un animal.',sourceLanguage:'es'});
+  assert.equal(hybrid.result.wasValidated,true);
+  assert.equal(hybrid.result.attempts,2);
+  assert.doesNotMatch(hybrid.result.linguisticInfo,/copularная/);
+
+  const minimalReference = '🧩 Конструкция: предложение с глаголом-связкой';
+  const withUnsupportedDetail = minimalReference + '\n⏰ Время: недоказанное время';
+  const reduced = await generateWithResponses([
+    {content:withUnsupportedDetail}, invalidAudit('Дополнительная строка времени неверна.'),
+    {content:withUnsupportedDetail}, invalidAudit('Дополнительная строка времени неверна.'),
+    {content:withUnsupportedDetail}, invalidAudit('Дополнительная строка времени неверна.'),
+    validAudit(), validAudit(),
+  ], {target:'El gato es un animal.', sourceLanguage:'es'});
+  assert.deepEqual(reduced.result, {linguisticInfo:minimalReference,wasValidated:true,attempts:3});
+  assert.match(reduced.prompts[6], /предложение с глаголом-связкой/);
+  assert.doesNotMatch(reduced.prompts[6], /недоказанное время/);
+  const rejectedPrimary = await generateWithResponses([
+    {content:withUnsupportedDetail}, invalidAudit('Неверно.'),
+    {content:withUnsupportedDetail}, invalidAudit('Неверно.'),
+    {content:withUnsupportedDetail}, invalidAudit('Неверно.'),
+    invalidAudit('Основная конструкция тоже не доказана.'),
+  ], {target:'El gato es un animal.', sourceLanguage:'es'});
+  assert.equal(rejectedPrimary.result.linguisticInfo,null);
+  assert.equal(rejectedPrimary.result.wasValidated,false);
 
   console.log('Linguistic validation/revision tests passed.');
 })().catch((error) => {

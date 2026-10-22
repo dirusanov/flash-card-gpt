@@ -15,13 +15,14 @@ interface StudySessionProps {
     deckName: string;
     onClose: () => void;
     /** Persists the new schedule and the review log entry. */
+    onRequestExampleAudio?: (card: StoredCard, index: number) => Promise<void>;
     onReview: (card: StoredCard, grade: SrsGrade, responseTimeMs: number) => void;
 }
 
 // The panel's counterpart to the mobile StudyScreen: flip the card, grade how well you
 // remembered, and the SM-2 engine schedules the next showing. "Again" re-queues the card
 // at the end of the session, exactly as on the phone.
-const StudySession: React.FC<StudySessionProps> = ({ cards, deckName, onClose, onReview }) => {
+const StudySession: React.FC<StudySessionProps> = ({ cards, deckName, onClose, onReview, onRequestExampleAudio }) => {
     const queueRef = useRef<StoredCard[]>([...cards]);
     const [index, setIndex] = useState(0);
     const [flipped, setFlipped] = useState(false);
@@ -29,6 +30,12 @@ const StudySession: React.FC<StudySessionProps> = ({ cards, deckName, onClose, o
     const [done, setDone] = useState(false);
     const shownAtRef = useRef<number>(Date.now());
 
+    // Keep queued audio fresh after lazy generation; preserve the review queue/order.
+    const latestCards = new Map(cards.map(item => [item.id, item]));
+    queueRef.current = queueRef.current.map(item => {
+        const latest = latestCards.get(item.id);
+        return latest ? { ...item, examplesAudio: latest.examplesAudio } : item;
+    });
     const queue = queueRef.current;
     const card = queue[index];
 
@@ -142,6 +149,7 @@ const StudySession: React.FC<StudySessionProps> = ({ cards, deckName, onClose, o
             }
         >
             <StudyCard
+                onRequestExampleAudio={onRequestExampleAudio ? index => onRequestExampleAudio(card, index) : undefined}
                 card={card}
                 resetKey={`${card.id}-${index}`}
                 flipped={flipped}

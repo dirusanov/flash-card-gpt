@@ -34,6 +34,8 @@ import { cardsStatsApi } from '../services/cardsSyncApi';
 import { DEFAULT_DECK_NAME } from '../services/cardsSyncService';
 import { useAuthenticatedRequest } from '../hooks/useAuthenticatedRequest';
 import { createCardLanguageResolver } from '../services/cardLanguage';
+import { prepareCardEdit } from '../services/cardEditing';
+import { createTrialAudio } from '../services/quickStart';
 import { ModelProvider } from '../store/reducers/settings';
 import { backgroundFetch } from "../services/backgroundFetch";
 import { buildSafeImagePrompt, extractOpenAIImagePayload } from '../services/imagePromptSafety';
@@ -1096,9 +1098,9 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         debugLog('Modal state set for editing card:', card.id);
     };
 
-    // Cancel editing
-    const handleCancelEdit = () => {
-        debugLog('Canceling edit, resetting modal state...');
+    // Reset only after a validated draft has been persisted (including Anki export).
+    const resetEditState = () => {
+        debugLog('Closing editor after saving...');
         setEditingCard(null);
         setLocalEditingCardData(null); // Очищаем локальные данные
         setShowEditModal(false);
@@ -1110,60 +1112,28 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         // Otherwise the picker would survive the modal that opened it.
         setDeckPickerFor(prev => (prev?.kind === 'edit' ? null : prev));
         skipNextAutoSave.current = true;
-        debugLog('Edit canceled, modal should be hidden now.');
+        debugLog('Editor closed.');
+    };
+
+
+    const handleCloseEdit = () => {
+        // Done, Escape, backdrop and X all flush before timeout cleanup runs.
+        const updated = buildUpdatedCardData();
+        if (!updated) return;
+        tabAware.updateStoredCard(updated);
+        resetEditState();
     };
 
 
     const buildUpdatedCardData = (): StoredCard | null => {
         if (!editingCard || !localEditingCardData) return null;
 
-        const updatedCardData: StoredCard = {
-            ...editingCard,
-            text: localEditingCardData.text || editingCard.text || '',
-            translation: localEditingCardData.translation || editingCard.translation || '',
-            examples: Array.isArray(localEditingCardData.examples)
-                ? localEditingCardData.examples
-                : (Array.isArray(editingCard.examples) ? editingCard.examples : []),
-            front: localEditingCardData.front || editingCard.front || '',
-            back: localEditingCardData.back || editingCard.back || '',
-            image: localEditingCardData.image || editingCard.image || null,
-            imageUrl: localEditingCardData.imageUrl || editingCard.imageUrl || null,
-            linguisticInfo: localEditingCardData.linguisticInfo || editingCard.linguisticInfo || '',
-            transcription: localEditingCardData.transcription || editingCard.transcription || '',
-            wordAudio: localEditingCardData.wordAudio || editingCard.wordAudio || null,
-            examplesAudio: Array.isArray(localEditingCardData.examplesAudio)
-                ? localEditingCardData.examplesAudio
-                : (Array.isArray(editingCard.examplesAudio) ? editingCard.examplesAudio : []),
-            exampleTranscriptions: Array.isArray(localEditingCardData.exampleTranscriptions)
-                ? localEditingCardData.exampleTranscriptions
-                : (
-                    Array.isArray(editingCard.exampleTranscriptions)
-                        ? editingCard.exampleTranscriptions
-                        : []
-                ),
-            ankiDeckName: localEditingCardData.ankiDeckName ?? editingCard.ankiDeckName ?? null,
-            deckId: localEditingCardData.deckId ?? editingCard.deckId ?? null,
-        };
-
-        if (updatedCardData.mode === Modes.LanguageLearning) {
-            if (!updatedCardData.text || !updatedCardData.translation) {
-                showError('Please provide both text and translation');
-                return null;
-            }
-
-            updatedCardData.text = updatedCardData.text.trim();
-            updatedCardData.translation = updatedCardData.translation.trim();
-        } else {
-            if (!updatedCardData.front || !updatedCardData.back) {
-                showError('Please provide both front and back content');
-                return null;
-            }
-
-            updatedCardData.front = updatedCardData.front.trim();
-            updatedCardData.back = updatedCardData.back?.trim() || null;
-        }
-
-        return updatedCardData;
+        const updated = prepareCardEdit(editingCard, localEditingCardData,
+            storedCardsRef.current.find(card => card.id === editingCard.id));
+        if (!updated) showError(editingCard.mode === Modes.LanguageLearning
+            ? 'Please provide both text and translation'
+            : 'Please provide both front and back content');
+        return updated;
     };
 
     // Auto-save: every edit in the modal is persisted on its own (and, when logged in,
@@ -1177,18 +1147,14 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
             return;
         }
 
-        const isLangLearning = localEditingCardData.mode === Modes.LanguageLearning;
-        const valid = isLangLearning
-            ? Boolean(localEditingCardData.text?.trim() && localEditingCardData.translation?.trim())
-            : Boolean(localEditingCardData.front?.trim() && localEditingCardData.back);
-        if (!valid) return;
-
+        const updated = prepareCardEdit(editingCard, localEditingCardData,
+            storedCardsRef.current.find(card => card.id === editingCard.id));
+        if (!updated) return;
         const handle = setTimeout(() => {
-            tabAware.updateStoredCard({
-                ...editingCard,
-                ...localEditingCardData,
-                text: (localEditingCardData.text || editingCard.text || '').trim(),
-            });
+            const latest = storedCardsRef.current.find(card => card.id === editingCard.id);
+            if (!latest) return;
+            const pending = prepareCardEdit(editingCard, localEditingCardData, latest);
+            if (pending) tabAware.updateStoredCard(pending);
         }, 800);
         return () => clearTimeout(handle);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1283,7 +1249,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         if (!updatedCardData) return;
 
         if (await sendCardToAnki(updatedCardData)) {
-            handleCancelEdit();
+            // sendCardToAnki already committed this draft and marked it exported.
+            resetEditState();
         }
     };
 
@@ -1620,6 +1587,28 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         }
     };
 
+    const voiceStoredExample = async (card: StoredCard, index: number): Promise<void> => {
+        const text = card.examples?.[index]?.[0];
+        if (!text) return;
+        try {
+            const source = apiKey ? await resolveCardLanguage(card) : undefined;
+            const audio = openAiKey
+                ? await getOpenAiSpeechAudioDataUrl(openAiKey, text, source || undefined)
+                : await createTrialAudio(syncApiUrl, text, source);
+            if (!audio) throw new Error('Could not create example audio. Please retry.');
+            const current = storedCardsRef.current.find(item => item.id === card.id);
+            if (!current || current.examples?.[index]?.[0] !== text) return;
+            const examplesAudio = (current.examples || []).map((_, i) => current.examplesAudio?.[i] ?? null);
+            examplesAudio[index] = audio;
+            const updated = { ...current, examplesAudio };
+            tabAware.updateStoredCard(updated);
+            setPreviewCard(prev => prev?.id === current.id ? updated : prev);
+            setStudyCards(prev => prev?.map(item => item.id === current.id ? updated : item) ?? null);
+        } catch (error) {
+            showError(error instanceof Error ? error.message : 'Could not create example audio. Please retry.');
+        }
+    };
+
     // From the editor the change joins the debounced auto-save; from the preview there is
     // no draft to fold it into, so it is written straight through.
     const applyDeckChange = (patch: Partial<StoredCard>) => {
@@ -1846,7 +1835,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
         return (
             <Modal
                 open
-                onClose={handleCancelEdit}
+                onClose={handleCloseEdit}
                 title="Edit card"
                 maxWidth={360}
                 footer={
@@ -1887,7 +1876,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                                 </Button>
                             )}
                             {/* Changes auto-save, so this is a plain, unmistakable way out. */}
-                            <Button variant="primary" fullWidth onClick={handleCancelEdit}>
+                            <Button variant="primary" fullWidth onClick={handleCloseEdit}>
                                 Done
                             </Button>
                         </div>
@@ -2591,7 +2580,8 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                         );
                     })()}
                 >
-                    <StudyCard card={previewCard} resetKey={previewCard.id} />
+                    <StudyCard card={previewCard} resetKey={previewCard.id}
+                        onRequestExampleAudio={index => voiceStoredExample(previewCard, index)} />
                 </Modal>
             )}
 
@@ -2605,6 +2595,7 @@ const StoredCards: React.FC<StoredCardsProps> = ({ onBackClick: _onBackClick, in
                     deckName={activeDeckName || 'All cards'}
                     onClose={() => setStudyCards(null)}
                     onReview={handleReview}
+                    onRequestExampleAudio={voiceStoredExample}
                 />
             )}
 

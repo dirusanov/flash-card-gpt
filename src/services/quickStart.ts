@@ -277,10 +277,12 @@ export const trialErrorMessage = (error: unknown): string => {
 
 /** Voice for one example sentence; counted under the trial's own speech quota, not cards. */
 export async function createTrialAudio(baseUrl: string, text: string, sourceLanguage?: string | null): Promise<string> {
+    const completeText = text.trim();
+    if (!completeText || completeText.length > 600) throw new Error('Example audio needs 1–600 characters.');
     const data = await trialFetch(baseUrl, 'audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ installation_id: installationId(), text: text.trim().slice(0, 300), ...(sourceLanguage ? { source_language: sourceLanguage } : {}) }),
+        body: JSON.stringify({ installation_id: installationId(), text: completeText, ...(sourceLanguage ? { source_language: sourceLanguage } : {}) }),
     });
     if (!isText(data.audio) || !data.audio.startsWith('data:audio')) {
         throw new TrialError('bad_response', `${hostOf(baseUrl)} returned no audio`);

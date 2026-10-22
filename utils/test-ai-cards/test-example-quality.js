@@ -308,7 +308,7 @@ const createMockService = (initialExamples, responses) => {
   const selectiveRevision = createMockService(
     stablePairs,
     [
-      invalidAudit('2', '[2] «вещь одежды» is an unnatural calque.'),
+      invalidAudit('2', '[2] «вещь одежды» is an unnatural calque.', '[SET] Pair 2 makes the set invalid.'),
       { content: overRewrittenResponse },
       validAudit,
       validAudit,
@@ -359,7 +359,60 @@ const createMockService = (initialExamples, responses) => {
 
   assert.strictEqual(safeRemainder.length, 2);
   assert.ok(safeRemainder.every((example) => !example.translated.includes('你好')));
-  assert.strictEqual(exhausted.prompts.length, 5);
+  assert.strictEqual(exhausted.prompts.length, 6);
+
+  const refill = createMockService(stablePairs, [
+    invalidAudit('2', '[2] Fix this translation.'), {content:overRewrittenResponse},
+    invalidAudit('2', '[2] Still not verified.'), {content:overRewrittenResponse},
+    invalidAudit('2', '[2] One last slot is incorrect.'), {content:overRewrittenResponse},
+    validAudit, validAudit,
+  ]);
+  const refilled = await createExamples(refill.service, 'test-key', '衣服', 'ru', true, '', 'zh');
+  assert.equal(refilled.length, 3);
+  assert.equal(refilled[0].translated, stablePairs[0][1]);
+  assert.equal(refilled[2].translated, stablePairs[2][1]);
+  assert.equal(refill.prompts.length, 8);
+
+  const sentencePairs = [
+    ['Junto con Ana, preparo la cena.', 'Вместе с Аной я готовлю ужин.'],
+    ['Junto con mi hermano, estudio italiano.', 'Вместе с братом я учу итальянский.'],
+    ['Junto con el café, tomo agua.', 'Вместе с кофе я пью воду.'],
+  ];
+  const stableFocus = createMockService(sentencePairs, [
+    {content:'VERDICT: INVALID\nSTUDY_TARGET_KIND: SENTENCE\nPRACTICE_FOCUS: junto con + accompanying noun phrase\nINVALID_EXAMPLES: 2\nISSUES:\n- [2] Correct the translation.'},
+    {content:sentencePairs.map(([source, target], i)=>`${i+1}. ${source} || ${target}`).join('\n')},
+    {content:'VERDICT: VALID\nSTUDY_TARGET_KIND: EXPRESSION\nPRACTICE_FOCUS: a different topic\nINVALID_EXAMPLES: NONE\nISSUES: NONE'},
+    validAudit,
+  ]);
+  const focused = await createExamples(stableFocus.service,'test-key',
+    'Junto con el perro, el gato es el animal doméstico más popular como mascota.','ru',true,'','es');
+  assert.equal(focused.length,3,'later audits must not change the agreed kind/focus');
+  assert.match(stableFocus.prompts[1],/FIXED PRACTICE PLAN.*junto con \+ accompanying noun phrase/);
+  assert.match(stableFocus.prompts[2],/FIXED PRACTICE PLAN.*junto con \+ accompanying noun phrase/);
+
+  // Complete sentences illustrate their construction; forcing the entire input into
+  // all three examples made distinct examples impossible (including unspaced scripts).
+  for (const [source, target, study, pairs] of [
+    ['es', 'ru', 'Junto con el perro, el gato es el animal doméstico más popular como mascota.', [
+      ['Junto con Ana, preparo la cena.', 'Вместе с Аной я готовлю ужин.'],
+      ['Junto con el café, tomo agua.', 'Вместе с кофе я пью воду.'],
+      ['Junto con mi hermano, estudio italiano.', 'Вместе с братом я учу итальянский.'],
+    ]],
+    ['zh', 'en', '虽然今天下雨，但是我们仍然去散步。', [
+      ['虽然很冷，但是他来了。', 'Although it was cold, he came.'],
+      ['虽然很累，但是我很开心。', 'Although I am tired, I am happy.'],
+      ['虽然下雪，但是火车照常运行。', 'Although it is snowing, the train is running as usual.'],
+    ]],
+  ]) {
+    const mock = createMockService(pairs, [
+      {content: 'VERDICT: VALID\nSTUDY_TARGET_KIND: SENTENCE\nINVALID_EXAMPLES: NONE\nSCRIPT_EXCEPTIONS: NONE\nISSUES: NONE'},
+      validAudit,
+    ]);
+    const result = await createExamples(mock.service, 'test-key', study, target, true, '', source);
+    assert.equal(result.length, 3);
+    assert.deepStrictEqual(result.map(ex => ex.original), pairs.map(ex => ex[0]));
+    assert.match(mock.prompts[0], /meaning and syntax/);
+  }
 
   console.log('Example generation/validation/revision tests passed.');
 })().catch((error) => {

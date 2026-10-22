@@ -26,7 +26,7 @@ interface Position {
     left: number;
 }
 
-// The panel is portalled to <body> and positioned with fixed coordinates on purpose.
+// The panel is portalled to its dialog (or body) with fixed viewport coordinates.
 // The composer sets overflow-x, which per the overflow spec makes overflow-y compute to
 // auto — so an absolutely positioned panel inside it added a scrollbar and had to be
 // scrolled to reach the items. Nothing inside the panel can clip it now.
@@ -60,6 +60,14 @@ function Menu<T extends string>({ trigger, items, value, onSelect, label }: Menu
         if (open) reposition();
     }, [open, reposition]);
 
+    // The first render is hidden until measured. Browsers ignore focus() on a hidden
+    // panel, so move focus only after visible positioning has committed.
+    useLayoutEffect(() => {
+        if (!open || !position) return;
+        const selected = panelRef.current?.querySelector<HTMLElement>('[aria-checked="true"]');
+        (selected || panelRef.current?.querySelector<HTMLElement>('button'))?.focus();
+    }, [open, position]);
+
     useEffect(() => {
         if (!open) return undefined;
 
@@ -70,8 +78,29 @@ function Menu<T extends string>({ trigger, items, value, onSelect, label }: Menu
         };
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
+                event.preventDefault();
                 event.stopPropagation();
                 setOpen(false);
+                anchorRef.current?.querySelector<HTMLElement>('button')?.focus();
+            } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                const buttons = Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>('button') || []);
+                if (!buttons.length) return;
+                event.preventDefault();
+                const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+                    : (current + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
+                buttons[next].focus();
+            } else if (event.key === 'Tab') {
+                event.preventDefault();
+                setOpen(false);
+                const trigger = anchorRef.current?.querySelector<HTMLElement>('button');
+                const scope = anchorRef.current?.closest('[role="dialog"]') || document.body;
+                const focusable = Array.from(scope.querySelectorAll<HTMLElement>(
+                    'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]',
+                )).filter(node => !node.closest('[role="menu"]') && node.getClientRects().length > 0);
+                const current = trigger ? focusable.indexOf(trigger) : -1;
+                const next = (current + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length;
+                (focusable[next] || trigger)?.focus();
             }
         };
         const close = () => setOpen(false);
@@ -146,7 +175,7 @@ function Menu<T extends string>({ trigger, items, value, onSelect, label }: Menu
                             );
                         })}
                     </div>,
-                    document.body
+                    anchorRef.current?.closest('[role="dialog"]') || document.body
                 )}
         </div>
     );

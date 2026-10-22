@@ -1,4 +1,5 @@
-import { OPENAI_TEXT_MODEL_ACCURATE, OPENAI_TEXT_MODEL_FLUENCY } from '../constants';
+import { EXAMPLE_TARGET_POLICY } from './exampleTargetPolicy';
+import { OPENAI_TEXT_MODEL_QUALITY } from '../constants';
 import { removeDecorativeTranslationQuotes } from './aiProviders';
 import { getLanguageEnglishName } from './languageNames';
 
@@ -25,9 +26,16 @@ interface ExampleIssue {
   index: number;
   message: string;
   canBeProperNameException?: boolean;
+  expressionOnly?: boolean;
+}
+
+interface ExampleTargetPlan {
+  kind: 'SENTENCE' | 'EXPRESSION';
+  focus: string;
 }
 
 interface ExampleAuditResult {
+  plan?: ExampleTargetPlan;
   status: 'valid' | 'invalid' | 'unavailable';
   invalidIndexes: number[];
   issues: string[];
@@ -35,6 +43,7 @@ interface ExampleAuditResult {
 
 const MAX_EXAMPLE_GENERATION_ATTEMPTS = 3;
 const REQUIRED_EXAMPLE_COUNT = 3;
+const MAX_FINAL_SLOT_REFILLS = 1;
 
 const SCRIPT_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: 'Han', pattern: /\p{Script=Han}/u },
@@ -151,7 +160,8 @@ export const getDeterministicExampleIssues = (
     } else if (normalizedTarget && !normalizedOriginal.includes(normalizedTarget)) {
       issues.push({
         index,
-        message: 'The source sentence does not contain the exact visible study target '
+        expressionOnly: true,
+        message: 'For an EXPRESSION target, the source sentence does not contain the exact visible study target '
           + '(ordinary capitalization differences are allowed).',
       });
     }
@@ -216,14 +226,18 @@ function createExamplesAuditPrompt(
   targetLanguage: string,
   customInstruction: string,
   deterministicIssues: ExampleIssue[],
+  plan?: ExampleTargetPlan,
 ): string {
   const extraRequirement = customInstruction.trim()
     ? `\nAdditional user requirement:\n<requirement>${customInstruction.trim()}</requirement>\n`
     : '';
-  const machineConcerns = deterministicIssues.length > 0
+  // Whole-input inclusion depends on the semantic classification below; presenting
+  // it as an unconditional machine error biases the auditor toward copying sentences.
+  const unconditionalIssues = deterministicIssues.filter(issue => !issue.expressionOnly);
+  const machineConcerns = unconditionalIssues.length > 0
     ? `\nDeterministic pre-check concerns (verify and require a correction unless the text
 clearly demonstrates that the concern is a legitimate unchanged proper name):
-${deterministicIssues.map((issue) => `- [${issue.index}] ${issue.message}`).join('\n')}\n`
+${unconditionalIssues.map((issue) => `- [${issue.index}] ${issue.message}`).join('\n')}\n`
     : '';
 
   return `You are an independent bilingual example validator for a language-learning card.
@@ -234,14 +248,18 @@ ${deterministicIssues.map((issue) => `- [${issue.index}] ${issue.message}`).join
 ${formatExamplesForPrompt(examples)}
 </candidate_examples>
 ${extraRequirement}${machineConcerns}
+${plan ? `FIXED PRACTICE PLAN (keep this unchanged): ${JSON.stringify(plan)}
+For relevance, check whether each example practises this linguistic focus. Do not invent
+another focus or demand the original topic, participants, facts, or all its constructions.` : `First choose ONE useful linguistic focus actually present in the study input. For a
+SENTENCE choose a grammatical pattern or expression, never its topic, participants or
+facts (animals, popularity, etc.). Use that focus consistently when judging relevance.`}
 Validate each numbered pair independently, then validate the set as a whole. Apply the
 same method to EVERY language, dialect, alphabet, abjad, syllabary, and logographic system.
 
 Requirements:
 1. There must be exactly three non-duplicate example pairs.
-2. Every <source> must be a natural sentence in the study target's source language and
-   must contain the exact visible <study_target>, not merely its lemma, translation, or
-   a different inflected form. Ordinary sentence-initial capitalization is allowed.
+2. Every <source> must be a natural sentence in the study target's source language.
+${EXAMPLE_TARGET_POLICY}
 3. Every <translation> must be a complete, natural translation of its entire paired
    <source> into the target translation language. Judge it as native writing, not merely
    as understandable text: reject literal source-language syntax, unnatural collocations,
@@ -250,8 +268,11 @@ Requirements:
    must not remain untranslated unless they are a genuinely unchanged proper name,
    internationally unchanged symbol, or established borrowing in that exact context.
    A fragment such as Chinese "你好" followed by Russian translation text is invalid.
-5. Preserve meaning, polarity, participants, tense/aspect where naturally expressed,
-   register, and sentence type. Do not add facts absent from the source.
+5. Each TRANSLATION must preserve the meaning, polarity, participants, tense/aspect,
+   register and sentence type of its own paired <source> EXAMPLE. It must not add facts
+   absent from that paired example. An example is NOT a paraphrase/translation of the
+   study input: new participants, events, vocabulary and circumstances are expected
+   when practising the same expression or construction in a new situation.
 6. The source must not contain accidental target-language commentary, and the translation
    must contain no labels, alternatives, explanations, markdown, or quotation wrappers.
 7. Across the set, use varied situations. If the visible target has multiple important
@@ -265,19 +286,23 @@ Requirements:
 OUTPUT PROTOCOL:
 If every pair and the complete set are correct:
 VERDICT: VALID
+STUDY_TARGET_KIND: <SENTENCE or EXPRESSION>
+PRACTICE_FOCUS: <one grammatical pattern or exact expression, never the original topic>
 INVALID_EXAMPLES: NONE
 SCRIPT_EXCEPTIONS: <indexes whose unexpected script is a legitimate unchanged proper name, or NONE>
 ISSUES: NONE
 
 If anything needs revision:
 VERDICT: INVALID
+STUDY_TARGET_KIND: <SENTENCE or EXPRESSION>
+PRACTICE_FOCUS: <one grammatical pattern or exact expression, never the original topic>
 INVALID_EXAMPLES: <comma-separated 1-based indexes, or ALL>
 SCRIPT_EXCEPTIONS: <legitimate proper-name indexes, or NONE>
 ISSUES:
 - [<index>] <specific correction required>
-- [SET] <set-level issue, if any>
+- [SET] <set-level issue, if any; mark INVALID_EXAMPLES: ALL only if all slots need replacement>
 
-Do not rewrite examples. Return only VERDICT, INVALID_EXAMPLES, and ISSUES.`;
+Do not rewrite examples. Return VERDICT, STUDY_TARGET_KIND, PRACTICE_FOCUS, INVALID_EXAMPLES, SCRIPT_EXCEPTIONS, and ISSUES.`;
 }
 
 /**
@@ -316,7 +341,9 @@ Reject a translation when it is understandable but still sounds translated, incl
   replace in an ordinary example sentence.
 
 Do not reject a less common wording merely for personal style. Require revision only for
-a concrete native-fluency problem. Apply this method universally; do not assume that the
+a concrete native-fluency problem. Accept ordinary idiomatic collocations even when a
+synonym would also work. Do not demand meaning changes (such as turning a superlative
+into "one of" a group) to improve style, or oscillate between equally natural variants. Apply this method universally; do not assume that the
 source and target languages share grammar or lexical boundaries.
 
 OUTPUT PROTOCOL:
@@ -337,6 +364,7 @@ Return only VERDICT, INVALID_EXAMPLES, and ISSUES. Do not rewrite the examples.`
 const parseAuditResponse = (
   response: string,
   deterministicIssues: ExampleIssue[],
+  fixedPlan?: ExampleTargetPlan,
 ): ExampleAuditResult => {
   const scriptExceptionField = response.match(/^SCRIPT_EXCEPTIONS:\s*(.+)$/im)?.[1] || '';
   const scriptExceptionIndexes = new Set(
@@ -344,8 +372,15 @@ const parseAuditResponse = (
       Array.from(scriptExceptionField.matchAll(/\d+/gu), (match) => Number(match[0])),
     ),
   );
-  const enforcedDeterministicIssues = deterministicIssues.filter(
-    (issue) => !issue.canBeProperNameException || !scriptExceptionIndexes.has(issue.index),
+  // Only an explicit semantic classification can relax whole-input inclusion.
+  // Missing/malformed classifications retain strict expression validation.
+  const kind = response.match(/^STUDY_TARGET_KIND:\s*(SENTENCE|EXPRESSION)\s*$/im)?.[1];
+  const focus = response.match(/^PRACTICE_FOCUS:\s*(.+)$/im)?.[1]?.trim().slice(0, 300);
+  const plan = fixedPlan || (kind && focus ? {kind: kind as ExampleTargetPlan['kind'], focus} : undefined);
+  const sentenceTarget = plan ? plan.kind === 'SENTENCE' : kind === 'SENTENCE';
+  const enforcedDeterministicIssues = deterministicIssues.filter(issue =>
+    !(issue.expressionOnly && sentenceTarget)
+    && (!issue.canBeProperNameException || !scriptExceptionIndexes.has(issue.index)),
   );
   const deterministicIndexes = uniqueNumbers(
     enforcedDeterministicIssues.map((issue) => issue.index),
@@ -358,18 +393,18 @@ const parseAuditResponse = (
   if (!verdictMatch) {
     return enforcedDeterministicIssues.length > 0
       ? {
-          status: 'invalid',
+          plan, status: 'invalid',
           invalidIndexes: deterministicIndexes.length > 0
             ? deterministicIndexes
             : allExampleIndexes(),
           issues: deterministicMessages,
         }
-      : { status: 'unavailable', invalidIndexes: [], issues: [] };
+      : { plan, status: 'unavailable', invalidIndexes: [], issues: [] };
   }
 
   const modelVerdict = verdictMatch[1].toUpperCase();
   if (modelVerdict === 'VALID' && enforcedDeterministicIssues.length === 0) {
-    return { status: 'valid', invalidIndexes: [], issues: [] };
+    return { plan, status: 'valid', invalidIndexes: [], issues: [] };
   }
 
   const invalidField = response.match(/^INVALID_EXAMPLES:\s*(.+)$/im)?.[1]?.trim() || '';
@@ -398,7 +433,7 @@ const parseAuditResponse = (
   }
 
   return {
-    status: 'invalid',
+    plan, status: 'invalid',
     invalidIndexes,
     issues: Array.from(new Set([...modelIssues, ...deterministicMessages])),
   };
@@ -413,6 +448,7 @@ async function auditExamples(
   targetLanguage: string,
   customInstruction: string,
   attempt: number,
+  plan?: ExampleTargetPlan,
 ): Promise<ExampleAuditResult> {
   const deterministicIssues = getDeterministicExampleIssues(
     examples,
@@ -431,17 +467,19 @@ async function auditExamples(
         targetLanguage,
         customInstruction,
         deterministicIssues,
+        plan,
       ),
     }], {
       title: 'Validating examples',
       subtitle: `Checking example set ${attempt}`,
       icon: '🔎',
       color: '#F59E0B',
-    }, OPENAI_TEXT_MODEL_ACCURATE);
+    }, OPENAI_TEXT_MODEL_QUALITY);
 
     const bilingualAudit = parseAuditResponse(
       completion?.content?.trim() || '',
       deterministicIssues,
+      plan,
     );
 
     if (bilingualAudit.status !== 'valid') {
@@ -462,7 +500,7 @@ async function auditExamples(
         subtitle: `Checking native fluency ${attempt}`,
         icon: '✍️',
         color: '#F59E0B',
-      }, OPENAI_TEXT_MODEL_FLUENCY);
+      }, OPENAI_TEXT_MODEL_QUALITY);
 
       const fluencyAudit = parseAuditResponse(
         fluencyCompletion?.content?.trim() || '',
@@ -470,14 +508,14 @@ async function auditExamples(
       );
 
       // Both independent checks must complete before these examples are shown as ready.
-      return fluencyAudit;
+      return { ...fluencyAudit, plan: bilingualAudit.plan };
     } catch (error) {
       console.debug('Example fluency validator unavailable:', error);
       return { status: 'unavailable', invalidIndexes: [], issues: [] };
     }
   } catch (error) {
     console.debug('Example validator unavailable:', error);
-    return parseAuditResponse('', deterministicIssues);
+    return parseAuditResponse('', deterministicIssues, plan);
   }
 }
 
@@ -539,6 +577,7 @@ function createExamplesRevisionPrompt(
   sourceLanguage: string,
   targetLanguage: string,
   customInstruction: string,
+  plan?: ExampleTargetPlan,
 ): string {
   const extraRequirement = customInstruction.trim()
     ? `\nAdditional user requirement:\n<requirement>${customInstruction.trim()}</requirement>\n`
@@ -556,13 +595,18 @@ Invalid example indexes: ${invalidIndexes.join(', ')}
 Independent validator feedback:
 ${issues.map((issue) => `- ${issue}`).join('\n')}
 ${extraRequirement}
+${plan ? `FIXED PRACTICE PLAN: ${JSON.stringify(plan)}. Preserve this linguistic focus;
+new contexts, participants and topics are allowed. Do not copy the original facts.` : ''}
 Fix every issue. Preserve already-correct pairs unless a set-level issue requires changing
-one of them. Supply missing pairs when necessary.
+one of them. Supply missing pairs when necessary. An invalid pair may be REPLACED with
+an entirely new, shorter source example and its translation. For a SENTENCE target,
+practise the same construction in a new situation instead of repeatedly copying and
+retranslating the original study sentence.
 
 Mandatory rules:
 - Return exactly three pairs.
-- Every source sentence must be natural in ${getLanguageDescription(sourceLanguage)} and
-  contain the exact visible study target (ordinary capitalization differences allowed).
+- Every source sentence must be natural in ${getLanguageDescription(sourceLanguage)}.
+${EXAMPLE_TARGET_POLICY}
 - Every translation must translate the complete paired sentence naturally into
   ${getLanguageDescription(targetLanguage)} and read like original native writing.
 - Replace literal calques, source-language word order, unnatural collocations, invented
@@ -588,6 +632,7 @@ async function reviseExamples(
   targetLanguage: string,
   customInstruction: string,
   nextAttempt: number,
+  plan?: ExampleTargetPlan,
 ): Promise<ExamplePair[] | null> {
   try {
     const completion = await service.createChatCompletion(apiKey, [{
@@ -600,23 +645,24 @@ async function reviseExamples(
         sourceLanguage,
         targetLanguage,
         customInstruction,
+        plan,
       ),
     }], {
       title: 'Revising examples',
       subtitle: `Applying validator feedback (set ${nextAttempt})`,
       icon: '🛠️',
       color: '#F59E0B',
-    }, OPENAI_TEXT_MODEL_ACCURATE);
+    }, OPENAI_TEXT_MODEL_QUALITY);
 
     const revised = parseBilingualExamplesResponse(completion?.content || '');
     if (revised.length !== REQUIRED_EXAMPLE_COUNT) return null;
 
     // A model asked to fix one line may opportunistically rewrite all three and introduce
     // fresh defects into already-approved pairs. Keep validated pairs byte-for-byte and
-    // take only the requested replacements. A set-level diversity issue is the exception:
-    // the relationships between examples may genuinely require changing the whole set.
-    const hasSetLevelIssue = audit.issues.some((issue) => /\[\s*SET\s*\]/iu.test(issue));
-    if (hasSetLevelIssue || audit.invalidIndexes.length >= REQUIRED_EXAMPLE_COUNT) {
+    // take only the explicitly requested replacements. A [SET] summary often merely
+    // repeats one slot's error; it must not erase two already-validated examples.
+    // The auditor must name ALL indexes when diversity genuinely requires a full rewrite.
+    if (audit.invalidIndexes.length >= REQUIRED_EXAMPLE_COUNT) {
       return revised;
     }
 
@@ -655,8 +701,9 @@ export async function validateAndReviseExamples(
     .filter((example) => example.original || example.translated)
     .slice(0, REQUIRED_EXAMPLE_COUNT);
   let attempts = 1;
+  let plan: ExampleTargetPlan | undefined;
 
-  while (attempts <= MAX_EXAMPLE_GENERATION_ATTEMPTS) {
+  while (attempts <= MAX_EXAMPLE_GENERATION_ATTEMPTS + MAX_FINAL_SLOT_REFILLS) {
     const audit = await auditExamples(
       service,
       apiKey,
@@ -666,7 +713,11 @@ export async function validateAndReviseExamples(
       targetLanguage,
       customInstruction,
       attempts,
+      plan,
     );
+    // Relevance must have the same meaning in generation, repair and every audit.
+    // The first semantic plan is stable; later judges may not move the goalposts.
+    plan = plan || audit.plan;
 
     if (audit.status === 'valid') {
       return candidate;
@@ -676,7 +727,11 @@ export async function validateAndReviseExamples(
       throw new Error('Examples could not be verified. Please retry.');
     }
 
-    if (attempts >= MAX_EXAMPLE_GENERATION_ATTEMPTS) {
+    // One final targeted refill is worthwhile once two slots have been verified.
+    // It is bounded, preserves those slots, and still requires both audits afterwards.
+    const canRefillLastSlot = attempts === MAX_EXAMPLE_GENERATION_ATTEMPTS
+      && audit.invalidIndexes.length === 1;
+    if (attempts >= MAX_EXAMPLE_GENERATION_ATTEMPTS && !canRefillLastSlot) {
       console.debug(
         `Example revision limit reached; removed explicitly invalid examples: `
         + audit.issues.join(' | '),
@@ -697,6 +752,7 @@ export async function validateAndReviseExamples(
       targetLanguage,
       customInstruction,
       attempts + 1,
+      plan,
     );
 
     if (!revised) {

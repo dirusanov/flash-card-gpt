@@ -21,7 +21,7 @@ global.localStorage = {
 const { getDefaultTranslationLanguage } = require('../../src/data/languages.ts');
 const { settingsReducer } = require('../../src/store/reducers/settings.ts');
 const { hydrateSettings } = require('../../src/store/actions/settings.ts');
-const { createTrialCard, getTrialStatus, TrialError, trialErrorMessage, loadQuickState, saveQuickState, emptyQuickState } = require('../../src/services/quickStart.ts');
+const { createTrialAudio, createTrialCard, getTrialStatus, TrialError, trialErrorMessage, loadQuickState, saveQuickState, emptyQuickState } = require('../../src/services/quickStart.ts');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const { Provider } = require('react-redux');
@@ -208,6 +208,13 @@ const response = (body, status = 200) => new Response(JSON.stringify(body), { st
       return response(validCard);
     };
     await createTrialCard(endpoint, request);
+    const wholeExample = 'a'.repeat(350);
+    global.fetch = async (_url, options) => {
+      assert.equal(JSON.parse(options.body).text, wholeExample, 'speech must never silently truncate an example');
+      return response({ audio: 'data:audio/wav;base64,QA' });
+    };
+    assert.equal(await createTrialAudio(endpoint, wholeExample), 'data:audio/wav;base64,QA');
+    await assert.rejects(createTrialAudio(endpoint, 'a'.repeat(601)), /600/);
     console.log('PASS: navigation, languages, deadlines, abort/retry credits, legacy server compatibility, image capability, image persistence and graceful failure');
   } finally {
     global.fetch = originalFetch;

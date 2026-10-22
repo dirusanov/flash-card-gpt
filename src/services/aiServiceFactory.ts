@@ -1461,7 +1461,10 @@ FIRST, decide what the study target is — do not mix the three modes below:
   boundaries with spaces.
 - SENTENCE MODE: a full clause or sentence (has its own predication and expresses a
   complete thought) → describe the KEY GRAMMATICAL CONSTRUCTION it demonstrates.
-  Do NOT analyze one arbitrary word instead of the whole clause.
+  Do NOT analyze one arbitrary word instead of the whole clause. One useful construction
+  actually present in the sentence is enough; do not attempt an exhaustive parse.
+  A copular predicate has a complement, not automatically a direct object; omit SVO
+  claims unless an actual object exists.
 
 CONSTRAINTS (all modes):
 - 1–3 lines only (3 max).
@@ -1498,8 +1501,11 @@ CHOOSE EMOJIS FROM (one per line, never repeat):
 🏷️ type/function | 🧱 structure | 💬 usage/register
 
 SENTENCE MODE — MANDATORY:
-1) The FIRST line is ALWAYS the grammatical construction, prefixed with 🧩.
-2) Add extra lines ONLY for other genuinely notable structural points.
+1) Usually return just ONE line: one useful grammatical construction visibly present,
+   prefixed with 🧩. Describe that construction accurately, not an exhaustive parse.
+2) Add a second or third line ONLY when essential to understanding this sentence.
+   Do not add a word-order or connector line just to fill three slots. Avoid speculative
+   syntactic labels and information structure. A preposition is not a copula or conjunction.
 CHOOSE EMOJIS FROM (one per line, never repeat):
 🧩 construction | 🔗 connector | 📐 word order | ⏰ tense marker
 
@@ -1528,7 +1534,10 @@ RULES:
   notation when translating them would be awkward or less recognizable (for example,
   English "Past Simple / Past Participle"). You may add a short ${outputLanguage}
   clarification in parentheses when useful, but do not replace a familiar standard
-  term with a misleading literal translation.
+  term with a misleading literal translation. This exception is for established FORM
+  names, not ordinary syntactic descriptions: translate roles such as subject,
+  complement and copular construction into ${outputLanguage}. Do not hide a foreign
+  explanation under a translated label; quote actual source words only as examples.
 - The English words in the emoji lists above (part of speech, type/function, structure,
   usage/register, construction, connector, word order, tense marker...) are category
   names for you to pick from —
@@ -1583,13 +1592,19 @@ ${originalReference}
    - соседнее, подразумеваемое или похожее по написанию слово;
    - лемму, когда характеристика неверна для видимой словоформы;
    - артикль/классификатор вместо смыслового главного слова;
-   - случайное отдельное слово внутри предложения вместо конструкции всего предложения.
+   - случайное отдельное слово внутри предложения вместо полезной конструкции.
+   Для предложения достаточно ОДНОЙ верно описанной конструкции, реально присутствующей
+   в тексте: не требуй полного синтаксического разбора всех частей. Дополнительная строка
+   может указывать время конкретного видимого глагола; она не приписывает время всем
+   словам предложения. Не отклоняй верный факт лишь из-за отсутствия других сведений.
 4. Проверь фактическую правильность части речи и всех признаков именно для
    <study_target>. Нельзя считать справку корректной только потому, что формат выглядит
    правдоподобно.
-5. Считай текст изолированным: никакого контекста вне <study_target> нет. Если одна
-   видимая форма имеет несколько обычных грамматических разборов, справка обязана
-   сохранить их через " / ", а не угадывать один.
+5. Считай текст изолированным, только если Source sentence не передана явно как учебные
+   данные. Если она передана, используй её для снятия неоднозначности видимой формы,
+   не подменяя цель соседним словом. Артикль и согласование ВНУТРИ <study_target> тоже
+   снимают неоднозначность. Сохраняй через " / " только обычные разборы, которые реально
+   остаются возможными; не выдумывай редкие, диалектные или архаические омографы.
 6. Отличай настоящую неоднозначность ЧАСТИ РЕЧИ от нескольких ФОРМ одной лексемы.
    Личные/неличные формы одного глагола перечисляй на 🔤 и не превращай их в варианты
    вроде "причастие / глагол" на 📚. Варианты на 📚 допустимы только при реальной
@@ -1608,21 +1623,34 @@ ${originalReference}
      первая строка должна быть 🏷️ и классифицировать функцию ВСЕГО выражения.
      Отсутствие пробелов не доказывает, что перед нами одно морфологическое слово.
    - Если <study_target> — целое предложение/клауза, первая строка должна быть 🧩
-     (конструкция всего предложения), а не разбор случайного слова внутри него.
+     (одна полезная конструкция, действительно присутствующая в предложении),
+     а не морфологический разбор случайного слова вместо конструкции. Не требуй
+     перечислить все придаточные, обороты и фразовые глаголы в первой строке.
 9. Проверь соответствие КАТЕГОРИИ и ЗНАЧЕНИЯ, а не только правдивость самого значения:
    - 📚 — только часть речи лексического слова;
    - 🔤 — только реальная морфологическая/инфлекционная форма;
    - 🏷️ — тип или функция целого устойчивого выражения;
    - 🧱 — внутренняя структура выражения;
    - 💬 — регистр или конвенциональное употребление;
-   - 🧩 — конструкция целой клаузы/предложения.
+   - 🧩 — полезная конструкция клаузы/предложения;
+   - ⚥, 📋, 🎯, ⏰, 🔀 — род, число, падеж, время, вид лексического слова;
+   - 🔗, 📐, ⏰ — союз/коннектор, порядок компонентов, временной маркер в предложении.
+   Это список допустимых категорий, а не обязательный перечень строк. При наличии
+   предиката-связки описание copular/именной конструкции верно даже при дополнительных
+   обстоятельствах или сравнительной/суперлативной группе. Само их наличие не опровергает
+   конструкцию со связкой. Форма связки может быть обозначена леммой вместе с видимой
+   формой (например ser — es). Не считай отсутствие необязательных сведений ошибкой.
    Значения вроде «приветственная формула», «идиома», «вежливая просьба» или
    «дискурсивный маркер» НЕ являются морфологической формой и недопустимы на 🔤.
    Также отклоняй 🔤, если её значение лишь говорит «базовая/словарная/начальная форма»,
    «отдельное/единичное/изолированное слово» или то же самое на ${userLanguage}. Это
    описание подачи текста, а не грамматика. Если реальной формы нет, строку надо убрать.
 10. Есть ли повторяющиеся эмоджи? (📚 📚 — ошибка.)
-11. Соблюдена ли языковая политика? КАЖДАЯ метка перед двоеточием и обычные пояснения
+11. Под переведённой меткой не должно оставаться обычного пояснения на другом языке.
+    Названия синтаксических ролей и конструкций тоже переводи на ${userLanguage};
+    исключение для привычных названий ФОРМ вроде Past Simple не разрешает оставлять
+    иностранное описание всей конструкции. Слова изучаемого текста в цитатах допустимы.
+    Соблюдена ли языковая политика? КАЖДАЯ метка перед двоеточием и обычные пояснения
     должны быть на ${userLanguage}. Если ${userLanguage} — en/English, английские метки
     полностью корректны. Только для других языков отклоняй английские метки вроде
     "Part of speech", "Type", "Structure", "Usage", "Construction", "Tense marker",
@@ -1710,6 +1738,11 @@ Evidence rules for every language:
   grammar. Do not describe a translation.
 - Keep a feature only when a knowledgeable teacher can point to concrete morphology,
   syntax inside the target, or a conventional whole-expression function that proves it.
+  An explicitly supplied Source sentence may disambiguate the exact visible form too;
+  do not analyze a neighboring word instead of the study target.
+  Agreement and syntax INSIDE a full study sentence may resolve an otherwise ambiguous
+  surface form. A dedicated suffix on each word is not required. A correct construction
+  brief need not enumerate every other construction, phrase or verb in that sentence.
 - Part of speech or whole-expression type still must describe the exact target and may
   remain as the only line when no additional feature is encoded.
 
@@ -1804,8 +1837,8 @@ async function auditLinguisticInfo(
   showTracking: boolean,
   generationAttempt: number,
 ): Promise<LinguisticAuditResult> {
-  if (!grammarLabelsUseOutputScript(reference, userLanguage)) {
-    return { status: 'invalid', issues: [`Write grammar labels and explanations in ${userLanguage}; the current labels use the wrong writing system. Quote source forms only as examples.`] };
+  if (!grammarLabelsUseOutputScript(reference, userLanguage, studyTarget)) {
+    return { status: 'invalid', issues: [`Write grammar labels and explanations in ${userLanguage}; use native labels/explanations and no invented mixed-script words. Quote source forms only as examples.`] };
   }
   try {
     const validatorPrompt = createTargetAwareValidatorPrompt(
@@ -1948,6 +1981,20 @@ async function validateAndReviseLinguisticInfo(
     }
 
     if (attempts >= MAX_LINGUISTIC_GENERATION_ATTEMPTS) {
+      // A false optional detail must not erase a correct primary teaching point.
+      // Re-audit the reduced brief independently; never infer validity by omission or
+      // retain a line merely because the previous verdict did not mention it.
+      const lines = candidate.split('\n').filter(line => line.trim());
+      if (lines.length > 1) {
+        const primary = lines[0];
+        const reducedAudit = await auditLinguisticInfo(
+          aiService, apiKey, primary, studyTarget, sourceLanguage, userLanguage,
+          showTracking, attempts,
+        );
+        if (reducedAudit.status === 'valid') {
+          return { linguisticInfo: primary, wasValidated: true, attempts };
+        }
+      }
       console.debug('Grammar revision limit reached; discarded unverified content');
       return { linguisticInfo: null, wasValidated: false, attempts };
     }
